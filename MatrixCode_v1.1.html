@@ -4,11 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Refactored Digital Rain Simulation</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Base Styles */
         body {
             overflow: hidden;
             background-color: #000; 
+            margin: 0; /* Ensure no default margin pushes content */
         }
         canvas {
             display: block;
@@ -22,6 +23,145 @@
             background-color: rgba(0, 255, 0, 0.5);
             border-radius: 4px;
         }
+
+        /* --- Custom Width Fixes for Centering --- */
+        .slider-width-fixed {
+            width: 200px; /* Constrain the control width */
+            max-width: 100%; /* Safety margin */
+            /* *** DEFINITIVE CENTERING FIX FOR INPUTS *** */
+            display: block !important; 
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+        
+        /* Centering Class for Text Labels (Must match input width) */
+        .text-width-centered {
+            width: 200px; 
+            margin-left: auto; 
+            margin-right: auto;
+        }
+
+        /* --- Critical Styles Extracted from Tailwind --- */
+
+        /* 1. Menu Button (#menuButton) */
+        #menuButton {
+            position: fixed; 
+            top: 1rem; 
+            right: 1rem; 
+            z-index: 30; 
+            padding: 0.75rem; 
+            color: #4ade80; 
+            border-radius: 9999px; 
+            border: 1px solid rgba(4, 120, 87, 0.5); 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); 
+            transition: all 150ms ease-in-out; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .bg-gray-900\/50 { 
+            background-color: rgba(17, 24, 39, 0.5); 
+        }
+        .bg-green-700\/50 { 
+            background-color: rgba(4, 120, 87, 0.5);
+        }
+        #menuButton:hover { 
+            background-color: rgba(31, 41, 55, 0.7); 
+        }
+
+        /* 2. Settings Panel (#settingsPanel) */
+        #settingsPanel {
+            position: fixed; 
+            top: 0;
+            right: 0;
+            height: calc(100dvh - 2.0rem); 
+            width: 20rem; 
+            background-color: rgba(17, 24, 39, 0.95); 
+            backdrop-filter: blur(4px); 
+            box-shadow: -20px 0 30px rgba(0, 0, 0, 0.5); 
+            z-index: 20; 
+            transform: translateX(100%); 
+            transition: transform 0.3s ease-in-out; 
+            
+            padding: 1.5rem 1.0rem 1.0rem 1.0rem; 
+            overflow-y: hidden; 
+
+            display: flex;
+            flex-direction: column;
+            
+            border-left: 1px solid rgba(4, 120, 87, 0.5); 
+            font-family: monospace; 
+            font-size: 0.875rem; 
+        }
+        #settingsPanel:not(.translate-x-full) {
+            transform: translateX(0);
+        }
+        
+        /* 3. Scrolling Area */
+        #scrollingArea {
+            flex-grow: 1; 
+            overflow-y: auto; 
+            padding-top: 0.5rem; 
+            padding-bottom: 0.5rem; 
+        }
+
+        /* 4. Essential Content Styling */
+        .text-xl { font-size: 1.25rem; }
+        .font-bold { font-weight: 700; }
+        .settings-header {
+            margin-bottom: 0; 
+            border-bottom-width: 1px;
+            padding-bottom: 0.5rem; 
+        }
+        .text-green-400 { color: #4ade80; } 
+        .header-style { color: #d1fae5; } 
+        .border-green-800\/50 { border-color: rgba(6, 95, 70, 0.5); } 
+        .space-y-6 > * + * { margin-top: 1.5rem; }
+
+        /* Button and Input Styling */
+        .w-full { width: 100%; }
+        #resetButton {
+            margin-top: 1rem; 
+            flex-shrink: 0; 
+            padding-top: 0.5rem; 
+            padding-bottom: 0.5rem; 
+            padding-left: 1rem; 
+            padding-right: 1rem;
+        }
+        .bg-red-700\/50 { background-color: rgba(185, 28, 28, 0.5); }
+        .hover\:bg-red-600\/70:hover { background-color: rgba(220, 38, 38, 0.7); }
+        .text-white { color: #fff; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .border-red-500\/50 { border-color: rgba(239, 68, 68, 0.5); }
+        
+        .text-green-300 { color: #6ee7b7; }
+        .text-green-100 { color: #d1fae5; }
+        .range-lg { height: 0.5rem; background-color: #374151; border-radius: 0.5rem; }
+        .accent-green-500 { accent-color: #10b981; }
+
+        /* Color Picker Styling */
+        .color-picker-input {
+            /* width is controlled by .slider-width-fixed applied in JS */
+            height: 3rem; 
+            border: 1px solid rgba(4, 120, 87, 0.5); 
+            border-radius: 0.5rem;
+            cursor: pointer;
+            background-color: transparent;
+            appearance: none;
+            padding: 0;
+            overflow: hidden; 
+        }
+        .color-picker-input::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        .color-picker-input::-webkit-color-swatch {
+            border: none;
+            border-radius: 0.4rem; 
+        }
+        .color-picker-input::-moz-color-swatch {
+            border: none;
+            border-radius: 0.4rem;
+        }
     </style>
 </head>
 <body class="bg-black">
@@ -29,19 +169,20 @@
 
     <button id="menuButton" class="fixed top-4 right-4 z-30 p-3 text-green-400 bg-gray-900/50 hover:bg-gray-800/70 rounded-full shadow-xl transition duration-150 border border-green-700/50">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
     </button>
     
-    <div id="settingsPanel" class="fixed top-0 right-0 h-full w-72 bg-gray-900/95 backdrop-blur-sm shadow-2xl z-20 transform translate-x-full transition-transform duration-300 p-6 overflow-y-auto border-l border-green-700/50 font-mono text-sm">
-        <h2 class="text-xl font-bold mb-6 text-green-400 border-b border-green-700 pb-2">Digital Rain Settings</h2>
+    <div id="settingsPanel" class="font-mono text-sm">
+        <h2 class="text-xl font-bold text-green-400 border-b border-green-700 settings-header">Digital Rain Settings</h2>
         
-        <div id="controlsContainer" class="space-y-6">
-            </div>
+        <div id="scrollingArea">
+            <div id="controlsContainer" class="space-y-6">
+                </div>
+        </div>
 
-        <button id="resetButton" class="w-full mt-8 py-2 px-4 bg-red-700/50 hover:bg-red-600/70 text-white rounded-lg transition duration-150 shadow-md border border-red-500/50">
+        <button id="resetButton" class="w-full bg-red-700/50 hover:bg-red-600/70 text-white rounded-lg transition duration-150 shadow-md border border-red-500/50">
             Reset to Default Settings
         </button>
     </div>
@@ -79,52 +220,57 @@
         };
         
         const CONTROL_DEFINITIONS = [
-            { id: 'streamSpeed', label: 'Stream Speed (1-20)', type: 'range', min: 1, max: 20, step: 1, unit: ' Factor', category: 'Code Appearance' },
-            { id: 'trailGlow', label: 'Code Glow (Blur)', type: 'range', min: 0, max: 30, step: 1, unit: '', category: 'Code Appearance' }, 
+            // --- Code Appearance (Renamed & Reordered) ---
+            { id: 'streamColor', label: 'Code Color', type: 'color', category: 'Code Appearance', description: 'Sets the primary color of the main code trails.' }, 
+            { id: 'streamSpeed', label: 'Code Speed', type: 'range', min: 1, max: 20, step: 1, unit: ' Factor', category: 'Code Appearance', description: 'Controls how fast the characters move down the screen. Higher is faster.' },
+            { id: 'trailGlow', label: 'Code Blur', type: 'range', min: 0, max: 30, step: 1, unit: '', category: 'Code Appearance', description: 'Controls the blur and glow effect around the main code trail.' }, 
             { 
                 id: 'clearAlpha', 
-                label: 'Code Glow Transparency', 
+                label: 'Blur Transparency', 
                 type: 'range', 
                 min: 0.00, 
                 max: 1.0,  
                 step: 0.01, 
                 unit: '', 
                 transform: val => val.toFixed(2), 
-                category: 'Code Appearance' 
+                category: 'Code Appearance',
+                description: 'Determines how quickly the old characters fade away, making the blur effect more or less transparent.'
             },
-            { id: 'streamMinLength', label: 'Min Stream Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance' },
-            { id: 'streamMaxLength', label: 'Max Stream Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance' },
+            { id: 'streamMinLength', label: 'Min Code Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance', description: 'The shortest stream of characters that can start on the screen.' },
+            { id: 'streamMaxLength', label: 'Max Code Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance', description: 'The longest stream of characters that can start on the screen.' },
             { 
                 id: 'decayDelayRows', 
-                label: 'Decay Tracer Delay (Rows)', 
+                label: 'Code Eraser Delay', 
                 type: 'range', 
                 min: 1, 
                 max: 250, 
                 step: 1, 
                 unit: ' rows', 
-                category: 'Code Appearance' 
+                category: 'Code Appearance',
+                description: 'The distance (in rows) the bright tracer travels before the fading trail starts.' 
             },
             { 
                 id: 'decayFadeDurationFrames', 
-                label: 'Fade-Out Duration (Frames)', 
+                label: 'Code Fade Duration', 
                 type: 'range', 
                 min: 1, 
                 max: 120, 
                 step: 1, 
                 unit: ' frames', 
-                category: 'Code Appearance' 
+                category: 'Code Appearance',
+                description: 'How long the characters take to completely fade out after the eraser trail starts on them.' 
             },
-            { id: 'holeRate', label: 'Blank Spaces Rate (%)', type: 'range', min: 0.05, max: 0.5, step: 0.05, unit: '', transform: val => (val * 100).toFixed(0) + '%', category: 'Code Appearance' }, 
-            { id: 'streamColor', label: 'Code Color', type: 'color', category: 'Code Appearance' }, 
-
-            { id: 'tracerSizeIncrease', label: 'Tracer Bold Size (px)', type: 'range', min: 0, max: 20, step: 1, unit: ' px', category: 'Tracer Head' },
-            { id: 'tracerGlow', label: 'Tracer Glow (Blur)', type: 'range', min: 0, max: 50, step: 5, unit: '', category: 'Tracer Head' }, 
-            { id: 'tracerColor', label: 'Lead Tracer Color', type: 'color', category: 'Tracer Head' }, 
+            { id: 'holeRate', label: 'Blank Spaces Rate', type: 'range', min: 0.05, max: 0.5, step: 0.05, unit: '', transform: val => (val * 100).toFixed(0) + '%', category: 'Code Appearance', description: 'Controls the chance that a spot in the stream will be blank instead of a character.' }, 
             
-            { id: 'tracerFadeInFrames', label: 'Tracer Fade-In Duration (Frames)', type: 'range', min: 1, max: 10, step: 1, unit: ' frames', category: 'Tracer Head' },
-            { id: 'tracerColorFadeFrames', label: 'Tracer Color/Opacity Fade Duration (Frames)', type: 'range', min: 1, max: 20, step: 1, unit: ' frames', category: 'Tracer Head' }, 
+            // --- Tracers (Category Renamed & Reordered) ---
+            { id: 'tracerColor', label: 'Lead Tracer Color', type: 'color', category: 'Tracers', description: 'Sets the color of the bright leading character (the "tracer").' }, 
+            { id: 'tracerSizeIncrease', label: 'Tracer Bold Size', type: 'range', min: 0, max: 20, step: 1, unit: ' px', category: 'Tracers', description: 'How much larger the leading character is compared to the rest of the stream.' },
+            { id: 'tracerGlow', label: 'Tracer Blur', type: 'range', min: 0, max: 50, step: 5, unit: '', category: 'Tracers', description: 'Controls the blur and glow effect specifically for the leading character.' }, 
+            { id: 'tracerFadeInFrames', label: 'Tracer Fade-in Time', type: 'range', min: 1, max: 10, step: 1, unit: ' frames', category: 'Tracers', description: 'The number of frames it takes for the tracer to reach full brightness when it first appears.' },
+            { id: 'tracerColorFadeFrames', label: 'Tracer Fade-to-Color Time', type: 'range', min: 1, max: 20, step: 1, unit: ' frames', category: 'Tracers', description: 'The duration (in frames) over which the tracer fades from white to the main Code Color before becoming a trailing character.' }, 
             
-            { id: 'rotatorChance', label: 'Rotator Chance (%)', type: 'range', min: 0, max: 0.2, step: 0.005, unit: '', transform: val => (val * 100).toFixed(1) + '%', category: 'Rotator FX' },
+            // --- Rotators (Category Renamed) ---
+            { id: 'rotatorChance', label: 'Rotator Chance (%)', type: 'range', min: 0, max: 0.2, step: 0.005, unit: '', transform: val => (val * 100).toFixed(1) + '%', category: 'Rotators', description: 'The probability that a character will randomly change to a different character over time.' },
             { 
                 id: 'rotatorCycleFactor', 
                 label: 'Rotator Cycle Speed (1-20)', 
@@ -138,7 +284,8 @@
                     const finalFrames = Math.max(ROTATOR_FADE_FRAMES, calculatedFrames);
                     return `Changes every ${finalFrames} frames`;
                 },
-                category: 'Rotator FX'
+                category: 'Rotators',
+                description: 'The frequency at which the rotator characters will attempt to change to a new symbol.'
             },
             { 
                 id: 'rotatorCrossfadeFrames', 
@@ -148,7 +295,8 @@
                 max: 30, 
                 step: 1, 
                 unit: ' frames', 
-                category: 'Rotator FX'
+                category: 'Rotators',
+                description: 'How long the new character takes to smoothly fade in over the old character during a rotation event.'
             },
         ];
 
@@ -163,7 +311,7 @@
         
         let matrixManager = null; 
 
-        // --- Utility Functions ---
+        // --- Utility Functions (Omitted for brevity - Unchanged) ---
         
         /** Gets a random character, optionally excluding a specific one, ensuring uniqueness. */
         const getUniqueRandomChar = (excludeChar) => {
@@ -258,7 +406,7 @@
         }
 
         
-        // --- Cell Class (Unchanged) ---
+        // --- Cell, Stream, MatrixManager Classes (Omitted for brevity - Unchanged) ---
         class Cell {
             constructor() {
                 this.char = getRandomChar(); 
@@ -288,7 +436,6 @@
         }
 
 
-        // --- Stream Class (Unchanged) ---
         class Stream {
             constructor(xIndex, manager) {
                 this.xIndex = xIndex;
@@ -482,7 +629,6 @@
         }
 
 
-        // --- MatrixManager Class (Unchanged) ---
         class MatrixManager {
             constructor(settings, totalRows, totalCols) {
                 this.settings = settings;
@@ -651,7 +797,7 @@
         }
 
 
-        // --- Rendering Logic (Draw Functions - UPDATED getCharColor) ---
+        // --- Rendering Logic (Draw Functions - Omitted for brevity - Unchanged) ---
 
         /** Determines the color/opacity based on the character's 'state' (age). */
         function getCharColor(cell, finalOpacityMod = 1.0) {
@@ -664,10 +810,8 @@
                 let currentOpacity = 1.0;
                 let finalRgb = { r: tracerRgb.r, g: tracerRgb.g, b: tracerRgb.b };
 
-                // *** FIX APPLIED HERE: Use settings variables instead of fixed numbers ***
                 const FADE_IN_END = settings.tracerFadeInFrames;
                 const COLOR_TRANSITION_START = settings.WRITING_CYCLES - settings.tracerColorFadeFrames;
-                // *** END FIX ***
                 
                 const trailStartOpacity = 0.95;
 
@@ -808,7 +952,7 @@
         }
 
 
-        // --- Initialization and Animation Loop (Unchanged) ---
+        // --- Initialization and Animation Loop (Omitted for brevity - Unchanged) ---
 
         function initializeCanvas() {
             const settings = currentSettings;
@@ -850,7 +994,7 @@
             requestAnimationFrame(animate);
         }
         
-        // --- Control Panel Logic (Unchanged) ---
+        // --- Control Panel Logic (START) ---
         const panel = document.getElementById('settingsPanel');
         const menuButton = document.getElementById('menuButton');
         const resetButton = document.getElementById('resetButton');
@@ -887,29 +1031,38 @@
             }
         }
         
+        // This function toggles the classes that are now defined in our style block
         function togglePanel() {
             panel.classList.toggle('translate-x-full');
             menuButton.classList.toggle('bg-green-700/50');
             menuButton.classList.toggle('bg-gray-900/50'); 
         }
 
+        // UPDATED: Use new header-style class for lighter color
         function createHeader(title) {
             const header = document.createElement('h3');
-            header.className = 'text-lg font-semibold text-green-200 mt-4 mb-3 border-b border-green-800/50 pb-1';
+            header.className = 'text-lg font-semibold header-style mt-4 mb-3 border-b border-green-800/50 pb-1';
             header.textContent = title;
             return header;
         }
 
         function createControl(def) {
             const container = document.createElement('div');
-            container.className = 'flex flex-col space-y-1';
+            // Container remains simple, relying on the input element's self-centering property
+            container.className = 'flex flex-col space-y-1'; 
 
             const labelContainer = document.createElement('div');
-            labelContainer.className = 'flex justify-between items-center text-green-300';
+            // Label container must be full width to separate label and value
+            // Default classes:
+            labelContainer.className = 'flex justify-between items-center text-green-300 w-full';
             
             const label = document.createElement('label');
             label.textContent = def.label;
             label.setAttribute('for', def.id);
+            // *** ADDED: Tooltip (mouse-hover description) ***
+            if (def.description) {
+                label.setAttribute('title', def.description); 
+            }
             
             const valueSpan = document.createElement('span');
             valueSpan.id = `${def.id}Value`;
@@ -922,6 +1075,10 @@
             let input;
 
             if (def.type === 'range') {
+                // Apply fixed width and centering to the label container
+                labelContainer.classList.remove('w-full');
+                labelContainer.classList.add('text-width-centered'); 
+
                 input = document.createElement('input');
                 input.type = 'range';
                 input.id = def.id;
@@ -931,7 +1088,9 @@
                 
                 input.step = def.step;
                 input.value = currentSettings[def.id];
-                input.className = 'w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer range-lg accent-green-500';
+                
+                // Apply the definitive fixed-width and centering class
+                input.className = 'slider-width-fixed h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer range-lg accent-green-500';
                 
                 if (def.id === 'streamMinLength') {
                     input.max = currentSettings.streamMaxLength;
@@ -951,24 +1110,28 @@
                     applySettings(currentSettings); 
                 };
             } else if (def.type === 'color') {
+                // Apply fixed width and centering to the label container
+                labelContainer.classList.remove('w-full');
+                labelContainer.classList.add('text-width-centered'); 
+
                 input = document.createElement('input');
                 input.type = 'color';
                 input.id = def.id;
                 input.value = currentSettings[def.id];
-                input.className = 'w-full h-10 border-2 border-green-700/50 rounded-lg cursor-pointer bg-transparent';
+                
+                // Apply the definitive fixed-width and centering class
+                input.className = 'color-picker-input slider-width-fixed'; 
                 
                 input.onchange = (e) => {
                     currentSettings[def.id] = e.target.value;
                     applySettings(currentSettings); 
                 };
-                
-                valueSpan.style.display = 'none'; 
-                label.className = 'text-green-300';
             }
 
             container.appendChild(input);
 
-            if (def.type !== 'color') {
+            // Only update value display for range inputs
+            if (def.type === 'range') {
                 updateValueDisplay(def, currentSettings[def.id]);
             }
             
@@ -1000,7 +1163,8 @@
                 return acc;
             }, {});
 
-            const categoryOrder = ['Code Appearance', 'Tracer Head', 'Rotator FX'];
+            // UPDATED: Use new category names
+            const categoryOrder = ['Code Appearance', 'Tracers', 'Rotators'];
             
             categoryOrder.forEach(category => {
                 const controls = groupedControls[category];
