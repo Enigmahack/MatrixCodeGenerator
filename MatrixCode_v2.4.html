@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Refactored Digital Rain Simulation v2.2 (CSS Grid & Direct DOM Reference Fix)</title>
+    <title>Refactored Digital Rain Simulation v2.3 (Variable Brightness)</title>
     
     <style>
         /* Base Styles */
@@ -101,11 +101,10 @@
             display: block;
         }
         
-        /* --- Control Styles (NEW GRID ALIGNMENT) --- */
+        /* --- Control Styles (GRID ALIGNMENT) --- */
         .control-header {
-            /* This is the key change for robust right-justification */
             display: grid;
-            grid-template-columns: 1fr auto; /* Label takes all available space, value takes only what it needs */
+            grid-template-columns: 1fr auto; 
             align-items: center;
             width: 100%;
             color: #6ee7b7; /* text-green-300 */
@@ -166,7 +165,7 @@
             background-color: rgba(220, 38, 38, 0.7); 
         }
         
-        /* New Apply Button Style */
+        /* Apply Button Style */
         .apply-layout-button {
             width: 100%;
             padding: 0.75rem 1rem;
@@ -201,6 +200,22 @@
         .color-picker-input::-moz-color-swatch { border: none; border-radius: 0.4rem; }
         
         .bg-green-700\/50 { background-color: rgba(4, 120, 87, 0.5); }
+        
+        /* Checkbox specific styles */
+        .control-checkbox {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 0.5rem 0; 
+        }
+
+        .toggle-switch-input {
+            width: 1.25rem;
+            height: 1.25rem;
+            accent-color: #10b981;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body class="bg-black">
@@ -240,7 +255,7 @@
         
         // --- Fixed Constants ---
         const ROTATOR_FADE_FRAMES = 10; 
-        const STORAGE_KEY = 'matrixRainSettingsV2.2'; // Updated storage key for changes
+        const STORAGE_KEY = 'matrixRainSettingsV2.3'; // Updated storage key for changes
         const MIN_CLEAR_ROWS_FOR_START = 40; 
         const CHARS = 'カサタナハヤラワキシチニヒミリウクヌフムケセテメオコソホヲ01245789:+=<>.*';
         const CHARS_LENGTH = CHARS.length; 
@@ -272,11 +287,35 @@
             fontSize: 24,                 
             cellSpacingFactor: 0.95,      
             horizontalSpacingFactor: 1.15, 
+            
+            // --- NEW: Variable Brightness Settings ---
+            variableBrightnessEnabled: false,
+            brightnessVariance: 15, // Default variance is 15% (range 85% to 100%)
         };
         
         const CONTROL_DEFINITIONS = [
             // --- Code Appearance ---
             { id: 'streamColor', label: 'Code Color', type: 'color', category: 'Code Appearance', description: 'Sets the primary color of the main code trails.' }, 
+            { 
+                id: 'variableBrightnessEnabled', 
+                label: 'Variable Brightness', 
+                type: 'checkbox', 
+                category: 'Code Appearance', 
+                description: 'If enabled, the code trail characters will have slightly varied brightness.' 
+            },
+            { 
+                id: 'brightnessVariance', 
+                label: 'Variance', 
+                type: 'range', 
+                min: 5, 
+                max: 90, 
+                step: 5, 
+                unit: '%', 
+                transform: val => Math.round(val) + '%', 
+                category: 'Code Appearance', 
+                description: 'The maximum percentage by which the brightness of a character can be reduced. (e.g., 15% variance means brightness ranges from 85% to 100%.)',
+                dependency: 'variableBrightnessEnabled' // Custom property for conditional display
+            },
             { id: 'streamSpeed', label: 'Code Speed', type: 'range', min: 1, max: 20, step: 1, unit: '', transform: val => Math.round(val), category: 'Code Appearance', description: 'Controls how fast the characters move down the screen. Higher is faster (1-20).' },
             { id: 'trailGlow', label: 'Code Blur', type: 'range', min: 0, max: 30, step: 1, unit: 'px', transform: val => Math.round(val) + 'px', category: 'Code Appearance', description: 'Controls the blur and glow effect around the main code trail.' }, 
             { 
@@ -457,7 +496,6 @@
                 const tracerValueSpan = document.getElementById('tracerSizeIncreaseValue');
                 if (tracerInput && tracerValueSpan) {
                     tracerInput.value = newTracerSize; 
-                    // FIX: Passing element reference
                     updateValueDisplay(tracerDef, newTracerSize, tracerInput, tracerValueSpan); 
                 }
             }
@@ -504,7 +542,7 @@
             saveSettings(); 
         }
 
-        // --- Cell, Stream, MatrixManager Classes (unchanged) ---
+        // --- Cell, Stream, MatrixManager Classes ---
         class Cell { 
             constructor() {
                 this.char = getRandomChar(); 
@@ -513,6 +551,7 @@
                 this.decayAge = 0; 
                 this.isRotator = false; 
                 this.rotationProgress = 0; 
+                this.brightnessFactor = undefined; // NEW: Stores static brightness for the cell's lifetime
             }
 
             age(settings) { 
@@ -526,7 +565,9 @@
                     this.decayAge++;
                 } else if (this.decayAge > settings.FADE_OUT_DURATION + 1) {
                     this.decayAge = 0; 
+                    this.brightnessFactor = undefined; // Reset factor when fully dead
                 }
+                // Rotator logic handled in MatrixManager.ageGrid to coordinate the crossfade cycle
             }
         }
 
@@ -659,6 +700,7 @@
                                 cell.char = cell.nextChar;
                                 cell.nextChar = getUniqueRandomChar(cell.char); 
                                 cell.isRotator = Math.random() < settings.rotatorChance;
+                                cell.brightnessFactor = undefined; // Ensure new cell gets a new brightness factor
                             } else {
                                 if (cell.decayAge > 0) {
                                    cell.decayAge = 2; 
@@ -761,33 +803,46 @@
                 const rotationCyclePeriod = settings.ROTATOR_CHANGE_CYCLE; 
                 const cyclePhase = frameCounter % rotationCyclePeriod;
                 const flickerStartPhase = rotationCyclePeriod - settings.rotatorCrossfadeFrames; 
+                
                 for (let y = 0; y < this.totalRows; y++) {
                     for (let x = 0; x < this.totalCols; x++) {
                         const cell = this.grid[y][x];
+                        
                         let cellAboveIsFading = false;
                         if (y > 0) {
                             if (this.grid[y - 1][x].decayAge >= 2) { 
                                 cellAboveIsFading = true;
                             }
                         }
+                        
                         if (cell.isRotator) {
                             const rotationDuration = settings.rotatorCrossfadeFrames;
                             if (cell.rotationProgress === 0) {
                                 const isTrailActiveAndBright = cell.state > 0 || cell.decayAge === 1;
                                 if (cyclePhase === flickerStartPhase && isTrailActiveAndBright && !cellAboveIsFading) {
                                     cell.rotationProgress = 1; 
+                                    
+                                    // *** FIX FOR ROTATOR CYCLE: Only set the NEXT target character. ***
+                                    // The visible character (cell.char) is the old one, and drawGrid uses cell.nextChar
+                                    // as the new character to fade in.
                                     cell.nextChar = getUniqueRandomChar(cell.char); 
                                 }
                             } else {
                                 cell.rotationProgress++;
                                 if (cell.rotationProgress > rotationDuration) {
-                                    cell.char = cell.nextChar;
+                                    // When crossfade finishes, the new character becomes the permanent cell.char.
+                                    cell.char = cell.nextChar; 
+                                    
+                                    // Then, reset and prepare for the next rotation cycle.
+                                    cell.nextChar = getUniqueRandomChar(cell.char); 
                                     cell.rotationProgress = 0; 
                                 }
                             }
                         }
                     }
                 }
+                
+                // Age all cells after handling rotations
                 for (let y = 0; y < this.totalRows; y++) {
                     for (let x = 0; x < this.totalCols; x++) {
                         this.grid[y][x].age(settings); 
@@ -797,18 +852,52 @@
         }
 
 
-        // --- Rendering Logic (unchanged) ---
+        // --- Rendering Logic (updated getCharColor) ---
 
         function getCharColor(cell, finalOpacityMod = 1.0) { 
             const settings = currentSettings;
+            
+            // --- NEW BRIGHTNESS VARIANCE LOGIC ---
+            let varianceMod = 1.0;
+            if (settings.variableBrightnessEnabled) {
+                // Calculate min opacity based on variance percentage (e.g., 15% variance -> 0.85 min opacity)
+                const variance = settings.brightnessVariance / 100;
+                const minOpacity = 1.0 - variance; 
+                
+                const isActiveOrFading = cell.state > 0 || cell.decayAge === 1;
+
+                if (isActiveOrFading) {
+                    // Initialize or reuse a static brightness factor for the cell's lifespan
+                    if (typeof cell.brightnessFactor !== 'number') {
+                        // Math.random() generates a static-per-cell-lifespan modifier between minOpacity and 1.0
+                        cell.brightnessFactor = minOpacity + (Math.random() * variance);
+                    }
+                }
+                
+                if (typeof cell.brightnessFactor === 'number') {
+                    varianceMod = cell.brightnessFactor;
+                }
+            } else {
+                // Ensure factor is ignored if feature is disabled (though it should be reset by Cell.age)
+                cell.brightnessFactor = undefined; 
+            }
+            // --- END NEW BRIGHTNESS VARIANCE LOGIC ---
+
+
+            const combinedOpacityMod = finalOpacityMod * varianceMod;
+            let currentOpacity = 0;
+            let finalRgb = { r: 0, g: 0, b: 0 };
+
+
             if (cell.state > 0) {
+                // Tracer Head Logic
                 const streamRgb = settings.streamRgb;
                 const tracerRgb = settings.tracerRgb; 
-                let currentOpacity = 1.0;
-                let finalRgb = { r: tracerRgb.r, g: tracerRgb.g, b: tracerRgb.b };
+                finalRgb = { r: tracerRgb.r, g: tracerRgb.g, b: tracerRgb.b };
                 const FADE_IN_END = settings.tracerFadeInFrames;
                 const COLOR_TRANSITION_START = settings.WRITING_CYCLES - settings.tracerColorFadeFrames;
                 const trailStartOpacity = 0.95;
+
                 if (cell.state <= FADE_IN_END) { 
                     const safeFadeIn = Math.max(1, FADE_IN_END);
                     currentOpacity = cell.state / safeFadeIn; 
@@ -825,20 +914,28 @@
                 } else { 
                     currentOpacity = 1.0;
                 }
-                return `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${currentOpacity * finalOpacityMod})`;
+
+                return `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${currentOpacity * combinedOpacityMod})`;
             }
+
             if (cell.decayAge === 1) { 
-                const rgb = settings.streamRgb;
-                return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.95 * finalOpacityMod})`;
+                // Persistent Trail Logic
+                finalRgb = settings.streamRgb;
+                currentOpacity = 0.95;
+                return `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${currentOpacity * combinedOpacityMod})`;
             }
+
             if (cell.decayAge >= 2) { 
-                const rgb = settings.streamRgb;
+                // Fading Trail Logic
+                finalRgb = settings.streamRgb;
                 const fadeAge = cell.decayAge - 2; 
                 const fadeDuration = settings.FADE_OUT_DURATION;
                 let finalOpacity = 0.95 * (1 - (fadeAge / fadeDuration));
-                finalOpacity = Math.max(0, finalOpacity) * finalOpacityMod;
-                return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${finalOpacity})`;
+                finalOpacity = Math.max(0, finalOpacity);
+                currentOpacity = finalOpacity;
+                return `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${currentOpacity * combinedOpacityMod})`;
             }
+
             return 'rgba(0, 0, 0, 0)'; 
         }
 
@@ -871,8 +968,10 @@
                 for (let x = 0; x < totalCols; x++) {
                     const cell = grid[y][x];
                     
+                    // Don't draw the tracer head in this pass
                     if (cell.state > 0) continue; 
 
+                    // Rotator crossfade logic
                     if (cell.isRotator && cell.decayAge > 0 && cell.rotationProgress > 0) {
                         const rotationDuration = settings.rotatorCrossfadeFrames;
                         const progress = cell.rotationProgress;
@@ -890,7 +989,7 @@
                 }
             }
 
-            // PASS 2: Tracer Heads
+            // PASS 2: Tracer Heads (Drawn over everything else, no opacity mods needed here)
             ctx.shadowBlur = settings.tracerGlow;
 
             for (let y = 0; y < totalRows; y++) {
@@ -899,7 +998,7 @@
                     
                     if (cell.state > 0) {
                         currentFontSize = settings.FONT_SIZE + settings.tracerSizeIncrease; 
-                        drawChar(cell.char, x, y, currentFontSize, cell, 1.0);
+                        drawChar(cell.char, x, y, currentFontSize, cell, 1.0); // Pass 1.0 to ensure the tracer is always max opacity (as per Matrix standard)
                     }
                 }
             }
@@ -988,6 +1087,17 @@
         const navTabs = document.getElementById('navTabs');
         const controlsContainer = document.getElementById('controlsContainer');
         
+        // Dependency helper function
+        function toggleDependencyControl(dependencyId, dependencyValue) {
+            const dependentControls = CONTROL_DEFINITIONS.filter(d => d.dependency === dependencyId);
+            dependentControls.forEach(def => {
+                const controlElement = document.getElementById(`${def.id}-container`);
+                if (controlElement) {
+                    controlElement.style.display = dependencyValue ? 'flex' : 'none';
+                }
+            });
+        }
+
         // Min/Max Stream Length dependency management 
         function updateRelatedRangeLimits(changedId, newValue) { 
             const minControlDef = CONTROL_DEFINITIONS.find(d => d.id === 'streamMinLength');
@@ -1005,7 +1115,6 @@
                 if (parseFloat(maxInput.value) < newMaxMin) {
                     currentSettings.streamMaxLength = newMaxMin;
                     maxInput.value = newMaxMin;
-                    // FIX: Passing element reference
                     updateValueDisplay(maxControlDef, newMaxMin, maxInput, maxValueSpan);
                 }
             } else if (changedId === 'streamMaxLength') {
@@ -1014,7 +1123,6 @@
                 if (parseFloat(minInput.value) > newMinMax) {
                     currentSettings.streamMinLength = newMinMax;
                     minInput.value = newMinMax;
-                    // FIX: Passing element reference
                     updateValueDisplay(minControlDef, newMinMax, minInput, minValueSpan);
                 }
             }
@@ -1029,6 +1137,14 @@
         function createControl(def) { 
             const container = document.createElement('div');
             container.className = 'flex flex-col space-y-1 mb-6'; 
+            container.id = `${def.id}-container`; // Container ID for dependency toggling
+            
+            // Check for dependency and hide if necessary
+            if (def.dependency) {
+                if (!currentSettings[def.dependency]) {
+                    container.style.display = 'none';
+                }
+            }
 
             // ALIGNMENT FIX: Use the dedicated CSS Grid class
             const labelContainer = document.createElement('div');
@@ -1039,25 +1155,22 @@
             label.textContent = def.label;
             label.setAttribute('for', def.id);
             if (def.description) {
-                // Ensure tooltip title is set on the label too for better accessibility
                 label.setAttribute('title', def.description); 
             }
             
-            // 2. Create the Value Span (Right side)
+            // 2. Create the Value Span (Right side, for range/color)
             const valueSpan = document.createElement('span');
-            // We still use an ID for external sync functions (like syncTracerSize), but internally we'll use the reference
             valueSpan.id = `${def.id}Value`; 
             valueSpan.className = 'font-bold text-green-100';
 
-            // Append label and valueSpan inside the grid container
-            labelContainer.appendChild(label);
-            labelContainer.appendChild(valueSpan);
-            
-            container.appendChild(labelContainer);
             
             let input;
 
             if (def.type === 'range') {
+                labelContainer.appendChild(label);
+                labelContainer.appendChild(valueSpan);
+                container.appendChild(labelContainer);
+                
                 input = document.createElement('input');
                 input.type = 'range';
                 input.id = def.id;
@@ -1080,7 +1193,6 @@
                 input.oninput = (e) => {
                     const val = parseFloat(e.target.value);
                     currentSettings[def.id] = val;
-                    // FIX: Passing element reference
                     updateValueDisplay(def, val, e.target, valueSpan); 
                     
                     if (def.id === 'fontSize') {
@@ -1095,7 +1207,13 @@
                         applySettings(currentSettings); 
                     }
                 };
+                container.appendChild(input);
+
             } else if (def.type === 'color') {
+                labelContainer.appendChild(label);
+                labelContainer.appendChild(valueSpan);
+                container.appendChild(labelContainer);
+                
                 input = document.createElement('input');
                 input.type = 'color';
                 input.id = def.id;
@@ -1105,16 +1223,40 @@
                 
                 input.onchange = (e) => {
                     currentSettings[def.id] = e.target.value;
-                    // FIX: Passing element reference
                     updateValueDisplay(def, currentSettings[def.id], e.target, valueSpan);
                     applySettings(currentSettings); 
                 };
+                container.appendChild(input);
+            } else if (def.type === 'checkbox') {
+                // Checkbox controls are special: they need to host the input alongside the label, and don't need the valueSpan/control-header.
+                container.className = 'flex flex-col space-y-1 mb-6';
+                
+                const checkboxContainer = document.createElement('div');
+                checkboxContainer.className = 'control-checkbox text-green-300';
+                
+                checkboxContainer.appendChild(label);
+                
+                input = document.createElement('input');
+                input.type = 'checkbox';
+                input.id = def.id;
+                input.checked = currentSettings[def.id];
+                input.className = 'toggle-switch-input';
+                
+                input.onchange = (e) => {
+                    const checked = e.target.checked;
+                    currentSettings[def.id] = checked;
+                    applySettings(currentSettings); 
+                    toggleDependencyControl(def.id, checked); // Toggle dependent controls visibility
+                };
+                
+                checkboxContainer.appendChild(input);
+                container.appendChild(checkboxContainer);
             }
 
-            container.appendChild(input);
-
             // INITIALIZATION FIX: Call updateValueDisplay using the direct reference to populate the span instantly
-            updateValueDisplay(def, currentSettings[def.id], input, valueSpan);
+            if (def.type !== 'checkbox') {
+                updateValueDisplay(def, currentSettings[def.id], input, valueSpan);
+            }
             
             return container;
         }
@@ -1124,11 +1266,9 @@
          * @param {object} def - The control definition.
          * @param {*} val - The current value.
          * @param {HTMLInputElement} inputElement - The input element (for range/color types).
-         * @param {HTMLElement} valueSpanElement - The direct reference to the span element displaying the value. (NEW)
+         * @param {HTMLElement} valueSpanElement - The direct reference to the span element displaying the value.
          */
         function updateValueDisplay(def, val, inputElement, valueSpanElement) { 
-            // FIX: We now use the passed reference `valueSpanElement` instead of looking up by ID
-            
             let displayValue = val;
             
             if (def.type === 'color') {
@@ -1136,7 +1276,6 @@
             } else if (def.transform) {
                 displayValue = def.transform(val);
             } else {
-                // Ensure plain numbers are rounded to integer if appropriate and no transform exists
                 if (def.step >= 1 && typeof val === 'number') {
                     displayValue = Math.round(val);
                 } else if (typeof val === 'number') {
@@ -1252,15 +1391,16 @@
             // Explicitly sync tracer size after reset to ensure the control bar is correct
             syncTracerSize(currentSettings.fontSize); 
             
-            // Repopulate controls to refresh values and min/max linkages
+            // Repopulate controls to refresh values and min/max linkages (and handle dependencies)
             populateControls(); 
+            // Re-check dependencies after reset/populate
+            toggleDependencyControl('variableBrightnessEnabled', currentSettings.variableBrightnessEnabled);
         }
 
 
         // --- Main Execution ---
 
         loadSettings(); 
-        // Ensure tracer size is synchronized on load for the initial display and controls
         syncTracerSize(currentSettings.fontSize); 
         applySettings(currentSettings); 
         
@@ -1270,6 +1410,9 @@
         animate();
         
         populateControls();
+        // Initial check for dependent controls visibility (needed for page load)
+        toggleDependencyControl('variableBrightnessEnabled', currentSettings.variableBrightnessEnabled); 
+
         menuButton.addEventListener('click', togglePanel);
         resetButton.addEventListener('click', resetSettings);
 
