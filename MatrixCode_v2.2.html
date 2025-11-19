@@ -3,47 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Refactored Digital Rain Simulation</title>
+    <title>Refactored Digital Rain Simulation v2.2 (CSS Grid & Direct DOM Reference Fix)</title>
+    
     <style>
         /* Base Styles */
         body {
             overflow: hidden;
             background-color: #000; 
-            margin: 0; /* Ensure no default margin pushes content */
+            margin: 0; 
         }
         canvas {
             display: block;
         }
 
-        /* Styling for the hidden scrollbar */
-        #settingsPanel::-webkit-scrollbar {
-            width: 8px;
+        /* --- Settings Panel Grid Layout --- */
+        #settingsPanel {
+            position: fixed; 
+            top: 0;
+            right: 0;
+            height: 100vh; 
+            width: 30rem; 
+            background-color: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(4px); 
+            box-shadow: -20px 0 30px rgba(0, 0, 0, 0.5); 
+            z-index: 20; 
+            transform: translateX(100%); 
+            transition: transform 0.3s ease-in-out; 
+            
+            display: grid;
+            grid-template-columns: 10rem 1fr;
+            grid-template-rows: auto 1fr auto; 
+            
+            font-family: monospace; 
+            font-size: 0.875rem; 
+            border-left: 1px solid rgba(4, 120, 87, 0.5); 
         }
-        #settingsPanel::-webkit-scrollbar-thumb {
-            background-color: rgba(0, 255, 0, 0.5);
-            border-radius: 4px;
+        #settingsPanel:not(.translate-x-full) {
+            transform: translateX(0);
         }
 
-        /* --- Custom Width Fixes for Centering --- */
+        /* --- Panel Sections --- */
+        #panelHeader {
+            grid-column: 1 / 3;
+            padding: 1.5rem 1.0rem 1rem 1.5rem;
+            border-bottom: 1px solid rgba(6, 95, 70, 0.5);
+        }
+        
+        #navTabs {
+            grid-column: 1 / 2;
+            padding: 0.5rem 0 1rem 0;
+            background-color: rgba(17, 24, 39, 0.8);
+            border-right: 1px solid rgba(6, 95, 70, 0.5);
+            overflow-y: auto;
+        }
+        
+        #contentArea {
+            grid-column: 2 / 3;
+            padding: 1rem 1.5rem;
+            overflow-y: auto;
+        }
+
+        #panelFooter {
+            grid-column: 1 / 3;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid rgba(6, 95, 70, 0.5);
+        }
+
+        /* --- Tab Styling --- */
+        .tab-button {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            color: #4ade80; 
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            font-size: 0.875rem;
+        }
+
+        .tab-button:hover {
+            background-color: rgba(4, 120, 87, 0.2);
+        }
+
+        .tab-button.active {
+            background-color: rgba(4, 120, 87, 0.4);
+            color: #d1fae5; 
+            font-weight: bold;
+            border-left: 4px solid #10b981;
+        }
+        
+        /* --- Content Styling --- */
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* --- Control Styles (NEW GRID ALIGNMENT) --- */
+        .control-header {
+            /* This is the key change for robust right-justification */
+            display: grid;
+            grid-template-columns: 1fr auto; /* Label takes all available space, value takes only what it needs */
+            align-items: center;
+            width: 100%;
+            color: #6ee7b7; /* text-green-300 */
+        }
+        
         .slider-width-fixed {
-            width: 200px; /* Constrain the control width */
-            max-width: 100%; /* Safety margin */
-            /* *** DEFINITIVE CENTERING FIX FOR INPUTS *** */
+            width: 200px;
+            max-width: 100%;
             display: block !important; 
             margin-left: auto !important;
             margin-right: auto !important;
         }
         
-        /* Centering Class for Text Labels (Must match input width) */
         .text-width-centered {
             width: 200px; 
             margin-left: auto; 
             margin-right: auto;
         }
-
-        /* --- Critical Styles Extracted from Tailwind --- */
-
-        /* 1. Menu Button (#menuButton) */
+        
+        /* Other essential styles */
         #menuButton {
             position: fixed; 
             top: 1rem; 
@@ -58,90 +140,53 @@
             display: flex;
             justify-content: center;
             align-items: center;
-        }
-        .bg-gray-900\/50 { 
             background-color: rgba(17, 24, 39, 0.5); 
-        }
-        .bg-green-700\/50 { 
-            background-color: rgba(4, 120, 87, 0.5);
         }
         #menuButton:hover { 
             background-color: rgba(31, 41, 55, 0.7); 
         }
 
-        /* 2. Settings Panel (#settingsPanel) */
-        #settingsPanel {
-            position: fixed; 
-            top: 0;
-            right: 0;
-            height: calc(100dvh - 2.0rem); 
-            width: 20rem; 
-            background-color: rgba(17, 24, 39, 0.95); 
-            backdrop-filter: blur(4px); 
-            box-shadow: -20px 0 30px rgba(0, 0, 0, 0.5); 
-            z-index: 20; 
-            transform: translateX(100%); 
-            transition: transform 0.3s ease-in-out; 
-            
-            padding: 1.5rem 1.0rem 1.0rem 1.0rem; 
-            overflow-y: hidden; 
-
-            display: flex;
-            flex-direction: column;
-            
-            border-left: 1px solid rgba(4, 120, 87, 0.5); 
-            font-family: monospace; 
-            font-size: 0.875rem; 
-        }
-        #settingsPanel:not(.translate-x-full) {
-            transform: translateX(0);
-        }
-        
-        /* 3. Scrolling Area */
-        #scrollingArea {
-            flex-grow: 1; 
-            overflow-y: auto; 
-            padding-top: 0.5rem; 
-            padding-bottom: 0.5rem; 
-        }
-
-        /* 4. Essential Content Styling */
         .text-xl { font-size: 1.25rem; }
         .font-bold { font-weight: 700; }
-        .settings-header {
-            margin-bottom: 0; 
-            border-bottom-width: 1px;
-            padding-bottom: 0.5rem; 
-        }
         .text-green-400 { color: #4ade80; } 
-        .header-style { color: #d1fae5; } 
-        .border-green-800\/50 { border-color: rgba(6, 95, 70, 0.5); } 
-        .space-y-6 > * + * { margin-top: 1.5rem; }
-
-        /* Button and Input Styling */
-        .w-full { width: 100%; }
-        #resetButton {
-            margin-top: 1rem; 
-            flex-shrink: 0; 
-            padding-top: 0.5rem; 
-            padding-bottom: 0.5rem; 
-            padding-left: 1rem; 
-            padding-right: 1rem;
-        }
-        .bg-red-700\/50 { background-color: rgba(185, 28, 28, 0.5); }
-        .hover\:bg-red-600\/70:hover { background-color: rgba(220, 38, 38, 0.7); }
-        .text-white { color: #fff; }
-        .rounded-lg { border-radius: 0.5rem; }
-        .border-red-500\/50 { border-color: rgba(239, 68, 68, 0.5); }
-        
+        .text-green-100 { color: #d1fae5; } 
         .text-green-300 { color: #6ee7b7; }
-        .text-green-100 { color: #d1fae5; }
+        .space-y-6 > * + * { margin-top: 1.5rem; }
+        
+        #resetButton {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            background-color: rgba(185, 28, 28, 0.5);
+            color: #fff;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            transition: background-color 0.15s;
+        }
+        #resetButton:hover { 
+            background-color: rgba(220, 38, 38, 0.7); 
+        }
+        
+        /* New Apply Button Style */
+        .apply-layout-button {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            margin-top: 1.5rem;
+            background-color: rgba(4, 120, 87, 0.8);
+            color: #fff;
+            font-weight: bold;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(6, 95, 70, 1.0);
+            transition: background-color 0.15s;
+        }
+        .apply-layout-button:hover {
+            background-color: rgba(6, 95, 70, 0.9);
+        }
+
+
+        /* Slider/Color Picker Specific Styles */
         .range-lg { height: 0.5rem; background-color: #374151; border-radius: 0.5rem; }
         .accent-green-500 { accent-color: #10b981; }
-
-        /* Color Picker Styling */
         .color-picker-input {
-            /* width is controlled by .slider-width-fixed applied in JS */
             height: 3rem; 
             border: 1px solid rgba(4, 120, 87, 0.5); 
             border-radius: 0.5rem;
@@ -151,40 +196,42 @@
             padding: 0;
             overflow: hidden; 
         }
-        .color-picker-input::-webkit-color-swatch-wrapper {
-            padding: 0;
-        }
-        .color-picker-input::-webkit-color-swatch {
-            border: none;
-            border-radius: 0.4rem; 
-        }
-        .color-picker-input::-moz-color-swatch {
-            border: none;
-            border-radius: 0.4rem;
-        }
+        .color-picker-input::-webkit-color-swatch-wrapper { padding: 0; }
+        .color-picker-input::-webkit-color-swatch { border: none; border-radius: 0.4rem; }
+        .color-picker-input::-moz-color-swatch { border: none; border-radius: 0.4rem; }
+        
+        .bg-green-700\/50 { background-color: rgba(4, 120, 87, 0.5); }
     </style>
 </head>
 <body class="bg-black">
     <canvas id="matrixCanvas"></canvas>
 
-    <button id="menuButton" class="fixed top-4 right-4 z-30 p-3 text-green-400 bg-gray-900/50 hover:bg-gray-800/70 rounded-full shadow-xl transition duration-150 border border-green-700/50">
+    <button id="menuButton" class="fixed top-4 right-4 z-30 p-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
     </button>
     
-    <div id="settingsPanel" class="font-mono text-sm">
-        <h2 class="text-xl font-bold text-green-400 border-b border-green-700 settings-header">Digital Rain Settings</h2>
+    <div id="settingsPanel" class="translate-x-full">
         
-        <div id="scrollingArea">
-            <div id="controlsContainer" class="space-y-6">
+        <div id="panelHeader">
+            <h2 class="text-xl font-bold text-green-400">Digital Rain Settings</h2>
+        </div>
+        
+        <div id="navTabs">
+            </div>
+
+        <div id="contentArea">
+            <div id="controlsContainer">
                 </div>
         </div>
 
-        <button id="resetButton" class="w-full bg-red-700/50 hover:bg-red-600/70 text-white rounded-lg transition duration-150 shadow-md border border-red-500/50">
-            Reset to Default Settings
-        </button>
+        <div id="panelFooter">
+            <button id="resetButton">
+                Reset to Default Settings
+            </button>
+        </div>
     </div>
 
     <script>
@@ -193,10 +240,15 @@
         
         // --- Fixed Constants ---
         const ROTATOR_FADE_FRAMES = 10; 
-        const STORAGE_KEY = 'matrixRainSettingsV1'; 
+        const STORAGE_KEY = 'matrixRainSettingsV2.2'; // Updated storage key for changes
         const MIN_CLEAR_ROWS_FOR_START = 40; 
         const CHARS = 'カサタナハヤラワキシチニヒミリウクヌフムケセテメオコソホヲ01245789:+=<>.*';
         const CHARS_LENGTH = CHARS.length; 
+        
+        // --- Proportional Scaling Constant ---
+        const BASE_FONT_SIZE = 36;
+        const BASE_TRACER_SIZE_INCREASE = 8;
+        const TRACER_SIZE_RATIO = BASE_TRACER_SIZE_INCREASE / BASE_FONT_SIZE;
 
         // --- Settings Configuration ---
         const DEFAULT_SETTINGS = {
@@ -216,14 +268,17 @@
             tracerColor: '#ffffff', 
             clearAlpha: 0.90, 
             tracerFadeInFrames: 3,         
-            tracerColorFadeFrames: 5,      
+            tracerColorFadeFrames: 5,
+            fontSize: 24,                 
+            cellSpacingFactor: 0.95,      
+            horizontalSpacingFactor: 1.15, 
         };
         
         const CONTROL_DEFINITIONS = [
-            // --- Code Appearance (Renamed & Reordered) ---
+            // --- Code Appearance ---
             { id: 'streamColor', label: 'Code Color', type: 'color', category: 'Code Appearance', description: 'Sets the primary color of the main code trails.' }, 
-            { id: 'streamSpeed', label: 'Code Speed', type: 'range', min: 1, max: 20, step: 1, unit: ' Factor', category: 'Code Appearance', description: 'Controls how fast the characters move down the screen. Higher is faster.' },
-            { id: 'trailGlow', label: 'Code Blur', type: 'range', min: 0, max: 30, step: 1, unit: '', category: 'Code Appearance', description: 'Controls the blur and glow effect around the main code trail.' }, 
+            { id: 'streamSpeed', label: 'Code Speed', type: 'range', min: 1, max: 20, step: 1, unit: '', transform: val => Math.round(val), category: 'Code Appearance', description: 'Controls how fast the characters move down the screen. Higher is faster (1-20).' },
+            { id: 'trailGlow', label: 'Code Blur', type: 'range', min: 0, max: 30, step: 1, unit: 'px', transform: val => Math.round(val) + 'px', category: 'Code Appearance', description: 'Controls the blur and glow effect around the main code trail.' }, 
             { 
                 id: 'clearAlpha', 
                 label: 'Blur Transparency', 
@@ -234,10 +289,10 @@
                 unit: '', 
                 transform: val => val.toFixed(2), 
                 category: 'Code Appearance',
-                description: 'Determines how quickly the old characters fade away, making the blur effect more or less transparent.'
+                description: 'Determines how quickly the old characters fade away. Lower values increase the visible trail blur.'
             },
-            { id: 'streamMinLength', label: 'Min Code Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance', description: 'The shortest stream of characters that can start on the screen.' },
-            { id: 'streamMaxLength', label: 'Max Code Length', type: 'range', min: 10, max: 300, step: 10, unit: ' rows', category: 'Code Appearance', description: 'The longest stream of characters that can start on the screen.' },
+            { id: 'streamMinLength', label: 'Min Code Length', type: 'range', min: 10, max: 300, step: 10, unit: '', transform: val => Math.round(val), category: 'Code Appearance', description: 'The shortest stream of characters that can start on the screen (in rows).' },
+            { id: 'streamMaxLength', label: 'Max Code Length', type: 'range', min: 10, max: 300, step: 10, unit: '', transform: val => Math.round(val), category: 'Code Appearance', description: 'The longest stream of characters that can start on the screen (in rows).' },
             { 
                 id: 'decayDelayRows', 
                 label: 'Code Eraser Delay', 
@@ -245,7 +300,8 @@
                 min: 1, 
                 max: 250, 
                 step: 1, 
-                unit: ' rows', 
+                unit: '', 
+                transform: val => Math.round(val), 
                 category: 'Code Appearance',
                 description: 'The distance (in rows) the bright tracer travels before the fading trail starts.' 
             },
@@ -257,48 +313,80 @@
                 max: 120, 
                 step: 1, 
                 unit: ' frames', 
+                transform: val => Math.round(val) + ' frames', 
                 category: 'Code Appearance',
-                description: 'How long the characters take to completely fade out after the eraser trail starts on them.' 
+                description: 'How long characters take to completely fade out after the eraser trail starts.' 
             },
-            { id: 'holeRate', label: 'Blank Spaces Rate', type: 'range', min: 0.05, max: 0.5, step: 0.05, unit: '', transform: val => (val * 100).toFixed(0) + '%', category: 'Code Appearance', description: 'Controls the chance that a spot in the stream will be blank instead of a character.' }, 
+            { id: 'holeRate', label: 'Blank Spaces Rate', type: 'range', min: 0.05, max: 0.5, step: 0.05, unit: '', transform: val => (val * 100).toFixed(0) + '%', category: 'Code Appearance', description: 'The chance that a spot in the stream will be blank instead of a character.' }, 
             
-            // --- Tracers (Category Renamed & Reordered) ---
+            // --- Tracers ---
             { id: 'tracerColor', label: 'Lead Tracer Color', type: 'color', category: 'Tracers', description: 'Sets the color of the bright leading character (the "tracer").' }, 
-            { id: 'tracerSizeIncrease', label: 'Tracer Bold Size', type: 'range', min: 0, max: 20, step: 1, unit: ' px', category: 'Tracers', description: 'How much larger the leading character is compared to the rest of the stream.' },
-            { id: 'tracerGlow', label: 'Tracer Blur', type: 'range', min: 0, max: 50, step: 5, unit: '', category: 'Tracers', description: 'Controls the blur and glow effect specifically for the leading character.' }, 
-            { id: 'tracerFadeInFrames', label: 'Tracer Fade-in Time', type: 'range', min: 1, max: 10, step: 1, unit: ' frames', category: 'Tracers', description: 'The number of frames it takes for the tracer to reach full brightness when it first appears.' },
-            { id: 'tracerColorFadeFrames', label: 'Tracer Fade-to-Color Time', type: 'range', min: 1, max: 20, step: 1, unit: ' frames', category: 'Tracers', description: 'The duration (in frames) over which the tracer fades from white to the main Code Color before becoming a trailing character.' }, 
+            { id: 'tracerSizeIncrease', label: 'Tracer Bold Size', type: 'range', min: 0, max: 20, step: 1, unit: 'px', transform: val => Math.round(val) + 'px', category: 'Tracers', description: 'How much larger the leading character is compared to the rest of the stream.' },
+            { id: 'tracerGlow', label: 'Tracer Blur', type: 'range', min: 0, max: 50, step: 5, unit: 'px', transform: val => Math.round(val) + 'px', category: 'Tracers', description: 'Controls the blur and glow effect specifically for the leading character.' }, 
+            { id: 'tracerFadeInFrames', label: 'Tracer Fade-in Time', type: 'range', min: 1, max: 10, step: 1, unit: ' frames', transform: val => Math.round(val) + ' frames', category: 'Tracers', description: 'Frames it takes for the tracer to reach full brightness.' },
+            { id: 'tracerColorFadeFrames', label: 'Tracer Fade-to-Color Time', type: 'range', min: 1, max: 20, step: 1, unit: ' frames', transform: val => Math.round(val) + ' frames', category: 'Tracers', description: 'Duration over which the tracer fades from white to the stream color.' }, 
             
-            // --- Rotators (Category Renamed) ---
-            { id: 'rotatorChance', label: 'Rotator Chance (%)', type: 'range', min: 0, max: 0.2, step: 0.005, unit: '', transform: val => (val * 100).toFixed(1) + '%', category: 'Rotators', description: 'The probability that a character will randomly change to a different character over time.' },
+            // --- Rotators ---
+            { id: 'rotatorChance', label: 'Rotator Chance', type: 'range', min: 0, max: 0.2, step: 0.005, unit: '', transform: val => (val * 100).toFixed(1) + '%', category: 'Rotators', description: 'The probability that a character will randomly change to a different character over time.' },
             { 
                 id: 'rotatorCycleFactor', 
-                label: 'Rotator Cycle Speed (1-20)', 
+                label: 'Rotator Cycle Speed', 
                 type: 'range', 
                 min: 1, 
                 max: 20, 
                 step: 1, 
-                unit: ' (Higher = Faster)', 
+                unit: '', 
                 transform: val => {
                     const calculatedFrames = Math.round(60 - (val * 2.5));
                     const finalFrames = Math.max(ROTATOR_FADE_FRAMES, calculatedFrames);
-                    return `Changes every ${finalFrames} frames`;
+                    return `Every ${finalFrames} frames`;
                 },
                 category: 'Rotators',
                 description: 'The frequency at which the rotator characters will attempt to change to a new symbol.'
             },
             { 
                 id: 'rotatorCrossfadeFrames', 
-                label: 'Crossfade Duration (Frames)', 
+                label: 'Crossfade Duration', 
                 type: 'range', 
                 min: 1, 
                 max: 30, 
                 step: 1, 
                 unit: ' frames', 
+                transform: val => Math.round(val) + ' frames', 
                 category: 'Rotators',
-                description: 'How long the new character takes to smoothly fade in over the old character during a rotation event.'
+                description: 'How long the new character takes to smoothly fade in over the old character.'
+            },
+            
+            // --- Layout ---
+            { id: 'fontSize', label: 'Font Size', type: 'range', min: 10, max: 50, step: 1, unit: 'px', transform: val => Math.round(val) + 'px', category: 'Layout', description: 'Sets the pixel height of the displayed characters. Affects grid density.' },
+            { 
+                id: 'horizontalSpacingFactor', 
+                label: 'Horizontal Spacing', 
+                type: 'range', 
+                min: 0.5, 
+                max: 1.5, 
+                step: 0.05, 
+                unit: ' Factor', 
+                transform: val => val.toFixed(2), 
+                category: 'Layout', 
+                description: 'Controls the horizontal gap between streams. Lower values increase stream density.' 
+            },
+            { 
+                id: 'cellSpacingFactor', 
+                label: 'Vertical Spacing', 
+                type: 'range', 
+                min: 0.8, 
+                max: 1.5, 
+                step: 0.01, 
+                unit: ' Factor', 
+                transform: val => val.toFixed(2), 
+                category: 'Layout', 
+                description: 'Controls the vertical gap between characters. Lower values increase trail density.' 
             },
         ];
+        
+        const categoryOrder = ['Code Appearance', 'Tracers', 'Rotators', 'Layout'];
+
 
         // --- Global State ---
         let currentSettings = {};
@@ -311,28 +399,21 @@
         
         let matrixManager = null; 
 
-        // --- Utility Functions (Omitted for brevity - Unchanged) ---
+        // --- Utility Functions ---
         
-        /** Gets a random character, optionally excluding a specific one, ensuring uniqueness. */
+        const getRandomChar = () => CHARS.charAt(Math.floor(Math.random() * CHARS_LENGTH));
         const getUniqueRandomChar = (excludeChar) => {
-            if (!excludeChar) return CHARS.charAt(Math.floor(Math.random() * CHARS_LENGTH));
-            
             let newChar;
             do {
-                newChar = CHARS.charAt(Math.floor(Math.random() * CHARS_LENGTH));
+                newChar = getRandomChar();
             } while (newChar === excludeChar);
             return newChar;
         };
-
-        const getRandomChar = () => getUniqueRandomChar(null);
-        
         const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
         
-        /** Converts a hex color string to an RGB object {r, g, b}. */
         function hexToRgb(hex) {
             const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
             hex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
-
             const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
             return result ? {
                 r: parseInt(result[1], 16),
@@ -341,7 +422,6 @@
             } : { r: 0, g: 255, b: 0 };
         }
 
-        // --- Persistence Functions (Unchanged) ---
         function saveSettings() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(currentSettings));
@@ -365,6 +445,24 @@
             }
         }
 
+        /** Synchronizes tracerSizeIncrease proportionally to newFontSize */
+        function syncTracerSize(newFontSize) {
+            const newTracerSize = Math.round(newFontSize * TRACER_SIZE_RATIO);
+            currentSettings.tracerSizeIncrease = newTracerSize;
+            
+            // Update the control panel display
+            const tracerDef = CONTROL_DEFINITIONS.find(d => d.id === 'tracerSizeIncrease');
+            if (tracerDef) {
+                const tracerInput = document.getElementById('tracerSizeIncrease');
+                const tracerValueSpan = document.getElementById('tracerSizeIncreaseValue');
+                if (tracerInput && tracerValueSpan) {
+                    tracerInput.value = newTracerSize; 
+                    // FIX: Passing element reference
+                    updateValueDisplay(tracerDef, newTracerSize, tracerInput, tracerValueSpan); 
+                }
+            }
+        }
+        
         /** Calculates derived settings and applies global canvas properties. */
         function applySettings(settings) {
             const oldWritingCycles = settings.WRITING_CYCLES;
@@ -376,15 +474,14 @@
             settings.ROTATOR_CHANGE_CYCLE = Math.max(ROTATOR_FADE_FRAMES, calculatedRotatorFrames);
 
             settings.MAX_STREAM_HEAD_LENGTH = settings.streamMaxLength;
-            settings.streamMinLength = settings.streamMinLength; 
-            settings.holeRate = settings.holeRate; 
-            
             settings.TRAIL_LENGTH_ROWS = settings.decayDelayRows;
             settings.FADE_OUT_DURATION = settings.decayFadeDurationFrames; 
             
-            settings.CELL_WIDTH = 20;  
-            settings.CELL_HEIGHT = settings.CELL_WIDTH * 1.05; 
-            settings.FONT_SIZE = 25; 
+            // --- LAYOUT CALCULATIONS (ONLY CALCULATION) ---
+            settings.FONT_SIZE = settings.fontSize; 
+            settings.CELL_WIDTH = settings.FONT_SIZE / settings.horizontalSpacingFactor; 
+            settings.CELL_HEIGHT = settings.CELL_WIDTH * settings.cellSpacingFactor; 
+            
             settings.MAX_RELEASES_PER_TICK = 4;
             settings.RELEASE_INTERVAL_ROWS = 5;
             settings.RELEASE_INTERVAL_FRAMES = settings.WRITING_CYCLES * settings.RELEASE_INTERVAL_ROWS; 
@@ -393,40 +490,38 @@
             settings.streamRgb = hexToRgb(settings.streamColor);
             settings.tracerRgb = hexToRgb(settings.tracerColor);
             
-            // --- 2. Apply Global Canvas Styles ---
+            // --- 2. Apply Global Canvas Styles (General appearance/speed) ---
             ctx.shadowColor = settings.streamColor;
             ctx.font = `bold ${settings.FONT_SIZE}px 'Inter', monospace`; 
             
-            // --- 3. Synchronize Active Elements (Delegate to Manager) ---
+            // --- 3. Synchronize Elements (Non-Layout changes) ---
             if (matrixManager) {
+                // This updates speed/color/length settings without grid change
                 matrixManager.updateActiveElements(oldWritingCycles); 
+                matrixManager.settings = settings; 
             }
 
             saveSettings(); 
         }
 
-        
-        // --- Cell, Stream, MatrixManager Classes (Omitted for brevity - Unchanged) ---
-        class Cell {
+        // --- Cell, Stream, MatrixManager Classes (unchanged) ---
+        class Cell { 
             constructor() {
                 this.char = getRandomChar(); 
                 this.nextChar = getRandomChar(); 
-                this.state = 0; // Tracer head age
-                this.decayAge = 0; // Decay trail age (0=inactive, 1=bright trail, 2+=decaying)
+                this.state = 0; 
+                this.decayAge = 0; 
                 this.isRotator = false; 
-                this.rotationProgress = 0; // 0=stable, 1 to N=frames since rotation started
+                this.rotationProgress = 0; 
             }
 
-            /** Advances the cell's age (state) by one frame. */
-            age(settings) {
-                // Age the Tracer Head Phase
+            age(settings) { 
                 if (this.state > 0 && this.state < settings.WRITING_CYCLES) {
                     this.state++;
                 } else if (this.state === settings.WRITING_CYCLES) {
                     this.state = 0; 
                 }
 
-                // Age the Decay Phase
                 if (this.decayAge >= 2 && this.decayAge <= settings.FADE_OUT_DURATION + 1) {
                     this.decayAge++;
                 } else if (this.decayAge > settings.FADE_OUT_DURATION + 1) {
@@ -436,8 +531,8 @@
         }
 
 
-        class Stream {
-            constructor(xIndex, manager) {
+        class Stream { 
+            constructor(xIndex, manager) { 
                 this.xIndex = xIndex;
                 this.manager = manager; 
                 this.yIndex = -1; 
@@ -446,116 +541,82 @@
                 this.isActive = false; 
                 this.delayCounter = randomInt(20, 500);
                 this.framesSinceLastActivity = 0; 
-                
                 this.length = 0; 
                 this.trailPattern = this.generateTrailPattern(); 
-
                 this.decayYIndex = -1; 
                 this.decayFramesSinceAdvance = 0;
                 this.isDecayTracerInitialized = false;
             }
-
-            /** Generates the trail pattern and sets the stream length. */
-            generateTrailPattern() {
+            generateTrailPattern() { 
                 const settings = this.manager.settings;
-                
                 const userMinLength = settings.streamMinLength;
                 const userMaxLength = settings.MAX_STREAM_HEAD_LENGTH;
-                
                 const minBound = Math.min(userMinLength, userMaxLength);
                 const maxBound = userMaxLength;
-                
                 const screenHeight = this.manager.totalRows;
-
                 let streamLength = randomInt(minBound, maxBound);
-
-                // Ensure the stream head can always clear the screen 
                 const requiredMinLengthToClearScreen = screenHeight;
-
                 if (streamLength < requiredMinLengthToClearScreen) {
                     const requiredLengthWithBuffer = requiredMinLengthToClearScreen + randomInt(1, 10);
                     streamLength = Math.min(requiredLengthWithBuffer, maxBound);
                 }
-                
                 this.length = streamLength;
-
                 const trailIndices = new Set();
-                
                 for (let i = 0; i < this.length; i++) {
                     if (Math.random() > settings.holeRate) {
                         trailIndices.add(i);
                     }
                 }
-                
                 return trailIndices;
             }
-
-            resetForNextRun() {
+            resetForNextRun() { 
                 this.yIndex = -1;
                 this.trailPattern = this.generateTrailPattern(); 
                 this.isActive = false; 
                 this.framesSinceAdvance = 0; 
                 this.writtenCount = 0;
                 this.delayCounter = randomInt(100, 300); 
-                
                 this.decayYIndex = -1;
                 this.decayFramesSinceAdvance = 0;
                 this.isDecayTracerInitialized = false; 
             }
-            
-            // Resets all state, including priority, used ONLY when a stream successfully starts.
-            start() {
+            start() { 
                 this.yIndex = -1; 
                 this.writtenCount = 0;
                 this.trailPattern = this.generateTrailPattern(); 
                 this.consumeLeadingHoles(); 
                 this.isActive = true; 
                 this.delayCounter = 0;
-                this.framesSinceLastActivity = 0; // RESET PRIORITY
+                this.framesSinceLastActivity = 0;
             }
-
-            consumeLeadingHoles() {
+            consumeLeadingHoles() { 
                 while (this.writtenCount < this.length && !this.trailPattern.has(this.writtenCount)) {
                     this.writtenCount++;
                 }
             }
-
-            /** Checks if the stream can be fully reset. */
-            checkAndReset() {
+            checkAndReset() { 
                 if (!this.isActive) return false;
-
                 const totalRows = this.manager.totalRows;
                 const headOffScreen = this.yIndex >= totalRows;
                 const writingComplete = (this.writtenCount >= this.length);
-
                 if (this.isDecayTracerInitialized) {
-                    // Decay tracer is active. Stream must wait for it to clear the last row.
                     const decayOffScreen = (this.decayYIndex >= totalRows); 
                     if (decayOffScreen) {
                         this.resetForNextRun();
                         return true;
                     }
                 } else {
-                    // Decay tracer was never initialized (stream too short or delay too long).
-                    // Wait for the writing tracer to finish writing content AND pass the screen boundary.
                     if (writingComplete && headOffScreen) {
                         this.resetForNextRun();
                         return true;
                     }
                 }
-                
                 return false;
             }
-
-            /** Updates the stream's internal state (descent or aging). */
             update() { 
                 if (SINGLE_STREAM_DEBUG && this.xIndex !== 0) return;
-                
-                const settings = this.manager.settings;
-
                 if (this.checkAndReset()) return; 
-                
-                // 1. Handle Delay / Priority Aging (if inactive)
+                const settings = this.manager.settings;
                 if (!this.isActive) {
                     this.framesSinceLastActivity++; 
                     if (this.delayCounter > 0) {
@@ -563,49 +624,35 @@
                     }
                     return; 
                 }
-
-                // 2. Process Active Stream Descent (if active)
                 if (this.isActive) {
                     this.framesSinceAdvance++;
                     this.decayFramesSinceAdvance++;
-
-                    // A. Update Decay Tracer Position
                     const isDecayDelayReached = this.writtenCount >= settings.TRAIL_LENGTH_ROWS;
                     if (!this.isDecayTracerInitialized && isDecayDelayReached) {
                         this.decayYIndex = this.yIndex - settings.TRAIL_LENGTH_ROWS;
                         this.isDecayTracerInitialized = true;
                     }
-                    
                     if (this.isDecayTracerInitialized && this.framesSinceAdvance % settings.WRITING_CYCLES === 0) {
                         this.decayYIndex++;
-                        
                         const dy = this.decayYIndex;
                         const x = this.xIndex;
-                        
                         if (dy >= 0 && dy < this.manager.totalRows) {
                             const cell = this.manager.grid[dy][x];
                             if (cell.decayAge === 1) { 
-                                cell.decayAge = 2; // Starts the fade out process
+                                cell.decayAge = 2; 
                             }
                         }
                     }
-
-                    // B. Update Writing Tracer Position (Main Head)
                     if (this.framesSinceAdvance % settings.WRITING_CYCLES === 0) {
                         this.framesSinceAdvance = 0; 
-                        
                         const isWritingContent = this.writtenCount < this.length; 
                         this.yIndex++; 
-                        
                         const y = this.yIndex;
                         const x = this.xIndex;
                         const isCharAtY = isWritingContent && this.trailPattern.has(this.writtenCount); 
-
                         if (y >= 0 && y < this.manager.totalRows) {
                             const cell = this.manager.grid[y][x];
-                            
                             const skipPersistentTrail = settings.TRAIL_LENGTH_ROWS > this.length;
-
                             if (isCharAtY) {
                                 cell.state = 1; 
                                 cell.decayAge = skipPersistentTrail ? 2 : 1; 
@@ -614,12 +661,11 @@
                                 cell.isRotator = Math.random() < settings.rotatorChance;
                             } else {
                                 if (cell.decayAge > 0) {
-                                   cell.decayAge = 2; // START FADING
+                                   cell.decayAge = 2; 
                                 }
                                 cell.state = 0; 
                             }
                         }
-                        
                         if (isWritingContent) { 
                             this.writtenCount++; 
                         }
@@ -629,8 +675,8 @@
         }
 
 
-        class MatrixManager {
-            constructor(settings, totalRows, totalCols) {
+        class MatrixManager { 
+            constructor(settings, totalRows, totalCols) { 
                 this.settings = settings;
                 this.totalRows = totalRows;
                 this.totalCols = totalCols;
@@ -639,12 +685,10 @@
                 this.timeToNextRelease = 0; 
                 this.releasesLeftInCurrentTick = { value: 0 }; 
                 this.frameCounter = 0; 
-
                 this.initializeGrid();
                 this.initializeStreams();
             }
-
-            initializeGrid() {
+            initializeGrid() { 
                 this.grid = [];
                 for (let y = 0; y < this.totalRows; y++) {
                     this.grid[y] = [];
@@ -653,16 +697,14 @@
                     }
                 }
             }
-
-            initializeStreams() {
+            initializeStreams() { 
                 this.streams = [];
                 for (let x = 0; x < this.totalCols; x++) {
                     this.streams.push(new Stream(x, this)); 
                 }
                 this.timeToNextRelease = 0; 
             }
-
-            updateActiveElements(oldWritingCycles) {
+            updateActiveElements(oldWritingCycles) { 
                 this.streams.forEach(stream => {
                     if (!stream.isActive && oldWritingCycles !== undefined && oldWritingCycles > 0) {
                         const cycleRatio = this.settings.WRITING_CYCLES / oldWritingCycles;
@@ -671,114 +713,74 @@
                     stream.length = randomInt(this.settings.streamMinLength, this.settings.MAX_STREAM_HEAD_LENGTH); 
                 });
             }
-
-            /** Checks if the top of a column is clear of persistent or fading characters. */
-            isColumnClearForStart(xIndex) {
+            isColumnClearForStart(xIndex) { 
                 const checkRows = Math.min(this.totalRows, MIN_CLEAR_ROWS_FOR_START);
-                
                 if (this.totalRows === 0) return true;
-
                 for (let y = 0; y < checkRows; y++) {
-                    // Check if the cell is persistent (decayAge = 1) or fading (decayAge >= 2)
                     if (this.grid[y][xIndex].decayAge > 0) {
                         return false;
                     }
                 }
                 return true;
             }
-
-
-            updateFrame(currentFrameCounter) {
+            updateFrame(currentFrameCounter) { 
                 this.frameCounter = currentFrameCounter; 
                 const settings = this.settings;
-
-                // 1. Check/Reset Release Counter for this tick
                 if (this.timeToNextRelease > 0) {
                     this.timeToNextRelease--;
                 } else {
                     this.releasesLeftInCurrentTick.value = settings.MAX_RELEASES_PER_TICK;
                     this.timeToNextRelease = settings.RELEASE_INTERVAL_FRAMES;
                 }
-                
-                // 2. Update ALL streams (Handles active descent, decay, and PRIORITY AGING)
                 this.streams.forEach(stream => {
                     stream.update(); 
                 });
-                
-                // 3. Prioritized/Random Stream Release Logic
                 if (this.releasesLeftInCurrentTick.value > 0) {
-                    // Get streams ready to start (delayCounter is 0 and not active)
                     let readyStreams = this.streams.filter(s => !s.isActive && s.delayCounter <= 0);
-                    
-                    // Sort by priority, with random tie-breaker to prevent left-to-right bias.
                     readyStreams.sort((a, b) => {
                         const priorityDiff = b.framesSinceLastActivity - a.framesSinceLastActivity;
-                        if (priorityDiff !== 0) {
-                            return priorityDiff; // Primary sort: highest priority (most neglected) first
-                        }
-                        // Secondary sort: Random tie-breaker
+                        if (priorityDiff !== 0) { return priorityDiff; }
                         return Math.random() - 0.5;
                     });
-
                     let startedCount = 0;
                     for (const stream of readyStreams) {
                         if (startedCount >= this.releasesLeftInCurrentTick.value) break;
-
-                        // Check the column clearance
                         if (this.isColumnClearForStart(stream.xIndex)) {
-                            
                             stream.start(); 
                             startedCount++;
-
                         } else {
-                             // Not clear. Reset delay counter to a small value (fast retry), keeping priority high.
                              stream.delayCounter = randomInt(50, 150); 
                         }
                     }
                     this.releasesLeftInCurrentTick.value -= startedCount;
                 }
-                
-                // 4. Age Grid
                 this.ageGrid(this.frameCounter);
             }
-            
-            /** Handles cell aging and the rotator character swap logic. */
-            ageGrid(frameCounter) {
+            ageGrid(frameCounter) { 
                 const settings = this.settings;
-
                 const rotationCyclePeriod = settings.ROTATOR_CHANGE_CYCLE; 
                 const cyclePhase = frameCounter % rotationCyclePeriod;
                 const flickerStartPhase = rotationCyclePeriod - settings.rotatorCrossfadeFrames; 
-                
-                // --- A. Global Character Swapping (State Mutation) ---
                 for (let y = 0; y < this.totalRows; y++) {
                     for (let x = 0; x < this.totalCols; x++) {
                         const cell = this.grid[y][x];
-                        
                         let cellAboveIsFading = false;
                         if (y > 0) {
                             if (this.grid[y - 1][x].decayAge >= 2) { 
                                 cellAboveIsFading = true;
                             }
                         }
-                        
                         if (cell.isRotator) {
                             const rotationDuration = settings.rotatorCrossfadeFrames;
-
                             if (cell.rotationProgress === 0) {
-                                // 1. START ROTATION: Only if bright and not decay-locked by a cell above
                                 const isTrailActiveAndBright = cell.state > 0 || cell.decayAge === 1;
-
                                 if (cyclePhase === flickerStartPhase && isTrailActiveAndBright && !cellAboveIsFading) {
                                     cell.rotationProgress = 1; 
                                     cell.nextChar = getUniqueRandomChar(cell.char); 
                                 }
                             } else {
-                                // 2. ROTATION IN PROGRESS: Increment progress until complete (Guaranteed to finish)
                                 cell.rotationProgress++;
-
                                 if (cell.rotationProgress > rotationDuration) {
-                                    // 3. ROTATION COMPLETE: Perform the character swap
                                     cell.char = cell.nextChar;
                                     cell.rotationProgress = 0; 
                                 }
@@ -786,8 +788,6 @@
                         }
                     }
                 }
-                
-                // --- B. Cell Aging (Independent of Rotator Logic) ---
                 for (let y = 0; y < this.totalRows; y++) {
                     for (let x = 0; x < this.totalCols; x++) {
                         this.grid[y][x].age(settings); 
@@ -797,87 +797,59 @@
         }
 
 
-        // --- Rendering Logic (Draw Functions - Omitted for brevity - Unchanged) ---
+        // --- Rendering Logic (unchanged) ---
 
-        /** Determines the color/opacity based on the character's 'state' (age). */
-        function getCharColor(cell, finalOpacityMod = 1.0) {
+        function getCharColor(cell, finalOpacityMod = 1.0) { 
             const settings = currentSettings;
-            
-            // --- 1. Tracer Head Color (Uses `state` 1 to WRITING_CYCLES) ---
             if (cell.state > 0) {
                 const streamRgb = settings.streamRgb;
                 const tracerRgb = settings.tracerRgb; 
                 let currentOpacity = 1.0;
                 let finalRgb = { r: tracerRgb.r, g: tracerRgb.g, b: tracerRgb.b };
-
                 const FADE_IN_END = settings.tracerFadeInFrames;
                 const COLOR_TRANSITION_START = settings.WRITING_CYCLES - settings.tracerColorFadeFrames;
-                
                 const trailStartOpacity = 0.95;
-
-                // Phase A: Fade-In (Opacity from 0.0 to 1.0)
                 if (cell.state <= FADE_IN_END) { 
                     const safeFadeIn = Math.max(1, FADE_IN_END);
                     currentOpacity = cell.state / safeFadeIn; 
-                    
-                // Phase B: Color/Opacity Transition (from white/1.0 to green/0.95)
                 } else if (cell.state >= COLOR_TRANSITION_START && cell.state <= settings.WRITING_CYCLES) {
-                    
                     const transitionDuration = settings.WRITING_CYCLES - COLOR_TRANSITION_START;
                     const safeDuration = Math.max(1, transitionDuration); 
-                    
                     let transitionFactor = (cell.state - COLOR_TRANSITION_START) / safeDuration; 
                     transitionFactor = Math.min(1.0, Math.max(0.0, transitionFactor)); 
-
-                    // Interpolate Color
                     const r = Math.round(tracerRgb.r + (streamRgb.r - tracerRgb.r) * transitionFactor);
                     const g = Math.round(tracerRgb.g + (streamRgb.g - tracerRgb.g) * transitionFactor);
                     const b = Math.round(tracerRgb.b + (streamRgb.b - tracerRgb.b) * transitionFactor);
                     finalRgb = { r, g, b };
-                    
-                    // Interpolate Opacity
                     currentOpacity = 1.0 - ((1.0 - trailStartOpacity) * transitionFactor);
-
-                // Phase C: Peak Brightness (Between Phase A and B)
                 } else { 
                     currentOpacity = 1.0;
                 }
-                
                 return `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${currentOpacity * finalOpacityMod})`;
             }
-            
-            // --- 2. Bright Persistent Trail (decayAge = 1) ---
             if (cell.decayAge === 1) { 
                 const rgb = settings.streamRgb;
                 return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.95 * finalOpacityMod})`;
             }
-            
-            // --- 3. Decay Phase (decayAge >= 2) ---
             if (cell.decayAge >= 2) { 
                 const rgb = settings.streamRgb;
                 const fadeAge = cell.decayAge - 2; 
                 const fadeDuration = settings.FADE_OUT_DURATION;
-                
                 let finalOpacity = 0.95 * (1 - (fadeAge / fadeDuration));
                 finalOpacity = Math.max(0, finalOpacity) * finalOpacityMod;
-
                 return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${finalOpacity})`;
             }
-
-            // --- 4. Inactive ---
             return 'rgba(0, 0, 0, 0)'; 
         }
 
-        /** Helper function to draw a single character. */
         function drawChar(char, x, y, currentFontSize, cell, finalOpacityMod = 1.0) {
             const settings = currentSettings;
             const xCenter = x * settings.CELL_WIDTH + settings.CELL_WIDTH / 2;
             
             let yAdjustment = 0;
-            if (y === 0) { 
-                yAdjustment = (settings.FONT_SIZE - settings.CELL_HEIGHT) / 2;
-            }
-            const yCenter = y * settings.CELL_HEIGHT + settings.CELL_HEIGHT / 2 - yAdjustment;
+            yAdjustment = (settings.CELL_HEIGHT - settings.FONT_SIZE) / 2; 
+
+            const yCenter = y * settings.CELL_HEIGHT + settings.FONT_SIZE - yAdjustment;
             
             ctx.font = `bold ${currentFontSize}px 'Inter', monospace`; 
 
@@ -887,12 +859,11 @@
             ctx.fillText(char, xCenter, yCenter);
         }
 
-        /** Draws the entire grid (Optimized two-pass rendering). */
-        function drawGrid() {
+        function drawGrid() { 
             const settings = currentSettings;
             const grid = matrixManager.grid; 
             
-            // --- PASS 1: Draw Persistent Trail and Fading Cells (Trail Glow) ---
+            // PASS 1: Trail and Fading Cells
             ctx.shadowBlur = settings.trailGlow;
             let currentFontSize = settings.FONT_SIZE;
             
@@ -900,89 +871,105 @@
                 for (let x = 0; x < totalCols; x++) {
                     const cell = grid[y][x];
                     
-                    if (cell.state > 0) continue; // Skip tracer head
+                    if (cell.state > 0) continue; 
 
-                    // Rotator Crossfade Logic: 
-                    // Runs if: Is a rotator, is visible (decayAge > 0), AND rotation is in progress (rotationProgress > 0).
                     if (cell.isRotator && cell.decayAge > 0 && cell.rotationProgress > 0) {
-                        
                         const rotationDuration = settings.rotatorCrossfadeFrames;
                         const progress = cell.rotationProgress;
-                        
-                        // Calculate the rotational fade based on internal progress
                         const fadeProgress = Math.min(1.0, progress / rotationDuration);
-                        
-                        // Old character fades OUT (Opacity: 1.0 -> 0.0)
-                        // finalOpacityMod is passed to getCharColor which incorporates the decay fade.
                         const oldCharOpacityMod = Math.max(0.0, 1.0 - fadeProgress); 
                         drawChar(cell.char, x, y, currentFontSize, cell, oldCharOpacityMod);
-
-                        // New character fades IN (Opacity: 0.0 -> 1.0)
                         const newCharOpacityMod = Math.min(1.0, fadeProgress); 
                         drawChar(cell.nextChar, x, y, currentFontSize, cell, newCharOpacityMod);
-                        
-                        continue; // Skip the general draw below
+                        continue; 
                     }
                     
-                    // Draw non-rotating persistent trail or fading cell. 
                     if (cell.decayAge > 0) {
                         drawChar(cell.char, x, y, currentFontSize, cell, 1.0);
                     }
                 }
             }
 
-
-            // --- PASS 2: Draw Tracer Heads (Tracer Glow) ---
+            // PASS 2: Tracer Heads
             ctx.shadowBlur = settings.tracerGlow;
 
             for (let y = 0; y < totalRows; y++) {
                 for (let x = 0; x < totalCols; x++) {
                     const cell = grid[y][x];
                     
-                    // Only draw if it's an active tracer head
                     if (cell.state > 0) {
                         currentFontSize = settings.FONT_SIZE + settings.tracerSizeIncrease; 
                         drawChar(cell.char, x, y, currentFontSize, cell, 1.0);
                     }
                 }
             }
-
-            // Ensure shadow is cleared after drawing is done
             ctx.shadowBlur = 0;
         }
 
 
-        // --- Initialization and Animation Loop (Omitted for brevity - Unchanged) ---
+        // --- Initialization and Animation Loop ---
+
+        function reinitializeOnLayoutChange() {
+             // 1. CRITICAL FIX: Update the canvas context font property FIRST.
+            currentSettings.FONT_SIZE = currentSettings.fontSize; 
+            ctx.font = `bold ${currentSettings.FONT_SIZE}px 'Inter', monospace`; 
+            
+             // 2. Calculate the new derived layout settings
+            currentSettings.CELL_WIDTH = currentSettings.FONT_SIZE / currentSettings.horizontalSpacingFactor; 
+            currentSettings.CELL_HEIGHT = currentSettings.CELL_WIDTH * currentSettings.cellSpacingFactor; 
+
+            // 3. Recalculate grid dimensions to fill the canvas
+            totalCols = Math.floor(canvas.width / currentSettings.CELL_WIDTH);
+            totalRows = Math.floor(canvas.height / currentSettings.CELL_HEIGHT);
+            
+            // 4. Re-initialize the manager (New grid, new streams, new cell sizes)
+            matrixManager = new MatrixManager(currentSettings, totalRows, totalCols);
+            
+            // 5. Update drawing context
+            ctx.shadowColor = currentSettings.streamColor;
+            
+            saveSettings();
+        }
 
         function initializeCanvas() {
-            const settings = currentSettings;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            totalCols = Math.floor(canvas.width / settings.CELL_WIDTH);
-            totalRows = Math.floor(canvas.height / settings.CELL_HEIGHT);
-
-            matrixManager = new MatrixManager(settings, totalRows, totalCols);
+            // This function is only called on initial load and window resize.
             
-            ctx.font = `bold ${settings.FONT_SIZE}px 'Inter', monospace`; 
+            // Ensure FONT_SIZE property is correctly set before dimension calculation
+            currentSettings.FONT_SIZE = currentSettings.fontSize; 
+            ctx.font = `bold ${currentSettings.FONT_SIZE}px 'Inter', monospace`; 
+
+            // Recalculate cell sizes based on current settings
+            currentSettings.CELL_WIDTH = currentSettings.FONT_SIZE / currentSettings.horizontalSpacingFactor; 
+            currentSettings.CELL_HEIGHT = currentSettings.CELL_WIDTH * currentSettings.cellSpacingFactor; 
+
+            // Recalculate grid dimensions to fill the canvas
+            totalCols = Math.floor(canvas.width / currentSettings.CELL_WIDTH);
+            totalRows = Math.floor(canvas.height / currentSettings.CELL_HEIGHT);
+            
+            // Only re-initialize the manager if dimensions actually changed or if it's the first run
+            if (!matrixManager || matrixManager.totalRows !== totalRows || matrixManager.totalCols !== totalCols) {
+                matrixManager = new MatrixManager(currentSettings, totalRows, totalCols);
+            } else {
+                matrixManager.settings = currentSettings; 
+            }
+            
             ctx.textAlign = 'center'; 
             ctx.textBaseline = 'middle'; 
-            ctx.shadowColor = settings.streamColor; 
+            ctx.shadowColor = currentSettings.streamColor; 
         }
         
-        /** Main animation loop */
-        function animate() {
+        function animate() { 
             const settings = currentSettings;
             frameCounter++; 
             
-            // Clear the canvas
             ctx.fillStyle = 'rgba(0, 0, 0, ' + settings.clearAlpha + ')'; 
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // --- 1. UPDATE STATE (Simulation Logic) ---
             matrixManager.updateFrame(frameCounter);
 
-            // --- 2. RENDER STATE ---
             ctx.save();
             ctx.scale(-1, 1);
             ctx.translate(-canvas.width, 0);
@@ -994,91 +981,83 @@
             requestAnimationFrame(animate);
         }
         
-        // --- Control Panel Logic (START) ---
+        // --- Control Panel Logic ---
         const panel = document.getElementById('settingsPanel');
         const menuButton = document.getElementById('menuButton');
         const resetButton = document.getElementById('resetButton');
+        const navTabs = document.getElementById('navTabs');
         const controlsContainer = document.getElementById('controlsContainer');
         
-        // Min/Max Stream Length dependency management
-        function updateRelatedRangeLimits(changedId, newValue) {
+        // Min/Max Stream Length dependency management 
+        function updateRelatedRangeLimits(changedId, newValue) { 
             const minControlDef = CONTROL_DEFINITIONS.find(d => d.id === 'streamMinLength');
             const maxControlDef = CONTROL_DEFINITIONS.find(d => d.id === 'streamMaxLength');
-
             const minInput = document.getElementById('streamMinLength');
             const maxInput = document.getElementById('streamMaxLength');
-
             if (!minInput || !maxInput) return; 
+            
+            const minValueSpan = document.getElementById('streamMinLengthValue');
+            const maxValueSpan = document.getElementById('streamMaxLengthValue');
 
             if (changedId === 'streamMinLength') {
                 const newMaxMin = Math.max(minControlDef.min, newValue);
                 maxInput.min = newMaxMin;
-
                 if (parseFloat(maxInput.value) < newMaxMin) {
                     currentSettings.streamMaxLength = newMaxMin;
                     maxInput.value = newMaxMin;
-                    updateValueDisplay(maxControlDef, newMaxMin);
+                    // FIX: Passing element reference
+                    updateValueDisplay(maxControlDef, newMaxMin, maxInput, maxValueSpan);
                 }
             } else if (changedId === 'streamMaxLength') {
                 const newMinMax = Math.min(maxControlDef.max, newValue);
                 minInput.max = newMinMax;
-
                 if (parseFloat(minInput.value) > newMinMax) {
                     currentSettings.streamMinLength = newMinMax;
                     minInput.value = newMinMax;
-                    updateValueDisplay(minControlDef, newMinMax);
+                    // FIX: Passing element reference
+                    updateValueDisplay(minControlDef, newMinMax, minInput, minValueSpan);
                 }
             }
         }
         
-        // This function toggles the classes that are now defined in our style block
         function togglePanel() {
             panel.classList.toggle('translate-x-full');
             menuButton.classList.toggle('bg-green-700/50');
             menuButton.classList.toggle('bg-gray-900/50'); 
         }
 
-        // UPDATED: Use new header-style class for lighter color
-        function createHeader(title) {
-            const header = document.createElement('h3');
-            header.className = 'text-lg font-semibold header-style mt-4 mb-3 border-b border-green-800/50 pb-1';
-            header.textContent = title;
-            return header;
-        }
-
-        function createControl(def) {
+        function createControl(def) { 
             const container = document.createElement('div');
-            // Container remains simple, relying on the input element's self-centering property
-            container.className = 'flex flex-col space-y-1'; 
+            container.className = 'flex flex-col space-y-1 mb-6'; 
 
+            // ALIGNMENT FIX: Use the dedicated CSS Grid class
             const labelContainer = document.createElement('div');
-            // Label container must be full width to separate label and value
-            // Default classes:
-            labelContainer.className = 'flex justify-between items-center text-green-300 w-full';
+            labelContainer.className = 'control-header'; // Applies CSS Grid: 1fr | auto
             
+            // 1. Create the Label (Left side)
             const label = document.createElement('label');
             label.textContent = def.label;
             label.setAttribute('for', def.id);
-            // *** ADDED: Tooltip (mouse-hover description) ***
             if (def.description) {
+                // Ensure tooltip title is set on the label too for better accessibility
                 label.setAttribute('title', def.description); 
             }
             
+            // 2. Create the Value Span (Right side)
             const valueSpan = document.createElement('span');
-            valueSpan.id = `${def.id}Value`;
+            // We still use an ID for external sync functions (like syncTracerSize), but internally we'll use the reference
+            valueSpan.id = `${def.id}Value`; 
             valueSpan.className = 'font-bold text-green-100';
 
+            // Append label and valueSpan inside the grid container
             labelContainer.appendChild(label);
             labelContainer.appendChild(valueSpan);
+            
             container.appendChild(labelContainer);
             
             let input;
 
             if (def.type === 'range') {
-                // Apply fixed width and centering to the label container
-                labelContainer.classList.remove('w-full');
-                labelContainer.classList.add('text-width-centered'); 
-
                 input = document.createElement('input');
                 input.type = 'range';
                 input.id = def.id;
@@ -1089,9 +1068,9 @@
                 input.step = def.step;
                 input.value = currentSettings[def.id];
                 
-                // Apply the definitive fixed-width and centering class
                 input.className = 'slider-width-fixed h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer range-lg accent-green-500';
                 
+                // Set initial min/max based on cross-dependencies
                 if (def.id === 'streamMinLength') {
                     input.max = currentSettings.streamMaxLength;
                 } else if (def.id === 'streamMaxLength') {
@@ -1101,59 +1080,82 @@
                 input.oninput = (e) => {
                     const val = parseFloat(e.target.value);
                     currentSettings[def.id] = val;
-                    updateValueDisplay(def, val);
+                    // FIX: Passing element reference
+                    updateValueDisplay(def, val, e.target, valueSpan); 
+                    
+                    if (def.id === 'fontSize') {
+                        syncTracerSize(val);
+                    }
                     
                     if (def.id === 'streamMinLength' || def.id === 'streamMaxLength') {
                         updateRelatedRangeLimits(def.id, val);
                     }
                     
-                    applySettings(currentSettings); 
+                    if (def.category !== 'Layout') {
+                        applySettings(currentSettings); 
+                    }
                 };
             } else if (def.type === 'color') {
-                // Apply fixed width and centering to the label container
-                labelContainer.classList.remove('w-full');
-                labelContainer.classList.add('text-width-centered'); 
-
                 input = document.createElement('input');
                 input.type = 'color';
                 input.id = def.id;
                 input.value = currentSettings[def.id];
                 
-                // Apply the definitive fixed-width and centering class
                 input.className = 'color-picker-input slider-width-fixed'; 
                 
                 input.onchange = (e) => {
                     currentSettings[def.id] = e.target.value;
+                    // FIX: Passing element reference
+                    updateValueDisplay(def, currentSettings[def.id], e.target, valueSpan);
                     applySettings(currentSettings); 
                 };
             }
 
             container.appendChild(input);
 
-            // Only update value display for range inputs
-            if (def.type === 'range') {
-                updateValueDisplay(def, currentSettings[def.id]);
-            }
+            // INITIALIZATION FIX: Call updateValueDisplay using the direct reference to populate the span instantly
+            updateValueDisplay(def, currentSettings[def.id], input, valueSpan);
             
             return container;
         }
 
-        function updateValueDisplay(def, val) {
-            const valueSpan = document.getElementById(`${def.id}Value`);
-            if (valueSpan) {
-                let displayValue = val;
-                if (def.transform) {
-                    displayValue = def.transform(val);
-                } else if (def.unit) {
-                    displayValue += def.unit;
+        /**
+         * Updates the text display and the input element's title/tooltip.
+         * @param {object} def - The control definition.
+         * @param {*} val - The current value.
+         * @param {HTMLInputElement} inputElement - The input element (for range/color types).
+         * @param {HTMLElement} valueSpanElement - The direct reference to the span element displaying the value. (NEW)
+         */
+        function updateValueDisplay(def, val, inputElement, valueSpanElement) { 
+            // FIX: We now use the passed reference `valueSpanElement` instead of looking up by ID
+            
+            let displayValue = val;
+            
+            if (def.type === 'color') {
+                displayValue = val.toUpperCase();
+            } else if (def.transform) {
+                displayValue = def.transform(val);
+            } else {
+                // Ensure plain numbers are rounded to integer if appropriate and no transform exists
+                if (def.step >= 1 && typeof val === 'number') {
+                    displayValue = Math.round(val);
+                } else if (typeof val === 'number') {
+                    displayValue = val;
                 }
-                valueSpan.textContent = displayValue;
+            }
+            
+            // This is the display value update - uses the direct reference
+            if (valueSpanElement) {
+                valueSpanElement.textContent = displayValue;
+            }
+            
+            // Add native HTML tooltip for input elements
+            if (inputElement) {
+                inputElement.title = `${def.label}: ${displayValue}`;
             }
         }
         
         function populateControls() {
-            controlsContainer.innerHTML = '';
-            
             const groupedControls = CONTROL_DEFINITIONS.reduce((acc, def) => {
                 const category = def.category || 'General';
                 if (!acc[category]) {
@@ -1163,25 +1165,94 @@
                 return acc;
             }, {});
 
-            // UPDATED: Use new category names
-            const categoryOrder = ['Code Appearance', 'Tracers', 'Rotators'];
-            
-            categoryOrder.forEach(category => {
+            navTabs.innerHTML = '';
+            controlsContainer.innerHTML = '';
+
+            let firstTabId = '';
+
+            categoryOrder.forEach((category, index) => {
+                if (!groupedControls[category] || groupedControls[category].length === 0) return;
+
+                const tabId = category.replace(/\s/g, ''); 
+                if (index === 0) firstTabId = tabId;
+
+                // 1. Create Navigation Button (Tab)
+                const tabButton = document.createElement('button');
+                tabButton.className = 'tab-button';
+                tabButton.textContent = category;
+                tabButton.dataset.target = tabId;
+                tabButton.onclick = () => switchTab(tabId);
+                navTabs.appendChild(tabButton);
+
+                // 2. Create Content Section
+                const contentDiv = document.createElement('div');
+                contentDiv.id = tabId;
+                contentDiv.className = 'tab-content space-y-6';
+
+                const contentHeader = document.createElement('h3');
+                contentHeader.className = 'text-xl font-bold text-green-300 border-b border-green-800/50 pb-1 mb-4';
+                contentHeader.textContent = category;
+                contentDiv.appendChild(contentHeader);
+
+
+                // 3. Populate Controls in Content Section
                 const controls = groupedControls[category];
-                if (controls && controls.length > 0) {
-                    controlsContainer.appendChild(createHeader(category));
-                    
-                    controls.forEach(def => {
-                        controlsContainer.appendChild(createControl(def));
-                    });
+                
+                controls.sort((a, b) => {
+                    if (a.type === 'color' && b.type !== 'color') return -1;
+                    if (a.type !== 'color' && b.type === 'color') return 1;
+                    return 0;
+                });
+                
+                controls.forEach(def => {
+                    contentDiv.appendChild(createControl(def));
+                });
+                
+                // --- Add Apply Layout Button to Layout Tab ---
+                if (category === 'Layout') {
+                    const applyButton = document.createElement('button');
+                    applyButton.className = 'apply-layout-button';
+                    applyButton.textContent = 'Apply Layout Changes';
+                    applyButton.onclick = reinitializeOnLayoutChange;
+                    contentDiv.appendChild(applyButton);
                 }
+
+                controlsContainer.appendChild(contentDiv);
             });
+            
+            // Activate the first tab by default
+            if (firstTabId) {
+                switchTab(firstTabId);
+            }
         }
         
+        function switchTab(targetId) {
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            const targetButton = document.querySelector(`.tab-button[data-target="${targetId}"]`);
+            if (targetButton) {
+                targetButton.classList.add('active');
+            }
+            const targetContent = document.getElementById(targetId);
+            if (targetContent) {
+                 targetContent.classList.add('active');
+            }
+        }
+
         function resetSettings() {
             currentSettings = { ...DEFAULT_SETTINGS };
-            applySettings(currentSettings);
-            // Re-populate controls to reset input constraints
+            applySettings(currentSettings); // Apply non-layout settings instantly
+            reinitializeOnLayoutChange(); // Manually re-init for layout settings
+            
+            // Explicitly sync tracer size after reset to ensure the control bar is correct
+            syncTracerSize(currentSettings.fontSize); 
+            
+            // Repopulate controls to refresh values and min/max linkages
             populateControls(); 
         }
 
@@ -1189,6 +1260,8 @@
         // --- Main Execution ---
 
         loadSettings(); 
+        // Ensure tracer size is synchronized on load for the initial display and controls
+        syncTracerSize(currentSettings.fontSize); 
         applySettings(currentSettings); 
         
         initializeCanvas();
