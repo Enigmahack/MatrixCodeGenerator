@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Digital Rain v3.0 (SOLID Architecture)</title>
+    <style>
+        /* --- CSS RESET & BASE --- */
+        :root {
+            --bg-color: #000;
+            --panel-bg: rgba(17, 24, 39, 0.95);
+            --panel-border: rgba(4, 120, 87, 0.5);
+            --text-main: #4ade80;
+            --text-muted: #6ee7b7;
+            --accent: #10b981;
+        }
+        body { overflow: hidden; background-color: var(--bg-color); margin: 0; font-family: monospace; }
+        canvas { display: block; }
+
+        /* --- UI PANEL --- */
+        #settingsPanel {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 30rem;
+            background-color: var(--panel-bg); backdrop-filter: blur(4px);
+            box-shadow: -20px 0 30px rgba(0,0,0,0.5); z-index: 20;
+            transform: translateX(100%); transition: transform 0.3s ease-in-out;
+            display: grid; grid-template-columns: 10rem 1fr; grid-template-rows: auto 1fr auto;
+            border-left: 1px solid var(--panel-border); font-size: 0.875rem;
+        }
+        #settingsPanel.open { transform: translateX(0); }
+        
+        /* --- SECTIONS --- */
+        #panelHeader { grid-column: 1 / 3; padding: 1.5rem; border-bottom: 1px solid rgba(6,95,70,0.5); }
+        #navTabs { grid-column: 1 / 2; background: rgba(17,24,39,0.8); border-right: 1px solid rgba(6,95,70,0.5); overflow-y: auto; }
+        #contentArea { grid-column: 2 / 3; padding: 1rem 1.5rem; overflow-y: auto; }
+        #panelFooter { grid-column: 1 / 3; padding: 1rem 1.5rem; border-top: 1px solid rgba(6,95,70,0.5); display: flex; gap: 0.5rem; }
+
+        /* --- COMPONENTS --- */
+        .tab-btn { width: 100%; padding: 0.75rem 1rem; text-align: left; color: var(--text-main); background: none; border: none; cursor: pointer; transition: 0.2s; }
+        .tab-btn:hover { background: rgba(4,120,87,0.2); }
+        .tab-btn.active { background: rgba(4,120,87,0.4); color: #d1fae5; border-left: 4px solid var(--accent); }
+        
+        .control-group { display: none; }
+        .control-group.active { display: block; }
+        
+        .control-row { margin-bottom: 1.5rem; }
+        .control-header { display: flex; justify-content: space-between; color: var(--text-muted); margin-bottom: 0.5rem; }
+        
+        /* Inputs */
+        input[type="range"] { width: 100%; height: 0.5rem; background: #374151; border-radius: 0.5rem; appearance: none; accent-color: var(--accent); }
+        input[type="color"] { width: 100%; height: 2.5rem; border: 1px solid var(--panel-border); border-radius: 0.5rem; background: none; padding: 0; cursor: pointer; }
+        input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); cursor: pointer; }
+        
+        /* Buttons */
+        .action-btn { flex: 1; padding: 0.75rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; color: white; transition: 0.2s; border: 1px solid transparent; }
+        .btn-pulse { background: rgba(59, 130, 246, 0.5); border-color: rgba(37, 99, 235, 0.5); }
+        .btn-pulse:hover { background: rgba(37, 99, 235, 0.7); }
+        .btn-reset { background: rgba(185, 28, 28, 0.5); border-color: rgba(239, 68, 68, 0.5); }
+        .btn-reset:hover { background: rgba(220, 38, 38, 0.7); }
+        .btn-apply { width: 100%; margin-top: 1rem; background: rgba(4, 120, 87, 0.8); }
+        .btn-apply:hover { background: rgba(6, 95, 70, 0.9); }
+        
+        /* Menu Toggle */
+        #menuToggle { position: fixed; top: 1rem; right: 1rem; z-index: 30; padding: 0.75rem; color: var(--text-main); background: rgba(17,24,39,0.5); border: 1px solid var(--panel-border); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #menuToggle:hover { background: rgba(31,41,55,0.7); }
+    </style>
+</head>
+<body>
+    <canvas id="matrixCanvas"></canvas>
+    <button id="menuToggle">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+
+    <div id="settingsPanel">
+        <div id="panelHeader"><h2 style="margin:0; color:var(--text-main);">Digital Rain v3.0</h2></div>
+        <div id="navTabs"></div>
+        <div id="contentArea"></div>
+        <div id="panelFooter">
+            <button id="btnPulse" class="action-btn btn-pulse">Trigger Pulse</button>
+            <button id="btnReset" class="action-btn btn-reset">Reset</button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ==========================================
+         * 1. CORE UTILITIES & CONSTANTS
+         * ==========================================
+         */
+        const Utils = {
+            randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+            randomFloat: (min, max) => Math.random() * (max - min) + min,
+            hexToRgb: (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } 
+                              : { r: 0, g: 255, b: 0 };
+            },
+            rgbaString: (rgb, a) => `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`,
+            CHARS: 'カサタナハヤラワキシチニヒミリウクヌフムケセテメオコソホヲ01245789:+=<>.*',
+            getRandomChar: () => Utils.CHARS.charAt(Math.floor(Math.random() * Utils.CHARS.length)),
+            getUniqueChar: (exclude) => {
+                let c; do { c = Utils.getRandomChar(); } while (c === exclude); return c;
+            }
+        };
+
+        /**
+         * ==========================================
+         * 2. CONFIGURATION MANAGER (State Management)
+         * ==========================================
+         */
+        class ConfigurationManager {
+            constructor() {
+                this.storageKey = 'matrix_config_v3';
+                this.defaults = this._getDefaults();
+                this.state = { ...this.defaults };
+                this.subscribers = [];
+                this.load();
+                this.updateDerivedValues();
+            }
+
+            _getDefaults() {
+                return {
+                    // Appearance
+                    streamColor: '#00ff00', streamSpeed: 14, trailGlow: 28, clearAlpha: 0.90,
+                    streamMinLength: 50, streamMaxLength: 140, decayDelayRows: 40, decayFadeDurationFrames: 36,
+                    holeRate: 0.15,
+                    // Brightness
+                    variableBrightnessEnabled: false, brightnessVariance: 15,
+                    // Tracers
+                    tracerColor: '#ffffff', tracerSizeIncrease: 8, tracerGlow: 20,
+                    tracerFadeInFrames: 3, tracerColorFadeFrames: 5,
+                    // Rotators
+                    rotatorChance: 0.125, rotatorCycleFactor: 15, rotatorCrossfadeFrames: 8,
+                    // Layout
+                    fontSize: 24, cellSpacingFactor: 0.95, horizontalSpacingFactor: 1.15,
+                    // Effects: Pulse
+                    pulseEnabled: false, pulseFrequencySeconds: 30, pulsePreserveSpaces: false,
+                    pulseDelayFrames: 60, pulseDurationSeconds: 2.0, pulseRandomPosition: true
+                };
+            }
+
+            load() {
+                try {
+                    const stored = localStorage.getItem(this.storageKey);
+                    if (stored) this.state = { ...this.defaults, ...JSON.parse(stored) };
+                } catch (e) { console.error("Load failed", e); }
+            }
+
+            save() {
+                try { localStorage.setItem(this.storageKey, JSON.stringify(this.state)); } catch (e) {}
+            }
+
+            get(key) { return this.state[key]; }
+
+            set(key, value) {
+                this.state[key] = value;
+                // Handle dependencies
+                if (key === 'streamMinLength') this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
+                if (key === 'streamMaxLength') this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
+                
+                this.updateDerivedValues();
+                this.save();
+                this.notifySubscribers(key);
+            }
+
+            reset() {
+                this.state = { ...this.defaults };
+                this.updateDerivedValues();
+                this.save();
+                this.notifySubscribers('ALL');
+            }
+
+            updateDerivedValues() {
+                // Calculate performance-heavy or commonly used derived values once
+                const s = this.state;
+                this.derived = {
+                    writingCycles: 21 - s.streamSpeed,
+                    rotatorCycleFrames: Math.max(10, Math.round(60 - (s.rotatorCycleFactor * 2.5))),
+                    streamRgb: Utils.hexToRgb(s.streamColor),
+                    tracerRgb: Utils.hexToRgb(s.tracerColor),
+                    cellWidth: s.fontSize / s.horizontalSpacingFactor,
+                    cellHeight: (s.fontSize / s.horizontalSpacingFactor) * s.cellSpacingFactor,
+                    varianceMin: 1.0 - (s.brightnessVariance / 100)
+                };
+            }
+
+            subscribe(callback) { this.subscribers.push(callback); }
+            notifySubscribers(changedKey) { this.subscribers.forEach(cb => cb(changedKey, this.state)); }
+        }
+
+        /**
+         * ==========================================
+         * 3. GRID SYSTEM (Logic Layer)
+         * ==========================================
+         */
+        class Cell {
+            constructor() {
+                this.char = Utils.getRandomChar();
+                this.nextChar = Utils.getRandomChar();
+                this.state = 0; // 0: Trail/Fade, >0: Tracer Head Lifecycle
+                this.decayAge = 0; // 0: Inactive, 1: Bright Trail, >2: Fading
+                this.isRotator = false;
+                this.rotationProgress = 0;
+                this.brightnessFactor = null;
+            }
+            
+            resetBrightness(config) {
+                if (!config.state.variableBrightnessEnabled) {
+                    this.brightnessFactor = 1.0;
+                } else if (this.brightnessFactor === null) {
+                    this.brightnessFactor = Utils.randomFloat(config.derived.varianceMin, 1.0);
+                }
+            }
+        }
+
+        class ColumnStream {
+            constructor(xIndex, gridManager) {
+                this.x = xIndex;
+                this.gm = gridManager;
+                this.y = -1;
+                this.timer = 0;
+                this.active = false;
+                this.delay = Utils.randomInt(20, 500);
+                this.written = 0;
+                this.length = 0;
+                this.holes = new Set();
+                this.decayY = -1;
+                this.decayStarted = false;
+            }
+
+            prepare() {
+                const s = this.gm.config.state;
+                const maxHead = s.streamMaxLength;
+                this.length = Utils.randomInt(Math.min(s.streamMinLength, maxHead), maxHead);
+                
+                // Force long streams if screen is tall
+                if (this.length < this.gm.rows) this.length = Math.min(this.gm.rows + Utils.randomInt(1,10), maxHead);
+                
+                this.holes.clear();
+                for(let i=0; i<this.length; i++) {
+                    if(Math.random() < s.holeRate) this.holes.add(i);
+                }
+                
+                // Fast forward leading holes
+                this.written = 0;
+                while(this.written < this.length && this.holes.has(this.written)) this.written++;
+                
+                this.active = true;
+                this.y = -1;
+                this.delay = 0;
+                this.decayY = -1 - s.decayDelayRows;
+                this.decayStarted = false;
+            }
+
+            update(frame) {
+                if (!this.active) {
+                    if (this.delay > 0) this.delay--;
+                    return;
+                }
+
+                const s = this.gm.config.state;
+                const d = this.gm.config.derived;
+                this.timer++;
+
+                // Update Eraser/Decay Tracer
+                if (this.written >= s.decayDelayRows && !this.decayStarted) {
+                    this.decayY = this.y - s.decayDelayRows;
+                    this.decayStarted = true;
+                }
+
+                if (this.timer % d.writingCycles === 0) {
+                    this.stepHead(s);
+                    if (this.decayStarted) this.stepTail();
+                    this.timer = 0;
+                }
+
+                // Check Bounds
+                if (this.decayStarted && this.decayY >= this.gm.rows) {
+                    this.active = false;
+                    this.delay = Utils.randomInt(50, 150);
+                }
+            }
+
+            stepHead(s) {
+                if (this.written >= this.length) return;
+                
+                this.y++;
+                if (this.y >= 0 && this.y < this.gm.rows) {
+                    const isChar = !this.holes.has(this.written);
+                    const cell = this.gm.getCell(this.x, this.y);
+                    if (isChar) {
+                        cell.state = 1; // Start tracer
+                        cell.decayAge = 1; // Prepare trail
+                        cell.char = cell.nextChar;
+                        cell.nextChar = Utils.getUniqueChar(cell.char);
+                        cell.isRotator = Math.random() < s.rotatorChance;
+                        cell.brightnessFactor = null; // Reset brightness for new lifecycle
+                    } else {
+                        cell.state = 0;
+                        // Leave existing decayAge if expanding over existing
+                    }
+                }
+                this.written++;
+            }
+
+            stepTail() {
+                this.decayY++;
+                if (this.decayY >= 0 && this.decayY < this.gm.rows) {
+                    const cell = this.gm.getCell(this.x, this.decayY);
+                    if (cell.decayAge === 1) cell.decayAge = 2; // Start fading
+                }
+            }
+        }
+
+        class GridManager {
+            constructor(config) {
+                this.config = config;
+                this.grid = [];
+                this.streams = [];
+                this.cols = 0;
+                this.rows = 0;
+                this.releaseTimer = 0;
+            }
+
+            resize(width, height) {
+                const d = this.config.derived;
+                const newCols = Math.floor(width / d.cellWidth);
+                const newRows = Math.floor(height / d.cellHeight);
+
+                if (newCols !== this.cols || newRows !== this.rows) {
+                    this.initGrid(newCols, newRows);
+                }
+            }
+
+            initGrid(cols, rows) {
+                this.cols = cols;
+                this.rows = rows;
+                this.grid = new Array(rows).fill(null).map(() => new Array(cols).fill(null).map(() => new Cell()));
+                this.streams = new Array(cols).fill(null).map((_, i) => new ColumnStream(i, this));
+            }
+
+            getCell(x, y) { return (y >= 0 && y < this.rows && x >= 0 && x < this.cols) ? this.grid[y][x] : null; }
+
+            update(frame) {
+                // Stream Releases
+                if (this.releaseTimer <= 0) {
+                    const available = this.streams.filter(s => !s.active && s.delay <= 0);
+                    // Prioritize columns that have been inactive longest (simple shuffle here)
+                    available.sort(() => Math.random() - 0.5); 
+                    
+                    let count = 4; 
+                    for(const s of available) {
+                        if(count-- <= 0) break;
+                        // Check clear path
+                        let clear = true;
+                        for(let y=0; y < Math.min(this.rows, 40); y++) {
+                            if(this.grid[y][s.x].decayAge > 0) { clear = false; break; }
+                        }
+                        if(clear) s.prepare();
+                        else s.delay = 20; // Wait briefly
+                    }
+                    this.releaseTimer = this.config.derived.writingCycles * 5;
+                } else {
+                    this.releaseTimer--;
+                }
+
+                // Update Streams
+                this.streams.forEach(s => s.update(frame));
+
+                // Global Cell Aging & Rotation
+                const s = this.config.state;
+                const d = this.config.derived;
+                const cyclePhase = frame % d.rotatorCycleFrames;
+                const crossfadeStart = d.rotatorCycleFrames - s.rotatorCrossfadeFrames;
+
+                for (let y = 0; y < this.rows; y++) {
+                    for (let x = 0; x < this.cols; x++) {
+                        const cell = this.grid[y][x];
+                        
+                        // Lifecycle Aging
+                        if (cell.state > 0) {
+                            if (++cell.state > d.writingCycles) cell.state = 0;
+                        }
+                        if (cell.decayAge >= 2) {
+                            if (++cell.decayAge > s.decayFadeDurationFrames + 2) cell.decayAge = 0;
+                        }
+
+                        // Rotation
+                        if (cell.isRotator && (cell.state > 0 || cell.decayAge === 1)) {
+                            // Logic to prevent rotation if cell above is fading (avoids disconnects)
+                            const safe = y === 0 || this.grid[y-1][x].decayAge < 2;
+                            
+                            if (cyclePhase === crossfadeStart && cell.rotationProgress === 0 && safe) {
+                                cell.rotationProgress = 1;
+                                cell.nextChar = Utils.getUniqueChar(cell.char);
+                            } else if (cell.rotationProgress > 0) {
+                                cell.rotationProgress++;
+                                if (cell.rotationProgress > s.rotatorCrossfadeFrames) {
+                                    cell.char = cell.nextChar;
+                                    cell.nextChar = Utils.getUniqueChar(cell.char);
+                                    cell.rotationProgress = 0;
+                                }
+                            }
+                        }
+                        
+                        // Lazy Init Brightness
+                        cell.resetBrightness(this.config);
+                    }
+                }
+            }
+        }
+
+        /**
+         * ==========================================
+         * 4. EFFECT SYSTEM (Extensibility Layer)
+         * ==========================================
+         */
+        class BaseEffect {
+            constructor(config, gridManager) { this.config = config; this.gm = gridManager; this.active = false; }
+            trigger() {}
+            update(frame) {}
+            // Returns 'LIVE', 'FROZEN', or 'OVERRIDE' to tell Renderer what to draw
+            getRenderMode(x, y) { return 'LIVE'; } 
+            getOverrideData(x, y) { return null; } // Returns { char, color, glow } if mode is OVERRIDE
+        }
+
+        class PulseEffect extends BaseEffect {
+            constructor(config, gm) {
+                super(config, gm);
+                this.snapshot = [];
+                this.state = 'IDLE'; // IDLE, WAITING, EXPANDING
+                this.timer = 0;
+                this.radius = 0;
+                this.origin = {x:0, y:0};
+                this.speed = 0;
+                this.autoTimer = 0;
+                this.resetAutoTimer();
+            }
+
+            resetAutoTimer() {
+                const s = this.config.state;
+                if(s.pulseEnabled) {
+                    const base = s.pulseFrequencySeconds * 60;
+                    this.autoTimer = base + Utils.randomInt(0, base/2);
+                }
+            }
+
+            trigger() {
+                if(this.active) return;
+                const s = this.config.state;
+                const rows = this.gm.rows;
+                const cols = this.gm.cols;
+
+                // 1. Snapshot & Darken
+                this.snapshot = new Array(rows).fill(0).map(() => new Array(cols));
+                for(let y=0; y<rows; y++) {
+                    for(let x=0; x<cols; x++) {
+                        // Note: We store minimal data to reconstruct the "Dark" look
+                        const cell = this.gm.getCell(x,y);
+                        this.snapshot[y][x] = {
+                            char: cell.char,
+                            isEmpty: (cell.state === 0 && cell.decayAge === 0),
+                            color: RendererHelpers.getCellColor(cell, this.config, 0.25) // Pre-darken
+                        };
+                    }
+                }
+
+                // 2. Origin
+                if(s.pulseRandomPosition) {
+                    this.origin = { x: Utils.randomInt(cols*0.2, cols*0.8), y: Utils.randomInt(rows*0.2, rows*0.8) };
+                } else {
+                    this.origin = { x: Math.floor(cols/2), y: Math.floor(rows/2) };
+                }
+
+                // 3. Calc Speed
+                const maxDist = Math.max(Math.max(this.origin.x, cols-this.origin.x), Math.max(this.origin.y, rows-this.origin.y));
+                const duration = Math.max(1, s.pulseDurationSeconds * 60);
+                this.speed = (maxDist + 10) / duration;
+
+                this.active = true;
+                this.state = 'WAITING';
+                this.timer = s.pulseDelayFrames;
+                this.radius = 0;
+            }
+
+            update(frame) {
+                const s = this.config.state;
+                if(!this.active && s.pulseEnabled) {
+                    if(--this.autoTimer <= 0) { this.trigger(); this.resetAutoTimer(); }
+                }
+
+                if(!this.active) return;
+
+                if(this.state === 'WAITING') {
+                    if(--this.timer <= 0) this.state = 'EXPANDING';
+                } else if (this.state === 'EXPANDING') {
+                    this.radius += this.speed;
+                    const maxDim = Math.max(this.gm.cols, this.gm.rows);
+                    if(this.radius > maxDim * 1.5) {
+                        this.active = false;
+                        this.snapshot = [];
+                        this.state = 'IDLE';
+                    }
+                }
+            }
+
+            getRenderMode(x, y) {
+                if(!this.active) return 'LIVE';
+                if(this.state === 'WAITING') return 'FROZEN';
+
+                const dx = Math.abs(x - this.origin.x);
+                const dy = Math.abs(y - this.origin.y);
+                const dist = Math.max(dx, dy); // Chebyshev distance for squares
+
+                const band = 6;
+                if(dist > this.radius) return 'FROZEN';
+                if(dist > this.radius - band) return 'OVERRIDE'; // The white pulse
+                return 'LIVE'; // Inner reveal
+            }
+
+            getOverrideData(x, y) {
+                if(this.config.state.pulsePreserveSpaces) {
+                    if(this.snapshot[y][x].isEmpty) return null; // Don't draw tracer in empty space
+                }
+                const cell = this.gm.getCell(x,y);
+                const d = this.config.derived;
+                // Return full opacity tracer color
+                return {
+                    char: cell.char,
+                    color: Utils.rgbaString(d.tracerRgb, 1.0),
+                    glow: this.config.state.tracerGlow * 1.5,
+                    shadowColor: this.config.state.tracerColor,
+                    sizeMod: this.config.state.tracerSizeIncrease
+                };
+            }
+            
+            getFrozenData(x, y) {
+                return this.snapshot[y][x];
+            }
+        }
+
+        /**
+         * ==========================================
+         * 5. RENDERER (Presentation Layer)
+         * ==========================================
+         */
+        const RendererHelpers = {
+            getCellColor: (cell, config, opacityMult = 1.0) => {
+                const s = config.state;
+                const d = config.derived;
+                let rgb = d.streamRgb;
+                let a = 0;
+
+                // Tracer Head
+                if (cell.state > 0) {
+                    rgb = d.tracerRgb;
+                    const fadeIn = Math.max(1, s.tracerFadeInFrames);
+                    const colorFadeStart = d.writingCycles - s.tracerColorFadeFrames;
+                    
+                    if (cell.state <= fadeIn) {
+                        a = cell.state / fadeIn;
+                    } else if (cell.state >= colorFadeStart) {
+                        // Interpolate back to stream color
+                        const progress = (cell.state - colorFadeStart) / Math.max(1, d.writingCycles - colorFadeStart);
+                        rgb = {
+                            r: Math.round(d.tracerRgb.r + (d.streamRgb.r - d.tracerRgb.r) * progress),
+                            g: Math.round(d.tracerRgb.g + (d.streamRgb.g - d.tracerRgb.g) * progress),
+                            b: Math.round(d.tracerRgb.b + (d.streamRgb.b - d.tracerRgb.b) * progress)
+                        };
+                        a = 1.0;
+                    } else {
+                        a = 1.0;
+                    }
+                } 
+                // Persistent Trail
+                else if (cell.decayAge === 1) {
+                    a = 0.95;
+                } 
+                // Fading Out
+                else if (cell.decayAge >= 2) {
+                    const fadeAge = cell.decayAge - 2;
+                    a = 0.95 * (1 - (fadeAge / s.decayFadeDurationFrames));
+                }
+
+                if (a <= 0) return 'rgba(0,0,0,0)';
+                
+                // Apply Brightness Variance
+                if(cell.brightnessFactor) a *= cell.brightnessFactor;
+                
+                return Utils.rgbaString(rgb, Math.max(0, a * opacityMult));
+            }
+        };
+
+        class CanvasRenderer {
+            constructor(canvasId, config, gridManager, effectSystem) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false }); // Optimization
+                this.config = config;
+                this.gm = gridManager;
+                this.effects = effectSystem;
+                this.width = 0;
+                this.height = 0;
+                
+                window.addEventListener('resize', () => this.resize());
+                this.resize();
+            }
+
+            resize() {
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                this.canvas.width = this.width;
+                this.canvas.height = this.height;
+                this.ctx.textBaseline = 'middle';
+                this.ctx.textAlign = 'center';
+                this.gm.resize(this.width, this.height);
+            }
+
+            render() {
+                const s = this.config.state;
+                const d = this.config.derived;
+                
+                // 1. Clear Screen
+                this.ctx.fillStyle = `rgba(0, 0, 0, ${s.clearAlpha})`;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                // 2. Pre-calc context settings
+                const baseFont = `bold ${s.fontSize}px 'Inter', monospace`;
+                const largeFont = `bold ${s.fontSize + s.tracerSizeIncrease}px 'Inter', monospace`;
+                
+                this.ctx.save();
+                // Matrix Rain Standard Mirroring
+                this.ctx.scale(-1, 1);
+                this.ctx.translate(-this.width, 0);
+
+                // Get Active Effect
+                const effect = this.effects.getActive();
+                
+                // Single Pass Rendering loop for efficiency
+                for (let y = 0; y < this.gm.rows; y++) {
+                    // Calculate Y position once per row
+                    const yPos = y * d.cellHeight + d.cellHeight/2;
+                    
+                    for (let x = 0; x < this.gm.cols; x++) {
+                        // Determine Render Mode
+                        const mode = effect ? effect.getRenderMode(x, y) : 'LIVE';
+                        
+                        const xPos = x * d.cellWidth + d.cellWidth/2;
+                        
+                        if (mode === 'FROZEN') {
+                            const data = effect.getFrozenData(x, y);
+                            if (data && !data.isEmpty) {
+                                this.ctx.font = baseFont;
+                                this.ctx.fillStyle = data.color;
+                                this.ctx.shadowBlur = 0;
+                                this.ctx.fillText(data.char, xPos, yPos);
+                            }
+                        }
+                        else if (mode === 'OVERRIDE') {
+                            const data = effect.getOverrideData(x, y);
+                            if (data) {
+                                this.ctx.font = largeFont;
+                                this.ctx.fillStyle = data.color;
+                                this.ctx.shadowBlur = data.glow;
+                                this.ctx.shadowColor = data.shadowColor;
+                                this.ctx.fillText(data.char, xPos, yPos);
+                            }
+                        }
+                        else { // LIVE
+                            const cell = this.gm.getCell(x, y);
+                            // Standard Render Logic
+                            if (cell.state > 0 || cell.decayAge > 0) {
+                                // Handle Rotator Crossfade
+                                if (cell.isRotator && cell.rotationProgress > 0) {
+                                    // Complex crossfade rendering
+                                    this.ctx.font = baseFont;
+                                    this.ctx.shadowBlur = s.trailGlow;
+                                    this.ctx.shadowColor = s.streamColor;
+                                    const prog = cell.rotationProgress / s.rotatorCrossfadeFrames;
+                                    
+                                    // Old Char
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, 1.0 - prog);
+                                    this.ctx.fillText(cell.char, xPos, yPos);
+                                    
+                                    // New Char
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, prog);
+                                    this.ctx.fillText(cell.nextChar, xPos, yPos);
+                                } 
+                                else {
+                                    const isHead = cell.state > 0;
+                                    this.ctx.font = isHead ? largeFont : baseFont;
+                                    this.ctx.shadowBlur = isHead ? s.tracerGlow : s.trailGlow;
+                                    this.ctx.shadowColor = isHead ? s.tracerColor : s.streamColor; // Optimization: could cache this
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config);
+                                    this.ctx.fillText(cell.char, xPos, yPos);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.ctx.restore();
+            }
+        }
+
+        class EffectSystem {
+            constructor(config, gm) {
+                this.effects = [new PulseEffect(config, gm)];
+                this.activeEffect = null;
+            }
+
+            update(frame) {
+                let active = null;
+                this.effects.forEach(eff => {
+                    eff.update(frame);
+                    if (eff.active) active = eff;
+                });
+                this.activeEffect = active;
+            }
+
+            triggerPulse() { this.effects[0].trigger(); }
+            getActive() { return this.activeEffect; }
+        }
+
+        /**
+         * ==========================================
+         * 6. UI MANAGER (Interaction Layer)
+         * ==========================================
+         */
+        class UIManager {
+            constructor(config, effectSystem) {
+                this.config = config;
+                this.effects = effectSystem;
+                this.elements = {
+                    panel: document.getElementById('settingsPanel'),
+                    toggle: document.getElementById('menuToggle'),
+                    tabs: document.getElementById('navTabs'),
+                    content: document.getElementById('contentArea'),
+                    reset: document.getElementById('btnReset'),
+                    pulse: document.getElementById('btnPulse')
+                };
+                
+                this.defs = [
+                    { category: 'Appearance', id: 'streamColor', type: 'color', label: 'Stream Color' },
+                    { category: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness' },
+                    { category: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+                    { category: 'Appearance', id: 'streamSpeed', type: 'range', label: 'Speed', min: 1, max: 20 },
+                    { category: 'Appearance', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 10, max: 300 },
+                    { category: 'Appearance', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 10, max: 300 },
+                    { category: 'Appearance', id: 'holeRate', type: 'range', label: 'Hole Rate', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%' },
+                    
+                    { category: 'Tracers', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
+                    { category: 'Tracers', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
+                    { category: 'Tracers', id: 'tracerGlow', type: 'range', label: 'Glow', min: 0, max: 50, unit:'px' },
+
+                    { category: 'Rotators', id: 'rotatorChance', type: 'range', label: 'Chance', min: 0, max: 0.2, step: 0.01, transform: v=>(v*100).toFixed(1)+'%' },
+                    { category: 'Rotators', id: 'rotatorCycleFactor', type: 'range', label: 'Speed Factor', min: 1, max: 20 },
+                    
+                    { category: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulse' },
+                    { category: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, unit: 's', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulseDelayFrames', type: 'range', label: 'Delay', min: 0, max: 180, unit: 'fr', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 5, step: 0.5, unit: 's', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Position', dep: 'pulseEnabled' },
+
+                    { category: 'Layout', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 60, unit: 'px', onUpdate: 'layout' },
+                    { category: 'Layout', id: 'horizontalSpacingFactor', type: 'range', label: 'H-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout' },
+                    { category: 'Layout', id: 'cellSpacingFactor', type: 'range', label: 'V-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout' },
+                ];
+
+                this.init();
+            }
+
+            init() {
+                // Toggle Panel
+                this.elements.toggle.addEventListener('click', () => {
+                    this.elements.panel.classList.toggle('open');
+                });
+
+                // Buttons
+                this.elements.reset.addEventListener('click', () => {
+                    if(confirm('Reset all settings?')) this.config.reset();
+                });
+                this.elements.pulse.addEventListener('click', () => this.effects.triggerPulse());
+
+                // Build UI
+                this.buildTabs();
+                
+                // Subscribe to updates
+                this.config.subscribe((key, state) => this.refreshUI(key, state));
+            }
+
+            buildTabs() {
+                const categories = [...new Set(this.defs.map(d => d.category))];
+                let first = true;
+
+                categories.forEach(cat => {
+                    // Tab Button
+                    const btn = document.createElement('button');
+                    btn.className = `tab-btn ${first ? 'active' : ''}`;
+                    btn.textContent = cat;
+                    btn.onclick = () => this.switchTab(cat, btn);
+                    this.elements.tabs.appendChild(btn);
+
+                    // Content Container
+                    const container = document.createElement('div');
+                    container.className = `control-group ${first ? 'active' : ''}`;
+                    container.id = `group-${cat}`;
+                    
+                    // Add Controls
+                    this.defs.filter(d => d.category === cat).forEach(def => {
+                        container.appendChild(this.createControl(def));
+                    });
+
+                    // Special Apply Button for Layout
+                    if(cat === 'Layout') {
+                        const applyBtn = document.createElement('button');
+                        applyBtn.className = 'action-btn btn-apply';
+                        applyBtn.textContent = 'Apply Layout Changes';
+                        applyBtn.onclick = () => window.dispatchEvent(new Event('resize'));
+                        container.appendChild(applyBtn);
+                    }
+
+                    this.elements.content.appendChild(container);
+                    first = false;
+                });
+            }
+
+            switchTab(cat, btn) {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.control-group').forEach(g => g.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(`group-${cat}`).classList.add('active');
+            }
+
+            createControl(def) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'control-row';
+                wrapper.dataset.id = def.id;
+                
+                // Header
+                const header = document.createElement('div');
+                header.className = 'control-header';
+                const label = document.createElement('label');
+                label.textContent = def.label;
+                const valueDisplay = document.createElement('span');
+                valueDisplay.id = `val-${def.id}`;
+                header.append(label, valueDisplay);
+                wrapper.appendChild(header);
+
+                // Input
+                const input = document.createElement('input');
+                input.type = def.type;
+                input.id = `in-${def.id}`;
+                
+                if (def.type === 'range') {
+                    input.min = def.min; input.max = def.max; if(def.step) input.step = def.step;
+                }
+                
+                // Initial Value
+                const currVal = this.config.get(def.id);
+                if(def.type === 'checkbox') input.checked = currVal;
+                else input.value = currVal;
+
+                // Event Listener
+                input.oninput = (e) => {
+                    let val = def.type === 'checkbox' ? e.target.checked : e.target.value;
+                    if(def.type === 'range') val = parseFloat(val);
+                    this.config.set(def.id, val);
+                    this.updateDisplayValue(def, val, valueDisplay);
+                };
+
+                wrapper.appendChild(input);
+                this.updateDisplayValue(def, currVal, valueDisplay);
+
+                // Dependencies logic (initial hide/show)
+                if(def.dep) {
+                    wrapper.style.display = this.config.get(def.dep) ? 'block' : 'none';
+                }
+
+                return wrapper;
+            }
+
+            updateDisplayValue(def, val, el) {
+                if(def.type === 'checkbox') el.textContent = val ? 'ON' : 'OFF';
+                else if(def.transform) el.textContent = def.transform(val);
+                else el.textContent = val + (def.unit || '');
+            }
+
+            refreshUI(key, state) {
+                if(key === 'ALL') {
+                    // Re-sync everything (e.g. after Reset)
+                    this.elements.content.innerHTML = '';
+                    this.elements.tabs.innerHTML = '';
+                    this.buildTabs();
+                    return;
+                }
+
+                // Update specific input if changed externally
+                const def = this.defs.find(d => d.id === key);
+                if(def) {
+                    const input = document.getElementById(`in-${key}`);
+                    const display = document.getElementById(`val-${key}`);
+                    if(input) {
+                         if(def.type === 'checkbox') input.checked = state[key];
+                         else input.value = state[key];
+                    }
+                    if(display) this.updateDisplayValue(def, state[key], display);
+                }
+
+                // Check Dependencies
+                this.defs.forEach(d => {
+                    if(d.dep === key) {
+                        const el = document.querySelector(`.control-row[data-id="${d.id}"]`);
+                        if(el) el.style.display = state[key] ? 'block' : 'none';
+                    }
+                });
+            }
+        }
+
+        /**
+         * ==========================================
+         * 7. MAIN BOOTSTRAP
+         * ==========================================
+         */
+        const config = new ConfigurationManager();
+        const grid = new GridManager(config);
+        const effects = new EffectSystem(config, grid);
+        const renderer = new CanvasRenderer('matrixCanvas', config, grid, effects);
+        new UIManager(config, effects);
+
+        let frame = 0;
+        function loop() {
+            frame++;
+            grid.update(frame);
+            effects.update(frame);
+            renderer.render();
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+
+    </script>
+</body>
+</html>
