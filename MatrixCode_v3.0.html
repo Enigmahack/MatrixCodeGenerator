@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matrix Digital Rain v3.0 (SOLID Architecture)</title>
+    <title>Matrix Digital Rain v3.5</title>
     <style>
         /* --- CSS RESET & BASE --- */
         :root {
@@ -13,6 +13,9 @@
             --text-main: #4ade80;
             --text-muted: #6ee7b7;
             --accent: #10b981;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --disabled: #374151;
         }
         body { overflow: hidden; background-color: var(--bg-color); margin: 0; font-family: monospace; }
         canvas { display: block; }
@@ -32,7 +35,7 @@
         #panelHeader { grid-column: 1 / 3; padding: 1.5rem; border-bottom: 1px solid rgba(6,95,70,0.5); }
         #navTabs { grid-column: 1 / 2; background: rgba(17,24,39,0.8); border-right: 1px solid rgba(6,95,70,0.5); overflow-y: auto; }
         #contentArea { grid-column: 2 / 3; padding: 1rem 1.5rem; overflow-y: auto; }
-        #panelFooter { grid-column: 1 / 3; padding: 1rem 1.5rem; border-top: 1px solid rgba(6,95,70,0.5); display: flex; gap: 0.5rem; }
+        #panelFooter { grid-column: 1 / 3; padding: 1rem 1.5rem; border-top: 1px solid rgba(6,95,70,0.5); display: flex; gap: 0.5rem; justify-content: flex-end; }
 
         /* --- COMPONENTS --- */
         .tab-btn { width: 100%; padding: 0.75rem 1rem; text-align: left; color: var(--text-main); background: none; border: none; cursor: pointer; transition: 0.2s; }
@@ -43,21 +46,43 @@
         .control-group.active { display: block; }
         
         .control-row { margin-bottom: 1.5rem; }
-        .control-header { display: flex; justify-content: space-between; color: var(--text-muted); margin-bottom: 0.5rem; }
+        .control-header { display: flex; justify-content: space-between; color: var(--text-muted); margin-bottom: 0.5rem; cursor: help; }
         
         /* Inputs */
         input[type="range"] { width: 100%; height: 0.5rem; background: #374151; border-radius: 0.5rem; appearance: none; accent-color: var(--accent); }
         input[type="color"] { width: 100%; height: 2.5rem; border: 1px solid var(--panel-border); border-radius: 0.5rem; background: none; padding: 0; cursor: pointer; }
         input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); cursor: pointer; }
+        input[type="file"] { display: none; }
         
+        /* Slot Inputs */
+        .slot-container { display: flex; gap: 0.125rem; align-items: center; margin-bottom: 1.0rem; }
+
+        .slot-name-input { 
+            flex: 0 0 25%;
+            background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); 
+            color: var(--text-main); padding: 0.5rem; border-radius: 0.25rem; 
+            font-family: monospace; 
+        }
+        .slot-name-input:focus { outline: none; border-color: var(--accent); }
+
         /* Buttons */
-        .action-btn { flex: 1; padding: 0.75rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; color: white; transition: 0.2s; border: 1px solid transparent; }
-        .btn-pulse { background: rgba(59, 130, 246, 0.5); border-color: rgba(37, 99, 235, 0.5); }
-        .btn-pulse:hover { background: rgba(37, 99, 235, 0.7); }
-        .btn-reset { background: rgba(185, 28, 28, 0.5); border-color: rgba(239, 68, 68, 0.5); }
-        .btn-reset:hover { background: rgba(220, 38, 38, 0.7); }
-        .btn-apply { width: 100%; margin-top: 1rem; background: rgba(4, 120, 87, 0.8); }
-        .btn-apply:hover { background: rgba(6, 95, 70, 0.9); }
+        .action-btn { width: 100%; padding: 0.75rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; color: white; transition: 0.2s; border: 1px solid transparent; margin-bottom: 0.5rem; }
+        
+        .btn-sm { padding: 0.5rem; width: auto; margin-bottom: 0; font-size: 0.75rem; }
+        .btn-default { background: rgba(4, 120, 87, 0.8); }
+        .btn-default:hover { background: rgba(6, 95, 70, 0.9); }
+        
+        .btn-info { background: rgba(59, 130, 246, 0.5); border-color: rgba(37, 99, 235, 0.5); }
+        .btn-info:hover { background: rgba(37, 99, 235, 0.7); }
+        
+        .btn-danger { background: rgba(185, 28, 28, 0.5); border-color: rgba(239, 68, 68, 0.5); }
+        .btn-danger:hover { background: rgba(220, 38, 38, 0.7); }
+
+        .btn-disabled { background: var(--disabled); color: #9ca3af; cursor: not-allowed; border-color: transparent; }
+
+        .status-msg { font-size: 0.75rem; margin-top: 0.5rem; text-align: center; min-height: 1.2em; }
+        .status-success { color: var(--text-main); }
+        .status-error { color: var(--danger); }
         
         /* Menu Toggle */
         #menuToggle { position: fixed; top: 1rem; right: 1rem; z-index: 30; padding: 0.75rem; color: var(--text-main); background: rgba(17,24,39,0.5); border: 1px solid var(--panel-border); border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -70,13 +95,14 @@
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
 
+    <input type="file" id="importFile" accept=".json" />
+
     <div id="settingsPanel">
-        <div id="panelHeader"><h2 style="margin:0; color:var(--text-main);">Digital Rain v3.0</h2></div>
+        <div id="panelHeader"><h2 style="margin:0; color:var(--text-main);">Digital Rain v3.6</h2></div>
         <div id="navTabs"></div>
         <div id="contentArea"></div>
         <div id="panelFooter">
-            <button id="btnPulse" class="action-btn btn-pulse">Trigger Pulse</button>
-            <button id="btnReset" class="action-btn btn-reset">Reset</button>
+            <div id="globalStatus" class="status-msg"></div>
         </div>
     </div>
 
@@ -86,6 +112,7 @@
          * 1. CORE UTILITIES & CONSTANTS
          * ==========================================
          */
+        const APP_VERSION = "3.6";
         const Utils = {
             randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
             randomFloat: (min, max) => Math.random() * (max - min) + min,
@@ -99,6 +126,17 @@
             getRandomChar: () => Utils.CHARS.charAt(Math.floor(Math.random() * Utils.CHARS.length)),
             getUniqueChar: (exclude) => {
                 let c; do { c = Utils.getRandomChar(); } while (c === exclude); return c;
+            },
+            downloadJson: (data, filename) => {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
         };
 
@@ -109,9 +147,15 @@
          */
         class ConfigurationManager {
             constructor() {
-                this.storageKey = 'matrix_config_v3';
+                this.storageKey = 'matrix_config_v3_3'; // Settings Key
+                this.slotsKey = 'matrix_slots_v1';      // Separate Slots Key (New)
+                
                 this.defaults = this._getDefaults();
                 this.state = { ...this.defaults };
+                
+                // Initialize Slots (Array of 5)
+                this.slots = this._loadSlots();
+
                 this.subscribers = [];
                 this.load();
                 this.updateDerivedValues();
@@ -120,22 +164,45 @@
             _getDefaults() {
                 return {
                     // Appearance
-                    streamColor: '#00ff00', streamSpeed: 14, trailGlow: 28, clearAlpha: 0.90,
-                    streamMinLength: 50, streamMaxLength: 140, decayDelayRows: 40, decayFadeDurationFrames: 36,
-                    holeRate: 0.15,
+                    streamColor: '#05ff2f', streamSpeed: 15, trailGlow: 28, clearAlpha: 0.90,
+                    streamMinLength: 30, streamMaxLength: 140, holeRate: 0.15,
+                    decayDelayRows: 40, decayFadeDurationFrames: 36,
+                    
                     // Brightness
-                    variableBrightnessEnabled: false, brightnessVariance: 15,
+                    variableBrightnessEnabled: true, brightnessVariance: 25,
+
                     // Tracers
-                    tracerColor: '#ffffff', tracerSizeIncrease: 8, tracerGlow: 20,
-                    tracerFadeInFrames: 3, tracerColorFadeFrames: 5,
+                    tracerColor: '#ffffff', tracerSizeIncrease: 4, tracerGlow: 15,
+                    tracerFadeInFrames: 1, tracerColorFadeFrames: 1,
+                    invertedTracerEnabled: true, invertedTracerChance: 0.20,
+
                     // Rotators
                     rotatorChance: 0.125, rotatorCycleFactor: 15, rotatorCrossfadeFrames: 8,
+                    
                     // Layout
                     fontSize: 24, cellSpacingFactor: 0.95, horizontalSpacingFactor: 1.15,
-                    // Effects: Pulse
-                    pulseEnabled: false, pulseFrequencySeconds: 30, pulsePreserveSpaces: false,
-                    pulseDelayFrames: 60, pulseDurationSeconds: 2.0, pulseRandomPosition: true
+                    
+                    // Effects
+                    pulseEnabled: true, pulseFrequencySeconds: 180, pulseDelayFrames: 60, 
+                    pulseDurationSeconds: 1.5, pulsePreserveSpaces: true, pulseRandomPosition: true
                 };
+            }
+
+            _loadSlots() {
+                try {
+                    const stored = localStorage.getItem(this.slotsKey);
+                    if (stored) return JSON.parse(stored);
+                } catch (e) { console.error("Slots load failed", e); }
+                
+                // Default empty slots
+                return Array(5).fill(null).map((_, i) => ({
+                    name: `Save Slot ${i + 1}`,
+                    data: null // Null means empty
+                }));
+            }
+
+            saveSlotsToStorage() {
+                try { localStorage.setItem(this.slotsKey, JSON.stringify(this.slots)); } catch (e) {}
             }
 
             load() {
@@ -153,7 +220,6 @@
 
             set(key, value) {
                 this.state[key] = value;
-                // Handle dependencies
                 if (key === 'streamMinLength') this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
                 if (key === 'streamMaxLength') this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
                 
@@ -169,8 +235,84 @@
                 this.notifySubscribers('ALL');
             }
 
+            // --- Slot Logic ---
+
+            saveToSlot(index) {
+                if(index < 0 || index >= 5) return;
+                const currentName = this.slots[index].name;
+                // Deep copy current state
+                this.slots[index] = {
+                    name: currentName,
+                    data: JSON.parse(JSON.stringify(this.state))
+                };
+                this.saveSlotsToStorage();
+            }
+
+            loadFromSlot(index) {
+                if(index < 0 || index >= 5) return false;
+                const slot = this.slots[index];
+                if (!slot.data) return false;
+
+                // Merge safe defaults + slot data
+                this.state = { ...this.defaults, ...slot.data };
+                this.updateDerivedValues();
+                this.save();
+                this.notifySubscribers('ALL');
+                return true;
+            }
+
+            renameSlot(index, newName) {
+                if(index < 0 || index >= 5) return;
+                this.slots[index].name = newName;
+                this.saveSlotsToStorage();
+            }
+
+            getSlots() {
+                return this.slots;
+            }
+
+            // --- Export / Import Logic ---
+
+            getExportData() {
+                return {
+                    version: APP_VERSION,
+                    timestamp: new Date().toISOString(),
+                    state: this.state
+                };
+            }
+
+            validateAndLoadImport(jsonString) {
+                try {
+                    const data = JSON.parse(jsonString);
+                    if (!data || typeof data !== 'object') throw new Error("Invalid JSON format.");
+                    if (!data.version || !data.state) throw new Error("File missing version or state data.");
+
+                    const cleanState = { ...this.state };
+                    const defaultKeys = Object.keys(this.defaults);
+                    let importCount = 0;
+
+                    for (const key of defaultKeys) {
+                        if (Object.prototype.hasOwnProperty.call(data.state, key)) {
+                            cleanState[key] = data.state[key];
+                            importCount++;
+                        }
+                    }
+
+                    if (importCount === 0) throw new Error("No valid settings found in file.");
+
+                    this.state = cleanState;
+                    this.updateDerivedValues();
+                    this.save();
+                    this.notifySubscribers('ALL');
+
+                    return { success: true, message: `Imported ${importCount} settings (v${data.version})` };
+
+                } catch (e) {
+                    return { success: false, message: e.message };
+                }
+            }
+
             updateDerivedValues() {
-                // Calculate performance-heavy or commonly used derived values once
                 const s = this.state;
                 this.derived = {
                     writingCycles: 21 - s.streamSpeed,
@@ -196,8 +338,8 @@
             constructor() {
                 this.char = Utils.getRandomChar();
                 this.nextChar = Utils.getRandomChar();
-                this.state = 0; // 0: Trail/Fade, >0: Tracer Head Lifecycle
-                this.decayAge = 0; // 0: Inactive, 1: Bright Trail, >2: Fading
+                this.state = 0; 
+                this.decayAge = 0; 
                 this.isRotator = false;
                 this.rotationProgress = 0;
                 this.brightnessFactor = null;
@@ -225,6 +367,7 @@
                 this.holes = new Set();
                 this.decayY = -1;
                 this.decayStarted = false;
+                this.isInverted = false; 
             }
 
             prepare() {
@@ -232,17 +375,22 @@
                 const maxHead = s.streamMaxLength;
                 this.length = Utils.randomInt(Math.min(s.streamMinLength, maxHead), maxHead);
                 
-                // Force long streams if screen is tall
                 if (this.length < this.gm.rows) this.length = Math.min(this.gm.rows + Utils.randomInt(1,10), maxHead);
                 
                 this.holes.clear();
                 for(let i=0; i<this.length; i++) {
                     if(Math.random() < s.holeRate) this.holes.add(i);
                 }
+
+                this.isInverted = false;
+                if (s.invertedTracerEnabled && Math.random() < s.invertedTracerChance) {
+                    this.isInverted = true;
+                }
                 
-                // Fast forward leading holes
                 this.written = 0;
-                while(this.written < this.length && this.holes.has(this.written)) this.written++;
+                if (!this.isInverted) {
+                    while(this.written < this.length && this.holes.has(this.written)) this.written++;
+                }
                 
                 this.active = true;
                 this.y = -1;
@@ -261,7 +409,6 @@
                 const d = this.gm.config.derived;
                 this.timer++;
 
-                // Update Eraser/Decay Tracer
                 if (this.written >= s.decayDelayRows && !this.decayStarted) {
                     this.decayY = this.y - s.decayDelayRows;
                     this.decayStarted = true;
@@ -273,7 +420,6 @@
                     this.timer = 0;
                 }
 
-                // Check Bounds
                 if (this.decayStarted && this.decayY >= this.gm.rows) {
                     this.active = false;
                     this.delay = Utils.randomInt(50, 150);
@@ -285,18 +431,20 @@
                 
                 this.y++;
                 if (this.y >= 0 && this.y < this.gm.rows) {
-                    const isChar = !this.holes.has(this.written);
+                    const isHole = this.holes.has(this.written);
+                    const shouldDraw = this.isInverted ? isHole : !isHole;
                     const cell = this.gm.getCell(this.x, this.y);
-                    if (isChar) {
+                    
+                    if (shouldDraw) {
                         cell.state = 1; // Start tracer
                         cell.decayAge = 1; // Prepare trail
                         cell.char = cell.nextChar;
                         cell.nextChar = Utils.getUniqueChar(cell.char);
                         cell.isRotator = Math.random() < s.rotatorChance;
-                        cell.brightnessFactor = null; // Reset brightness for new lifecycle
+                        cell.brightnessFactor = null; 
                     } else {
                         cell.state = 0;
-                        // Leave existing decayAge if expanding over existing
+                        cell.decayAge = 0; 
                     }
                 }
                 this.written++;
@@ -306,7 +454,7 @@
                 this.decayY++;
                 if (this.decayY >= 0 && this.decayY < this.gm.rows) {
                     const cell = this.gm.getCell(this.x, this.decayY);
-                    if (cell.decayAge === 1) cell.decayAge = 2; // Start fading
+                    if (cell.decayAge === 1) cell.decayAge = 2; 
                 }
             }
         }
@@ -341,32 +489,27 @@
             getCell(x, y) { return (y >= 0 && y < this.rows && x >= 0 && x < this.cols) ? this.grid[y][x] : null; }
 
             update(frame) {
-                // Stream Releases
                 if (this.releaseTimer <= 0) {
                     const available = this.streams.filter(s => !s.active && s.delay <= 0);
-                    // Prioritize columns that have been inactive longest (simple shuffle here)
                     available.sort(() => Math.random() - 0.5); 
                     
                     let count = 4; 
                     for(const s of available) {
                         if(count-- <= 0) break;
-                        // Check clear path
                         let clear = true;
                         for(let y=0; y < Math.min(this.rows, 40); y++) {
                             if(this.grid[y][s.x].decayAge > 0) { clear = false; break; }
                         }
                         if(clear) s.prepare();
-                        else s.delay = 20; // Wait briefly
+                        else s.delay = 20; 
                     }
                     this.releaseTimer = this.config.derived.writingCycles * 5;
                 } else {
                     this.releaseTimer--;
                 }
 
-                // Update Streams
                 this.streams.forEach(s => s.update(frame));
 
-                // Global Cell Aging & Rotation
                 const s = this.config.state;
                 const d = this.config.derived;
                 const cyclePhase = frame % d.rotatorCycleFrames;
@@ -376,7 +519,6 @@
                     for (let x = 0; x < this.cols; x++) {
                         const cell = this.grid[y][x];
                         
-                        // Lifecycle Aging
                         if (cell.state > 0) {
                             if (++cell.state > d.writingCycles) cell.state = 0;
                         }
@@ -384,11 +526,8 @@
                             if (++cell.decayAge > s.decayFadeDurationFrames + 2) cell.decayAge = 0;
                         }
 
-                        // Rotation
                         if (cell.isRotator && (cell.state > 0 || cell.decayAge === 1)) {
-                            // Logic to prevent rotation if cell above is fading (avoids disconnects)
                             const safe = y === 0 || this.grid[y-1][x].decayAge < 2;
-                            
                             if (cyclePhase === crossfadeStart && cell.rotationProgress === 0 && safe) {
                                 cell.rotationProgress = 1;
                                 cell.nextChar = Utils.getUniqueChar(cell.char);
@@ -401,8 +540,6 @@
                                 }
                             }
                         }
-                        
-                        // Lazy Init Brightness
                         cell.resetBrightness(this.config);
                     }
                 }
@@ -418,16 +555,15 @@
             constructor(config, gridManager) { this.config = config; this.gm = gridManager; this.active = false; }
             trigger() {}
             update(frame) {}
-            // Returns 'LIVE', 'FROZEN', or 'OVERRIDE' to tell Renderer what to draw
             getRenderMode(x, y) { return 'LIVE'; } 
-            getOverrideData(x, y) { return null; } // Returns { char, color, glow } if mode is OVERRIDE
+            getOverrideData(x, y) { return null; } 
         }
 
         class PulseEffect extends BaseEffect {
             constructor(config, gm) {
                 super(config, gm);
                 this.snapshot = [];
-                this.state = 'IDLE'; // IDLE, WAITING, EXPANDING
+                this.state = 'IDLE'; 
                 this.timer = 0;
                 this.radius = 0;
                 this.origin = {x:0, y:0};
@@ -450,28 +586,24 @@
                 const rows = this.gm.rows;
                 const cols = this.gm.cols;
 
-                // 1. Snapshot & Darken
                 this.snapshot = new Array(rows).fill(0).map(() => new Array(cols));
                 for(let y=0; y<rows; y++) {
                     for(let x=0; x<cols; x++) {
-                        // Note: We store minimal data to reconstruct the "Dark" look
                         const cell = this.gm.getCell(x,y);
                         this.snapshot[y][x] = {
                             char: cell.char,
                             isEmpty: (cell.state === 0 && cell.decayAge === 0),
-                            color: RendererHelpers.getCellColor(cell, this.config, 0.25) // Pre-darken
+                            color: RendererHelpers.getCellColor(cell, this.config, 0.25) 
                         };
                     }
                 }
 
-                // 2. Origin
                 if(s.pulseRandomPosition) {
                     this.origin = { x: Utils.randomInt(cols*0.2, cols*0.8), y: Utils.randomInt(rows*0.2, rows*0.8) };
                 } else {
                     this.origin = { x: Math.floor(cols/2), y: Math.floor(rows/2) };
                 }
 
-                // 3. Calc Speed
                 const maxDist = Math.max(Math.max(this.origin.x, cols-this.origin.x), Math.max(this.origin.y, rows-this.origin.y));
                 const duration = Math.max(1, s.pulseDurationSeconds * 60);
                 this.speed = (maxDist + 10) / duration;
@@ -509,21 +641,20 @@
 
                 const dx = Math.abs(x - this.origin.x);
                 const dy = Math.abs(y - this.origin.y);
-                const dist = Math.max(dx, dy); // Chebyshev distance for squares
+                const dist = Math.max(dx, dy); 
 
                 const band = 6;
                 if(dist > this.radius) return 'FROZEN';
-                if(dist > this.radius - band) return 'OVERRIDE'; // The white pulse
-                return 'LIVE'; // Inner reveal
+                if(dist > this.radius - band) return 'OVERRIDE'; 
+                return 'LIVE'; 
             }
 
             getOverrideData(x, y) {
                 if(this.config.state.pulsePreserveSpaces) {
-                    if(this.snapshot[y][x].isEmpty) return null; // Don't draw tracer in empty space
+                    if(this.snapshot[y][x].isEmpty) return null; 
                 }
                 const cell = this.gm.getCell(x,y);
                 const d = this.config.derived;
-                // Return full opacity tracer color
                 return {
                     char: cell.char,
                     color: Utils.rgbaString(d.tracerRgb, 1.0),
@@ -535,169 +666,6 @@
             
             getFrozenData(x, y) {
                 return this.snapshot[y][x];
-            }
-        }
-
-        /**
-         * ==========================================
-         * 5. RENDERER (Presentation Layer)
-         * ==========================================
-         */
-        const RendererHelpers = {
-            getCellColor: (cell, config, opacityMult = 1.0) => {
-                const s = config.state;
-                const d = config.derived;
-                let rgb = d.streamRgb;
-                let a = 0;
-
-                // Tracer Head
-                if (cell.state > 0) {
-                    rgb = d.tracerRgb;
-                    const fadeIn = Math.max(1, s.tracerFadeInFrames);
-                    const colorFadeStart = d.writingCycles - s.tracerColorFadeFrames;
-                    
-                    if (cell.state <= fadeIn) {
-                        a = cell.state / fadeIn;
-                    } else if (cell.state >= colorFadeStart) {
-                        // Interpolate back to stream color
-                        const progress = (cell.state - colorFadeStart) / Math.max(1, d.writingCycles - colorFadeStart);
-                        rgb = {
-                            r: Math.round(d.tracerRgb.r + (d.streamRgb.r - d.tracerRgb.r) * progress),
-                            g: Math.round(d.tracerRgb.g + (d.streamRgb.g - d.tracerRgb.g) * progress),
-                            b: Math.round(d.tracerRgb.b + (d.streamRgb.b - d.tracerRgb.b) * progress)
-                        };
-                        a = 1.0;
-                    } else {
-                        a = 1.0;
-                    }
-                } 
-                // Persistent Trail
-                else if (cell.decayAge === 1) {
-                    a = 0.95;
-                } 
-                // Fading Out
-                else if (cell.decayAge >= 2) {
-                    const fadeAge = cell.decayAge - 2;
-                    a = 0.95 * (1 - (fadeAge / s.decayFadeDurationFrames));
-                }
-
-                if (a <= 0) return 'rgba(0,0,0,0)';
-                
-                // Apply Brightness Variance
-                if(cell.brightnessFactor) a *= cell.brightnessFactor;
-                
-                return Utils.rgbaString(rgb, Math.max(0, a * opacityMult));
-            }
-        };
-
-        class CanvasRenderer {
-            constructor(canvasId, config, gridManager, effectSystem) {
-                this.canvas = document.getElementById(canvasId);
-                this.ctx = this.canvas.getContext('2d', { alpha: false }); // Optimization
-                this.config = config;
-                this.gm = gridManager;
-                this.effects = effectSystem;
-                this.width = 0;
-                this.height = 0;
-                
-                window.addEventListener('resize', () => this.resize());
-                this.resize();
-            }
-
-            resize() {
-                this.width = window.innerWidth;
-                this.height = window.innerHeight;
-                this.canvas.width = this.width;
-                this.canvas.height = this.height;
-                this.ctx.textBaseline = 'middle';
-                this.ctx.textAlign = 'center';
-                this.gm.resize(this.width, this.height);
-            }
-
-            render() {
-                const s = this.config.state;
-                const d = this.config.derived;
-                
-                // 1. Clear Screen
-                this.ctx.fillStyle = `rgba(0, 0, 0, ${s.clearAlpha})`;
-                this.ctx.fillRect(0, 0, this.width, this.height);
-
-                // 2. Pre-calc context settings
-                const baseFont = `bold ${s.fontSize}px 'Inter', monospace`;
-                const largeFont = `bold ${s.fontSize + s.tracerSizeIncrease}px 'Inter', monospace`;
-                
-                this.ctx.save();
-                // Matrix Rain Standard Mirroring
-                this.ctx.scale(-1, 1);
-                this.ctx.translate(-this.width, 0);
-
-                // Get Active Effect
-                const effect = this.effects.getActive();
-                
-                // Single Pass Rendering loop for efficiency
-                for (let y = 0; y < this.gm.rows; y++) {
-                    // Calculate Y position once per row
-                    const yPos = y * d.cellHeight + d.cellHeight/2;
-                    
-                    for (let x = 0; x < this.gm.cols; x++) {
-                        // Determine Render Mode
-                        const mode = effect ? effect.getRenderMode(x, y) : 'LIVE';
-                        
-                        const xPos = x * d.cellWidth + d.cellWidth/2;
-                        
-                        if (mode === 'FROZEN') {
-                            const data = effect.getFrozenData(x, y);
-                            if (data && !data.isEmpty) {
-                                this.ctx.font = baseFont;
-                                this.ctx.fillStyle = data.color;
-                                this.ctx.shadowBlur = 0;
-                                this.ctx.fillText(data.char, xPos, yPos);
-                            }
-                        }
-                        else if (mode === 'OVERRIDE') {
-                            const data = effect.getOverrideData(x, y);
-                            if (data) {
-                                this.ctx.font = largeFont;
-                                this.ctx.fillStyle = data.color;
-                                this.ctx.shadowBlur = data.glow;
-                                this.ctx.shadowColor = data.shadowColor;
-                                this.ctx.fillText(data.char, xPos, yPos);
-                            }
-                        }
-                        else { // LIVE
-                            const cell = this.gm.getCell(x, y);
-                            // Standard Render Logic
-                            if (cell.state > 0 || cell.decayAge > 0) {
-                                // Handle Rotator Crossfade
-                                if (cell.isRotator && cell.rotationProgress > 0) {
-                                    // Complex crossfade rendering
-                                    this.ctx.font = baseFont;
-                                    this.ctx.shadowBlur = s.trailGlow;
-                                    this.ctx.shadowColor = s.streamColor;
-                                    const prog = cell.rotationProgress / s.rotatorCrossfadeFrames;
-                                    
-                                    // Old Char
-                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, 1.0 - prog);
-                                    this.ctx.fillText(cell.char, xPos, yPos);
-                                    
-                                    // New Char
-                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, prog);
-                                    this.ctx.fillText(cell.nextChar, xPos, yPos);
-                                } 
-                                else {
-                                    const isHead = cell.state > 0;
-                                    this.ctx.font = isHead ? largeFont : baseFont;
-                                    this.ctx.shadowBlur = isHead ? s.tracerGlow : s.trailGlow;
-                                    this.ctx.shadowColor = isHead ? s.tracerColor : s.streamColor; // Optimization: could cache this
-                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config);
-                                    this.ctx.fillText(cell.char, xPos, yPos);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                this.ctx.restore();
             }
         }
 
@@ -722,6 +690,150 @@
 
         /**
          * ==========================================
+         * 5. RENDERER (Presentation Layer)
+         * ==========================================
+         */
+        const RendererHelpers = {
+            getCellColor: (cell, config, opacityMult = 1.0) => {
+                const s = config.state;
+                const d = config.derived;
+                let rgb = d.streamRgb;
+                let a = 0;
+
+                if (cell.state > 0) {
+                    rgb = d.tracerRgb;
+                    const fadeIn = Math.max(1, s.tracerFadeInFrames);
+                    const colorFadeStart = d.writingCycles - s.tracerColorFadeFrames;
+                    
+                    if (cell.state <= fadeIn) {
+                        a = cell.state / fadeIn;
+                    } else if (cell.state >= colorFadeStart) {
+                        const progress = (cell.state - colorFadeStart) / Math.max(1, d.writingCycles - colorFadeStart);
+                        rgb = {
+                            r: Math.round(d.tracerRgb.r + (d.streamRgb.r - d.tracerRgb.r) * progress),
+                            g: Math.round(d.tracerRgb.g + (d.streamRgb.g - d.tracerRgb.g) * progress),
+                            b: Math.round(d.tracerRgb.b + (d.streamRgb.b - d.tracerRgb.b) * progress)
+                        };
+                        a = 1.0;
+                    } else {
+                        a = 1.0;
+                    }
+                } 
+                else if (cell.decayAge === 1) {
+                    a = 0.95;
+                } 
+                else if (cell.decayAge >= 2) {
+                    const fadeAge = cell.decayAge - 2;
+                    a = 0.95 * (1 - (fadeAge / s.decayFadeDurationFrames));
+                }
+
+                if (a <= 0) return 'rgba(0,0,0,0)';
+                if(cell.brightnessFactor) a *= cell.brightnessFactor;
+                
+                return Utils.rgbaString(rgb, Math.max(0, a * opacityMult));
+            }
+        };
+
+        class CanvasRenderer {
+            constructor(canvasId, config, gridManager, effectSystem) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d', { alpha: false }); 
+                this.config = config;
+                this.gm = gridManager;
+                this.effects = effectSystem;
+                this.width = 0;
+                this.height = 0;
+                
+                window.addEventListener('resize', () => this.resize());
+                this.resize();
+            }
+
+            resize() {
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                this.canvas.width = this.width;
+                this.canvas.height = this.height;
+                this.ctx.textBaseline = 'middle';
+                this.ctx.textAlign = 'center';
+                this.gm.resize(this.width, this.height);
+            }
+
+            render() {
+                const s = this.config.state;
+                const d = this.config.derived;
+                
+                this.ctx.fillStyle = `rgba(0, 0, 0, ${s.clearAlpha})`;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                const baseFont = `bold ${s.fontSize}px 'Inter', monospace`;
+                const largeFont = `bold ${s.fontSize + s.tracerSizeIncrease}px 'Inter', monospace`;
+                
+                this.ctx.save();
+                this.ctx.scale(-1, 1);
+                this.ctx.translate(-this.width, 0);
+
+                const effect = this.effects.getActive();
+                
+                for (let y = 0; y < this.gm.rows; y++) {
+                    const yPos = y * d.cellHeight + d.cellHeight/2;
+                    
+                    for (let x = 0; x < this.gm.cols; x++) {
+                        const mode = effect ? effect.getRenderMode(x, y) : 'LIVE';
+                        const xPos = x * d.cellWidth + d.cellWidth/2;
+                        
+                        if (mode === 'FROZEN') {
+                            const data = effect.getFrozenData(x, y);
+                            if (data && !data.isEmpty) {
+                                this.ctx.font = baseFont;
+                                this.ctx.fillStyle = data.color;
+                                this.ctx.shadowBlur = 0;
+                                this.ctx.fillText(data.char, xPos, yPos);
+                            }
+                        }
+                        else if (mode === 'OVERRIDE') {
+                            const data = effect.getOverrideData(x, y);
+                            if (data) {
+                                this.ctx.font = largeFont;
+                                this.ctx.fillStyle = data.color;
+                                this.ctx.shadowBlur = data.glow;
+                                this.ctx.shadowColor = data.shadowColor;
+                                this.ctx.fillText(data.char, xPos, yPos);
+                            }
+                        }
+                        else { 
+                            const cell = this.gm.getCell(x, y);
+                            if (cell.state > 0 || cell.decayAge > 0) {
+                                if (cell.isRotator && cell.rotationProgress > 0) {
+                                    this.ctx.font = baseFont;
+                                    this.ctx.shadowBlur = s.trailGlow;
+                                    this.ctx.shadowColor = s.streamColor;
+                                    const prog = cell.rotationProgress / s.rotatorCrossfadeFrames;
+                                    
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, 1.0 - prog);
+                                    this.ctx.fillText(cell.char, xPos, yPos);
+                                    
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config, prog);
+                                    this.ctx.fillText(cell.nextChar, xPos, yPos);
+                                } 
+                                else {
+                                    const isHead = cell.state > 0;
+                                    this.ctx.font = isHead ? largeFont : baseFont;
+                                    this.ctx.shadowBlur = isHead ? s.tracerGlow : s.trailGlow;
+                                    this.ctx.shadowColor = isHead ? s.tracerColor : s.streamColor; 
+                                    this.ctx.fillStyle = RendererHelpers.getCellColor(cell, this.config);
+                                    this.ctx.fillText(cell.char, xPos, yPos);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.ctx.restore();
+            }
+        }
+
+        /**
+         * ==========================================
          * 6. UI MANAGER (Interaction Layer)
          * ==========================================
          */
@@ -734,36 +846,59 @@
                     toggle: document.getElementById('menuToggle'),
                     tabs: document.getElementById('navTabs'),
                     content: document.getElementById('contentArea'),
-                    reset: document.getElementById('btnReset'),
-                    pulse: document.getElementById('btnPulse')
+                    globalStatus: document.getElementById('globalStatus'),
+                    fileInput: document.getElementById('importFile')
                 };
                 
                 this.defs = [
-                    { category: 'Appearance', id: 'streamColor', type: 'color', label: 'Stream Color' },
-                    { category: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness' },
-                    { category: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
-                    { category: 'Appearance', id: 'streamSpeed', type: 'range', label: 'Speed', min: 1, max: 20 },
-                    { category: 'Appearance', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 10, max: 300 },
-                    { category: 'Appearance', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 10, max: 300 },
-                    { category: 'Appearance', id: 'holeRate', type: 'range', label: 'Hole Rate', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%' },
+                    { category: 'Appearance', id: 'streamColor', type: 'color', label: 'Stream Color', desc: 'Sets the primary color of the code trails.' },
+                    { category: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', desc: 'Toggles random brightness variations for individual characters.' },
+                    { category: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled', desc: 'How much dimmer characters can randomly be (0-90%).' },
+                    { category: 'Appearance', id: 'streamSpeed', type: 'range', label: 'Speed', min: 1, max: 20, desc: 'Controls how fast the characters fall.' },
+                    { category: 'Appearance', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 10, max: 300, desc: 'The minimum length of a code trail.' },
+                    { category: 'Appearance', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 10, max: 300, desc: 'The maximum length of a code trail.' },
+                    { category: 'Appearance', id: 'holeRate', type: 'range', label: 'Hole Rate', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', desc: 'The percentage of gaps (black spaces) within a code trail.' },
                     
-                    { category: 'Tracers', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
-                    { category: 'Tracers', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
-                    { category: 'Tracers', id: 'tracerGlow', type: 'range', label: 'Glow', min: 0, max: 50, unit:'px' },
+                    { category: 'Appearance', id: 'decayDelayRows', type: 'range', label: 'Eraser Start Delay', min: 5, max: 200, desc: 'Length of the trail before fading starts.' },
+                    { category: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Eraser Fade Speed', min: 1, max: 120, unit:'fr', desc: 'How quickly the characters fade out once the eraser starts.' },
 
-                    { category: 'Rotators', id: 'rotatorChance', type: 'range', label: 'Chance', min: 0, max: 0.2, step: 0.01, transform: v=>(v*100).toFixed(1)+'%' },
-                    { category: 'Rotators', id: 'rotatorCycleFactor', type: 'range', label: 'Speed Factor', min: 1, max: 20 },
+                    { category: 'Tracers', id: 'tracerColor', type: 'color', label: 'Tracer Color', desc: 'The color of the leading character (and the Pulse effect).' },
+                    { category: 'Tracers', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px', desc: 'How much larger the leading character is compared to the trail.' },
+                    { category: 'Tracers', id: 'tracerGlow', type: 'range', label: 'Glow', min: 0, max: 50, unit:'px', desc: 'The intensity of the blur/glow around the leading character.' },
+                    { category: 'Tracers', id: 'tracerFadeInFrames', type: 'range', label: 'Fade In Speed', min: 0, max: 10, unit: 'fr', desc: 'How many frames it takes for a new tracer to reach full brightness (creates pre-fadein illusion).' },
+                    { category: 'Tracers', id: 'tracerColorFadeFrames', type: 'range', label: 'Color Fade Speed', min: 0, max: 20, unit: 'fr', desc: 'How many frames it takes for the tracer white to fade into the stream color.' },
                     
-                    { category: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulse' },
-                    { category: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, unit: 's', dep: 'pulseEnabled' },
-                    { category: 'Effects', id: 'pulseDelayFrames', type: 'range', label: 'Delay', min: 0, max: 180, unit: 'fr', dep: 'pulseEnabled' },
-                    { category: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 5, step: 0.5, unit: 's', dep: 'pulseEnabled' },
-                    { category: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
-                    { category: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Position', dep: 'pulseEnabled' },
+                    { category: 'Tracers', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Enable Inverted', desc: 'Enables a special tracer type that writes characters only where gaps would be.' },
+                    { category: 'Tracers', id: 'invertedTracerChance', type: 'range', label: 'Inverted Chance', min: 0.05, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', dep: 'invertedTracerEnabled', desc: 'The percentage of new streams that will start as inverted tracers.' },
 
-                    { category: 'Layout', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 60, unit: 'px', onUpdate: 'layout' },
-                    { category: 'Layout', id: 'horizontalSpacingFactor', type: 'range', label: 'H-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout' },
-                    { category: 'Layout', id: 'cellSpacingFactor', type: 'range', label: 'V-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout' },
+                    { category: 'Rotators', id: 'rotatorChance', type: 'range', label: 'Chance', min: 0, max: 0.2, step: 0.01, transform: v=>(v*100).toFixed(1)+'%', desc: 'Probability that a character will randomly change over time.' },
+                    { category: 'Rotators', id: 'rotatorCycleFactor', type: 'range', label: 'Speed Factor', min: 1, max: 20, desc: 'How frequently rotators change their character.' },
+                    
+                    { category: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulse', desc: 'Enables the random screen-freeze and pulse effect.' },
+                    { category: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, unit: 's', dep: 'pulseEnabled', desc: 'Minimum time between automatic pulses.' },
+                    { category: 'Effects', id: 'pulseDelayFrames', type: 'range', label: 'Delay', min: 0, max: 180, unit: 'fr', dep: 'pulseEnabled', desc: 'How long the screen stays frozen before the pulse expands.' },
+                    { category: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 5, step: 0.5, unit: 's', dep: 'pulseEnabled', desc: 'How long the pulse wave takes to cross the screen.' },
+                    { category: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', desc: 'If checked, the pulse wave will not light up empty black spaces.' },
+                    { category: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Position', dep: 'pulseEnabled', desc: 'If checked, the pulse starts at a random location instead of the center.' },
+
+                    { category: 'Layout', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 60, unit: 'px', onUpdate: 'layout', desc: 'The base size of the text.' },
+                    { category: 'Layout', id: 'horizontalSpacingFactor', type: 'range', label: 'H-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout', desc: 'Horizontal distance between columns.' },
+                    { category: 'Layout', id: 'cellSpacingFactor', type: 'range', label: 'V-Spacing', min: 0.5, max: 2, step: 0.05, onUpdate: 'layout', desc: 'Vertical distance between characters.' },
+                
+                    // Save Slots
+                    { category: 'Presets', id: 'slot0', type: 'slot', index: 0, label: 'Slot 1' },
+                    { category: 'Presets', id: 'slot1', type: 'slot', index: 1, label: 'Slot 2' },
+                    { category: 'Presets', id: 'slot2', type: 'slot', index: 2, label: 'Slot 3' },
+                    { category: 'Presets', id: 'slot3', type: 'slot', index: 3, label: 'Slot 4' },
+                    { category: 'Presets', id: 'slot4', type: 'slot', index: 4, label: 'Slot 5' },
+
+                    // Export/Import
+                    { category: 'Presets', id: 'btnExport', type: 'button', label: 'Export Settings', btnClass: 'btn-info', action: 'export', desc: 'Download current settings as a JSON file.' },
+                    { category: 'Presets', id: 'btnImport', type: 'button', label: 'Import Settings', btnClass: 'btn-default', action: 'import', desc: 'Load settings from a JSON file.' },
+                    
+                    // Debugging
+                    { category: 'Debugging', id: 'btnTriggerPulse', type: 'button', label: 'Trigger Pulse', btnClass: 'btn-info', action: 'pulse', desc: 'Manually triggers the Pulse effect immediately.' },
+                    { category: 'Debugging', id: 'btnForceReset', type: 'button', label: 'Factory Reset', btnClass: 'btn-danger', action: 'reset', desc: 'Resets all settings to defaults.' },
                 ];
 
                 this.init();
@@ -775,11 +910,8 @@
                     this.elements.panel.classList.toggle('open');
                 });
 
-                // Buttons
-                this.elements.reset.addEventListener('click', () => {
-                    if(confirm('Reset all settings?')) this.config.reset();
-                });
-                this.elements.pulse.addEventListener('click', () => this.effects.triggerPulse());
+                // File Input Handler
+                this.elements.fileInput.addEventListener('change', (e) => this.handleImport(e));
 
                 // Build UI
                 this.buildTabs();
@@ -813,8 +945,9 @@
                     // Special Apply Button for Layout
                     if(cat === 'Layout') {
                         const applyBtn = document.createElement('button');
-                        applyBtn.className = 'action-btn btn-apply';
+                        applyBtn.className = 'action-btn btn-default';
                         applyBtn.textContent = 'Apply Layout Changes';
+                        applyBtn.title = "Forces a re-calculation of the grid to apply new font/spacing settings.";
                         applyBtn.onclick = () => window.dispatchEvent(new Event('resize'));
                         container.appendChild(applyBtn);
                     }
@@ -832,9 +965,68 @@
             }
 
             createControl(def) {
+                if (def.type === 'button') {
+                    const btn = document.createElement('button');
+                    btn.className = `action-btn ${def.btnClass || 'btn-default'}`;
+                    btn.textContent = def.label;
+                    if(def.desc) btn.title = def.desc;
+                    btn.onclick = () => this.handleAction(def.action);
+                    return btn;
+                }
+
+                if (def.type === 'slot') {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'control-row';
+                    
+                    const header = document.createElement('div');
+                    header.className = 'control-header';
+                    header.textContent = `Save Slot ${def.index + 1}`;
+                    wrapper.appendChild(header);
+
+                    const container = document.createElement('div');
+                    container.className = 'slot-container';
+                    
+                    // Name Input
+                    const nameInput = document.createElement('input');
+                    nameInput.type = 'text';
+                    nameInput.className = 'slot-name-input';
+                    nameInput.value = this.config.slots[def.index].name;
+                    nameInput.onchange = (e) => this.config.renameSlot(def.index, e.target.value);
+
+                    // Save Button
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'action-btn btn-sm btn-info';
+                    saveBtn.textContent = 'SAVE';
+                    saveBtn.title = 'Overwrite this slot with current settings';
+                    saveBtn.onclick = () => {
+                        this.config.saveToSlot(def.index);
+                        this.refreshUI('ALL', this.config.state); // To update load btn state
+                        this.showStatus(`Saved to ${this.config.slots[def.index].name}`, 'success');
+                    };
+
+                    // Load Button
+                    const loadBtn = document.createElement('button');
+                    const isEmpty = !this.config.slots[def.index].data;
+                    loadBtn.className = `action-btn btn-sm ${isEmpty ? 'btn-disabled' : 'btn-default'}`;
+                    loadBtn.textContent = 'LOAD';
+                    loadBtn.title = isEmpty ? 'Empty Slot' : 'Load settings from this slot';
+                    loadBtn.disabled = isEmpty;
+                    loadBtn.id = `load-btn-${def.index}`;
+                    loadBtn.onclick = () => {
+                        if(this.config.loadFromSlot(def.index)) {
+                            this.showStatus(`Loaded ${this.config.slots[def.index].name}`, 'success');
+                        }
+                    };
+
+                    container.append(nameInput, saveBtn, loadBtn);
+                    wrapper.appendChild(container);
+                    return wrapper;
+                }
+
                 const wrapper = document.createElement('div');
                 wrapper.className = 'control-row';
                 wrapper.dataset.id = def.id;
+                if(def.desc) wrapper.title = def.desc;
                 
                 // Header
                 const header = document.createElement('div');
@@ -887,7 +1079,7 @@
 
             refreshUI(key, state) {
                 if(key === 'ALL') {
-                    // Re-sync everything (e.g. after Reset)
+                    // Re-sync everything (e.g. after Reset or Import)
                     this.elements.content.innerHTML = '';
                     this.elements.tabs.innerHTML = '';
                     this.buildTabs();
@@ -896,7 +1088,7 @@
 
                 // Update specific input if changed externally
                 const def = this.defs.find(d => d.id === key);
-                if(def) {
+                if(def && def.type !== 'button' && def.type !== 'slot') {
                     const input = document.getElementById(`in-${key}`);
                     const display = document.getElementById(`val-${key}`);
                     if(input) {
@@ -913,6 +1105,47 @@
                         if(el) el.style.display = state[key] ? 'block' : 'none';
                     }
                 });
+            }
+
+            handleAction(action) {
+                if (action === 'pulse') {
+                    this.effects.triggerPulse();
+                } else if (action === 'reset') {
+                    if(confirm("Are you sure you want to reset all settings?")) this.config.reset();
+                } else if (action === 'export') {
+                    const data = this.config.getExportData();
+                    const filename = `matrix_rain_config_v${data.version}_${Date.now()}.json`;
+                    Utils.downloadJson(data, filename);
+                    this.showStatus("Settings exported successfully.", "success");
+                } else if (action === 'import') {
+                    this.elements.fileInput.click();
+                }
+            }
+
+            handleImport(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const result = this.config.validateAndLoadImport(e.target.result);
+                    if (result.success) {
+                        this.showStatus(result.message, "success");
+                    } else {
+                        this.showStatus("Import Failed: " + result.message, "error");
+                    }
+                    // Reset input so same file can be selected again if needed
+                    this.elements.fileInput.value = '';
+                };
+                reader.readAsText(file);
+            }
+
+            showStatus(msg, type) {
+                this.elements.globalStatus.textContent = msg;
+                this.elements.globalStatus.className = `status-msg status-${type}`;
+                setTimeout(() => {
+                    this.elements.globalStatus.textContent = '';
+                }, 4000);
             }
         }
 
