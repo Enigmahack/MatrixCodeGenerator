@@ -4,6 +4,8 @@ A customizable, somewhat performant, canvas-based recreation of the iconic digit
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. 
 No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt. 
 
+<img width="1277" height="688" alt="image" src="https://github.com/user-attachments/assets/8e415409-2263-4365-b367-b4a7a9908b73" />
+
 ## ✨ Features
 
 This simulation offers some customizations through an integrated settings panel accessible via the **Settings (Gear) icon** in the top-right corner.
