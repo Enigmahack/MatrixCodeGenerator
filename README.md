@@ -1,4 +1,4 @@
-# 💻 Digital Rain Simulation v3.5
+# 💻 Matrix Digital Rain Simulation v3.5
 
 A customizable, somewhat performant, canvas-based recreation of the iconic digital rain effect, complete with dynamic effects, variable character decay, and a basic GUI for live configuration.
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. 
