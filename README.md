@@ -1,10 +1,10 @@
-# 💻 Matrix Digital Rain Simulation v4.5
+# 💻 Matrix Digital Rain Simulation v4.6
 
 A customizable, somewhat performant, canvas-based recreation of the iconic digital rain effect, complete with dynamic effects, variable character decay, and a basic GUI for live configuration.
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. 
 No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt. 
 
-<img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/16a59d7d-7428-479e-bb1e-432d5f15bd5c" />
+<img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/333084bb-e845-4eae-9bbf-9ffd1ab30210" />
 
 ## ✨ Features
 
