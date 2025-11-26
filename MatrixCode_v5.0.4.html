@@ -128,7 +128,9 @@
     <canvas id="bloomCanvas" style="display:none;"></canvas>
 
     <button id="menuToggle">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"></path>
+        </svg>
     </button>
     <input type="file" id="importFile" accept=".json" style="display:none;" />
 
@@ -161,7 +163,7 @@
             }
         };
 
-        // --- 2. CONFIGURATION MANAGER (Logic-less) ---
+        // --- 2. CONFIGURATION MANAGER (Optimized) ---
         class ConfigurationManager {
             constructor() {
                 this.storageKey = 'matrix_config_v5_4'; 
@@ -230,7 +232,14 @@
                 this.updateDerivedValues(); this.save(); this.notify(key);
             }
             reset() { this.state = { ...this.defaults }; this.updateDerivedValues(); this.save(); this.notify('ALL'); }
-            saveToSlot(i) { this.slots[i] = { name: this.slots[i].name, data: JSON.parse(JSON.stringify(this.state)) }; this.saveSlots(); }
+            
+            // Optimization: Using structuredClone for cleaner deep copies if available
+            saveToSlot(i) { 
+                const data = typeof structuredClone === 'function' ? structuredClone(this.state) : JSON.parse(JSON.stringify(this.state));
+                this.slots[i] = { name: this.slots[i].name, data: data }; 
+                this.saveSlots(); 
+            }
+            
             loadFromSlot(i) { if(!this.slots[i].data) return false; this.state = { ...this.defaults, ...this.slots[i].data }; this.updateDerivedValues(); this.save(); this.notify('ALL'); return true; }
             renameSlot(i, n) { this.slots[i].name = n; this.saveSlots(); }
             subscribe(cb) { this.subscribers.push(cb); }
@@ -241,7 +250,7 @@
                 const cycleDur = 21 - s.streamSpeed;
                 this.derived = {
                     cycleDuration: cycleDur,
-                    safeAttack: Math.min(s.tracerAttackFrames, cycleDur),
+                    safeAttack: Math.max(1, Math.min(s.tracerAttackFrames, cycleDur)),
                     safeRelease: Math.min(s.tracerReleaseFrames, cycleDur),
                     holdFrames: Math.max(0, s.tracerHoldFrames),
                     maxState: cycleDur + Math.max(0, s.tracerHoldFrames) + cycleDur,
@@ -307,6 +316,7 @@
             }
             
             resize() {
+                // Only resize streams if grid size changed
                 if (this.streams.length !== this.grid.cols) {
                     this.streams = Array(this.grid.cols).fill(null).map((_, i) => ({
                         x: i, y: -1, active: false, delay: Utils.randomInt(0, 200),
@@ -573,6 +583,13 @@
                 }
                 if(!this.active) return;
                 
+                // If grid size mismatches snapshot size, kill the pulse immediately
+                if (this.snap.length !== this.g.rows || (this.snap.length > 0 && this.snap[0].length !== this.g.cols)) {
+                    this.active = false;
+                    this.snap = [];
+                    return;
+                }
+                
                 if(this.state==='WAITING') { 
                     if(--this.timer<=0) this.state='EXPANDING'; 
                 } else {
@@ -640,7 +657,12 @@
                 this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
                 this.grid = grid; this.config = config;
                 
-                window.addEventListener('resize', () => this.resize());
+                // Optimization: Debounced Resize Listener
+                this.resizeTimer = null;
+                window.addEventListener('resize', () => {
+                    clearTimeout(this.resizeTimer);
+                    this.resizeTimer = setTimeout(() => this.resize(), 100);
+                });
                 
                 this.config.subscribe((k, s) => {
                     if (k === 'smoothingEnabled' || k === 'smoothingAmount' || k === 'ALL') {
@@ -686,8 +708,10 @@
                 this.ctx.fillRect(0, 0, this.w, this.h);
                 if (bloom) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
 
-                const font = `bold ${s.fontSize}px 'Segoe UI', monospace`;
-                this.ctx.font = font;
+                const fontBase = `bold ${s.fontSize}px 'Segoe UI', monospace`;
+                let currentFont = fontBase; // Optimization: Cache font state
+                
+                this.ctx.font = fontBase;
                 this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'center';
                 
                 this.ctx.save(); 
@@ -695,7 +719,7 @@
                 this.ctx.translate(-this.w, 0);
                 
                 if (bloom) {
-                    this.bloomCtx.font = font;
+                    this.bloomCtx.font = fontBase;
                     this.bloomCtx.textBaseline = 'middle'; this.bloomCtx.textAlign = 'center';
                     this.bloomCtx.save(); 
                     this.bloomCtx.scale(scale, scale); 
@@ -703,7 +727,7 @@
                     this.bloomCtx.translate(-this.w, 0);
                 }
 
-                // --- BATCH 1: TRAILS & DISSOLVE EFFECT (UPDATED FOR CROSS-FADE) ---
+                // --- BATCH 1: TRAILS & DISSOLVE EFFECT ---
                 const cStr = `rgb(${Palette.streamRgb.r},${Palette.streamRgb.g},${Palette.streamRgb.b})`;
                 this.ctx.fillStyle = cStr;
                 this.ctx.shadowBlur = 0; 
@@ -715,20 +739,17 @@
                         const cell = this.grid.cells[y][x];
                         if (cell.override) continue; 
 
-                        let px = x * d.cellWidth + d.cellWidth / 2;
-                        let py = y * d.cellHeight + d.cellHeight / 2;
+                        // Optimization: Integer Coords via Bitwise OR
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
+
                         let sizeOffset = 0;
                         let drawAlpha = 0;
 
-                        // LOGIC: Determine opacity of the GREEN layer
                         if (cell.age > 0) {
-                            // It is an active Tracer. Only draw Green if we are in the cross-fade phase.
                             drawAlpha = cell.crossFadeAlpha * cell.brightness;
                         } else if (cell.decay > 0) {
-                            // It is a standard Trail.
                             drawAlpha = cell.alpha;
-                            
-                            // Dissolve Logic
                             if (s.dissolveEnabled && cell.decay >= 2) {
                                const prog = (cell.decay - 2) / s.decayFadeDurationFrames;
                                if (prog > 0.3) sizeOffset = -4;
@@ -737,7 +758,6 @@
                         }
 
                         if (drawAlpha > 0.01) {
-                            // Rotator Crossfade Logic (applies to stream characters too)
                             if (cell.rotatorProg > 0 && s.rotatorCrossfadeFrames > 2) {
                                 const p = cell.rotatorProg / s.rotatorCrossfadeFrames;
                                 const aOld = drawAlpha * Math.cos(p * Math.PI / 2);
@@ -755,12 +775,22 @@
                                 }
                             } else {
                                 this.ctx.globalAlpha = drawAlpha;
-                                if (sizeOffset !== 0) this.ctx.font = `bold ${Math.max(1, s.fontSize + sizeOffset)}px 'Segoe UI', monospace`;
                                 
-                                this.ctx.fillText(cell.char, px, py);
-                                if (bloom) this.bloomCtx.fillText(cell.char, px, py);
-                                
-                                if (sizeOffset !== 0) this.ctx.font = font; 
+                                // Optimization: Only set font if changed
+                                if (sizeOffset !== 0) {
+                                    const tempFont = `bold ${Math.max(1, s.fontSize + sizeOffset)}px 'Segoe UI', monospace`;
+                                    if(currentFont !== tempFont) { this.ctx.font = tempFont; currentFont = tempFont; }
+                                    this.ctx.fillText(cell.char, px, py);
+                                    if (bloom) this.bloomCtx.fillText(cell.char, px, py);
+                                    
+                                    // Reset font
+                                    if(currentFont !== fontBase) { this.ctx.font = fontBase; currentFont = fontBase; }
+                                } else {
+                                    // Ensure standard font
+                                    if(currentFont !== fontBase) { this.ctx.font = fontBase; currentFont = fontBase; }
+                                    this.ctx.fillText(cell.char, px, py);
+                                    if (bloom) this.bloomCtx.fillText(cell.char, px, py);
+                                }
                             }
                         }
                     }
@@ -769,10 +799,12 @@
                 // --- BATCH 2: TRACERS ---
                 const tStr = `rgb(${Palette.tracerRgb.r},${Palette.tracerRgb.g},${Palette.tracerRgb.b})`;
                 this.ctx.fillStyle = tStr;
-                this.ctx.shadowBlur = 0;
+                this.ctx.shadowBlur = s.tracerGlow; 
                 this.ctx.shadowColor = tStr;
                 const tFont = `bold ${s.fontSize + s.tracerSizeIncrease}px 'Segoe UI', monospace`;
-                this.ctx.font = tFont;
+                this.ctx.font = tFont; // Required change for next batch
+                currentFont = tFont; 
+
                 if(bloom) { this.bloomCtx.fillStyle = tStr; this.bloomCtx.font = tFont; }
 
                 for (let y = 0; y < this.grid.rows; y++) {
@@ -781,8 +813,8 @@
                         if (cell.override) continue; 
                         
                         if (cell.age > 0 && cell.alpha > 0.01) { 
-                            const px = x * d.cellWidth + d.cellWidth / 2;
-                            const py = y * d.cellHeight + d.cellHeight / 2;
+                            const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                            const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
 
                             this.ctx.globalAlpha = cell.alpha;
                             this.ctx.fillText(cell.char, px, py);
@@ -798,8 +830,8 @@
                         if (!cell.override) continue;
                         
                         const o = cell.override;
-                        const px = x * d.cellWidth + d.cellWidth / 2;
-                        const py = y * d.cellHeight + d.cellHeight / 2;
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
                         
                         const c = o.color;
                         const fill = `rgb(${c.r},${c.g},${c.b})`;
@@ -807,13 +839,17 @@
                         this.ctx.fillStyle = fill;
                         this.ctx.shadowBlur = 0;
                         this.ctx.shadowColor = fill;
-                        this.ctx.font = `bold ${s.fontSize + (o.size || 0)}px monospace`;
+                        
+                        // Font change usually required here
+                        const oFont = `bold ${s.fontSize + (o.size || 0)}px monospace`;
+                        if(currentFont !== oFont) { this.ctx.font = oFont; currentFont = oFont; }
+
                         this.ctx.globalAlpha = o.alpha !== undefined ? o.alpha : 1.0;
                         
                         this.ctx.fillText(o.char, px, py);
                         if (bloom) {
                             this.bloomCtx.fillStyle = fill;
-                            this.bloomCtx.font = this.ctx.font;
+                            this.bloomCtx.font = oFont;
                             this.bloomCtx.fillText(o.char, px, py);
                         }
                     }
