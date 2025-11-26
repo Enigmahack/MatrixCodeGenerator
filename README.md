@@ -7,7 +7,7 @@ Yes, it's been over 25 years since this movie came out and there's still some du
 <img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/d2a8add2-74d7-48a5-a86d-bdca5eb20590" />
 
 
-🚀 What's New in v5.1
+🚀 What's New in v5.1.1
 
 Compared to previous versions (v4.x), this release introduces significant visual and architectural overhauls:
 
@@ -65,7 +65,7 @@ Factory Reset: Instantly revert all settings to the "Gold Master" defaults.
 
 This project is a single-file application requiring no external dependencies or build steps.
 
-Download: Clone the repository or download the MatrixCode_v5.0.4.html file.
+Download: Clone the repository or download the MatrixCode_v5.1.1.html file.
 
 Launch: Open the file directly in any modern web browser (Chrome, Firefox, Edge, Safari).
 
