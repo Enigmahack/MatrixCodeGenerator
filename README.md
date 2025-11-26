@@ -4,7 +4,7 @@ A customizable, optimized, modular canvas-based recreation of the iconic digital
 
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt.
 
-<img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/d534ed4e-9f1a-4089-b0b6-c4cdf4cb95ed" />
+<img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/d2a8add2-74d7-48a5-a86d-bdca5eb20590" />
 
 
 🚀 What's New in v5.0
