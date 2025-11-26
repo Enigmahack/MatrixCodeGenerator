@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matrix Digital Rain v5.0.3 (Dark Pulse)</title>
+    <title>Matrix Digital Rain v5.0.4</title>
     <style>
         /* --- CSS RESET & BASE --- */
         :root {
@@ -133,14 +133,14 @@
     <input type="file" id="importFile" accept=".json" style="display:none;" />
 
     <div id="settingsPanel">
-        <div id="panelHeader"><h2>System V5.0.3 Dark Pulse</h2></div>
+        <div id="panelHeader"><h2>System V5.0.4</h2></div>
         <div id="navTabs"></div>
         <div id="contentArea"></div>
         <div id="panelFooter"><div id="globalStatus" class="status-msg"></div></div>
     </div>
 
     <script>
-        const APP_VERSION = "5.0.3";
+        const APP_VERSION = "5.0.4";
         
         // --- 1. CORE UTILITIES & CONSTANTS ---
         const Utils = {
@@ -164,28 +164,52 @@
         // --- 2. CONFIGURATION MANAGER (Logic-less) ---
         class ConfigurationManager {
             constructor() {
-                this.storageKey = 'matrix_config_v5_3'; this.slotsKey = 'matrix_slots_v5';
+                this.storageKey = 'matrix_config_v5_4'; 
+                this.slotsKey = 'matrix_slots_v5';
+                
                 this.defaults = {
-                    streamColor: '#01cb23', streamSpeed: 15, trailGlow: 28, clearAlpha: 0.90, 
-                    streamMinLength: 10, streamMaxLength: 75, holeRate: 0.15, 
-                    ttlMinFrames: 12, ttlMaxFrames: 110, decayFadeDurationFrames: 50, 
-                    variableBrightnessEnabled: true, brightnessVariance: 20, dissolveEnabled: true, 
-                    tracerColor: '#ffffff', tracerSizeIncrease: 2, tracerGlow: 32, 
-                    tracerAttackFrames: 10, tracerHoldFrames: 15, tracerReleaseFrames: 10, 
-                    invertedTracerEnabled: true, invertedTracerChance: 0.25,
-                    rotatorChance: 0.125, rotatorCycleFactor: 18, rotatorCrossfadeFrames: 7,
-                    pulseEnabled: true, pulseFrequencySeconds: 180, pulseDelayFrames: 60, 
-                    pulseDurationSeconds: 1.5, pulsePreserveSpaces: true, pulseRandomPosition: true,
+                    streamColor: '#01cb23', 
+                    streamSpeed: 16, 
+                    trailGlow: 28, 
+                    clearAlpha: 0.90, 
+                    streamMinLength: 10, 
+                    streamMaxLength: 75, 
+                    holeRate: 0.15, 
+                    ttlMinFrames: 12, 
+                    ttlMaxFrames: 110, 
+                    decayFadeDurationFrames: 50, 
+                    variableBrightnessEnabled: true, 
+                    brightnessVariance: 20, 
+                    dissolveEnabled: false, 
+                    tracerColor: '#ffffff', 
+                    tracerSizeIncrease: 2, 
+                    tracerGlow: 32, 
+                    tracerAttackFrames: 8, 
+                    tracerHoldFrames: 0, 
+                    tracerReleaseFrames: 6, 
+                    invertedTracerEnabled: true, 
+                    invertedTracerChance: 0.25,
+                    rotatorChance: 0.125, 
+                    rotatorCycleFactor: 18, 
+                    rotatorCrossfadeFrames: 8,
+                    pulseEnabled: true, 
+                    pulseFrequencySeconds: 180, 
+                    pulseDelayFrames: 60, 
+                    pulseDurationSeconds: 1.5, 
+                    pulsePreserveSpaces: true, 
+                    pulseRandomPosition: true,
                     
                     // APPEARANCE & POST-FX
                     enableBloom: true, 
-                    bloomStrength: 2, 
-                    bloomOpacity: 0.5, 
+                    bloomStrength: 1, 
+                    bloomOpacity: 0.4, 
                     resolution: 1.0, 
-                    smoothingEnabled: false,
-                    smoothingAmount: 0.4,
+                    smoothingEnabled: true,
+                    smoothingAmount: 0.6,
                     
-                    fontSize: 24, cellSpacingFactor: 0.95, horizontalSpacingFactor: 1.15
+                    fontSize: 24, 
+                    cellSpacingFactor: 0.95, 
+                    horizontalSpacingFactor: 1.15
                 };
                 this.state = { ...this.defaults };
                 this.derived = {};
@@ -567,7 +591,7 @@
                 const sn = this.snap[y][x];
                 const blank = { char: ' ', color: {r:0,g:0,b:0}, alpha: 0, glow: 0 };
                 
-                // NEW: Dimming Factor for the "Frozen" state (20% brightness)
+                // Dimming Factor for the "Frozen" state (20% brightness)
                 const dimFactor = 0.2; 
 
                 if(this.state === 'WAITING') {
@@ -796,7 +820,6 @@
                 }
 
                 this.ctx.globalAlpha = 1.0;
-                this.ctx.restore(); 
                 this.ctx.restore(); 
 
                 // --- BLOOM COMPOSITE ---
