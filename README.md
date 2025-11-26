@@ -8,6 +8,7 @@ Yes, it's been over 25 years since this movie came out and there's still some du
 
 <img width="3838" height="1914" alt="Screenshot 2025-11-26 111028" src="https://github.com/user-attachments/assets/ac4d7b80-39ca-46c1-ad30-fc9df406d3b7" />
 
+![Recording 2025-11-26 111429](https://github.com/user-attachments/assets/308490b4-10e9-4e9b-9f3d-863b03945635)
 
 
 
