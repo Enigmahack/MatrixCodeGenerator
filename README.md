@@ -1,4 +1,4 @@
-💻 Matrix Digital Rain Simulation v5.1
+💻 Matrix Digital Rain Simulation v5.1.1
 
 A customizable, optimized, modular canvas-based recreation of the iconic digital rain effect. Now featuring post-processing effects, advanced tracer lifecycles, and a revamped rendering engine.
 
