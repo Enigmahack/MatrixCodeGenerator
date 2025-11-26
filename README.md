@@ -1,4 +1,5 @@
-💻 Matrix Digital Rain Simulation v5.0.4
+💻 Matrix Digital Rain Simulation v5.0.4 
+
 A customizable, optimized, modular canvas-based recreation of the iconic digital rain effect. Now featuring post-processing effects, advanced tracer lifecycles, and a revamped rendering engine.
 
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt.
@@ -70,7 +71,9 @@ Launch: Open the file directly in any modern web browser (Chrome, Firefox, Edge,
 
 Configure: Click the gear icon in the top-right corner to open the settings panel and begin customizing!
 
+
 🛠️ Technologies
+
 HTML5 (Structure)
 
 CSS3 (Styling, Backdrop Filters, and Panel Layout)
