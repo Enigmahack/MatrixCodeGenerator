@@ -82,7 +82,9 @@ Vanilla JavaScript (Modular ES6+ Class Structure)
 
 Canvas API (High-performance rendering with Offscreen buffering for Bloom)
 
+
 📄 License
+
 This project is licensed under... Uhhh... I don't know how this part works. I mean, I didn't really do anything special here except ingest far too much caffeine, spend way too much time reading up on Canvas, and depending far too much on Gemini to help me fill in the blanks, poorly.
 
 Do whatever you want with this code. Use it, customize it, steal it, claim it as your own... It's entirely up to you. Just have fun with it.
