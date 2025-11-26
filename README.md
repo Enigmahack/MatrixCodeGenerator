@@ -1,4 +1,4 @@
-💻 Matrix Digital Rain Simulation v5.1.1
+💻 Matrix Digital Rain Simulation v5.3
 
 A customizable, optimized, modular canvas-based recreation of the iconic digital rain effect. Now featuring post-processing effects, advanced tracer lifecycles, and a revamped rendering engine.
 
@@ -11,7 +11,7 @@ Yes, it's been over 25 years since this movie came out and there's still some du
 <img width="3838" height="1914" alt="Screenshot 2025-11-26 111028" src="https://github.com/user-attachments/assets/ac4d7b80-39ca-46c1-ad30-fc9df406d3b7" />
 
 
-🚀 What's New in v5.1.1
+🚀 What's New in v5.3
 
 Compared to previous versions (v4.x), this release introduces significant visual and architectural overhauls:
 
@@ -69,7 +69,7 @@ Factory Reset: Instantly revert all settings to the "Gold Master" defaults.
 
 This project is a single-file application requiring no external dependencies or build steps.
 
-Download: Clone the repository or download the MatrixCode_v5.1.1.html file.
+Download: Clone the repository or download the MatrixCode_v5.3.html file.
 
 Launch: Open the file directly in any modern web browser (Chrome, Firefox, Edge, Safari).
 
