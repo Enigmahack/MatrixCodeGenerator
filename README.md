@@ -5,7 +5,9 @@ Yes, it's been over 25 years since this movie came out and there's still some du
 
 <img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/d534ed4e-9f1a-4089-b0b6-c4cdf4cb95ed" />
 
+
 🚀 What's New in v5.0
+
 Compared to previous versions (v4.x), this release introduces significant visual and architectural overhauls:
 
 Modular Architecture: The codebase has been completely refactored into distinct Logic, Data, and Rendering layers for better stability.
@@ -18,7 +20,9 @@ Advanced Tracer Lifecycle: Tracers now have configurable Attack (Fade In), Hold,
 
 "Dark Pulse" Effect: The Pulse effect now drops the luminosity of frozen characters by 80%, creating a high-contrast "dormant" state before the wave hits.
 
+
 ✨ Features
+
 This simulation offers deep customization through an integrated settings panel accessible via the Settings (Gear) icon in the top-right corner.
 
 Core Customization
@@ -55,7 +59,9 @@ Export/Import: Export your current settings to a JSON file to share with others,
 
 Factory Reset: Instantly revert all settings to the "Gold Master" defaults.
 
+
 ▶️ How to Run
+
 This project is a single-file application requiring no external dependencies or build steps.
 
 Download: Clone the repository or download the MatrixCode_v5.0.4.html file.
