@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Digital Rain v6.1</title>
+    <style>
+        /* --- CSS VARIABLES & THEME --- */
+        :root {
+            --bg-color: #000;
+            --panel-bg: rgba(10, 12, 16, 0.90);
+            --panel-border: rgba(34, 197, 94, 0.3);
+            --text-main: #4ade80;
+            --text-muted: #86efac;
+            --accent: #22c55e;
+            --accent-glow: rgba(34, 197, 94, 0.4);
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --warn: #f59e0b;
+        }
+        * { box-sizing: border-box; }
+        body { 
+            overflow: hidden; 
+            background-color: var(--bg-color); 
+            margin: 0; 
+            font-family: 'Segoe UI', 'Roboto', monospace; 
+        }
+        
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+        #matrixCanvas { z-index: 1; transition: filter 0.3s ease; }
+
+        /* --- SETTINGS PANEL UI --- */
+        #settingsPanel {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 340px;
+            background-color: var(--panel-bg); 
+            backdrop-filter: blur(12px);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.8); z-index: 20;
+            transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            display: flex; flex-direction: column;
+            border-left: 1px solid var(--panel-border); 
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+        #settingsPanel.open { transform: translateX(0); }
+        
+        #panelHeader { 
+            padding: 1.25rem; 
+            border-bottom: 1px solid var(--panel-border);
+            background: linear-gradient(90deg, rgba(34,197,94,0.1) 0%, transparent 100%);
+        }
+        #panelHeader h2 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px var(--accent-glow); }
+
+        /* --- TABS NAVIGATION --- */
+        #navTabs { 
+            overflow: hidden; 
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--panel-border);
+            position: relative;
+            width: 100%;
+        }
+        
+        #tabTrack {
+            display: flex;
+            width: max-content;
+            transform: translateX(0);
+            will-change: transform; 
+            cursor: grab;
+        }
+        #tabTrack:active { cursor: grabbing; }
+
+        .tab-btn { 
+            flex: 0 0 auto; padding: 1rem 1.25rem; 
+            text-align: center; color: var(--text-muted); 
+            background: none; border: none; cursor: pointer; 
+            transition: all 0.2s; font-size: 0.8rem; font-weight: 600;
+            border-bottom: 2px solid transparent;
+            user-select: none;
+        }
+        .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); background: rgba(34,197,94,0.1); }
+
+        /* --- CONTENT AREA --- */
+        #contentArea { flex: 1; overflow-y: auto; padding: 1.5rem; }
+        
+        .control-group { 
+            display: none; 
+            flex-direction: column; 
+            gap: 1.5rem; 
+            animation: fadeIn 0.3s ease; 
+        }
+        .control-group.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .control-disabled { opacity: 0.3; pointer-events: none; filter: grayscale(1); transition: opacity 0.3s ease, filter 0.3s ease; }
+        .control-row { width: 100%; transition: opacity 0.3s; }
+        .control-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
+        
+        .section-header {
+            margin-top: 1rem; margin-bottom: 0.25rem;
+            font-size: 0.8rem; font-weight: 700; color: #fff;
+            text-transform: uppercase; letter-spacing: 1.5px;
+            border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;
+        }
+
+        /* --- TOOLTIP UI (GLOBAL) --- */
+        .control-label-group { display: flex; align-items: center; gap: 6px; flex: 1; }
+        .info-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; border-radius: 50%;
+            border: 1px solid var(--text-muted); color: var(--text-muted);
+            font-size: 10px; cursor: help; transition: all 0.2s;
+        }
+        .info-icon:hover { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
+
+        #ui-tooltip {
+            position: fixed; 
+            background: #1f2937;
+            border: 1px solid var(--accent);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            z-index: 10000; 
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            max-width: 240px;
+            box-shadow: 0 4px 25px rgba(0,0,0,0.6);
+            visibility: hidden;
+        }
+        #ui-tooltip.visible { opacity: 1; visibility: visible; }
+
+        /* --- TOAST NOTIFICATIONS --- */
+        #toast-container {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 10001; pointer-events: none;
+            display: flex; flex-direction: column; gap: 10px; align-items: center;
+        }
+        .toast-msg {
+            background: rgba(31, 41, 55, 0.95); border: 1px solid var(--accent);
+            color: #fff; padding: 12px 24px; border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            font-size: 0.9rem; opacity: 0; transform: translateY(10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .toast-msg.visible { opacity: 1; transform: translateY(0); }
+        .toast-success { border-color: var(--accent); color: var(--text-main); }
+        .toast-error { border-color: var(--danger); color: #fca5a5; }
+        .toast-info { border-color: var(--info); color: #93c5fd; }
+
+
+        input[type="range"] { width: 100%; height: 6px; background: #1f2937; border-radius: 3px; outline: none; appearance: none; -webkit-appearance: none; padding: 0; margin: 0; }
+        input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; }
+
+        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+        input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
+
+        .checkbox-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 40px; transition: opacity 0.3s; }
+        input[type="checkbox"] { width: 40px; height: 20px; background: #374151; border-radius: 20px; position: relative; transition: 0.3s; cursor: pointer; appearance: none; -webkit-appearance: none; }
+        input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s; }
+        input[type="checkbox"]:checked { background: var(--accent); }
+        input[type="checkbox"]:checked::after { transform: translateX(20px); }
+
+        /* TOGGLE SWITCH UI */
+        .toggle-switch-container { display: flex; background: #1f2937; border-radius: 20px; padding: 2px; border: 1px solid var(--panel-border); position: relative; cursor: pointer; width: 100%; height: 32px; }
+        .toggle-option { flex: 1; text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); z-index: 2; line-height: 28px; transition: color 0.3s; user-select: none; }
+        .toggle-option.selected { color: #fff; }
+        .toggle-slider { position: absolute; top: 2px; bottom: 2px; width: calc(50% - 4px); background: var(--accent); border-radius: 18px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1; }
+        .toggle-left { transform: translateX(2px); }
+        .toggle-right { transform: translateX(calc(100% + 4px)); }
+
+        select {
+            width: 100%; padding: 0.5rem; background: #1f2937; color: var(--text-main);
+            border: 1px solid var(--panel-border); border-radius: 4px;
+            font-family: monospace; font-size: 0.9rem; outline: none;
+        }
+        select:focus { border-color: var(--accent); }
+
+        .action-btn { width: 100%; padding: 0.75rem; border-radius: 6px; font-weight: 600; cursor: pointer; color: white; border: 1px solid transparent; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.5); transition: all 0.2s; }
+        .action-btn:hover { background: rgba(34, 197, 94, 0.4); }
+        .btn-info { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); }
+        .btn-info:hover { background: rgba(59, 130, 246, 0.4); }
+        .btn-warn { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.5); color: #fcd34d; }
+        .btn-warn:hover { background: rgba(245, 158, 11, 0.4); }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+
+        .slot-container { display: flex; flex-wrap: wrap; gap: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+        .slot-name-input { flex: 1; background: transparent; border: none; border-bottom: 1px solid #374151; color: var(--text-main); padding: 0.25rem; font-family: monospace; font-size: 0.9rem; min-width: 0; }
+        .slot-name-input:focus { outline: none; border-color: var(--accent); }
+        .slot-btn-group { display: flex; gap: 0.25rem; }
+        .btn-icon { padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: rgba(255,255,255,0.05); color: #ccc; }
+        .btn-icon:hover { background: rgba(255,255,255,0.1); color: white; }
+        .btn-disabled { opacity: 0.3; cursor: not-allowed; }
+
+        #panelFooter { padding: 1rem; border-top: 1px solid var(--panel-border); text-align: center; }
+        .status-msg { font-size: 0.8rem; font-family: monospace; color: var(--text-muted); opacity: 0.6; }
+        
+        #menuToggle { position: fixed; top: 1.5rem; right: 1.5rem; z-index: 30; width: 44px; height: 44px; border-radius: 50%; color: var(--text-main); background: rgba(10, 12, 16, 0.6); backdrop-filter: blur(4px); border: 1px solid var(--panel-border); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; }
+        #menuToggle:hover { background: var(--accent); color: #000; box-shadow: 0 0 20px var(--accent); transform: rotate(90deg); }
+    </style>
+</head>
+<body>
+    <canvas id="matrixCanvas"></canvas>
+    <canvas id="bloomCanvas" style="display:none;"></canvas>
+
+    <button id="menuToggle">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.5.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5 3.5z"></path></svg>
+    </button>
+    <input type="file" id="importFile" accept=".json" style="display:none;" />
+
+    <div id="settingsPanel">
+        <div id="panelHeader"><h2>Settings</h2></div>
+        <div id="navTabs"></div>
+        <div id="contentArea"></div>
+        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v6.1 (Opt)</div></div>
+    </div>
+
+    <script>
+        const APP_VERSION = "6.1";
+        
+        // --- 1. CORE UTILITIES ---
+        const Utils = {
+            randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+            randomFloat: (min, max) => Math.random() * (max - min) + min,
+            hexToRgb: (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 255, b: 0 };
+            },
+            // [OPTIMIZATION 1B] Cached Color Lookup
+            _colorCache: new Map(),
+            getCachedHsl: (h, s, l) => {
+                // Ensure Hue is int to improve cache hits
+                const key = `${h|0},${s},${l}`;
+                let val = Utils._colorCache.get(key);
+                if(!val) {
+                    val = `hsl(${h}, ${s}%, ${l}%)`;
+                    Utils._colorCache.set(key, val);
+                    if(Utils._colorCache.size > 2000) Utils._colorCache.clear();
+                }
+                return val;
+            },
+            // Helper to pack RGB into an integer for TypedArray storage
+            packRgb: (r, g, b) => { return (r << 16) | (g << 8) | b; },
+            unpackRgb: (intVal) => { return { r: (intVal >> 16) & 0xFF, g: (intVal >> 8) & 0xFF, b: intVal & 0xFF }; },
+
+            CHARS: '124567890Z-⁚+<>エワカタメモチ╌ムホテナスヒコサヌヲケキソリラマニネツシ=㆔ウ|¦オ＊"',
+            getRandomChar: () => Utils.CHARS.charAt(Math.floor(Math.random() * Utils.CHARS.length)),
+            getUniqueChar: (exclude) => { let c; do { c = Utils.getRandomChar(); } while (c === exclude); return c; },
+            downloadJson: (data, filename) => {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            }
+        };
+
+        // --- 2. CONFIGURATION MANAGER ---
+        class ConfigurationManager {
+            constructor() {
+                this.storageKey = 'matrix_config_v6_0'; 
+                this.slotsKey = 'matrix_slots_v6';
+                
+                this.defaults = {
+                    streamColor: "#01cb23",
+                    streamSpeed: 15,
+                    trailGlow: 28,
+                    clearAlpha: 0.9,
+                    streamMinLength: 10,
+                    streamMaxLength: 125,
+                    holeRate: 0.15,
+                    ttlMinFrames: 12,
+                    ttlMaxFrames: 110,
+                    decayFadeDurationFrames: 34,
+                    variableBrightnessEnabled: true,
+                    brightnessVariance: 20,
+                    dissolveEnabled: true,
+                    dissolveMinSize: 20,
+                    
+                    tracerColor: "#ffffff",
+                    tracerSizeIncrease: 2,
+                    tracerGlow: 25,
+                    tracerAttackFrames: 8,
+                    tracerHoldFrames: 0,
+                    tracerReleaseFrames: 6,
+                    invertedTracerEnabled: true,
+                    invertedTracerChance: 0.25,
+                    randomStopEnabled: true,
+                    randomStopChance: 0.02,
+                    
+                    rotatorEnabled: true,
+                    rotatorChance: 0.17, 
+                    rotatorCycleFactor: 14, 
+                    rotatorCrossfadeFrames: 8,
+                    
+                    pulseEnabled: true,
+                    pulseFrequencySeconds: 180,
+                    pulseDelayFrames: 60,
+                    pulseDurationSeconds: 1.5,
+                    pulsePreserveSpaces: true,
+                    pulseRandomPosition: false,
+                    
+                    dejaVuEnabled: true,
+                    dejaVuAutoMode: true,
+                    dejaVuFrequencySeconds: 300,
+                    dejaVuDurationSeconds: 5.5,
+                    dejaVuBarDurationFrames: 16,
+                    dejaVuVarianceFrames: 15,
+                    dejaVuIntensity: 0.5,
+                    dejaVuHoleBrightness: 0.0,
+                    dejaVuMinRectHeight: 2,
+                    dejaVuMaxRectHeight: 20,
+
+                    // V6.1 - STAR POWER & RAINBOW
+                    starPowerEnabled: false,
+                    starPowerFreq: 50, // This is explicitly % chance (0-100)
+                    starPowerRainbowMode: 'stream', // 'stream' or 'char'
+                    starPowerColorCycle: false,
+                    starPowerCycleSpeed: 2,
+                    starPowerSaturation: 100,
+                    starPowerIntensity: 50,
+                    starPowerGlitter: false,
+
+                    rainbowStreamEnabled: false,
+                    rainbowStreamChance: 0.2, // 20%
+                    rainbowStreamIntensity: 50,
+
+                    enableBloom: true,
+                    bloomStrength: 3,
+                    bloomOpacity: 0.6,
+                    
+                    resolution: typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1,
+                    
+                    smoothingEnabled: true,
+                    smoothingAmount: 0.6,
+                    stretchX: 1.0,
+                    stretchY: 1.2, 
+                    
+                    fontFamily: 'Consolas, monaco, monospace',
+                    fontSize: 27, 
+                    cellSpacingFactor: 1, 
+                    horizontalSpacingFactor: 1.15
+                };
+                this.state = { ...this.defaults };
+                this.derived = {};
+                this.slots = this._loadSlots();
+                this.subscribers = [];
+                this.load();
+                this.updateDerivedValues();
+            }
+            _loadSlots() { try { const s = localStorage.getItem(this.slotsKey); if (s) return JSON.parse(s); } catch (e) {} return Array(5).fill(null).map((_, i) => ({ name: `Save Slot ${i + 1}`, data: null })); }
+            saveSlots() { try { localStorage.setItem(this.slotsKey, JSON.stringify(this.slots)); } catch (e) {} }
+            load() { try { const s = localStorage.getItem(this.storageKey); if (s) this.state = { ...this.defaults, ...JSON.parse(s) }; } catch (e) {} }
+            save() { try { localStorage.setItem(this.storageKey, JSON.stringify(this.state)); } catch (e) {} }
+            get(key) { return this.state[key]; }
+            set(key, value) {
+                this.state[key] = value;
+                if (key === 'streamMinLength') this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
+                if (key === 'streamMaxLength') this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
+                if (key === 'dejaVuMinRectHeight') this.state.dejaVuMaxRectHeight = Math.max(this.state.dejaVuMaxRectHeight, value);
+                if (key === 'dejaVuMaxRectHeight') this.state.dejaVuMinRectHeight = Math.min(this.state.dejaVuMinRectHeight, value);
+
+                this.updateDerivedValues(); this.save(); this.notify(key);
+            }
+            reset() { this.state = { ...this.defaults }; this.updateDerivedValues(); this.save(); this.notify('ALL'); }
+            saveToSlot(i) { const data = typeof structuredClone === 'function' ? structuredClone(this.state) : JSON.parse(JSON.stringify(this.state)); this.slots[i] = { name: this.slots[i].name, data: data }; this.saveSlots(); }
+            loadFromSlot(i) { if(!this.slots[i].data) return false; this.state = { ...this.defaults, ...this.slots[i].data }; this.updateDerivedValues(); this.save(); this.notify('ALL'); return true; }
+            renameSlot(i, n) { this.slots[i].name = n; this.saveSlots(); }
+            subscribe(cb) { this.subscribers.push(cb); }
+            notify(k) { this.subscribers.forEach(cb => cb(k, this.state)); }
+            updateDerivedValues() {
+                const s = this.state;
+                const cycleDur = 21 - s.streamSpeed;
+                this.derived = {
+                    cycleDuration: cycleDur,
+                    safeAttack: Math.max(1, Math.min(s.tracerAttackFrames, cycleDur)),
+                    safeRelease: Math.min(s.tracerReleaseFrames, cycleDur),
+                    holdFrames: Math.max(0, s.tracerHoldFrames),
+                    maxState: cycleDur + Math.max(0, s.tracerHoldFrames) + cycleDur,
+                    rotatorCycleFrames: Math.max(10, Math.round(60 - (s.rotatorCycleFactor * 2.5))),
+                    cellWidth: s.fontSize / s.horizontalSpacingFactor, 
+                    cellHeight: (s.fontSize / s.horizontalSpacingFactor) * s.cellSpacingFactor,
+                    varianceMin: 1.0 - (s.brightnessVariance / 100),
+                    streamRgb: Utils.hexToRgb(s.streamColor), 
+                    tracerRgb: Utils.hexToRgb(s.tracerColor)
+                };
+                
+                this.derived.streamColorStr = `rgb(${this.derived.streamRgb.r},${this.derived.streamRgb.g},${this.derived.streamRgb.b})`;
+                this.derived.tracerColorStr = `rgb(${this.derived.tracerRgb.r},${this.derived.tracerRgb.g},${this.derived.tracerRgb.b})`;
+                this.derived.fontBaseStr = `bold ${s.fontSize}px ${s.fontFamily}`;
+
+                Palette.update(s);
+            }
+        }
+
+        // --- 3. DATA LAYER ---
+        const Palette = {
+            streamRgb: {r:0,g:255,b:0}, tracerRgb: {r:255,g:255,b:255},
+            update: function(s) {
+                this.streamRgb = Utils.hexToRgb(s.streamColor);
+                this.tracerRgb = Utils.hexToRgb(s.tracerColor);
+            }
+        };
+
+        const CELL_TYPE = { EMPTY: 0, TRAIL: 1, TRACER: 2, ROTATOR: 3 };
+
+        class Cell {
+            constructor() {
+                this.char = Utils.getRandomChar();
+                this.nextChar = ''; 
+                this.type = CELL_TYPE.EMPTY; 
+                this.alpha = 0.0;     
+                this.brightness = 1.0;
+                this.crossFadeAlpha = 0.0; 
+                this.age = 0;         
+                this.decay = 0;       
+                this.rotatorProg = 0; 
+                this.override = null; 
+                // Style Object: { h: int, s: int, l: int, cycle: bool, speed: int, glitter: bool }
+                this.style = null; 
+            }
+        }
+
+        class Grid {
+            constructor(c) { this.config = c; this.cols = 0; this.rows = 0; this.cells = []; }
+            resize(w, h) {
+                const d = this.config.derived;
+                const nc = Math.max(1, Math.floor(w / d.cellWidth));
+                const nr = Math.max(1, Math.floor(h / d.cellHeight));
+                if (nc !== this.cols || nr !== this.rows) this.init(nc, nr);
+            }
+            init(c, r) {
+                this.cols = c; this.rows = r;
+                this.cells = Array(r).fill(null).map(() => Array(c).fill(null).map(() => new Cell()));
+            }
+            get(x, y) { return (y >= 0 && y < this.rows && x >= 0 && x < this.cols) ? this.cells[y][x] : null; }
+        }
+
+        // --- 4. SYSTEMS LAYER ---
+        class StreamSystem {
+            constructor(grid, config) {
+                this.grid = grid; this.config = config;
+                this.streams = [];
+                this.releaseTimer = 0;
+            }
+            resize() {
+                const newCols = this.grid.cols;
+                if (this.streams.length < newCols) {
+                    const diff = newCols - this.streams.length;
+                    const newStreams = Array(diff).fill(null).map((_, i) => ({
+                        x: this.streams.length + i, 
+                        y: -1, active: false, delay: Utils.randomInt(0, 200),
+                        len: 0, holes: new Set(), decayY: -1, decayStarted: false, 
+                        age: 0, visibleLen: 0, isInverted: false,
+                        mode: 'STANDARD', // 'STANDARD' | 'STAR_POWER' | 'RAINBOW_STREAM'
+                        baseHue: 0 
+                    }));
+                    this.streams = [...this.streams, ...newStreams];
+                } else if (this.streams.length > newCols) {
+                    this.streams = this.streams.slice(0, newCols);
+                }
+
+                // [OPTIMIZATION 2A] Bounds Safety
+                // Kill streams that are now out of bounds due to resize
+                this.streams.forEach(st => {
+                    if (st.x >= newCols) {
+                        st.active = false;
+                        st.x = Utils.randomInt(0, newCols - 1);
+                        st.y = -1;
+                    }
+                });
+            }
+            update(frame) {
+                this.resize(); 
+                const s = this.config.state;
+                const d = this.config.derived;
+                if (this.releaseTimer <= 0) {
+                    const available = this.streams.filter(st => !st.active && st.delay <= 0).sort(() => Math.random() - 0.5);
+                    let count = 4; 
+                    for (const st of available) {
+                        if (count-- <= 0) break;
+                        let clear = true;
+                        for(let y=0; y < Math.min(this.grid.rows, 40); y++) {
+                            if(this.grid.get(st.x, y).decay > 0) { clear = false; break; }
+                        }
+                        if (clear) this._activateStream(st, frame);
+                        else st.delay = 20;
+                    }
+                    this.releaseTimer = d.cycleDuration * 4;
+                } else this.releaseTimer--;
+                this.streams.forEach(st => {
+                    if (!st.active) { if (st.delay > 0) st.delay--; return; }
+                    if (frame % d.cycleDuration === 0) {
+                        st.age++;
+                        if (st.age >= st.visibleLen && !st.decayStarted) {
+                            st.decayY = (st.age - st.visibleLen) - 1;
+                            st.decayStarted = true;
+                        }
+                        if (!st.decayStarted && s.randomStopEnabled && Math.random() < s.randomStopChance) {
+                             st.len = st.y; 
+                        }
+                        if (st.y < st.len) { 
+                            st.y++;
+                            this._writeHead(st, frame);
+                        }
+                        if (st.decayStarted) {
+                            st.decayY++;
+                            this._writeTail(st);
+                            if (st.decayY >= this.grid.rows) {
+                                st.active = false;
+                                st.delay = Utils.randomInt(50, 150);
+                            }
+                        }
+                    }
+                });
+            }
+            _activateStream(st, frame) {
+                const s = this.config.state;
+                st.len = Utils.randomInt(Math.min(s.streamMinLength, s.streamMaxLength), s.streamMaxLength);
+                st.holes.clear();
+                for(let i=0; i<st.len; i++) if(Math.random() < s.holeRate) st.holes.add(i);
+                st.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
+                st.visibleLen = Utils.randomInt(s.ttlMinFrames, s.ttlMaxFrames);
+                st.age = 0; st.active = true; st.y = -1; st.decayY = -1; st.decayStarted = false;
+                
+                // [CLARIFICATION 2B] Star Power Logic
+                st.mode = 'STANDARD';
+                // Treat s.starPowerFreq as direct % chance (0-100)
+                if (s.starPowerEnabled && Math.random() < (s.starPowerFreq / 100)) { 
+                    st.mode = 'STAR_POWER';
+                    st.baseHue = Utils.randomInt(0, 360);
+                } else if (s.rainbowStreamEnabled && Math.random() < Math.max(0.05, s.rainbowStreamChance)) {
+                    st.mode = 'RAINBOW_STREAM';
+                    st.baseHue = Utils.randomInt(0, 360);
+                }
+
+                let skip = 0;
+                if(!st.isInverted) {
+                    while(skip < st.len && st.holes.has(skip)) skip++;
+                }
+                st.y -= skip; 
+            }
+            _writeHead(st, frame) {
+                const y = st.y; 
+                const cell = this.grid.get(st.x, y);
+                const s = this.config.state;
+                if (cell) {
+                    const draw = st.isInverted ? st.holes.has(st.y) : !st.holes.has(st.y);
+                    if (draw) {
+                        cell.type = (this.config.state.rotatorEnabled && Math.random() < this.config.state.rotatorChance) ? CELL_TYPE.ROTATOR : CELL_TYPE.TRACER;
+                        cell.age = 1; cell.decay = 1; cell.rotatorProg = 0; 
+                        cell.char = cell.nextChar || Utils.getRandomChar();
+                        cell.nextChar = Utils.getUniqueChar(cell.char);
+                        cell.brightness = this.config.state.variableBrightnessEnabled ? Utils.randomFloat(this.config.derived.varianceMin, 1.0) : 1.0;
+                        
+                        cell.style = null;
+                        if (st.mode === 'STAR_POWER') {
+                            const isCharMode = s.starPowerRainbowMode === 'char';
+                            // [OPTIMIZATION 1B] Cache friendly integer hue
+                            const hue = (isCharMode ? (frame + (st.x * 10)) % 360 : st.baseHue) | 0;
+                            cell.style = {
+                                h: hue,
+                                s: s.starPowerSaturation,
+                                l: s.starPowerIntensity,
+                                cycle: s.starPowerColorCycle,
+                                speed: s.starPowerCycleSpeed,
+                                glitter: s.starPowerGlitter
+                            };
+                        } else if (st.mode === 'RAINBOW_STREAM') {
+                            cell.style = {
+                                h: st.baseHue,
+                                s: 100, 
+                                l: s.rainbowStreamIntensity,
+                                cycle: false,
+                                speed: 0,
+                                glitter: false
+                            };
+                        }
+
+                    } else {
+                        cell.type = CELL_TYPE.EMPTY; cell.age = 0; cell.decay = 0; cell.rotatorProg = 0; 
+                        cell.style = null;
+                    }
+                }
+            }
+            _writeTail(st) {
+                const cell = this.grid.get(st.x, st.decayY);
+                if (cell && cell.decay === 1) cell.decay = 2; 
+            }
+        }
+
+        class EffectSystem {
+            constructor(grid, config) { 
+                this.grid = grid; this.config = config; 
+                this.pulse = new PulseEffect(grid, config);
+                this.dejaVu = new DejaVuEffect(grid, config);
+            }
+            triggerPulse() { this.pulse.trigger(); }
+            triggerDejaVu() { this.dejaVu.trigger(); }
+            
+            update(frame) {
+                const s = this.config.state;
+                const d = this.config.derived;
+                
+                this.pulse.update();
+                this.dejaVu.update();
+
+                for(let y=0; y<this.grid.rows; y++) {
+                    for(let x=0; x<this.grid.cols; x++) {
+                        const c = this.grid.cells[y][x];
+                        if (c.age > 0) { c.age++; if (c.age > d.maxState) c.age = 0; }
+                        if (c.decay >= 2) { c.decay++; if (c.decay > s.decayFadeDurationFrames + 2) { c.decay = 0; c.type = CELL_TYPE.EMPTY; c.style = null; } }
+                        
+                        if (s.rotatorEnabled && c.type === CELL_TYPE.ROTATOR && c.age === 0 && c.decay > 0) {
+                            const cyclePhase = frame % d.rotatorCycleFrames;
+                            
+                            if (s.rotatorCrossfadeFrames <= 2) {
+                                if (cyclePhase === 0 && c.decay <= 1) c.char = Utils.getUniqueChar(c.char);
+                            } else {
+                                const start = d.rotatorCycleFrames - s.rotatorCrossfadeFrames;
+                                if (cyclePhase === start && c.rotatorProg === 0 && c.decay <= 1) {
+                                    const safe = y===0 || this.grid.cells[y-1][x].decay < 2;
+                                    if(safe) { c.rotatorProg = 1; c.nextChar = Utils.getUniqueChar(c.char); }
+                                } 
+                                else if (c.rotatorProg > 0) {
+                                    c.rotatorProg++;
+                                    if (c.rotatorProg > s.rotatorCrossfadeFrames) { c.char = c.nextChar; c.rotatorProg = 0; }
+                                }
+                            }
+                        }
+                        
+                        let override = this.dejaVu.getOverride(x, y);
+                        if (!override) override = this.pulse.getOverride(x, y);
+                        c.override = override;
+
+                        this._calculateVisuals(c, d, s);
+                    }
+                }
+            }
+            _calculateVisuals(c, d, s) {
+                if(c.override) return; 
+                c.alpha = 0; c.crossFadeAlpha = 0; 
+                if (c.age > 0) {
+                    const activeTime = c.age - 1;
+                    const endPhase1 = d.cycleDuration; 
+                    const endPhase2 = d.cycleDuration + d.holdFrames; 
+                    if (activeTime < endPhase1) {
+                        const startFade = endPhase1 - d.safeAttack;
+                        if (activeTime >= startFade) c.alpha = (activeTime - startFade) / d.safeAttack;
+                    } else if (activeTime < endPhase2) { c.alpha = 1.0; }
+                    else {
+                        const relTime = activeTime - endPhase2;
+                        if (relTime < d.safeRelease) {
+                            const progress = relTime / d.safeRelease;
+                            c.alpha = 1.0 - progress; c.crossFadeAlpha = progress;    
+                        } else { c.alpha = 0.0; c.crossFadeAlpha = 1.0; }
+                    }
+                } else if (c.decay === 1) { c.alpha = 0.95 * c.brightness; } 
+                else if (c.decay >= 2) {
+                    const p = (c.decay - 2) / s.decayFadeDurationFrames;
+                    c.alpha = (0.95 * (1 - p)) * c.brightness;
+                }
+            }
+        }
+
+        class PulseEffect {
+            constructor(g, c) { 
+                this.g=g; this.c=c; this.active=false; this.state='IDLE'; this.origin={x:0,y:0}; this.radius=0; 
+                // [OPTIMIZATION 1A] Use TypedArrays for Snapshots (Memory Safety)
+                // We will resize these in trigger() if grid changed, but reuse if possible.
+                this.snapChars = new Uint16Array(0);
+                this.snapColors = new Uint32Array(0); // Packed RGB
+                this.snapAlphas = new Float32Array(0);
+                this.snapDims = {w:0, h:0};
+                
+                this.autoTimer = c.state.pulseFrequencySeconds * 60; 
+            }
+            trigger() {
+                if(this.active) return;
+                const s = this.c.state;
+                const d = this.c.derived;
+                const total = this.g.cols * this.g.rows;
+                
+                // Reallocate if grid resized
+                if (this.snapChars.length !== total) {
+                    this.snapChars = new Uint16Array(total);
+                    this.snapColors = new Uint32Array(total);
+                    this.snapAlphas = new Float32Array(total);
+                }
+                this.snapDims = {w: this.g.cols, h: this.g.rows};
+
+                const attackEnd = d.cycleDuration;
+                const holdEnd = d.cycleDuration + d.holdFrames;
+
+                // Create Snapshot (Flattened)
+                for(let y=0; y<this.g.rows; y++) {
+                    for(let x=0; x<this.g.cols; x++) {
+                        const idx = y * this.g.cols + x;
+                        const c = this.g.cells[y][x];
+                        
+                        let rgb = d.streamRgb;
+                        if(c.type === CELL_TYPE.TRACER || (c.type === CELL_TYPE.ROTATOR && c.age > 0)) {
+                            const activeTime = c.age - 1;
+                            if (activeTime >= attackEnd && activeTime < holdEnd) rgb = d.tracerRgb; 
+                        }
+                        
+                        this.snapChars[idx] = c.char.charCodeAt(0);
+                        this.snapColors[idx] = Utils.packRgb(rgb.r, rgb.g, rgb.b);
+                        const isEmpty = (c.type === CELL_TYPE.EMPTY) || c.alpha < 0.05;
+                        this.snapAlphas[idx] = isEmpty ? -1.0 : c.alpha; // -1 denotes "Empty"
+                    }
+                }
+
+                this.origin = s.pulseRandomPosition ? {x:Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8), y:Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8)} : {x:Math.floor(this.g.cols/2), y:Math.floor(this.g.rows/2)};
+                this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
+                const maxDist = Math.max(Math.abs(this.origin.x), Math.abs(this.origin.y), Math.abs(this.g.cols-this.origin.x), Math.abs(this.g.rows-this.origin.y));
+                this.speed = (maxDist + 5) / Math.max(1, s.pulseDurationSeconds * 60);
+            }
+            update() {
+                const s = this.c.state;
+                if(!this.active && s.pulseEnabled) {
+                    if(this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
+                }
+                if(!this.active) return;
+                
+                // Sanity check dimensions
+                if (this.snapDims.w !== this.g.cols || this.snapDims.h !== this.g.rows) {
+                    this.active = false; return;
+                }
+
+                if(this.state==='WAITING') { 
+                    if(--this.timer<=0) this.state='EXPANDING'; 
+                } else {
+                    this.radius += this.speed;
+                    if(this.radius > Math.max(this.g.cols, this.g.rows)*1.5) { 
+                        this.active = false; 
+                    }
+                }
+            }
+            getOverride(x, y) {
+                if(!this.active) return null;
+                const idx = y * this.g.cols + x;
+                if (idx >= this.snapChars.length) return null;
+
+                const snAlpha = this.snapAlphas[idx];
+                const isEmpty = snAlpha < 0;
+                
+                const blank = { char: ' ', color: {r:0,g:0,b:0}, alpha: 0, glow: 0 };
+                const dimFactor = 0.2; 
+                
+                // Unpack Data
+                const charCode = this.snapChars[idx];
+                const rgbPacked = this.snapColors[idx];
+                const rgb = Utils.unpackRgb(rgbPacked);
+                const charStr = String.fromCharCode(charCode);
+
+                if(this.state === 'WAITING') return isEmpty ? blank : { char: charStr, color: rgb, alpha: snAlpha * dimFactor, glow: 0 };
+                
+                const d = Math.max(Math.abs(x - this.origin.x), Math.abs(y - this.origin.y));
+                if (d > this.radius) return isEmpty ? blank : { char: charStr, color: rgb, alpha: snAlpha * dimFactor, glow: 0 };
+                else if (d > this.radius - 6) {
+                    if (isEmpty && this.c.state.pulsePreserveSpaces) return blank;
+                    return { char: charStr, color: this.c.derived.tracerRgb, alpha: 1.0, glow: 30, size: 4 };
+                }
+                else return null;
+            }
+        }
+
+        // --- DEJA VU EFFECT ---
+        class DejaVuEffect {
+            constructor(g, c) {
+                this.g = g; this.c = c;
+                this.active = false;
+                this.eventTimer = 0;
+                this.autoTimer = c.state.dejaVuFrequencySeconds * 60;
+                this.bars = []; 
+                this.rowMap = null; 
+            }
+            trigger() {
+                if(this.active) return;
+                const s = this.c.state;
+                this.active = true;
+                this.eventTimer = s.dejaVuDurationSeconds * 60;
+                this.bars = [];
+                this.rowMap = new Uint8Array(this.g.rows);
+            }
+            update() {
+                const s = this.c.state;
+                if (!this.active && s.dejaVuEnabled && s.dejaVuAutoMode) {
+                    if (this.autoTimer-- <= 0) {
+                        this.trigger();
+                        this.autoTimer = s.dejaVuFrequencySeconds * 60;
+                    }
+                }
+                if (!this.active) return;
+
+                if (this.eventTimer-- <= 0) {
+                    this.active = false;
+                    this.bars = [];
+                    this.rowMap = null;
+                    return;
+                }
+
+                if (!this.rowMap || this.rowMap.length !== this.g.rows) {
+                    this.rowMap = new Uint8Array(this.g.rows);
+                } else {
+                    this.rowMap.fill(0);
+                }
+
+                if (Math.random() < s.dejaVuIntensity) {
+                    const limit = Math.floor(this.g.rows * 0.5); 
+                    const maxH = Math.min(limit, s.dejaVuMaxRectHeight);
+                    const minH = Math.min(maxH, Math.max(1, s.dejaVuMinRectHeight));
+                    
+                    const h = Utils.randomInt(minH, maxH);
+                    const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
+                    const baseDur = s.dejaVuBarDurationFrames;
+                    const variance = s.dejaVuVarianceFrames;
+                    const dur = baseDur + Utils.randomInt(-variance, variance);
+                    this.bars.push({ y: y, height: h, age: 0, maxAge: Math.max(5, dur) });
+                }
+
+                for (let i = this.bars.length - 1; i >= 0; i--) {
+                    const b = this.bars[i];
+                    b.age++;
+                    if (b.age >= b.maxAge) {
+                        this.bars.splice(i, 1);
+                    } else {
+                        for (let r = b.y; r < b.y + b.height && r < this.g.rows; r++) {
+                            this.rowMap[r] = 1;
+                        }
+                    }
+                }
+
+                if (this.rowMap) {
+                    for (let y = 0; y < this.g.rows; y++) {
+                        if (this.rowMap[y] === 1) {
+                            for (let x = 0; x < this.g.cols; x++) {
+                                if (Math.random() < 0.1) {
+                                    this.g.cells[y][x].char = Utils.getRandomChar();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            getOverride(x, y) {
+                if (!this.active || !this.rowMap || this.rowMap.length <= y) return null;
+                if (this.rowMap[y] === 1) {
+                    const s = this.c.state;
+                    const cell = this.g.cells[y][x];
+                    let alpha = 1.0;
+                    const isHole = (cell.type === CELL_TYPE.EMPTY || (cell.decay > 0 && cell.alpha < 0.1));
+                    if (isHole) {
+                        alpha = s.dejaVuHoleBrightness;
+                        if (alpha <= 0.01) return null;
+                    }
+                    return {
+                        char: cell.char,
+                        color: this.c.derived.tracerRgb,
+                        alpha: alpha,
+                        glow: 20 * alpha,
+                        size: 2
+                    };
+                }
+                return null;
+            }
+        }
+
+        class MatrixRenderer {
+            constructor(canvasId, grid, config) {
+                this.cvs = document.getElementById(canvasId);
+                this.ctx = this.cvs.getContext('2d', { alpha: false });
+                this.bloomCvs = document.getElementById('bloomCanvas');
+                this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+                this.grid = grid; this.config = config;
+                this.resizeTimer = null;
+                this.frameCount = 0;
+                window.addEventListener('resize', () => {
+                    clearTimeout(this.resizeTimer);
+                    this.resizeTimer = setTimeout(() => this.resize(), 100);
+                });
+                this.config.subscribe((k, s) => {
+                    if (k === 'smoothingEnabled' || k === 'smoothingAmount' || k === 'ALL') this.applyStyles();
+                    if (k === 'resolution' || k === 'stretchX' || k === 'stretchY' || k === 'fontSize' || k === 'horizontalSpacingFactor' || k === 'cellSpacingFactor') this.resize();
+                });
+                this.resize(); this.applyStyles();
+            }
+            applyStyles() {
+                const s = this.config.state;
+                const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px';
+                this.cvs.style.filter = `blur(${blur})`;
+            }
+            resize() {
+                const s = this.config.state;
+                this.w = window.innerWidth; this.h = window.innerHeight;
+                const scale = s.resolution;
+                this.cvs.width = this.w * scale; this.cvs.height = this.h * scale;
+                this.cvs.style.width = this.w + "px"; this.cvs.style.height = this.h + "px";
+                this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25; 
+                this.bloomCtx.scale(0.25, 0.25);
+                this.grid.resize(this.w / s.stretchX, this.h / s.stretchY);
+            }
+            render(frame) {
+                this.frameCount = frame;
+                const s = this.config.state;
+                const d = this.config.derived;
+                const bloom = s.enableBloom;
+                const scale = s.resolution;
+                this.ctx.save();
+                this.ctx.scale(scale * s.stretchX, scale * s.stretchY);
+                this.ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`;
+                this.ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
+                if (bloom) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
+                
+                const fontBase = d.fontBaseStr; 
+                
+                let currentFont = fontBase;
+                this.ctx.font = fontBase; this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'center';
+                this.ctx.save(); 
+                this.ctx.scale(-1, 1); 
+                this.ctx.translate(-(this.w / s.stretchX), 0); 
+                if (bloom) {
+                    this.bloomCtx.font = fontBase; this.bloomCtx.textBaseline = 'middle'; this.bloomCtx.textAlign = 'center';
+                    this.bloomCtx.save(); this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY); this.bloomCtx.scale(-1, 1); this.bloomCtx.translate(-(this.w / s.stretchX), 0);
+                }
+                
+                const defaultStreamColor = d.streamColorStr;
+                
+                // [OPTIMIZATION 1C] State Guarding
+                // Initial state set
+                this.ctx.fillStyle = defaultStreamColor; this.ctx.shadowBlur = 0; this.ctx.shadowColor = defaultStreamColor;
+                if(bloom) this.bloomCtx.fillStyle = defaultStreamColor;
+
+                let lastColor = defaultStreamColor;
+                // We track current context font/style locally to avoid talking to GPU unnecessarily
+
+                for (let y = 0; y < this.grid.rows; y++) {
+                    for (let x = 0; x < this.grid.cols; x++) {
+                        const cell = this.grid.cells[y][x];
+                        if (cell.override) continue; 
+                        
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
+                        let sizeOffset = 0; let drawAlpha = 0;
+                        if (cell.age > 0) { drawAlpha = cell.crossFadeAlpha * cell.brightness; } else if (cell.decay > 0) {
+                            drawAlpha = cell.alpha;
+                            if (s.dissolveEnabled && cell.decay >= 2) {
+                               const prog = (cell.decay - 2) / s.decayFadeDurationFrames;
+                               const targetSize = Math.max(1, s.dissolveMinSize); 
+                               const reduction = s.fontSize - targetSize;
+                               sizeOffset = -(reduction * prog);
+                            }
+                        }
+                        
+                        if (drawAlpha > 0.01) {
+                            let currentColor = defaultStreamColor;
+                            if (cell.style) {
+                                if (cell.style.glitter && Math.random() < 0.02) {
+                                    currentColor = '#ffffff';
+                                } else {
+                                    let h = cell.style.h;
+                                    if (cell.style.cycle) {
+                                        h = (h + (this.frameCount * cell.style.speed)) % 360;
+                                    }
+                                    // [OPTIMIZATION 1B] Use Cache
+                                    currentColor = Utils.getCachedHsl(h | 0, cell.style.s, cell.style.l);
+                                }
+                            }
+
+                            // [OPTIMIZATION 1C] Only set if changed
+                            if (currentColor !== lastColor) {
+                                this.ctx.fillStyle = currentColor;
+                                this.ctx.shadowColor = currentColor;
+                                if (bloom) this.bloomCtx.fillStyle = currentColor;
+                                lastColor = currentColor;
+                            }
+
+                            if (cell.rotatorProg > 0 && s.rotatorCrossfadeFrames > 2) {
+                                const p = cell.rotatorProg / s.rotatorCrossfadeFrames;
+                                const aOld = drawAlpha * Math.cos(p * Math.PI / 2);
+                                const aNew = drawAlpha * Math.sin(p * Math.PI / 2);
+                                
+                                if(currentFont !== fontBase) { this.ctx.font = fontBase; currentFont = fontBase; }
+                                
+                                this.ctx.globalAlpha = aOld; this.ctx.fillText(cell.char, px, py);
+                                this.ctx.globalAlpha = aNew; this.ctx.fillText(cell.nextChar, px, py);
+                                if(bloom) { this.bloomCtx.globalAlpha = drawAlpha; this.bloomCtx.fillText(p > 0.5 ? cell.nextChar : cell.char, px, py); }
+                            } else {
+                                this.ctx.globalAlpha = drawAlpha;
+                                if (Math.abs(sizeOffset) > 0.5) {
+                                    const targetSize = Math.floor(Math.max(1, s.fontSize + sizeOffset));
+                                    const tempFont = `bold ${targetSize}px ${s.fontFamily}`;
+                                    // [OPTIMIZATION 1C] Check Font
+                                    if(currentFont !== tempFont) { this.ctx.font = tempFont; currentFont = tempFont; }
+                                    this.ctx.fillText(cell.char, px, py);
+                                    if (bloom) { this.bloomCtx.globalAlpha = drawAlpha; this.bloomCtx.fillText(cell.char, px, py); }
+                                    // Restore immediately after specialized draw to keep "batch" clean
+                                    if(currentFont !== fontBase) { this.ctx.font = fontBase; currentFont = fontBase; }
+                                } else {
+                                    if(currentFont !== fontBase) { this.ctx.font = fontBase; currentFont = fontBase; }
+                                    this.ctx.fillText(cell.char, px, py);
+                                    if (bloom) { this.bloomCtx.globalAlpha = drawAlpha; this.bloomCtx.fillText(cell.char, px, py); }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                const tStr = d.tracerColorStr;
+                
+                this.ctx.fillStyle = tStr; this.ctx.shadowBlur = s.tracerGlow; this.ctx.shadowColor = tStr;
+                const tFont = `bold ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
+                this.ctx.font = tFont; currentFont = tFont; 
+                if(bloom) { this.bloomCtx.fillStyle = tStr; this.bloomCtx.font = tFont; }
+                
+                for (let y = 0; y < this.grid.rows; y++) {
+                    for (let x = 0; x < this.grid.cols; x++) {
+                        const cell = this.grid.cells[y][x];
+                        if (cell.override) continue; 
+                        if (cell.age > 0 && cell.alpha > 0.01) { 
+                            const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                            const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
+                            
+                            let tColor = tStr;
+                            if (cell.style && s.starPowerEnabled && cell.style.cycle) {
+                                let h = (cell.style.h + (this.frameCount * cell.style.speed)) % 360;
+                                tColor = Utils.getCachedHsl(h | 0, 100, 85); 
+                                this.ctx.fillStyle = tColor;
+                                this.ctx.shadowColor = tColor; 
+                                if (bloom) this.bloomCtx.fillStyle = tColor;
+                            } else {
+                                this.ctx.fillStyle = tStr;
+                                this.ctx.shadowColor = tStr;
+                                if(bloom) this.bloomCtx.fillStyle = tStr;
+                            }
+
+                            this.ctx.globalAlpha = cell.alpha; this.ctx.fillText(cell.char, px, py);
+                            if (bloom) { this.bloomCtx.globalAlpha = cell.alpha; this.bloomCtx.fillText(cell.char, px, py); }
+                        }
+                    }
+                }
+                for (let y = 0; y < this.grid.rows; y++) {
+                    for (let x = 0; x < this.grid.cols; x++) {
+                        const cell = this.grid.cells[y][x];
+                        if (!cell.override) continue;
+                        const o = cell.override;
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) | 0;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) | 0;
+                        const c = o.color;
+                        const fill = `rgb(${c.r},${c.g},${c.b})`;
+                        this.ctx.fillStyle = fill; this.ctx.shadowBlur = o.glow || 0; this.ctx.shadowColor = fill;
+                        const oFont = `bold ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                        if(currentFont !== oFont) { this.ctx.font = oFont; currentFont = oFont; }
+                        const alpha = o.alpha !== undefined ? o.alpha : 1.0;
+                        this.ctx.globalAlpha = alpha;
+                        this.ctx.fillText(o.char, px, py);
+                        if (bloom) {
+                            this.bloomCtx.fillStyle = fill; this.bloomCtx.font = oFont;
+                            this.bloomCtx.globalAlpha = alpha; this.bloomCtx.fillText(o.char, px, py);
+                        }
+                    }
+                }
+                this.ctx.globalAlpha = 1.0; this.ctx.restore(); this.ctx.restore(); 
+                if (bloom) {
+                    this.bloomCtx.restore(); this.ctx.save();
+                    this.ctx.globalCompositeOperation = 'lighter';
+                    this.ctx.filter = `blur(${s.bloomStrength * 4}px)`;
+                    this.ctx.globalAlpha = s.bloomOpacity; 
+                    this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale);
+                    this.ctx.restore(); 
+                }
+                this.ctx.restore(); 
+            }
+        }
+
+        // --- 6. UI MANAGER ---
+        class UIManager {
+            constructor(c, eff) {
+                this.c = c; this.eff = eff;
+                this.els = {
+                    panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'),
+                    tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'),
+                    status: document.getElementById('globalStatus'), file: document.getElementById('importFile')
+                };
+                this.scrollState = { position: 0, velocity: 0, trackWidth: 0, containerWidth: 0, isAnimating: false };
+                this.tooltip = null; 
+                this.toastContainer = null;
+
+                this.defs = [
+                    { category: 'Appearance', id: 'streamColor', type: 'color', label: 'Stream Color' },
+                    { 
+                        category: 'Appearance', id: 'streamSpeed', type: 'range', label: 'Stream Speed', min: 4, max: 20,
+                        description: 'Controls the downward velocity of the code rain.' 
+                    },
+                    { 
+                        category: 'Appearance', id: 'ttlMinFrames', type: 'range', label: 'Min Length (Frames)', min: 10, max: 400, unit: 'fr',
+                        description: 'The minimum length of a code stream.' 
+                    },
+                    { 
+                        category: 'Appearance', id: 'ttlMaxFrames', type: 'range', label: 'Max Length (Frames)', min: 100, max: 600, unit: 'fr',
+                        description: 'The maximum length of a code stream.' 
+                    },
+                    { 
+                        category: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out', min: 1, max: 120, unit:'fr',
+                        description: 'How quickly the trail disappears after the stream passes.' 
+                    },
+                    
+                    { category: 'Appearance', type: 'header', label: 'Rainbow Streams' },
+                    { 
+                        category: 'Appearance', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbows',
+                        description: 'Streams have a chance to spawn as a solid random color instead of the default stream color.' 
+                    },
+                    { 
+                        category: 'Appearance', id: 'rainbowStreamChance', type: 'range', label: 'Spawn Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%',
+                        description: 'Percentage of streams that will be rainbow colored. 100% means NO default color streams.' 
+                    },
+                    { category: 'Appearance', id: 'rainbowStreamIntensity', type: 'range', label: 'Intensity (Lightness)', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
+
+                    { category: 'Appearance', type: 'header', label: 'Details' },
+                    { 
+                        category: 'Appearance', id: 'holeRate', type: 'range', label: 'Stream Emptiness %', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%',
+                        description: 'The probability of gaps (empty spaces) appearing within a stream.' 
+                    },
+                    { 
+                        category: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness',
+                        description: 'If enabled, characters will have random brightness levels for added depth.' 
+                    },
+                    { category: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+                    { 
+                        category: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve Effect',
+                        description: 'Characters will shrink in size as they fade out.' 
+                    }, 
+                    { category: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Min Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
+                    { category: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Face', options: [
+                        {label: 'Matrix Standard', value: '"MS Gothic", "Meiryo", "Yu Gothic", "Hiragino Kaku Gothic ProN", "TakaoPGothic", "Osaka", monospace'},
+                        {label: 'Gothic (Win)', value: '"MS Gothic", monospace'},
+                        {label: 'Console', value: 'Consolas, monaco, monospace'},
+                        {label: 'Typewriter', value: '"Courier New", monospace'},
+                        {label: 'Sans-Serif', value: 'Arial, Helvetica, sans-serif'},
+                        {label: 'Serif', value: '"Times New Roman", Times, serif'}
+                    ]},
+                    { 
+                        category: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Upscaling Bloom',
+                        description: 'Adds a neon glow effect. Can impact performance on slower devices.' 
+                    },
+                    { category: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Bloom Blur', min: 0, max: 10, unit: 'px', dep: 'enableBloom' },
+                    { category: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Bloom Opacity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
+                    
+                    { category: 'Appearance', type: 'header', label: 'Grid Layout' },
+                    { category: 'Appearance', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 60, unit: 'px' },
+                    { category: 'Appearance', id: 'stretchX', type: 'range', label: 'H-Stretch', min: 0.5, max: 3.0, step: 0.1 },
+                    { category: 'Appearance', id: 'stretchY', type: 'range', label: 'V-Stretch', min: 0.5, max: 3.0, step: 0.1 },
+                    { category: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'H-Spacing', min: 0.5, max: 2, step: 0.05 },
+                    { category: 'Appearance', id: 'cellSpacingFactor', type: 'range', label: 'V-Spacing', min: 0.5, max: 2, step: 0.05 },
+                    { category: 'Appearance', id: 'streamMinLength', type: 'range', label: 'Min Stream', min: 10, max: 300, unit: 'rows' },
+                    { category: 'Appearance', id: 'streamMaxLength', type: 'range', label: 'Max Stream', min: 50, max: 500, unit: 'rows' },
+
+                    // --- TRACERS ---
+                    { 
+                        category: 'Tracers', id: 'tracerColor', type: 'color', label: 'Tracer Color',
+                        description: 'The color of the bright leading character at the bottom of the stream.' 
+                    },
+                    { category: 'Tracers', id: 'tracerGlow', type: 'range', label: 'Glow Intensity', min: 0, max: 50, unit:'px' },
+                    { category: 'Tracers', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
+                    { 
+                        category: 'Tracers', id: 'tracerAttackFrames', type: 'range', label: 'Fade In (Attack)', min: 1, max: 20, unit: 'fr',
+                        description: 'How many frames it takes for the tracer to reach full brightness.' 
+                    },
+                    { 
+                        category: 'Tracers', id: 'tracerHoldFrames', type: 'range', label: 'Hold (Sustain)', min: 0, max: 60, unit: 'fr',
+                        description: 'How long the tracer stays at full brightness.' 
+                    },
+                    { 
+                        category: 'Tracers', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out (Release)', min: 1, max: 20, unit: 'fr',
+                        description: 'How quickly the tracer fades into the normal stream trail.' 
+                    },
+                    { 
+                        category: 'Tracers', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Hidden Tracers',
+                        description: 'Occasionally creates streams where the leading character is a gap (hole) instead of a bright letter.' 
+                    },
+                    { category: 'Tracers', id: 'invertedTracerChance', type: 'range', label: 'Hidden Chance', min: 0.05, max: 0.5, step: 0.05, dep: 'invertedTracerEnabled' },
+                    { 
+                        category: 'Tracers', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Stop',
+                        description: 'Streams will occasionally stop growing before hitting the bottom of the screen.' 
+                    },
+                    { category: 'Tracers', id: 'randomStopChance', type: 'range', label: 'Stop Chance', min: 0.01, max: 0.2, step: 0.01, dep: 'randomStopEnabled' },
+
+                    // --- ROTATORS ---
+                    { 
+                        category: 'Rotators', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators',
+                        description: 'Special characters that spin/change their symbol in place.' 
+                    },
+                    { category: 'Rotators', id: 'rotatorChance', type: 'range', label: 'Frequency', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
+                    { 
+                        category: 'Rotators', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 40, dep: 'rotatorEnabled',
+                        description: 'How fast the character cycles through different symbols.' 
+                    },
+                    { 
+                        category: 'Rotators', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Fade Speed', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled',
+                        description: 'How smoothly one symbol blends into the next.' 
+                    },
+                    
+                    // --- EFFECTS ---
+                    // V6.1 STAR POWER
+                    { category: 'Effects', type: 'header', label: 'Star Power Tracer' },
+                    { category: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
+                    { category: 'Effects', id: 'starPowerFreq', type: 'range', label: 'Chance %', min: 0, max: 100, dep: 'starPowerEnabled', unit:'%', description: 'Percentage of tracers that spawn as Star Power (Rainbow).' },
+                    
+                    // Toggle Switch for Stream/Char
+                    { 
+                        category: 'Effects', id: 'starPowerRainbowMode', type: 'toggle', label: 'Color Mode', 
+                        options: { left: {label:'Full Stream', value:'stream'}, right: {label:'Per Character', value:'char'} },
+                        dep: 'starPowerEnabled'
+                    },
+                    
+                    { category: 'Effects', id: 'starPowerColorCycle', type: 'checkbox', label: 'Color Cycle', dep: 'starPowerEnabled', description: 'If enabled, colors constantly shift through the rainbow over time.' },
+                    { category: 'Effects', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
+                    { category: 'Effects', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter Effect', dep: 'starPowerEnabled', description: 'Random white flashes for extra sparkle.' },
+                    { category: 'Effects', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
+                    { category: 'Effects', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
+
+
+                    { category: 'Effects', type: 'header', label: 'Pulse Wave' },
+                    { 
+                        category: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Pulse Effect',
+                        description: 'A rectangular wave that propagates through the matrix, changing colors momentarily.' 
+                    },
+                    { category: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Position', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Auto Pulse Freq', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Pulse Duration', min: 0.5, max: 5, step: 0.5, unit: 's', dep: 'pulseEnabled' },
+                    { category: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+                    
+                    { category: 'Effects', type: 'header', label: 'Deja Vu (Glitch)' },
+                    { 
+                        category: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu',
+                        description: 'Simulation of a "glitch in the matrix" creating horizontal tearing artifacts.' 
+                    },
+                    { category: 'Effects', id: 'dejaVuAutoMode', type: 'checkbox', label: 'Auto Trigger', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Time Between Glitches', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuDurationSeconds', type: 'range', label: 'Total Glitch Duration', min: 1, max: 10, step: 0.5, unit: 's', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Strip Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Timing Chaos', min: 0, max: 30, unit: 'fr', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuIntensity', type: 'range', label: 'Strip Spawn Rate', min: 0.01, max: 0.5, step: 0.01, dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 1, max: 20, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { category: 'Effects', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 5, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { 
+                        category: 'Effects', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.05, dep: 'dejaVuEnabled',
+                        description: 'Controls the visibility of gaps within the glitch. 0% keeps gaps empty, 100% fills them fully.'
+                    },
+
+                    // --- POST-FX ---
+                    { 
+                        category: 'Post-FX', id: 'resolution', type: 'range', label: 'Resolution (Scale)', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x',
+                        description: 'Rendering scale. Lower values (0.5x) improve performance; higher values (2.0x) look sharper.' 
+                    },
+                    { category: 'Post-FX', id: 'smoothingEnabled', type: 'checkbox', label: 'Edge Smoothing' },
+                    { category: 'Post-FX', id: 'smoothingAmount', type: 'range', label: 'Smoothness', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
+                    
+                    // --- SYSTEM ---
+                    { category: 'System', id: 'slot0', type: 'slot', index: 0 },
+                    { category: 'System', id: 'slot1', type: 'slot', index: 1 },
+                    { category: 'System', id: 'slot2', type: 'slot', index: 2 },
+                    { category: 'System', id: 'btnExport', type: 'button', label: 'Export JSON', btnClass: 'btn-info', action: 'export' },
+                    { category: 'System', id: 'btnImport', type: 'button', label: 'Import JSON', btnClass: 'btn-info', action: 'import' },
+                    { category: 'System', id: 'btnForceReset', type: 'button', label: 'Factory Reset', btnClass: 'btn-danger', action: 'reset' },
+
+                    // --- ABOUT ---
+                    { category: 'About', type: 'about_content' },
+
+                    // --- DEBUG ---
+                    { category: 'Debug', id: 'btnManPulse', type: 'button', label: 'Trigger Pulse Effect', btnClass: 'btn-warn', action: 'triggerPulse' },
+                    { category: 'Debug', id: 'btnManDejaVu', type: 'button', label: 'Trigger Deja Vu Effect', btnClass: 'btn-warn', action: 'triggerDejaVu' }
+                ];
+                this.init();
+            }
+
+            init() {
+                this.els.toggle.addEventListener('click', () => this.els.panel.classList.toggle('open'));
+                this.els.file.addEventListener('change', (e) => this.handleImport(e));
+                this.c.subscribe((k, s) => this.refresh(k, s));
+                
+                this.tabTrack = document.createElement('div');
+                this.tabTrack.id = 'tabTrack';
+                this.els.tabs.appendChild(this.tabTrack);
+
+                // --- GLOBAL UI ELEMENTS ---
+                this.tooltip = document.createElement('div');
+                this.tooltip.id = 'ui-tooltip';
+                document.body.appendChild(this.tooltip);
+
+                this.toastContainer = document.createElement('div');
+                this.toastContainer.id = 'toast-container';
+                document.body.appendChild(this.toastContainer);
+
+                // --- SCROLL PHYSICS CONFIGURATION ---
+                const SCROLL_SENSITIVITY = 0.08;
+                const MAX_VELOCITY = 60;
+
+                this.els.tabs.addEventListener('wheel', (e) => {
+                    const hasScrollDelta = e.deltaY !== 0 || e.deltaX !== 0;
+
+                    if (hasScrollDelta) {
+                        e.preventDefault();
+                        const totalDelta = e.deltaX + e.deltaY;
+                        this.scrollState.velocity += totalDelta * SCROLL_SENSITIVITY;
+
+                        this.scrollState.velocity = Math.max(
+                            -MAX_VELOCITY, 
+                            Math.min(MAX_VELOCITY, this.scrollState.velocity)
+                        );
+
+                        if (!this.scrollState.isAnimating) {
+                            this.scrollState.isAnimating = true;
+                            this.updateScrollPhysics();
+                        }
+                    }
+                }, { passive: false });
+
+                this.buildUI();
+            }
+
+            updateScrollPhysics() {
+                const state = this.scrollState;
+                state.trackWidth = this.tabTrack.scrollWidth;
+                state.containerWidth = this.els.tabs.clientWidth;
+                const maxScroll = Math.max(0, state.trackWidth - state.containerWidth);
+                state.position += state.velocity;
+                state.velocity *= 0.94;
+                let force = 0;
+                if (state.position < 0) {
+                    force = -state.position * 0.01; 
+                    state.velocity *= 0.3; 
+                } 
+                else if (state.position > maxScroll) {
+                    force = (maxScroll - state.position) * 0.01;
+                    state.velocity *= 0.3;
+                }
+                state.velocity += force;
+                this.tabTrack.style.transform = `translateX(${-state.position}px)`;
+                if (Math.abs(state.velocity) < 0.05 && Math.abs(force) < 0.05) {
+                    state.isAnimating = false;
+                    state.velocity = 0;
+                    state.position = Math.max(0, Math.min(state.position, maxScroll));
+                    this.tabTrack.style.transform = `translateX(${-state.position}px)`;
+                } else {
+                    requestAnimationFrame(() => this.updateScrollPhysics());
+                }
+            }
+
+            // --- GLOBAL TOOLTIP LOGIC ---
+            showTooltip(text, target) {
+                this.tooltip.textContent = text;
+                this.tooltip.classList.add('visible');
+                const rect = target.getBoundingClientRect();
+                const tipRect = this.tooltip.getBoundingClientRect();
+                let top = rect.top + (rect.height / 2) - (tipRect.height / 2);
+                let left = rect.left - tipRect.width - 12; 
+                if (top < 10) top = 10;
+                if (left < 10) left = rect.right + 12; 
+                this.tooltip.style.top = `${top}px`;
+                this.tooltip.style.left = `${left}px`;
+            }
+            hideTooltip() { this.tooltip.classList.remove('visible'); }
+
+            createLabel(def) {
+                const group = document.createElement('div');
+                group.className = 'control-label-group';
+                const text = document.createElement('span');
+                text.textContent = def.label;
+                group.appendChild(text);
+                if (def.description) {
+                    const icon = document.createElement('span');
+                    icon.className = 'info-icon';
+                    icon.textContent = '?';
+                    icon.onmouseenter = (e) => this.showTooltip(def.description, e.target);
+                    icon.onmouseleave = () => this.hideTooltip();
+                    group.appendChild(icon);
+                }
+                return group;
+            }
+
+            buildUI() {
+                const cats = [...new Set(this.defs.map(d => d.category))];
+                cats.forEach((cat, i) => {
+                    const btn = document.createElement('button');
+                    btn.className = `tab-btn ${i===0?'active':''}`;
+                    btn.textContent = cat;
+                    btn.onclick = () => this.switchTab(cat, btn);
+                    this.tabTrack.appendChild(btn);
+
+                    const group = document.createElement('div');
+                    group.className = `control-group ${i===0?'active':''}`;
+                    group.id = `group-${cat}`;
+                    
+                    this.defs.filter(d => d.category === cat).forEach(def => {
+                        let el;
+                        if(def.type === 'header') {
+                            el = document.createElement('div');
+                            el.className = 'section-header';
+                            el.textContent = def.label;
+                        }
+                        else if(def.type === 'range') el = this.renderRange(def);
+                        else if(def.type === 'color') el = this.renderColor(def);
+                        else if(def.type === 'checkbox') el = this.renderCheckbox(def);
+                        else if(def.type === 'toggle') el = this.renderToggle(def);
+                        else if(def.type === 'slot') el = this.renderSlot(def);
+                        else if(def.type === 'select') el = this.renderSelect(def);
+                        else if(def.type === 'button') {
+                            el = document.createElement('button');
+                            el.className = `action-btn ${def.btnClass}`;
+                            el.textContent = def.label;
+                            el.onclick = () => this.handleAction(def.action);
+                        }
+                        else if(def.type === 'about_content') {
+                            el = this.renderAbout();
+                        }
+
+                        if(el) group.appendChild(el);
+                    });
+                    this.els.content.appendChild(group);
+                });
+            }
+
+            renderAbout() {
+                const div = document.createElement('div');
+                div.style.padding = '1rem';
+                div.style.textAlign = 'center';
+                div.style.color = '#86efac';
+                div.innerHTML = `
+                    <h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3>
+                    <div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;">
+                        <p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p>
+                        <p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p>
+                    </div>
+                    <p style="font-size:0.9rem;">
+                        <a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">
+                            github.com/enigmahack
+                        </a>
+                    </p>
+                `;
+                return div;
+            }
+
+            switchTab(cat, btn) {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.control-group').forEach(g => g.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(`group-${cat}`).classList.add('active');
+            }
+            
+            renderSelect(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'control-row';
+                const header = document.createElement('div'); header.className = 'control-header'; 
+                header.appendChild(this.createLabel(def));
+                wrapper.appendChild(header);
+                
+                const select = document.createElement('select');
+                select.id = `in-${def.id}`;
+                def.options.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.label;
+                    if (this.c.get(def.id) === opt.value) option.selected = true;
+                    select.appendChild(option);
+                });
+                select.onchange = (e) => { this.c.set(def.id, e.target.value); };
+                wrapper.appendChild(select);
+                return wrapper;
+            }
+
+            renderRange(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'control-row';
+                const header = document.createElement('div'); header.className = 'control-header'; 
+                header.appendChild(this.createLabel(def));
+                const valDisp = document.createElement('span'); valDisp.id = `val-${def.id}`; header.appendChild(valDisp);
+                wrapper.appendChild(header);
+                const input = document.createElement('input'); input.type = 'range'; input.id = `in-${def.id}`; input.min = def.min; input.max = def.max; if(def.step) input.step = def.step; input.value = this.c.get(def.id);
+                input.oninput = (e) => { this.c.set(def.id, parseFloat(e.target.value)); };
+                wrapper.appendChild(input); this.updateDisp(def, input.value, valDisp); return wrapper;
+            }
+            
+            renderColor(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'control-row';
+                const flex = document.createElement('div'); flex.className = 'color-wrapper';
+                const input = document.createElement('input'); input.type = 'color'; input.id = `in-${def.id}`; input.value = this.c.get(def.id); input.oninput = (e) => this.c.set(def.id, e.target.value);
+                const labelContainer = document.createElement('div'); labelContainer.style.flex = "1";
+                labelContainer.appendChild(this.createLabel(def));
+                flex.append(input, labelContainer); wrapper.appendChild(flex); return wrapper;
+            }
+            
+            renderCheckbox(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'checkbox-row';
+                const labelGroup = document.createElement('div'); labelGroup.appendChild(this.createLabel(def));
+                const input = document.createElement('input'); input.type = 'checkbox'; input.id = `in-${def.id}`; input.checked = this.c.get(def.id);
+                input.onclick = (e) => e.stopPropagation(); input.onchange = (e) => this.c.set(def.id, e.target.checked);
+                wrapper.onclick = () => { input.checked = !input.checked; input.dispatchEvent(new Event('change')); }; wrapper.append(labelGroup, input); return wrapper;
+            }
+            
+            renderToggle(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'control-row';
+                const header = document.createElement('div'); header.className = 'control-header'; 
+                header.appendChild(this.createLabel(def));
+                wrapper.appendChild(header);
+
+                const container = document.createElement('div'); container.className = 'toggle-switch-container';
+                const slider = document.createElement('div'); slider.className = 'toggle-slider';
+                const optLeft = document.createElement('div'); optLeft.className = 'toggle-option'; optLeft.textContent = def.options.left.label;
+                const optRight = document.createElement('div'); optRight.className = 'toggle-option'; optRight.textContent = def.options.right.label;
+                
+                const currentVal = this.c.get(def.id);
+                const isRight = currentVal === def.options.right.value;
+                if(isRight) { slider.classList.add('toggle-right'); optRight.classList.add('selected'); }
+                else { slider.classList.add('toggle-left'); optLeft.classList.add('selected'); }
+
+                container.onclick = () => {
+                    const newVal = this.c.get(def.id) === def.options.left.value ? def.options.right.value : def.options.left.value;
+                    this.c.set(def.id, newVal);
+                };
+
+                // ID for programmatic update
+                container.id = `toggle-${def.id}`;
+                container.dataset.leftVal = def.options.left.value;
+                container.dataset.rightVal = def.options.right.value;
+
+                container.append(slider, optLeft, optRight);
+                wrapper.appendChild(container);
+                return wrapper;
+            }
+
+            renderSlot(def) {
+                const wrapper = document.createElement('div'); wrapper.className = 'control-row';
+                const header = document.createElement('div'); header.className = 'control-header'; header.textContent = `Save Slot ${def.index + 1}`; wrapper.appendChild(header);
+                const container = document.createElement('div'); container.className = 'slot-container';
+                const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.className = 'slot-name-input'; nameInput.value = this.c.slots[def.index].name; nameInput.onchange = (e) => this.c.renameSlot(def.index, e.target.value);
+                const btnGroup = document.createElement('div'); btnGroup.className = 'slot-btn-group';
+                const saveBtn = document.createElement('button'); saveBtn.className = 'btn-icon btn-save'; saveBtn.textContent = 'SAVE'; saveBtn.onclick = () => { this.c.saveToSlot(def.index); this.refresh('ALL', this.c.state); this.showStatus(`Saved ${this.c.slots[def.index].name}`, 'success'); };
+                const loadBtn = document.createElement('button'); const isEmpty = !this.c.slots[def.index].data; loadBtn.className = `btn-icon btn-load ${isEmpty ? 'btn-disabled' : ''}`; loadBtn.textContent = 'LOAD'; loadBtn.disabled = isEmpty; loadBtn.onclick = () => { if(this.c.loadFromSlot(def.index)) this.showStatus(`Loaded ${this.c.slots[def.index].name}`, 'success'); };
+                btnGroup.append(saveBtn, loadBtn); container.append(nameInput, btnGroup); wrapper.appendChild(container); return wrapper;
+            }
+            updateDisp(def, val, el) { if(el) el.textContent = def.transform ? def.transform(val) : val + (def.unit || ''); }
+            
+            refresh(key, state) {
+                const REFRESH_ALL_KEY = 'ALL';
+                if (key === REFRESH_ALL_KEY) {
+                    this.els.content.innerHTML = '';
+                    this.els.tabs.innerHTML = '';
+                    this.els.tabs.appendChild(this.tabTrack);
+                    this.tabTrack.innerHTML = '';
+                    this.buildUI();
+                    return;
+                }
+                const def = this.defs.find(d => d.id === key);
+                if(def && def.type !== 'button' && def.type !== 'slot' && def.type !== 'about_content' && def.type !== 'header') {
+                    if (def.type === 'toggle') {
+                        const container = document.getElementById(`toggle-${key}`);
+                        if(container) {
+                            const slider = container.querySelector('.toggle-slider');
+                            const opts = container.querySelectorAll('.toggle-option');
+                            const val = state[key];
+                            if(val === container.dataset.rightVal) {
+                                slider.classList.remove('toggle-left'); slider.classList.add('toggle-right');
+                                opts[0].classList.remove('selected'); opts[1].classList.add('selected');
+                            } else {
+                                slider.classList.remove('toggle-right'); slider.classList.add('toggle-left');
+                                opts[1].classList.remove('selected'); opts[0].classList.add('selected');
+                            }
+                        }
+                    } else {
+                        const input = document.getElementById(`in-${key}`);
+                        if(input) { 
+                            if(def.type === 'checkbox') input.checked = state[key];
+                            else input.value = state[key]; 
+                        }
+                        const disp = document.getElementById(`val-${key}`);
+                        this.updateDisp(def, state[key], disp);
+                    }
+                }
+                this.defs.forEach(d => {
+                    if(d.dep === key) {
+                        const wrap = document.getElementById(`in-${d.id}`)?.closest('.control-row, .checkbox-row');
+                        if (!wrap) {
+                            // Try toggle lookup
+                            const toggleWrap = document.getElementById(`toggle-${d.id}`)?.closest('.control-row');
+                            if(toggleWrap) {
+                                if(state[key]) toggleWrap.classList.remove('control-disabled');
+                                else toggleWrap.classList.add('control-disabled');
+                            }
+                        } else {
+                            if (state[key]) wrap.classList.remove('control-disabled');
+                            else wrap.classList.add('control-disabled');
+                        }
+                    }
+                });
+            }
+
+            handleAction(a) {
+                if(a==='reset' && confirm("Reset all?")) this.c.reset();
+                if(a==='export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, 'matrix_config.json');
+                if(a==='import') this.els.file.click();
+                if(a==='triggerPulse') { this.eff.triggerPulse(); this.showStatus('Pulse Triggered', 'info'); } 
+                if(a==='triggerDejaVu') { this.eff.triggerDejaVu(); this.showStatus('Deja Vu Triggered', 'warn'); }
+            }
+            handleImport(e) { const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ try { const d=JSON.parse(ev.target.result); this.c.state = {...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.showStatus('Imported', 'success'); } catch(e){this.showStatus('Error', 'error');}}; r.readAsText(f); }
+            
+            showStatus(msg, type) { 
+                const toast = document.createElement('div');
+                toast.className = `toast-msg toast-${type}`;
+                toast.textContent = msg;
+                this.toastContainer.appendChild(toast);
+                requestAnimationFrame(() => toast.classList.add('visible'));
+                setTimeout(() => {
+                    toast.classList.remove('visible');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
+            }
+        }
+
+        // --- 7. MAIN LOOP & BOOTSTRAP ---
+        class MatrixEngine {
+            constructor() {
+                this.config = new ConfigurationManager();
+                this.grid = new Grid(this.config);
+                this.streamSys = new StreamSystem(this.grid, this.config);
+                this.effectSys = new EffectSystem(this.grid, this.config);
+                this.renderer = new MatrixRenderer('matrixCanvas', this.grid, this.config);
+                this.ui = new UIManager(this.config, this.effectSys);
+                
+                this.frame = 0;
+                this.lastTime = 0;
+                this.accumulator = 0;
+                this.timestep = 1000 / 60; 
+                
+                this.loop = this.loop.bind(this);
+                requestAnimationFrame(this.loop);
+            }
+
+            loop(currentTime) {
+                if (!this.lastTime) this.lastTime = currentTime;
+                const deltaTime = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+                
+                this.accumulator += deltaTime;
+                if(this.accumulator > 250) this.accumulator = 250;
+
+                while (this.accumulator >= this.timestep) {
+                    this.frame++;
+                    this.streamSys.update(this.frame);
+                    this.effectSys.update(this.frame);
+                    this.accumulator -= this.timestep;
+                }
+
+                this.renderer.render(this.frame); 
+                requestAnimationFrame(this.loop);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => new MatrixEngine());
+
+    </script>
+</body>
+</html>
