@@ -2,9 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matrix Digital Rain v6.1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Matrix Digital Rain v6.2</title>
     <style>
+        @font-face {
+            font-family: 'MatrixCustom';
+            src: url('data:font/ttf;base64,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') format('truetype');
+        }
         /* --- CSS VARIABLES & THEME --- */
         :root {
             --bg-color: #000;
@@ -24,6 +28,8 @@
             background-color: var(--bg-color); 
             margin: 0; 
             font-family: 'Segoe UI', 'Roboto', monospace; 
+            /* Prevent swipe-to-refresh on mobile */
+            overscroll-behavior: none;
         }
         
         canvas { display: block; position: absolute; top: 0; left: 0; }
@@ -57,6 +63,7 @@
             border-bottom: 1px solid var(--panel-border);
             position: relative;
             width: 100%;
+            touch-action: none; /* Crucial for custom swipe logic */
         }
         
         #tabTrack {
@@ -75,12 +82,14 @@
             transition: all 0.2s; font-size: 0.8rem; font-weight: 600;
             border-bottom: 2px solid transparent;
             user-select: none;
+            /* Increase tap target for mobile */
+            min-height: 48px;
         }
         .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
         .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); background: rgba(34,197,94,0.1); }
 
         /* --- CONTENT AREA --- */
-        #contentArea { flex: 1; overflow-y: auto; padding: 1.5rem; }
+        #contentArea { flex: 1; overflow-y: auto; padding: 1.5rem; -webkit-overflow-scrolling: touch; }
         
         .control-group { 
             display: none; 
@@ -106,11 +115,15 @@
         .control-label-group { display: flex; align-items: center; gap: 6px; flex: 1; }
         .info-icon {
             display: inline-flex; align-items: center; justify-content: center;
-            width: 14px; height: 14px; border-radius: 50%;
+            width: 22px; height: 22px; /* Increased size for mobile */
+            border-radius: 50%;
             border: 1px solid var(--text-muted); color: var(--text-muted);
-            font-size: 10px; cursor: help; transition: all 0.2s;
+            font-size: 12px; cursor: help; transition: all 0.2s;
+            margin-left: 8px;
+            /* Invisible border for better touch targeting */
+            box-shadow: 0 0 0 4px transparent;
         }
-        .info-icon:hover { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
+        .info-icon:hover, .info-icon:active { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
 
         #ui-tooltip {
             position: fixed; 
@@ -201,6 +214,21 @@
         
         #menuToggle { position: fixed; top: 1.5rem; right: 1.5rem; z-index: 30; width: 44px; height: 44px; border-radius: 50%; color: var(--text-main); background: rgba(10, 12, 16, 0.6); backdrop-filter: blur(4px); border: 1px solid var(--panel-border); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; }
         #menuToggle:hover { background: var(--accent); color: #000; box-shadow: 0 0 20px var(--accent); transform: rotate(90deg); }
+
+        /* --- MOBILE LAYOUT FIXES --- */
+        @media (max-width: 600px) {
+            #settingsPanel {
+                width: 100%;
+                max-width: 100%;
+                border-left: none;
+            }
+            #menuToggle {
+                top: 1rem;
+                right: 1rem;
+                width: 50px;
+                height: 50px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -216,11 +244,11 @@
         <div id="panelHeader"><h2>Settings</h2></div>
         <div id="navTabs"></div>
         <div id="contentArea"></div>
-        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v6.1 (Opt)</div></div>
+        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v6.2 (Mobile)</div></div>
     </div>
 
     <script>
-        const APP_VERSION = "6.1";
+        const APP_VERSION = "6.2 (Mobile)";
         
         // --- 1. CORE UTILITIES ---
         const Utils = {
@@ -246,8 +274,7 @@
             // Helper to pack RGB into an integer for TypedArray storage
             packRgb: (r, g, b) => { return (r << 16) | (g << 8) | b; },
             unpackRgb: (intVal) => { return { r: (intVal >> 16) & 0xFF, g: (intVal >> 8) & 0xFF, b: intVal & 0xFF }; },
-
-            CHARS: '124567890Z-⁚+<>エワカタメモチ╌ムホテナスヒコサヌヲケキソリラマニネツシ=㆔ウ|¦オ＊"',
+            CHARS: '|¦エワカタメモチ╌ムホテナスヒコサヌヲケキソリラマニネツシ=ウ',
             getRandomChar: () => Utils.CHARS.charAt(Math.floor(Math.random() * Utils.CHARS.length)),
             getUniqueChar: (exclude) => { let c; do { c = Utils.getRandomChar(); } while (c === exclude); return c; },
             downloadJson: (data, filename) => {
@@ -339,7 +366,7 @@
                     stretchX: 1.0,
                     stretchY: 1.2, 
                     
-                    fontFamily: 'Consolas, monaco, monospace',
+                    fontFamily: 'MatrixCustom, monospace',
                     fontSize: 27, 
                     cellSpacingFactor: 1, 
                     horizontalSpacingFactor: 1.15
@@ -1137,12 +1164,11 @@
                     }, 
                     { category: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Min Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
                     { category: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Face', options: [
+                        {label: 'MatrixCustom', value: '"MatrixCustom", "MS Gothic", "Consolas", monospace'},
                         {label: 'Matrix Standard', value: '"MS Gothic", "Meiryo", "Yu Gothic", "Hiragino Kaku Gothic ProN", "TakaoPGothic", "Osaka", monospace'},
                         {label: 'Gothic (Win)', value: '"MS Gothic", monospace'},
-                        {label: 'Console', value: 'Consolas, monaco, monospace'},
-                        {label: 'Typewriter', value: '"Courier New", monospace'},
-                        {label: 'Sans-Serif', value: 'Arial, Helvetica, sans-serif'},
-                        {label: 'Serif', value: '"Times New Roman", Times, serif'}
+                        {label: 'Console', value: 'Consolas, monaco, monospace'}
+
                     ]},
                     { 
                         category: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Upscaling Bloom',
@@ -1321,6 +1347,49 @@
                     }
                 }, { passive: false });
 
+                // [MOBILE FIX] Touch Drag & Throw Logic
+                let touchStartX = 0;
+                let lastTouchX = 0;
+                let isDragging = false;
+
+                this.els.tabs.addEventListener('touchstart', (e) => {
+                    isDragging = true;
+                    touchStartX = e.touches[0].clientX;
+                    lastTouchX = touchStartX;
+                    // Stop any existing momentum to allow grabbing
+                    this.scrollState.velocity = 0;
+                    this.scrollState.isAnimating = false;
+                }, { passive: true });
+
+                this.els.tabs.addEventListener('touchmove', (e) => {
+                    if (!isDragging) return;
+                    const currentX = e.touches[0].clientX;
+                    
+                    // Calculate delta (reversed, because dragging left moves view right)
+                    const delta = lastTouchX - currentX;
+                    
+                    // Direct manipulation for 1:1 feel during drag
+                    this.scrollState.position += delta;
+                    
+                    // Store velocity for the "throw" effect on release
+                    // We dampen it slightly so it doesn't fly off instantly
+                    this.scrollState.velocity = delta * 1.5; 
+                    
+                    lastTouchX = currentX;
+                    
+                    // Manually update transform during drag
+                    this.tabTrack.style.transform = `translateX(${-this.scrollState.position}px)`;
+                }, { passive: false }); 
+
+                this.els.tabs.addEventListener('touchend', () => {
+                    isDragging = false;
+                    // Trigger the physics loop to handle inertia/boundary bounce
+                    if (!this.scrollState.isAnimating) {
+                        this.scrollState.isAnimating = true;
+                        this.updateScrollPhysics();
+                    }
+                });
+
                 this.buildUI();
             }
 
@@ -1379,6 +1448,20 @@
                     icon.textContent = '?';
                     icon.onmouseenter = (e) => this.showTooltip(def.description, e.target);
                     icon.onmouseleave = () => this.hideTooltip();
+                    
+                    // [MOBILE FIX] Tap to view tooltip
+                    icon.addEventListener('touchstart', (e) => {
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                        if (this.tooltip.classList.contains('visible')) {
+                            this.hideTooltip();
+                        } else {
+                            this.showTooltip(def.description, e.target);
+                            // Auto-hide after 3 seconds on mobile
+                            setTimeout(() => this.hideTooltip(), 3000);
+                        }
+                    });
+
                     group.appendChild(icon);
                 }
                 return group;
