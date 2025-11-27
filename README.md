@@ -1,4 +1,4 @@
-💻 Matrix Digital Rain Simulation v5.5
+💻 Matrix Digital Rain Simulation v5.7
 A customizable, optimized, modular canvas-based recreation of the iconic digital rain effect. Now featuring "Deja Vu" glitch effects, frame-rate independent physics, and dynamic font selection.
 
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt.
@@ -10,7 +10,7 @@ Yes, it's been over 25 years since this movie came out and there's still some du
 <img width="3838" height="1914" alt="Screenshot 2025-11-26 111028" src="https://github.com/user-attachments/assets/ac4d7b80-39ca-46c1-ad30-fc9df406d3b7" />
 
 ##
-🚀 What's New in v5.5
+🚀 What's New in v5.7
 This version focuses on cinematic effects, stability, and smoothness.
 
 "Deja Vu" Glitch Effect: A new cinematic event inspired by the movie. Horizontal strips of "bad code" flash across the screen, rewriting the characters in the grid before disappearing. Highly customizable via the new "Glitch" tab.
@@ -70,7 +70,7 @@ Factory Reset: Instantly revert all settings to the "Gold Master" defaults.
 ▶️ How to Run
 This project is a single-file application requiring no external dependencies or build steps.
 
-Download: Clone the repository or download the MatrixCode_v5.5.html file.
+Download: Clone the repository or download the MatrixCode_v5.7.html file.
 
 Launch: Open the file directly in any modern web browser (Chrome, Firefox, Edge, Safari).
 
