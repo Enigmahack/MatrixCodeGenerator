@@ -3,11 +3,15 @@ A customizable, optimized, modular canvas-based recreation of the iconic digital
 
 Yes, it's been over 25 years since this movie came out and there's still some dufus out there trying to get the code looking like the actual screens in the movie. No, it's not NEARLY as good, performant, optimized, accurate, detailed, or just plain neato as http://www.thematrixscreensaver.com/ but it's a not bad attempt.
 
-![Recording 2025-11-26 111429](https://github.com/user-attachments/assets/583571cc-ad89-4ea1-97fa-9ded403fb969)
+![MatrixCodeRecording5 7](https://github.com/user-attachments/assets/85954bce-3cfb-4c73-a12a-67fef08e1a26)
 
-<img width="3830" height="1914" alt="Screenshot 2025-11-26 110920" src="https://github.com/user-attachments/assets/aed7a857-9d44-467f-b988-08d84ddbb47d" />
+<img width="1280" height="690" alt="image" src="https://github.com/user-attachments/assets/2c7b734e-a8b8-4f21-905b-c53c26d33bcb" />
 
-<img width="3838" height="1914" alt="Screenshot 2025-11-26 111028" src="https://github.com/user-attachments/assets/ac4d7b80-39ca-46c1-ad30-fc9df406d3b7" />
+<img width="1280" height="687" alt="image" src="https://github.com/user-attachments/assets/fa775294-31c8-4b67-bcb0-f5b37454c8e7" />
+
+<img width="1280" height="689" alt="image" src="https://github.com/user-attachments/assets/b768fced-ecf5-4b6e-9da3-2ef5a9e86b3d" />
+
+
 
 ##
 🚀 What's New in v5.7
