@@ -1,3 +1,8 @@
+Check out the live demo here: 
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v6.4.html
+
+
+
 💻 Matrix Digital Rain Simulation v6.1
 A customizable, optimized, modular canvas-based recreation of the iconic digital rain effect. Now featuring "Star Power" effects, rainbow streams, and massive performance improvements.
 
