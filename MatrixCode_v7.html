@@ -1,0 +1,1862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Matrix Digital Rain v7.0</title>
+    <style>
+        /* --- CSS VARIABLES & THEME (v6.5 Parity) --- */
+        :root {
+            --bg-color: #000;
+            --panel-bg: rgba(10, 12, 16, 0.96); 
+            --panel-border: rgba(34, 197, 94, 0.3);
+            --text-main: #4ade80;
+            --text-muted: #86efac;
+            --accent: #22c55e;
+            --accent-glow: rgba(34, 197, 94, 0.4);
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --warn: #f59e0b;
+            --safe-top: env(safe-area-inset-top, 20px);
+            --safe-right: env(safe-area-inset-right, 20px);
+        }
+        * { box-sizing: border-box; }
+        body { 
+            overflow: hidden; 
+            background-color: var(--bg-color); 
+            margin: 0; 
+            font-family: 'Segoe UI', 'Roboto', monospace; 
+            overscroll-behavior: none;
+        }
+        
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+        #matrixCanvas { z-index: 1; transition: filter 0.3s ease; }
+
+        /* --- SETTINGS PANEL UI --- */
+        #settingsPanel {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 340px;
+            background-color: var(--panel-bg); 
+            box-shadow: -10px 0 30px rgba(0,0,0,0.8); z-index: 20;
+            transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            display: flex; flex-direction: column;
+            border-left: 1px solid var(--panel-border); 
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+        #settingsPanel.open { transform: translateX(0); }
+        
+        #panelHeader { 
+            padding: 1.25rem; 
+            padding-top: max(1.25rem, var(--safe-top));
+            border-bottom: 1px solid var(--panel-border);
+            background: linear-gradient(90deg, rgba(34,197,94,0.1) 0%, transparent 100%);
+        }
+        #panelHeader h2 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px var(--accent-glow); }
+
+        /* --- TABS NAVIGATION (Restored Scroll Snap & Hiding) --- */
+        #navTabs { 
+            overflow-x: auto; 
+            white-space: nowrap;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--panel-border);
+            position: relative;
+            width: 100%;
+            /* Native Smooth Scrolling */
+            scroll-behavior: smooth;
+            -webkit-overflow-scrolling: touch;
+            scroll-snap-type: x mandatory;
+            scrollbar-width: none; /* Firefox */
+        }
+        #navTabs::-webkit-scrollbar { display: none; }
+        
+        #tabTrack {
+            display: inline-flex;
+            width: max-content;
+        }
+
+        .tab-btn { 
+            flex: 0 0 auto; padding: 1rem 1.25rem; 
+            text-align: center; color: var(--text-muted); 
+            background: none; border: none; cursor: pointer; 
+            transition: all 0.2s; font-size: 0.8rem; font-weight: 600;
+            border-bottom: 2px solid transparent;
+            user-select: none;
+            min-height: 48px;
+            scroll-snap-align: start;
+        }
+        .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); background: rgba(34,197,94,0.1); }
+
+        /* Value Display Styling */
+        .control-header span[id^="val-"] {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+            background: rgba(34, 197, 94, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* --- CONTENT AREA --- */
+        #contentArea { flex: 1; overflow-y: auto; padding: 1.5rem; -webkit-overflow-scrolling: touch; }
+        
+        .control-group { 
+            display: none; 
+            flex-direction: column; 
+            gap: 1.5rem; 
+            animation: fadeIn 0.3s ease; 
+        }
+        .control-group.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .control-disabled { opacity: 0.3; pointer-events: none; filter: grayscale(1); transition: opacity 0.3s ease, filter 0.3s ease; }
+        .control-row { width: 100%; transition: opacity 0.3s; }
+        .control-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
+        
+        .section-header {
+            margin-top: 1rem; margin-bottom: 0.25rem;
+            font-size: 0.8rem; font-weight: 700; color: #fff;
+            text-transform: uppercase; letter-spacing: 1.5px;
+            border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;
+        }
+
+        /* --- TOOLTIP UI --- */
+        .control-label-group { display: flex; align-items: center; gap: 6px; flex: 1; }
+        .info-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; 
+            border-radius: 50%;
+            border: 1px solid var(--text-muted); color: var(--text-muted);
+            font-size: 12px; cursor: help; transition: all 0.2s;
+            margin-left: 8px;
+        }
+        .info-icon:hover, .info-icon:active { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
+
+        #ui-tooltip {
+            position: fixed; 
+            background: #1f2937;
+            border: 1px solid var(--accent);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            z-index: 10000; 
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            max-width: 240px;
+            box-shadow: 0 4px 25px rgba(0,0,0,0.6);
+            visibility: hidden;
+        }
+        #ui-tooltip.visible { opacity: 1; visibility: visible; }
+
+        /* --- TOAST NOTIFICATIONS --- */
+        #toast-container {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 10001; pointer-events: none;
+            display: flex; flex-direction: column; gap: 10px; align-items: center;
+        }
+        .toast-msg {
+            background: rgba(31, 41, 55, 0.95); border: 1px solid var(--accent);
+            color: #fff; padding: 12px 24px; border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            font-size: 0.9rem; opacity: 0; transform: translateY(10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .toast-msg.visible { opacity: 1; transform: translateY(0); }
+        .toast-success { border-color: var(--accent); color: var(--text-main); }
+        .toast-error { border-color: var(--danger); color: #fca5a5; }
+        .toast-info { border-color: var(--info); color: #93c5fd; }
+
+
+        /* Range Slider */
+        input[type="range"] { width: 100%; height: 6px; background: #1f2937; border-radius: 3px; outline: none; appearance: none; -webkit-appearance: none; padding: 0; margin: 0; cursor: pointer; }
+        input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; transition: transform 0.1s; }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+        input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
+
+        .checkbox-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 40px; transition: opacity 0.3s; }
+        input[type="checkbox"] { width: 40px; height: 20px; background: #374151; border-radius: 20px; position: relative; transition: 0.3s; cursor: pointer; appearance: none; -webkit-appearance: none; }
+        input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s; }
+        input[type="checkbox"]:checked { background: var(--accent); }
+        input[type="checkbox"]:checked::after { transform: translateX(20px); }
+
+        select {
+            width: 100%; padding: 0.5rem; background: #1f2937; color: var(--text-main);
+            border: 1px solid var(--panel-border); border-radius: 4px;
+            font-family: monospace; font-size: 0.9rem; outline: none;
+        }
+        select:focus { border-color: var(--accent); }
+        option.custom-font-opt { color: #fcd34d; font-style: italic; background-color: #2a2d35; }
+
+        .action-btn { width: 100%; padding: 0.75rem; border-radius: 6px; font-weight: 600; cursor: pointer; color: white; border: 1px solid transparent; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.5); transition: all 0.2s; }
+        .action-btn:hover { background: rgba(34, 197, 94, 0.4); }
+        .btn-info { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); }
+        .btn-warn { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.5); color: #fcd34d; }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+
+        .slot-container { display: flex; flex-wrap: wrap; gap: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+        .slot-name-input { flex: 1; background: transparent; border: none; border-bottom: 1px solid #374151; color: var(--text-main); padding: 0.25rem; font-family: monospace; font-size: 0.9rem; min-width: 0; }
+        .slot-name-input:focus { outline: none; border-color: var(--accent); }
+        .slot-btn-group { display: flex; gap: 0.25rem; }
+        .btn-icon { padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: rgba(255,255,255,0.05); color: #ccc; }
+        .btn-icon:hover { background: rgba(255,255,255,0.1); color: white; }
+        .btn-disabled { opacity: 0.3; cursor: not-allowed; }
+        
+        .font-manager-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .font-item { 
+            display: flex; align-items: center; justify-content: space-between; 
+            background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); 
+        }
+        .font-name { font-size: 0.85rem; font-family: monospace; color: #fcd34d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .font-delete-btn {
+            background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5;
+            width: 28px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .font-delete-btn:hover { background: rgba(239, 68, 68, 0.3); color: white; }
+
+        #panelFooter { padding: 1rem; border-top: 1px solid var(--panel-border); text-align: center; }
+        .status-msg { font-size: 0.8rem; font-family: monospace; color: var(--text-muted); opacity: 0.6; }
+        
+        #menuToggle { 
+            position: fixed; 
+            top: max(0.75rem, var(--safe-top)); 
+            right: max(1.2rem, var(--safe-right)); 
+            z-index: 30; width: 44px; height: 44px; 
+            border-radius: 50%; color: var(--text-main); background: rgba(10, 12, 16, 0.6); 
+            backdrop-filter: blur(4px); border: 1px solid var(--panel-border); 
+            cursor: pointer; display: flex; align-items: center; justify-content: center; 
+            transition: all 0.3s ease; 
+        }
+        #menuToggle:hover { background: var(--accent); color: #000; box-shadow: 0 0 20px var(--accent); transform: rotate(90deg); }
+
+        @media (max-width: 600px) {
+            #settingsPanel { width: 100%; max-width: 100%; border-left: none; }
+        }
+    </style>
+
+</head>
+<body>
+    <canvas id="matrixCanvas"></canvas>
+    <canvas id="bloomCanvas" style="display:none;"></canvas>
+
+    <button id="menuToggle">
+        <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"></path></svg>
+    </button>
+    <input type="file" id="importFile" accept=".json" style="display:none;" />
+    <input type="file" id="importFontFile" accept=".ttf,.otf,.woff,.woff2" style="display:none;" />
+
+    <div id="settingsPanel">
+        <div id="panelHeader"><h2>Settings</h2></div>
+        <div id="navTabs"></div>
+        <div id="contentArea"></div>
+        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v7.0</div></div>
+    </div>
+
+    <script>
+        const APP_VERSION = "7.0";
+        // Empty to save space, but maintained as requested.
+        const DEFAULT_FONT_DATA = ""; 
+
+        // =========================================================================
+        // 1. CORE UTILITIES (Pure functions)
+        // =========================================================================
+        const Utils = {
+            randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
+            randomFloat: (min, max) => Math.random() * (max - min) + min,
+            hexToRgb: (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 255, b: 0 };
+            },
+            packRgb: (r, g, b) => (r << 16) | (g << 8) | b,
+            unpackRgb: (intVal) => ({ r: (intVal >> 16) & 0xFF, g: (intVal >> 8) & 0xFF, b: intVal & 0xFF }),
+            hslToRgb: (h, s, l) => {
+                s /= 100; l /= 100;
+                const k = n => (n + h / 30) % 12;
+                const a = s * Math.min(l, 1 - l);
+                const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+                return { r: Math.round(255 * f(0)), g: Math.round(255 * f(8)), b: Math.round(255 * f(4)) };
+            },
+            CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
+            getRandomChar: () => Utils.CHARS.charAt(Math.floor(Math.random() * Utils.CHARS.length)),
+            getUniqueChar: (exclude) => { let c; do { c = Utils.getRandomChar(); } while (c === exclude); return c; },
+            downloadJson: (data, filename) => {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            }
+        };
+
+        // =========================================================================
+        // 2. CONFIGURATION (Singleton)
+        // =========================================================================
+        class ConfigurationManager {
+            constructor() {
+                this.storageKey = 'matrix_config_v7'; 
+                this.slotsKey = 'matrix_slots_v7';
+                
+                // Full Feature Parity with v6.5
+                this.defaults = {
+                    // --- GLOBAL ---
+                    streamColor: "#4fcf64", 
+                    streamSpeed: 15, 
+                    trailGlow: 28, 
+                    clearAlpha: 0.6,
+                    enableBloom: true, 
+                    bloomStrength: 3, 
+                    bloomOpacity: 0.6,
+                    resolution: 1.5, 
+                    smoothingEnabled: true, 
+                    smoothingAmount: 0.5, 
+                    stretchX: 1, 
+                    stretchY: 1.1,
+
+                    // --- STREAMS ---
+                    streamMinLength: 5, 
+                    streamMaxLength: 301, 
+                    holeRate: 0.15,
+                    ttlMinFrames: 12, 
+                    ttlMaxFrames: 135, 
+                    decayFadeDurationFrames: 24,
+                    dissolveEnabled: true, 
+                    dissolveMinSize: 19, 
+                    deteriorationEnabled: true, 
+                    deteriorationType: 'ghost', 
+                    deteriorationStrength: 2,
+                    invertedTracerEnabled: true, 
+                    invertedTracerChance: 0.25,
+
+                    // --- FONT & GLYPHS ---
+                    fontFamily: 'MatrixEmbedded', 
+                    fontSize: 24, 
+                    fontWeight: 'normal', 
+                    italicEnabled: false,
+                    mirrorEnabled: false, 
+                    fontOffsetY: 0, 
+                    fontOffsetX: 0,
+                    horizontalSpacingFactor: 0.7, 
+                    verticalSpacingFactor: 0.95,
+                    variableBrightnessEnabled: true, 
+                    brightnessVariance: 20,
+
+                    // --- MUTATORS (TRACERS) ---
+                    tracerColor: "#e5ffff", 
+                    tracerSizeIncrease: 1, 
+                    tracerGlow: 25,
+                    tracerAttackFrames: 8, 
+                    tracerHoldFrames: 0, 
+                    tracerReleaseFrames: 6,
+                    randomStopEnabled: true, 
+                    randomStopChance: 0.02,
+
+                    // --- MUTATORS (ROTATORS) ---
+                    rotatorEnabled: true, 
+                    rotatorChance: 0.13, 
+                    rotatorSyncToTracer: true, 
+                    rotatorSyncMultiplier: 0.5,
+                    rotatorCycleFactor: 11, 
+                    rotatorCrossfadeFrames: 6,
+
+                    // --- GLYPH FX (STAR POWER) ---
+                    starPowerEnabled: false, 
+                    starPowerFreq: 100, 
+                    starPowerRainbowMode: 'char',
+                    starPowerColorCycle: false, 
+                    starPowerCycleSpeed: 14, 
+                    starPowerSaturation: 100, 
+                    starPowerIntensity: 51, 
+                    starPowerGlitter: false,
+
+                    // --- GLYPH FX (RAINBOW) ---
+                    rainbowStreamEnabled: false, 
+                    rainbowStreamChance: 1, 
+                    rainbowStreamIntensity: 50,
+
+                    // --- EVENTS (PULSE) ---
+                    pulseEnabled: true, 
+                    pulseFrequencySeconds: 180, 
+                    pulseDelayFrames: 60, 
+                    pulseDurationSeconds: 1.2,
+                    pulsePreserveSpaces: true, 
+                    pulseRandomPosition: true, 
+                    pulseWidth: 100, 
+                    pulseDimming: 0.1, 
+                    pulseIgnoreTracers: true,
+                    pulseCircular: false,
+                    pulseBlend: true,
+
+                    // --- EVENTS (DEJA VU) ---
+                    dejaVuEnabled: true, 
+                    dejaVuAutoMode: true,
+                    dejaVuFrequencySeconds: 300, 
+                    dejaVuDurationSeconds: 5,
+                    dejaVuBarDurationFrames: 30, 
+                    dejaVuVarianceFrames: 60, 
+                    dejaVuIntensity: 0.06,
+                    dejaVuHoleBrightness: 0.02, 
+                    dejaVuMinRectHeight: 1, 
+                    dejaVuMaxRectHeight: 10, 
+                    dejaVuRandomizeColors: true
+                };
+
+                this.state = { ...this.defaults };
+                this.derived = {};
+                this.slots = this._loadSlots();
+                this.subscribers = [];
+                this.load();
+                this.updateDerivedValues();
+            }
+
+            _loadSlots() { try { const s = localStorage.getItem(this.slotsKey); if (s) return JSON.parse(s); } catch (e) {} return Array(3).fill(null).map((_, i) => ({ name: `Save Slot ${i + 1}`, data: null })); }
+            saveSlots() { try { localStorage.setItem(this.slotsKey, JSON.stringify(this.slots)); } catch (e) {} }
+            load() { try { const s = localStorage.getItem(this.storageKey); if (s) { const parsed = JSON.parse(s); if(parsed.customFonts) delete parsed.customFonts; this.state = { ...this.defaults, ...parsed }; } } catch (e) {} }
+            save() { try { localStorage.setItem(this.storageKey, JSON.stringify(this.state)); } catch (e) {} }
+            
+            get(key) { return this.state[key]; }
+            
+            set(key, value) {
+                this.state[key] = value;
+                // Logic clamps to prevent broken ranges
+                if (key === 'streamMinLength') this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
+                if (key === 'streamMaxLength') this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
+                this.updateDerivedValues(); 
+                this.save(); 
+                this.notify(key);
+            }
+            
+            reset() { this.state = { ...this.defaults }; this.updateDerivedValues(); this.save(); this.notify('ALL'); }
+            saveToSlot(i) { this.slots[i] = { name: this.slots[i].name, data: JSON.parse(JSON.stringify(this.state)) }; this.saveSlots(); }
+            loadFromSlot(i) { if(!this.slots[i].data) return false; this.state = { ...this.defaults, ...this.slots[i].data }; this.updateDerivedValues(); this.save(); this.notify('ALL'); return true; }
+            renameSlot(i, n) { this.slots[i].name = n; this.saveSlots(); }
+            subscribe(cb) { this.subscribers.push(cb); }
+            notify(k) { this.subscribers.forEach(cb => cb(k, this.state)); }
+            
+            updateDerivedValues() {
+                const s = this.state;
+                const cycleDur = 21 - s.streamSpeed;
+                const hFactor = Math.max(0.5, s.horizontalSpacingFactor);
+                const vFactor = Math.max(0.5, s.verticalSpacingFactor);
+                
+                // Logic Parity: Sync vs Manual Rotator
+                let rotFrames;
+                if (s.rotatorSyncToTracer) {
+                    rotFrames = Math.max(1, Math.floor(cycleDur / s.rotatorSyncMultiplier));
+                } else {
+                    rotFrames = Math.max(10, Math.round(60 - (s.rotatorCycleFactor * 2.5)));
+                }
+
+                this.derived = {
+                    cycleDuration: cycleDur,
+                    safeAttack: Math.max(1, Math.min(s.tracerAttackFrames, cycleDur)),
+                    safeRelease: Math.min(s.tracerReleaseFrames, cycleDur),
+                    holdFrames: Math.max(0, s.tracerHoldFrames),
+                    maxState: cycleDur + Math.max(0, s.tracerHoldFrames) + cycleDur,
+                    rotatorCycleFrames: rotFrames,
+                    cellWidth: s.fontSize * hFactor, 
+                    cellHeight: s.fontSize * vFactor,
+                    varianceMin: 1.0 - (s.brightnessVariance / 100),
+                    streamRgb: Utils.hexToRgb(s.streamColor), 
+                    tracerRgb: Utils.hexToRgb(s.tracerColor),
+                    streamColorStr: `rgb(${Utils.hexToRgb(s.streamColor).r},${Utils.hexToRgb(s.streamColor).g},${Utils.hexToRgb(s.streamColor).b})`,
+                    tracerColorStr: `rgb(${Utils.hexToRgb(s.tracerColor).r},${Utils.hexToRgb(s.tracerColor).g},${Utils.hexToRgb(s.tracerColor).b})`,
+                    fontBaseStr: `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
+                };
+            }
+        }
+
+        // =========================================================================
+        // 3. DATA LAYER (The Domain Model)
+        // =========================================================================
+        const CELL_TYPE = { EMPTY: 0, TRAIL: 1, TRACER: 2, ROTATOR: 3 };
+
+        class MatrixGrid {
+            constructor(config) {
+                this.config = config;
+                this.cols = 0; this.rows = 0;
+                // Core data (Hot path)
+                this.chars = new Uint16Array(0);     // Stores charCode
+                this.types = new Uint8Array(0);      // CELL_TYPE
+                this.alphas = new Float32Array(0);   // Visual alpha
+                this.decays = new Uint8Array(0);     // Decay state
+                this.ages = new Int32Array(0);       // Lifecycle frame count
+                this.brightness = new Float32Array(0);
+                this.rotatorProg = new Uint8Array(0);
+                
+                // Sparse data (Cold path / Complex objects)
+                // We use a Map for properties that only ~5% of cells might have (like rainbow effects)
+                this.complexStyles = new Map(); 
+                this.nextChars = new Map(); // Store next char for rotators
+            }
+
+            resize(width, height) {
+                const d = this.config.derived;
+                const nc = Math.max(1, Math.floor(width / d.cellWidth));
+                const nr = Math.max(1, Math.floor(height / d.cellHeight));
+                
+                if (nc !== this.cols || nr !== this.rows) {
+                    const total = nc * nr;
+                    // Reallocate buffers
+                    this.chars = new Uint16Array(total);
+                    this.types = new Uint8Array(total);
+                    this.alphas = new Float32Array(total);
+                    this.decays = new Uint8Array(total);
+                    this.ages = new Int32Array(total);
+                    this.brightness = new Float32Array(total);
+                    this.rotatorProg = new Uint8Array(total);
+                    
+                    this.complexStyles.clear();
+                    this.nextChars.clear();
+                    
+                    this.cols = nc; this.rows = nr;
+                }
+            }
+
+            // --- Accessors for encapsulation ---
+            getIndex(x, y) { 
+                if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1;
+                return y * this.cols + x; 
+            }
+            
+            // Helper to set char from string
+            setChar(idx, charStr) { this.chars[idx] = charStr.charCodeAt(0); }
+            getChar(idx) { return String.fromCharCode(this.chars[idx]); }
+        }
+
+        // =========================================================================
+        // 4. SIMULATION LAYER (Pure Logic)
+        // =========================================================================
+        class SimulationSystem {
+            constructor(grid, config) {
+                this.grid = grid;
+                this.config = config;
+                this.streams = [];
+                this.releaseTimer = 0;
+                this.strategies = {
+                    'STANDARD': { spawn: (st) => {}, style: () => null },
+                    'STAR_POWER': { 
+                        spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); }, 
+                        style: (st, f, s) => ({ h: (s.starPowerRainbowMode === 'char' ? (f + (st.x * 10)) % 360 : st.baseHue), s: s.starPowerSaturation, l: s.starPowerIntensity, cycle: s.starPowerColorCycle, speed: s.starPowerCycleSpeed, glitter: s.starPowerGlitter })
+                    },
+                    'RAINBOW': {
+                        spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); },
+                        style: (st, f, s) => ({ h: st.baseHue, s: 100, l: s.rainbowStreamIntensity, cycle: false, speed: 0, glitter: false })
+                    }
+                };
+            }
+
+            update(frame) {
+                this._manageStreams(frame);
+                this._updateCells(frame);
+            }
+
+            _manageStreams(frame) {
+                const s = this.config.state;
+                const d = this.config.derived;
+                
+                if (this.streams.length !== this.grid.cols) {
+                    const diff = this.grid.cols - this.streams.length;
+                    if(diff > 0) {
+                        for(let i=0; i<diff; i++) this.streams.push(this._createStreamObj(this.streams.length));
+                    } else {
+                        this.streams.length = this.grid.cols;
+                    }
+                }
+
+                if (this.releaseTimer <= 0) {
+                    const available = this.streams.filter(st => !st.active && st.delay <= 0);
+                    for (let i = available.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [available[i], available[j]] = [available[j], available[i]]; }
+                    
+                    let count = 4;
+                    for (const st of available) {
+                        if (count-- <= 0) break;
+                        let clear = true;
+                        for(let y=0; y < Math.min(this.grid.rows, 40); y++) {
+                            const idx = this.grid.getIndex(st.x, y);
+                            if(this.grid.decays[idx] > 0) { clear = false; break; }
+                        }
+                        if (clear) this._activateStream(st);
+                        else st.delay = 20;
+                    }
+                    this.releaseTimer = d.cycleDuration * 4;
+                } else this.releaseTimer--;
+
+                const cycle = frame % d.cycleDuration === 0;
+                if(!cycle) return;
+
+                for(const st of this.streams) {
+                    if (!st.active) { if (st.delay > 0) st.delay--; continue; }
+                    
+                    st.age++;
+                    if (st.age >= st.visibleLen && !st.decayStarted) {
+                        st.decayY = (st.age - st.visibleLen) - 1; st.decayStarted = true;
+                    }
+                    if (!st.decayStarted && s.randomStopEnabled && Math.random() < s.randomStopChance) { st.len = st.y; }
+                    
+                    if (st.y < st.len) { 
+                        st.y++; 
+                        this._writeHead(st, frame); 
+                    }
+                    
+                    if (st.decayStarted) {
+                        st.decayY++; 
+                        const idx = this.grid.getIndex(st.x, st.decayY);
+                        if(idx !== -1 && this.grid.decays[idx] === 1) this.grid.decays[idx] = 2; 
+                        if (st.decayY >= this.grid.rows) { st.active = false; st.delay = Utils.randomInt(50, 150); }
+                    }
+                }
+            }
+
+            _createStreamObj(x) {
+                return { x, y: -1, active: false, delay: 0, len: 0, holes: new Set(), decayY: -1, decayStarted: false, age: 0, visibleLen: 0, mode: 'STANDARD', baseHue: 0, isInverted: false };
+            }
+
+            _activateStream(st) {
+                const s = this.config.state;
+                st.len = Utils.randomInt(Math.min(s.streamMinLength, s.streamMaxLength), s.streamMaxLength);
+                st.holes.clear();
+                for(let i=0; i<st.len; i++) if(Math.random() < s.holeRate) st.holes.add(i);
+                st.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
+                st.visibleLen = Utils.randomInt(s.ttlMinFrames, s.ttlMaxFrames);
+                st.age = 0; st.active = true; st.y = -1; st.decayY = -1; st.decayStarted = false;
+                
+                st.mode = 'STANDARD';
+                if (s.starPowerEnabled && Math.random() < (s.starPowerFreq / 100)) st.mode = 'STAR_POWER';
+                else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) st.mode = 'RAINBOW';
+                
+                this.strategies[st.mode].spawn(st);
+                
+                let skip = 0;
+                if(!st.isInverted) { while(skip < st.len && st.holes.has(skip)) skip++; }
+                st.y -= skip;
+            }
+
+            _writeHead(st, frame) {
+                const idx = this.grid.getIndex(st.x, st.y);
+                if (idx === -1) return;
+
+                const draw = st.isInverted ? st.holes.has(st.y) : !st.holes.has(st.y);
+                if (draw) {
+                    const s = this.config.state;
+                    this.grid.types[idx] = (s.rotatorEnabled && Math.random() < s.rotatorChance) ? CELL_TYPE.ROTATOR : CELL_TYPE.TRACER;
+                    this.grid.ages[idx] = 1; 
+                    this.grid.decays[idx] = 1; 
+                    this.grid.rotatorProg[idx] = 0;
+                    
+                    const char = Utils.getRandomChar();
+                    this.grid.setChar(idx, char);
+                    if(this.grid.types[idx] === CELL_TYPE.ROTATOR) {
+                        this.grid.nextChars.set(idx, Utils.getUniqueChar(char));
+                    }
+                    this.grid.brightness[idx] = s.variableBrightnessEnabled ? Utils.randomFloat(this.config.derived.varianceMin, 1.0) : 1.0;
+                    
+                    const style = this.strategies[st.mode].style(st, frame, s);
+                    if(style) this.grid.complexStyles.set(idx, style);
+                    else this.grid.complexStyles.delete(idx);
+                } else {
+                    this._clearCell(idx);
+                }
+            }
+
+            _clearCell(idx) {
+                this.grid.types[idx] = CELL_TYPE.EMPTY;
+                this.grid.ages[idx] = 0;
+                this.grid.decays[idx] = 0;
+                this.grid.alphas[idx] = 0;
+                this.grid.complexStyles.delete(idx);
+                this.grid.nextChars.delete(idx);
+            }
+
+            _updateCells(frame) {
+                const s = this.config.state;
+                const d = this.config.derived;
+                const total = this.grid.cols * this.grid.rows;
+
+                for(let i=0; i<total; i++) {
+                    const decay = this.grid.decays[i];
+                    if(decay === 0) continue;
+
+                    let age = this.grid.ages[i];
+
+                    // 1. Tracer Lifecycle
+                    if (age > 0) {
+                        age++;
+                        if (age > d.maxState) age = 0;
+                        this.grid.ages[i] = age;
+                    }
+
+                    // 2. Rotator Logic (REACTIVE & GLOBAL)
+                    if (s.rotatorEnabled && this.grid.types[i] === CELL_TYPE.ROTATOR) {
+                        const prog = this.grid.rotatorProg[i];
+                        
+                        // A. Finish what we started (Graceful Exit)
+                        if (prog > 0) {
+                            this.grid.rotatorProg[i]++;
+                            if (this.grid.rotatorProg[i] > s.rotatorCrossfadeFrames) {
+                                // Commit change
+                                const next = this.grid.nextChars.get(i);
+                                if(next) this.grid.setChar(i, next);
+                                this.grid.rotatorProg[i] = 0;
+                            }
+                        } 
+                        // B. Trigger new rotation (Only if alive / not decaying)
+                        else if (decay === 1) {
+                            const cyclePhase = frame % d.rotatorCycleFrames;
+                            
+                            if (s.rotatorCrossfadeFrames <= 2) {
+                                // Snap change on the beat
+                                if (cyclePhase === 0) {
+                                    const next = Utils.getUniqueChar(this.grid.getChar(i));
+                                    this.grid.setChar(i, next);
+                                }
+                            } else {
+                                // Start Smooth Crossfade on the beat
+                                // REACTIVE: Trigger exactly when phase wraps to 0
+                                if (cyclePhase === 0) {
+                                    this.grid.rotatorProg[i] = 1;
+                                    this.grid.nextChars.set(i, Utils.getUniqueChar(this.grid.getChar(i)));
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Decay Logic
+                    if (decay >= 2) {
+                        this.grid.decays[i]++;
+                        if (this.grid.decays[i] > s.decayFadeDurationFrames + 2) {
+                            this._clearCell(i);
+                            continue;
+                        }
+                    }
+
+                    // 4. Alpha Calculation (Gap Fix Applied)
+                    let alpha = 0;
+                    if (age > 0) {
+                        alpha = 1.0; 
+                    } else if (decay === 1) {
+                        alpha = 0.95 * this.grid.brightness[i];
+                    } else if (decay >= 2) {
+                        const p = (decay - 2) / s.decayFadeDurationFrames;
+                        alpha = (0.95 * (1 - p)) * this.grid.brightness[i];
+                    }
+                    this.grid.alphas[i] = alpha;
+                }
+            }
+        }
+
+        // =========================================================================
+        // 5. EFFECT SYSTEM (OCP - Extensible)
+        // =========================================================================
+        class EffectRegistry {
+            constructor(grid, config) {
+                this.grid = grid;
+                this.config = config;
+                this.effects = [];
+            }
+            register(effect) { this.effects.push(effect); }
+            trigger(name) {
+                const fx = this.effects.find(e => e.name === name);
+                if(fx) fx.trigger();
+            }
+            update() { this.effects.forEach(e => e.update()); }
+            
+            getOverride(i) {
+                // We still keep this for cell-specific overrides (like Star Power)
+                for(const fx of this.effects) {
+                    const o = fx.getOverride(i);
+                    if(o) return o;
+                }
+                return null;
+            }
+
+            // --- NEW: Generic Overlay Hook ---
+            renderOverlays(ctx, bloomCtx, dims) {
+                this.effects.forEach(fx => {
+                    // If the effect is active and has a renderOverlay method, let it draw
+                    if (fx.active && typeof fx.renderOverlay === 'function') {
+                        ctx.save();
+                        if (bloomCtx) bloomCtx.save();
+                        
+                        fx.renderOverlay(ctx, bloomCtx, dims);
+                        
+                        ctx.restore();
+                        if (bloomCtx) bloomCtx.restore();
+                    }
+                });
+            }
+        }
+
+        class AbstractEffect {
+            constructor(g, c) { this.g = g; this.c = c; this.name = "Base"; }
+            trigger() {}
+            update() {}
+            getOverride(i) { return null; }
+            // Interface for overlay rendering
+            renderOverlay(ctx, bloomCtx, dims) {}
+        }
+
+        class PulseEffect extends AbstractEffect {
+            constructor(g, c) { 
+                super(g, c); 
+                this.name = "Pulse"; 
+                this.active = false; 
+                this.origin = {x:0, y:0}; 
+                this.radius = 0;
+                this.autoTimer = c.state.pulseFrequencySeconds * 60;
+            }
+            
+            trigger() {
+                if(this.active) return;
+                const s = this.c.state;
+                const d = this.c.derived;
+
+                // Pick a spot
+                this.origin = s.pulseRandomPosition ? 
+                    {x:Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8), y:Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8)} : 
+                    {x:Math.floor(this.g.cols/2), y:Math.floor(this.g.rows/2)};
+                
+                // Store precise center coordinate
+                this.center = {
+                    x: (this.origin.x * d.cellWidth * s.stretchX),
+                    y: (this.origin.y * d.cellHeight * s.stretchY)
+                };
+
+                this.active = true; 
+                this.state = 'WAITING'; 
+                this.timer = s.pulseDelayFrames; 
+                this.radius = 0;
+                
+                const maxDim = Math.max(
+                    this.g.cols * d.cellWidth * s.stretchX, 
+                    this.g.rows * d.cellHeight * s.stretchY
+                );
+                this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+            }
+
+            update() {
+                const s = this.c.state;
+                if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { 
+                    this.trigger(); 
+                    this.autoTimer = s.pulseFrequencySeconds * 60; 
+                }
+                if(!this.active) return;
+                
+                if(this.state === 'WAITING') { 
+                    if(--this.timer <= 0) this.state = 'EXPANDING'; 
+                } else {
+                    this.radius += this.speed;
+                    const d = this.c.derived;
+                    const maxDim = Math.max(
+                        this.g.cols * d.cellWidth * s.stretchX, 
+                        this.g.rows * d.cellHeight * s.stretchY
+                    );
+                    if(this.radius > maxDim + 400) { this.active = false; }
+                }
+            }
+            
+            // We no longer use getOverride for cell-by-cell manipulation
+            getOverride(i) { return null; }
+
+            // --- NEW: Self-Contained Rendering Logic ---
+            renderOverlay(ctx, bCtx, dims) {
+                if(this.state === 'WAITING') return;
+
+                const s = this.c.state;
+                const d = this.c.derived;
+                
+                const cx = this.center.x;
+                const cy = this.center.y;
+                const r = this.radius;
+                const w = dims.width;
+                const h = dims.height;
+
+                // 1. THE MASK (Darken existing code)
+                // We calculate 4 rectangles to create a "hole" in the center
+                const dim = s.pulseDimming; 
+                if(dim > 0) {
+                    const maskColor = `rgba(0, 0, 0, ${dim})`;
+                    ctx.fillStyle = maskColor;
+
+                    const topH = Math.max(0, cy - r);
+                    const botY = Math.min(h, cy + r);
+                    const botH = Math.max(0, h - botY);
+                    const midY = topH;
+                    const midH = botY - topH;
+                    const leftW = Math.max(0, cx - r);
+                    const rightX = Math.min(w, cx + r);
+                    const rightW = Math.max(0, w - rightX);
+
+                    // Draw Dimming Mask on Main Canvas
+                    ctx.fillRect(0, 0, w, topH); // Top
+                    ctx.fillRect(0, botY, w, botH); // Bottom
+                    ctx.fillRect(0, midY, leftW, midH); // Left
+                    ctx.fillRect(rightX, midY, rightW, midH); // Right
+
+                    // Mask Bloom (Erase glow in dark areas)
+                    if(bCtx) {
+                        bCtx.globalCompositeOperation = 'destination-out';
+                        bCtx.fillStyle = `rgba(0, 0, 0, ${dim})`; 
+                        bCtx.fillRect(0, 0, w, topH);
+                        bCtx.fillRect(0, botY, w, botH);
+                        bCtx.fillRect(0, midY, leftW, midH);
+                        bCtx.fillRect(rightX, midY, rightW, midH);
+                    }
+                }
+
+                // 2. THE WAVE (White/Tracer Blast)
+                const waveW = s.pulseWidth;
+                const waveColor = d.tracerColorStr; // Use configured Tracer Color
+                
+                ctx.strokeStyle = waveColor;
+                ctx.lineWidth = waveW;
+                ctx.shadowColor = waveColor;
+                ctx.shadowBlur = s.tracerGlow * 1.5;
+                
+                const side = (r * 2) - waveW;
+                if(side > 0) {
+                    // Draw Main Wave
+                    ctx.strokeRect(cx - r + (waveW/2), cy - r + (waveW/2), side, side);
+                    
+                    // Draw Bloom Wave
+                    if(bCtx) {
+                        bCtx.globalCompositeOperation = 'source-over'; // Reset from destination-out
+                        bCtx.strokeStyle = waveColor;
+                        bCtx.lineWidth = waveW;
+                        bCtx.strokeRect(cx - r + (waveW/2), cy - r + (waveW/2), side, side);
+                    }
+                }
+            }
+        }
+
+        class DejaVuEffect extends AbstractEffect {
+            constructor(g, c) { super(g, c); this.name = "DejaVu"; this.active = false; this.autoTimer = c.state.dejaVuFrequencySeconds * 60; this.map = null; }
+            trigger() { if(this.active) return; this.active = true; this.timer = this.c.state.dejaVuDurationSeconds * 60; this.bars = []; this.map = new Uint8Array(this.g.rows); }
+            update() {
+                const s = this.c.state;
+                if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
+                if(!this.active) return;
+                if(this.timer-- <= 0) { this.active = false; this.bars = []; this.map = null; return; }
+
+                this.map.fill(0);
+                // Spawn bars
+                if(Math.random() < s.dejaVuIntensity) {
+                    const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight);
+                    const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
+                    this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
+                }
+                // Update bars & Map
+                for(let i=this.bars.length-1; i>=0; i--) {
+                    const b = this.bars[i]; b.age++;
+                    if(b.age > b.maxAge) this.bars.splice(i, 1);
+                    else {
+                        for(let r=b.y; r < b.y+b.h && r < this.g.rows; r++) this.map[r] = 1;
+                    }
+                }
+                // Glitch Logic (Mutate Grid)
+                for(let y=0; y<this.g.rows; y++) {
+                    if(this.map[y] === 1) {
+                        for(let x=0; x<this.g.cols; x++) {
+                            if(Math.random() < 0.1) {
+                                const i = this.g.getIndex(x, y);
+                                this.g.rotatorProg[i] = 0; // Stop rotation
+                                const c = Utils.getRandomChar();
+                                this.g.setChar(i, c);
+                                if(s.dejaVuRandomizeColors) {
+                                    this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            getOverride(i) {
+                if(!this.active || !this.map) return null;
+                const y = Math.floor(i / this.g.cols);
+                if(this.map[y] === 1) {
+                    const s = this.c.state;
+                    const alpha = this.g.alphas[i] < 0.1 ? s.dejaVuHoleBrightness : 1.0;
+                    if(alpha < 0.01) return null;
+                    return { char: this.g.getChar(i), color: this.c.derived.tracerColorStr, alpha, glow: 20 * alpha, size: 2 };
+                }
+                return null;
+            }
+        }
+
+        // =========================================================================
+        // 6. RENDERER (Implementation)
+        // =========================================================================
+        class CanvasRenderer {
+            constructor(canvasId, grid, config, effects) {
+                this.cvs = document.getElementById(canvasId);
+                this.ctx = this.cvs.getContext('2d', { alpha: false });
+                this.bloomCvs = document.getElementById('bloomCanvas');
+                this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+                this.grid = grid;
+                this.config = config;
+                this.effects = effects;
+                this.w = 0; this.h = 0;
+            }
+
+            resize() {
+                const s = this.config.state;
+                this.w = window.innerWidth; this.h = window.innerHeight;
+                const scale = s.resolution;
+                this.cvs.width = this.w * scale; this.cvs.height = this.h * scale;
+                this.cvs.style.width = this.w + "px"; this.cvs.style.height = this.h + "px";
+                this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25;
+                this.bloomCtx.scale(0.25, 0.25);
+                
+                const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px';
+                this.cvs.style.filter = `blur(${blur})`;
+            }
+
+            // Helper to determine Tracer lifecycle state
+            _getTracerState(i, s) {
+                const age = this.grid.ages[i];
+                if (age <= 0 || this.grid.decays[i] >= 2) return { alpha: 0, phase: 'none' };
+
+                const type = this.grid.types[i];
+                const style = this.grid.complexStyles.get(i);
+                let isTracerCandidate = false;
+
+                if (style) { if(style.cycle) isTracerCandidate = true; }
+                else if (type === CELL_TYPE.TRACER || type === CELL_TYPE.ROTATOR) isTracerCandidate = true;
+
+                if (!isTracerCandidate) return { alpha: 0, phase: 'none' };
+
+                const activeTime = age - 1; 
+                const attack = s.tracerAttackFrames;
+                const hold = s.tracerHoldFrames;
+                const release = s.tracerReleaseFrames;
+
+                if (activeTime < attack) {
+                    return { alpha: (attack > 0) ? (activeTime / attack) : 1.0, phase: 'attack' };
+                } 
+                else if (activeTime < attack + hold) {
+                    return { alpha: 1.0, phase: 'hold' };
+                } 
+                else if (activeTime < attack + hold + release) {
+                    const relTime = activeTime - (attack + hold);
+                    return { alpha: 1.0 - (relTime / release), phase: 'release' };
+                }
+                return { alpha: 0, phase: 'none' };
+            }
+
+            _drawOverride(i, o, d, s, bloom) {
+        const x = i % this.grid.cols; 
+        const y = Math.floor(i / this.grid.cols);
+        
+        // Calculate precise coordinates relative to the SCALED context
+        const cx = (x * d.cellWidth) + s.fontOffsetX; 
+        const cy = (y * d.cellHeight) + s.fontOffsetY;
+        const px = cx + (d.cellWidth * 0.5); 
+        const py = cy + (d.cellHeight * 0.5);
+
+        if (o.solid) {
+            const bg = o.bgColor || '#000000';
+            this.ctx.fillStyle = bg;
+            
+            // ISSUE 2 FIX: Robust Clearing
+            // Use Math.ceil to ensure we cover sub-pixel rendering artifacts
+            // Add slight overlap (+1) to prevent hairline gaps between cells
+            const w = Math.ceil(d.cellWidth) + 1;
+            const h = Math.ceil(d.cellHeight) + 1;
+            
+            // Fill Main Canvas
+            this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
+            
+            // Clear Bloom Canvas if requested (prevents ghost glow)
+            if(bloom && o.blockBloom) {
+                this.bloomCtx.clearRect(Math.floor(cx), Math.floor(cy), w, h);
+            }
+        }
+
+        // Draw Text
+        if(o.char && o.alpha > 0.01) {
+            this.ctx.fillStyle = o.color; 
+            this.ctx.shadowColor = o.color; 
+            this.ctx.shadowBlur = o.glow || 0;
+            
+            const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+            this.ctx.font = font;
+            this.ctx.globalAlpha = o.alpha;
+            
+            this.ctx.fillText(o.char, px, py);
+            
+            if(bloom) {
+                this.bloomCtx.save();
+                this.bloomCtx.fillStyle = o.color; 
+                this.bloomCtx.font = font; 
+                this.bloomCtx.globalAlpha = o.alpha;
+                this.bloomCtx.fillText(o.char, px, py);
+                this.bloomCtx.restore();
+            }
+            
+            this.ctx.font = d.fontBaseStr; 
+        }
+    }
+        render(frame) {
+                const s = this.config.state;
+                const d = this.config.derived;
+                const scale = s.resolution;
+                const bloom = s.enableBloom;
+
+                // 1. Clear
+                this.ctx.save();
+                this.ctx.scale(scale * s.stretchX, scale * s.stretchY);
+                this.ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`;
+                this.ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
+                if(bloom) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
+
+                // 2. Setup Context
+                const fontBase = d.fontBaseStr;
+                this.ctx.font = fontBase; this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'center';
+                if(s.mirrorEnabled) { this.ctx.scale(-1, 1); this.ctx.translate(-(this.w / s.stretchX), 0); }
+
+                if(bloom) {
+                    this.bloomCtx.font = fontBase; this.bloomCtx.textBaseline = 'middle'; this.bloomCtx.textAlign = 'center';
+                    this.bloomCtx.save(); this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY);
+                    if(s.mirrorEnabled) { this.bloomCtx.scale(-1, 1); this.bloomCtx.translate(-(this.w / s.stretchX), 0); }
+                }
+
+                // 3. MAIN LOOP (Stream + Tracers)
+                const defaultColor = d.streamColorStr;
+                let lastColor = defaultColor;
+                this.ctx.fillStyle = defaultColor; 
+                this.ctx.shadowBlur = 0; 
+                
+                const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
+                const total = this.grid.cols * this.grid.rows;
+
+                for(let i=0; i<total; i++) {
+                    let gridAlpha = this.grid.alphas[i];
+                    if(gridAlpha <= 0.01) continue;
+
+                    const tState = this._getTracerState(i, s);
+                    
+                    // Draw Stream Char
+                    if (!(tState.phase === 'attack' || tState.phase === 'hold')) {
+                        const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+                        const char = this.grid.getChar(i);
+
+                        let color = defaultColor;
+                        const style = this.grid.complexStyles.get(i);
+                        if(style) {
+                            let h = style.h;
+                            if(style.cycle) h = (h + (frame * style.speed)) % 360;
+                            const rgb = Utils.hslToRgb(h|0, style.s, style.l);
+                            color = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+                        }
+                        
+                        if(color !== lastColor) { this.ctx.fillStyle = color; if(bloom) this.bloomCtx.fillStyle = color; lastColor = color; }
+
+                        this.ctx.globalAlpha = gridAlpha;
+                        this.ctx.fillText(char, px, py);
+                        if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
+                    }
+
+                    // Draw Tracer
+                    if (tState.alpha > 0.01) {
+                        const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+                        const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+                        
+                        this.ctx.fillStyle = d.tracerColorStr;
+                        this.ctx.shadowColor = d.tracerColorStr;
+                        this.ctx.shadowBlur = s.tracerGlow;
+                        
+                        const tFont = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
+                        this.ctx.font = tFont;
+                        
+                        this.ctx.globalAlpha = tState.alpha;
+                        this.ctx.fillText(this.grid.getChar(i), px, py);
+                        
+                        if(bloom) { 
+                            this.bloomCtx.save();
+                            this.bloomCtx.font = tFont;
+                            this.bloomCtx.fillStyle = d.tracerColorStr;
+                            this.bloomCtx.globalAlpha = tState.alpha;
+                            this.bloomCtx.fillText(this.grid.getChar(i), px, py); 
+                            this.bloomCtx.restore();
+                        }
+                        
+                        this.ctx.font = fontBase;
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = lastColor;
+                    }
+                }
+
+                // 4. GENERIC OVERLAY HOOK
+                // We pass the dimensions so effects know the boundaries of the "Virtual" canvas
+                this.effects.renderOverlays(this.ctx, this.bloomCtx, { 
+                    width: this.w / s.stretchX, 
+                    height: this.h / s.stretchY 
+                });
+
+                // 5. Finalize
+                this.ctx.restore(); 
+                if(bloom) {
+                    this.bloomCtx.restore();
+                    this.ctx.save();
+                    this.ctx.globalCompositeOperation = 'lighter';
+                    this.ctx.filter = `blur(${s.bloomStrength * 4}px)`;
+                    this.ctx.globalAlpha = s.bloomOpacity;
+                    this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale);
+                    this.ctx.restore();
+                }
+            }
+        }
+        // =========================================================================
+        // 7. FONT MANAGER (Adapter)
+        // =========================================================================
+        class FontManager {
+            constructor(config) {
+                this.config = config;
+                this.dbName = 'MatrixFontDB'; 
+                this.storeName = 'fonts'; 
+                this.db = null;
+                this.loadedFonts = []; 
+                this.subs = [];
+                this.embeddedFontName = 'MatrixEmbedded';
+            }
+
+            async init() {
+                // 1. Always inject embedded first so it's available immediately
+                if(DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) this.injectEmbeddedFont();
+                
+                // 2. Load custom fonts from persistent storage
+                try { 
+                    await this._openDB(); 
+                    await this._loadFontsFromDB(); 
+                } catch(e) { 
+                    console.warn("Font DB Error", e); 
+                }
+            }
+
+            subscribe(cb) { this.subs.push(cb); }
+            _notify() { this.subs.forEach(cb => cb(this.loadedFonts)); }
+            
+            injectEmbeddedFont() {
+                // Prevent duplicate injection
+                if(this.loadedFonts.some(f => f.name === this.embeddedFontName)) return;
+                
+                this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
+                this.loadedFonts.push({ name: this.embeddedFontName, display: "The Matrix Custom Code", isEmbedded: true });
+            }
+
+            _injectCSS(name, url, format) {
+                // Remove existing style if present to prevent clutter
+                const existing = document.getElementById(`style-${name}`);
+                if(existing) existing.remove();
+
+                const style = document.createElement('style'); 
+                style.id = `style-${name}`;
+                style.textContent = `@font-face { font-family: '${name}'; src: url('${url}') ${format}; }`;
+                document.head.appendChild(style);
+            }
+
+            _openDB() { 
+                return new Promise((res, rej) => { 
+                    const r = indexedDB.open(this.dbName, 1); 
+                    r.onupgradeneeded = e => { 
+                        if(!e.target.result.objectStoreNames.contains(this.storeName)) {
+                            e.target.result.createObjectStore(this.storeName, { keyPath: 'name' });
+                        }
+                    }; 
+                    r.onsuccess = e => { this.db = e.target.result; res(); }; 
+                    r.onerror = rej; 
+                }); 
+            }
+
+            _loadFontsFromDB() { 
+                return new Promise((res) => { 
+                    if(!this.db) return res(); 
+                    const t = this.db.transaction(this.storeName, 'readonly'); 
+                    t.objectStore(this.storeName).getAll().onsuccess = e => { 
+                        // Clear existing custom fonts from memory to prevent duplicates on re-init
+                        this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
+                        
+                        e.target.result.forEach(f => { 
+                            this.loadedFonts.push(f); 
+                            // Use the EXPLICIT mimeType stored in the record, fall back to blob.type
+                            const type = f.mimeType || f.data.type;
+                            const format = this._getFormatFromType(type);
+                            this._injectCSS(f.name, URL.createObjectURL(f.data), format); 
+                        }); 
+                        this._notify(); 
+                        res(); 
+                    }; 
+                }); 
+            }
+
+            // Helper to determine format string from MIME type
+            _getFormatFromType(type) {
+                if (type.includes('woff2')) return "format('woff2')";
+                if (type.includes('woff')) return "format('woff')";
+                if (type.includes('opentype') || type.includes('otf')) return "format('opentype')";
+                return "format('truetype')";
+            }
+            
+            importFont(file, cb) {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    const blob = new Blob([e.target.result], {type: file.type});
+                    const id = `CustomFont_${Date.now()}`;
+                    
+                    // Store the MIME type explicitly as a string property
+                    // This persists even if the Blob metadata is lost by the browser
+                    const rec = { 
+                        name: id, 
+                        display: file.name, 
+                        data: blob,
+                        mimeType: file.type 
+                    };
+
+                    const t = this.db.transaction(this.storeName, 'readwrite');
+                    t.objectStore(this.storeName).put(rec).onsuccess = () => {
+                        const format = this._getFormatFromType(file.type);
+                        this._injectCSS(id, URL.createObjectURL(blob), format);
+                        this.loadedFonts.push(rec); 
+                        this.config.set('fontFamily', id); 
+                        this._notify(); 
+                        cb(true, `Imported: ${file.name}`);
+                    };
+                    t.onerror = () => cb(false, "Database Write Failed");
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            deleteFont(id) {
+                return new Promise(res => {
+                    const t = this.db.transaction(this.storeName, 'readwrite');
+                    t.objectStore(this.storeName).delete(id).onsuccess = () => {
+                        document.getElementById(`style-${id}`)?.remove();
+                        this.loadedFonts = this.loadedFonts.filter(f => f.name !== id);
+                        if(this.config.state.fontFamily === id) {
+                            this.config.set('fontFamily', this.config.defaults.fontFamily);
+                        }
+                        this._notify(); 
+                        res();
+                    };
+                });
+            }
+
+            deleteAllFonts() {
+                return new Promise(res => {
+                    const t = this.db.transaction(this.storeName, 'readwrite');
+                    t.objectStore(this.storeName).clear().onsuccess = () => {
+                        this.loadedFonts.filter(f => !f.isEmbedded).forEach(f => {
+                            document.getElementById(`style-${f.name}`)?.remove();
+                        });
+                        this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
+                        this._notify(); 
+                        res();
+                    };
+                });
+            }
+        }
+
+        // =========================================================================
+        // 8. UI MANAGER (Adapter)
+        // =========================================================================
+        class UIManager {
+            constructor(c, effects, fonts) {
+                this.c = c; this.eff = effects; this.fonts = fonts;
+                // Initialize DOM placeholders; we will verify/create them in init()
+                this.dom = { panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'), tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'), toast: null, track: null, tooltip: null };
+                
+                // Physics State
+                this.scrollState = { position: 0, velocity: 0, isDragging: false, startX: 0, lastX: 0, dragDistance: 0, isAnimating: false };
+                this.ignoreNextClick = false;
+
+                this.fonts.subscribe(f => this.refresh('fontFamily'));
+                
+                // --- DEFINITIONS ---
+                this.defs = [
+                    // ==================== TAB 1: GLOBAL ====================
+                    { cat: 'Global', type: 'header', label: 'Main Look & Feel' },
+                    { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
+                    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, description: 'Falling code speed control.' },
+                    
+                    { cat: 'Global', type: 'header', label: 'Glow & Atmosphere' },
+                    { cat: 'Global', id: 'trailGlow', type: 'range', label: 'Stream Glow', min: 0, max: 50, unit: 'px', description: 'The standard glow of the falling green characters (separate from Bloom).' },
+                    { cat: 'Global', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
+                    { cat: 'Global', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
+                    { cat: 'Global', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
+                    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Simulates old CRT monitors by holding the image on the display.' },
+
+                    { cat: 'Global', type: 'header', label: 'Display & Quality' },
+                    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x', description: 'Lower for performance, higher for sharpness.' },
+                    { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
+                    { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
+
+                    // ==================== TAB 2: GLYPHS ====================
+                    { cat: 'Glyphs', type: 'header', label: 'Font Selection' },
+                    { cat: 'Glyphs', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
+                    { cat: 'Glyphs', type: 'font_list' },
+                    { cat: 'Glyphs', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
+                    
+                    { cat: 'Glyphs', type: 'header', label: 'Character Styling' },
+                    { cat: 'Glyphs', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
+                    { cat: 'Glyphs', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] },
+                    { cat: 'Glyphs', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
+                    { cat: 'Glyphs', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text', description: 'Flips the screen horizontally.' },
+                    { cat: 'Glyphs', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'When written, individual characters may have a slightly different brightness.' },
+                    { cat: 'Glyphs', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled', description: 'When written, the difference in % between the dimmest and brightest character.' },
+
+                    { cat: 'Glyphs', type: 'header', label: 'Grid & Spacing' },
+                    { cat: 'Glyphs', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
+                    { cat: 'Glyphs', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
+                    { cat: 'Glyphs', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -20, max: 20, unit: 'px' },
+                    { cat: 'Glyphs', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -20, max: 20, unit: 'px' },
+                    { cat: 'Glyphs', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
+                    { cat: 'Glyphs', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
+
+                    // ==================== TAB 3: STREAMS ====================
+                    { cat: 'Streams', type: 'header', label: 'Stream Density' },
+                    { cat: 'Streams', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 5, max: 100, unit: 'chars', description: 'The length in characters the shortest a code stream can be.' },
+                    { cat: 'Streams', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 20, max: 500, unit: 'chars', description: 'The length in characters the longest a code stream can be.' },
+                    { cat: 'Streams', id: 'holeRate', type: 'range', label: 'Gaps / Broken Code', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%' },
+                    
+                    { cat: 'Streams', type: 'header', label: 'Life Cycle' },
+                    { cat: 'Streams', id: 'ttlMinFrames', type: 'range', label: 'Min Life', min: 10, max: 400, unit: 'fr', description: 'The minimum duration in time a stream can live before being erased.' },
+                    { cat: 'Streams', id: 'ttlMaxFrames', type: 'range', label: 'Max Life', min: 100, max: 600, unit: 'fr', description: 'The maximum duration in time a stream can live before being erased.' },
+                    
+                    { cat: 'Streams', type: 'header', label: 'Deterioration (Fading)' },
+                    { cat: 'Streams', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr', description: 'How long it takes for a stream to fade away.' },
+                    { cat: 'Streams', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve (Shrink) Effect' }, 
+                    { cat: 'Streams', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'When fading out, it will fade to this size.' },
+                    { cat: 'Streams', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting', description: 'Makes the text fuzzy as it fades away.' },
+                    { cat: 'Streams', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled', description: 'How far the ghost text drifts from the center as it fades.' },
+
+                    { cat: 'Streams', type: 'header', label: 'Visual Variation' },
+                    { cat: 'Streams', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: 'Tracers that are invisible, and write only occasionally.' },
+                    { cat: 'Streams', id: 'invertedTracerChance', type: 'range', label: 'Inverted Tracer Likelihood', min: 0.05, max: 0.5, step: 0.05, dep: 'invertedTracerEnabled' },
+
+                    // ==================== TAB 4: MUTATORS ====================
+                    { cat: 'Mutators', type: 'header', label: 'Tracers (Writing Characters)' },
+                    { cat: 'Mutators', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
+                    { cat: 'Mutators', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
+                    { cat: 'Mutators', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px', description: 'When writing, how much larger the tracer is compared to the font size.' },
+                    { cat: 'Mutators', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
+                    { cat: 'Mutators', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
+                    { cat: 'Mutators', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
+                    
+                    { cat: 'Mutators', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Fallout', description: 'Tracers that will immediately stop writing and disappear.' },
+                    { cat: 'Mutators', id: 'randomStopChance', type: 'range', label: 'Pause Likelihood', min: 0.01, max: 0.2, step: 0.01, dep: 'randomStopEnabled' },
+
+                    { cat: 'Mutators', type: 'header', label: 'Rotators (Changing Chars)' },
+                    { cat: 'Mutators', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
+                    { cat: 'Mutators', id: 'rotatorChance', type: 'range', label: 'Spawn Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
+                    { cat: 'Mutators', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: 'Locks rotation changes to tracer movements.' },
+                    { cat: 'Mutators', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x', description: 'How many times the tracer steps to a new cell before a tracer rotates.' },
+                    { cat: 'Mutators', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
+                    { cat: 'Mutators', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
+
+                    // ==================== TAB 5: GLYPH-FX ====================
+                    { cat: 'Glyph-FX', type: 'header', label: 'Star Power' },
+                    { cat: 'Glyph-FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', description: 'Gives the lead tracer "Star Power" as it writes.' },
+                    { cat: 'Glyph-FX', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
+                    { cat: 'Glyph-FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled', description: 'The color changes and cycling are set as a group, or per-character.' },
+                    { cat: 'Glyph-FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
+                    { cat: 'Glyph-FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
+                    { cat: 'Glyph-FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter / Sparkle', dep: 'starPowerEnabled' },
+                    { cat: 'Glyph-FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
+                    { cat: 'Glyph-FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
+
+                    { cat: 'Glyph-FX', type: 'header', label: 'Rainbow Streams' },
+                    { cat: 'Glyph-FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams', description: 'Spawns streams of random colors.' },
+                    { cat: 'Glyph-FX', id: 'rainbowStreamChance', type: 'range', label: 'Spawn Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+                    { cat: 'Glyph-FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
+
+                    // ==================== TAB 6: EVENTS ====================
+                    { cat: 'Events', type: 'header', label: 'Pulse Wave' },
+                    { cat: 'Events', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
+                    { cat: 'Events', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
+                    { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Origin', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', description: 'Keeps the spaces when pulsing.' },
+                    { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled', description: 'Thickness of the expanding white square.' },
+                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Blend', dep: 'pulseEnabled', description: 'Blends from tracer color to stream color in the pulse.' },
+                    { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled', description: 'How dark the frozen code becomes before the wave hits.' },
+                    { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled', description: 'Tracers remain fully illuminated during the pulse wave.' },
+                    { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled', description: 'Switch between a square wave (default) and a circular ripple.' },
+
+
+                    { cat: 'Events', type: 'header', label: 'Deja Vu' },
+                    { cat: 'Events', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
+                    { cat: 'Events', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
+                    { cat: 'Events', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled', description: 'How many strip-writers will be spawned at a time' },
+                    { cat: 'Events', id: 'dejaVuDurationSeconds', type: 'range', label: 'Total Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled', description: 'The typical time the individual flash remains on screen.' },
+                    { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled', description: 'The duration a flash could be shorter or longer.' },
+                    { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 1, max: 20, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 5, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled', description: 'When glitching, randomize the color and brightness of the characters.' },
+
+                    // ==================== TAB 7: SYSTEM ====================
+                    { cat: 'System', type: 'header', label: 'Save Slots' },
+                    { cat: 'System', type: 'slot', idx: 0 },
+                    { cat: 'System', type: 'slot', idx: 1 },
+                    { cat: 'System', type: 'slot', idx: 2 },
+                    
+                    { cat: 'System', type: 'header', label: 'Data Management' },
+                    { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
+                    { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
+                    { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
+                    
+                    { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
+                    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger' },
+
+                    // ==================== TAB 8: ABOUT ====================
+                    { cat: 'About', type: 'about_content' }
+                ];
+                this.c.subscribe((k, s) => this.refresh(k));
+                this.init();
+            }
+            
+            _getFonts() { return [ {label:'Gothic (Win)', value:'"MS Gothic", monospace'}, {label:'Console', value:'Consolas, monaco, monospace'}, ...this.fonts.loadedFonts.map(f => ({label:f.display, value:f.name, custom:true})) ]; }
+            
+            updateFontList(el) {
+                el.innerHTML = '';
+                this.fonts.loadedFonts.filter(f => !f.isEmbedded).forEach(f => {
+                    const div = document.createElement('div'); div.className = 'font-item';
+                    div.innerHTML = `<span class="font-name">${f.display}</span>`;
+                    const btn = document.createElement('div'); btn.className = 'font-delete-btn'; btn.innerHTML = '×';
+                    btn.onclick = () => { if(confirm('Delete font?')) this.fonts.deleteFont(f.name); };
+                    div.appendChild(btn); el.appendChild(div);
+                });
+            }
+
+            init() {
+                this.dom.toggle.onclick = () => this.dom.panel.classList.toggle('open');
+                this.dom.track = document.createElement('div'); this.dom.track.id = 'tabTrack'; this.dom.tabs.appendChild(this.dom.track);
+                
+                // --- SELF-HEALING DOM ---
+                // Ensure Toast Container exists
+                if(!document.getElementById('toast-container')) {
+                    const tc = document.createElement('div'); tc.id = 'toast-container'; document.body.appendChild(tc);
+                    this.dom.toast = tc;
+                } else {
+                    this.dom.toast = document.getElementById('toast-container');
+                }
+                // Ensure Tooltip exists
+                if(!this.dom.tooltip) { 
+                    this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); 
+                }
+
+                const cats = [...new Set(this.defs.map(d => d.cat))];
+                cats.forEach((cat, i) => {
+                    const btn = document.createElement('button'); btn.className = `tab-btn ${i===0?'active':''}`; btn.textContent = cat;
+                    btn.onclick = () => { 
+                        if(this.ignoreNextClick) return;
+                        this.dom.tabs.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); 
+                        this.dom.content.querySelectorAll('.control-group').forEach(g=>g.classList.remove('active')); document.getElementById(`grp-${cat}`).classList.add('active'); 
+                    };
+                    this.dom.track.appendChild(btn);
+                    const grp = document.createElement('div'); grp.className = `control-group ${i===0?'active':''}`; grp.id = `grp-${cat}`;
+                    this.defs.filter(d => d.cat === cat).forEach(d => grp.appendChild(this.renderControl(d)));
+                    this.dom.content.appendChild(grp);
+                });
+
+                // Event Listeners for File Imports
+                document.getElementById('importFile').onchange = e => { 
+                    const f = e.target.files[0]; if(!f) return; 
+                    const r=new FileReader(); r.onload=ev=>{ 
+                        try { const d=JSON.parse(ev.target.result); this.c.state={...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.toast('Config Loaded', 'success'); } 
+                        catch(e){ this.toast('Invalid File', 'error'); }
+                        e.target.value = ''; 
+                    }; r.readAsText(f); 
+                };
+                document.getElementById('importFontFile').onchange = e => { 
+                    const f=e.target.files[0]; 
+                    if(f) this.fonts.importFont(f, (s,m)=> {
+                        this.toast(m, s?'success':'error');
+                        e.target.value = ''; 
+                    }); 
+                };
+
+                // Scroll Physics
+                const startDrag = (x) => { this.scrollState.isDragging = true; this.scrollState.startX = x; this.scrollState.lastX = x; this.scrollState.velocity = 0; this.scrollState.dragDistance = 0; this.scrollState.isAnimating = false; this.ignoreNextClick = false; };
+                const moveDrag = (x) => {
+                    if (!this.scrollState.isDragging) return;
+                    const delta = this.scrollState.lastX - x; this.scrollState.lastX = x; this.scrollState.velocity = delta;
+                    this.scrollState.dragDistance += Math.abs(delta); if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true;
+                    const maxScroll = Math.max(0, this.dom.track.scrollWidth - this.dom.tabs.clientWidth);
+                    this.scrollState.position += delta;
+                    this.dom.track.style.transform = `translateX(${-this.scrollState.position}px)`;
+                };
+                const endDrag = () => { this.scrollState.isDragging = false; this.startPhysicsAnimation(); };
+                
+                this.dom.tabs.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientX); });
+                this.dom.tabs.addEventListener('mousemove', (e) => { e.preventDefault(); moveDrag(e.clientX); });
+                this.dom.tabs.addEventListener('mouseup', endDrag);
+                this.dom.tabs.addEventListener('mouseleave', () => { if(this.scrollState.isDragging) endDrag(); });
+                this.dom.tabs.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
+                this.dom.tabs.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:false});
+                this.dom.tabs.addEventListener('touchend', endDrag);
+                this.dom.tabs.addEventListener('wheel', (e) => { if (e.deltaY !== 0) { e.preventDefault(); this.scrollState.velocity += e.deltaY * 0.5; this.startPhysicsAnimation(); } }, { passive: false });
+                
+                this.refresh();
+            }
+
+            startPhysicsAnimation() { if (this.scrollState.isAnimating) return; this.scrollState.isAnimating = true; this.updateScrollPhysics(); }
+            updateScrollPhysics() {
+                if(this.scrollState.isDragging) { this.scrollState.isAnimating = false; return; }
+                const s = this.scrollState; const maxScroll = Math.max(0, this.dom.track.scrollWidth - this.dom.tabs.clientWidth);
+                s.velocity *= 0.95;
+                if (s.position < 60 && s.velocity < 0) s.velocity *= (0.5 + (0.4 * (s.position / 60)));
+                else if (s.position > maxScroll - 60 && s.velocity > 0) s.velocity *= (0.5 + (0.4 * ((maxScroll - s.position) / 60)));
+                s.position += s.velocity;
+                if (s.position < 0) { s.position = 0; s.velocity = 0; } else if (s.position > maxScroll) { s.position = maxScroll; s.velocity = 0; }
+                this.dom.track.style.transform = `translateX(${-s.position}px)`;
+                if (Math.abs(s.velocity) < 0.1) { s.isAnimating = false; s.velocity = 0; } else requestAnimationFrame(() => this.updateScrollPhysics());
+            }
+            
+            // Helpers
+            showTooltip(text, target) {
+                this.dom.tooltip.textContent = text; this.dom.tooltip.classList.add('visible');
+                const rect = target.getBoundingClientRect(); const tipRect = this.dom.tooltip.getBoundingClientRect();
+                let top = rect.top + (rect.height / 2) - (tipRect.height / 2); let left = rect.left - tipRect.width - 12; 
+                if (top < 10) top = 10; if (left < 10) left = rect.right + 12; 
+                this.dom.tooltip.style.top = `${top}px`; this.dom.tooltip.style.left = `${left}px`;
+            }
+            hideTooltip() { this.dom.tooltip.classList.remove('visible'); }
+
+            createLabelGroup(d) {
+                const group = document.createElement('div'); group.className = 'control-label-group';
+                const text = document.createElement('span'); text.textContent = d.label; group.appendChild(text);
+                if (d.description) {
+                    const icon = document.createElement('span'); icon.className = 'info-icon'; icon.textContent = '?';
+                    const show = (e) => this.showTooltip(d.description, e.target);
+                    icon.onmouseenter = show; icon.onmouseleave = () => this.hideTooltip();
+                    icon.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); if (this.dom.tooltip.classList.contains('visible')) { this.hideTooltip(); } else { show(e); setTimeout(() => this.hideTooltip(), 3000); } });
+                    group.appendChild(icon);
+                }
+                return group;
+            }
+
+            renderControl(d) {
+                if(d.type === 'header') { const el = document.createElement('div'); el.className = 'section-header'; el.textContent = d.label; return el; }
+                
+                if(d.type === 'about_content') {
+                    const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac';
+                    div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`;
+                    return div;
+                }
+
+                const row = document.createElement('div');
+                
+                if(d.type === 'button') {
+                    const btn = document.createElement('button'); btn.className = `action-btn ${d.class||'btn-info'}`; btn.textContent = d.label;
+                    btn.onclick = () => this.handleAction(d.action); row.appendChild(btn);
+                }
+                else if(d.type === 'slot') {
+                    row.className = 'slot-container';
+                    const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[d.idx].name; inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
+                    const grp = document.createElement('div'); grp.className = 'slot-btn-group';
+                    const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.onclick = () => { this.c.saveToSlot(d.idx); this.toast(`Saved Slot ${d.idx+1}`, 'success'); };
+                    const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.toast(`Loaded Slot ${d.idx+1}`, 'success'); };
+                    grp.append(save, load); row.append(inp, grp);
+                }
+                else if(d.type === 'font_list') {
+                    row.className = 'font-manager-list'; row.id = 'fontListUI';
+                    this.updateFontList(row);
+                }
+                else {
+                    row.className = d.type === 'checkbox' ? 'checkbox-row' : 'control-row';
+                    const labelGroup = this.createLabelGroup(d);
+
+                    if(d.type !== 'checkbox') { 
+                        const hdr = document.createElement('div'); hdr.className = 'control-header'; 
+                        hdr.appendChild(labelGroup); 
+                        if(!d.hideValue && d.type === 'range') {
+                            const valDisp = document.createElement('span'); valDisp.id = `val-${d.id}`; 
+                            hdr.appendChild(valDisp);
+                        }
+                        row.appendChild(hdr); 
+                    } else {
+                        row.appendChild(labelGroup);
+                    }
+                    
+                    let inp;
+                    if(d.type === 'range') { 
+                        inp = document.createElement('input'); inp.type = 'range'; inp.min=d.min; inp.max=d.max; if(d.step) inp.step=d.step; 
+                        inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id); 
+                        inp.oninput = e => { 
+                            const v = parseFloat(e.target.value); 
+                            const actual = d.invert ? (d.max+d.min)-v : v;
+                            this.c.set(d.id, actual); 
+                            const disp = document.getElementById(`val-${d.id}`);
+                            if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
+                        }; 
+                    }
+                    else if(d.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(d.id); inp.oninput = e => this.c.set(d.id, e.target.value); w.appendChild(inp); row.appendChild(w); return row; }
+                    else if(d.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(d.id); inp.onchange = e => this.c.set(d.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
+                    else if(d.type === 'select') { inp = document.createElement('select'); (typeof d.options === 'function' ? d.options() : d.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(d.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(d.id, e.target.value); }
+                    
+                    row.appendChild(inp);
+                    if(d.id) inp.id = `in-${d.id}`;
+                    if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep));
+                    if(d.id) row.id = `row-${d.id}`;
+                }
+                return row;
+            }
+
+            handleAction(a) {
+                if(a === 'reset' && confirm('Reset all settings?')) this.c.reset();
+                if(a === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.toast('Cache Cleared', 'success'));
+                if(a === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, 'matrix_conf.json');
+                if(a === 'import') document.getElementById('importFile').click();
+                if(a === 'importFont') document.getElementById('importFontFile').click();
+                if(a === 'pulse') { this.eff.trigger('Pulse'); this.toast('Pulse Triggered', 'success'); }
+                if(a === 'dejavu') { this.eff.trigger('DejaVu'); this.toast('Glitch Triggered', 'success'); }
+            }
+
+            refresh(k) {
+                if(k === 'ALL') {
+                    this.defs.forEach(d => { if(d.id) this.refresh(d.id); });
+                    this.refresh('fontFamily'); 
+                    return;
+                }
+
+                if(k === 'fontFamily') {
+                    const sel = document.getElementById('in-fontFamily');
+                    if(sel) { sel.innerHTML = ''; this._getFonts().forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get('fontFamily') === o.value) opt.selected = true; sel.appendChild(opt); }); }
+                    const list = document.getElementById('fontListUI');
+                    if(list) this.updateFontList(list);
+                    return;
+                }
+
+                if(k) {
+                    const inp = document.getElementById(`in-${k}`);
+                    if(inp) {
+                        const def = this.defs.find(d=>d.id===k);
+                        if(def) {
+                            const val = this.c.get(k);
+                            if(def.type === 'checkbox') inp.checked = val;
+                            else if(def.type === 'range') {
+                                inp.value = def.invert ? (def.max+def.min)-val : val;
+                                const disp = document.getElementById(`val-${k}`);
+                                if(disp) disp.textContent = def.transform ? def.transform(val) : val + (def.unit || '');
+                            }
+                            else inp.value = val;
+                        }
+                    }
+                }
+                
+                if(!k) {
+                    this.defs.forEach(d => {
+                        if(d.id && d.type === 'range') {
+                            const disp = document.getElementById(`val-${d.id}`);
+                            if(disp) {
+                                const val = this.c.get(d.id);
+                                disp.textContent = d.transform ? d.transform(val) : val + (d.unit || '');
+                            }
+                        }
+                    });
+                }
+
+                const allDepRows = document.querySelectorAll('[data-dep]');
+                allDepRows.forEach(row => {
+                    try {
+                        const depRule = JSON.parse(row.getAttribute('data-dep'));
+                        const rules = Array.isArray(depRule) ? depRule : [depRule];
+                        let conditionsMet = true;
+                        for (let rule of rules) {
+                            let target = rule; let expected = true;
+                            if (target.startsWith('!')) { target = target.substring(1); expected = false; }
+                            const actual = !!this.c.get(target);
+                            if (actual !== expected) { conditionsMet = false; break; }
+                        }
+                        if(conditionsMet) row.classList.remove('control-disabled'); else row.classList.add('control-disabled');
+                    } catch(e) {}
+                });
+            }
+
+            toast(msg, type) {
+                // Defensive coding: Check if toast container is null (should be fixed by init, but safe to check)
+                if(!this.dom.toast) {
+                    console.warn("Toast container missing, attempting recreation");
+                    this.dom.toast = document.getElementById('toast-container');
+                    if(!this.dom.toast) {
+                        const tc = document.createElement('div'); tc.id = 'toast-container'; document.body.appendChild(tc);
+                        this.dom.toast = tc;
+                    }
+                }
+                const d = document.createElement('div'); d.className = `toast-msg toast-${type}`; d.textContent = msg;
+                this.dom.toast.appendChild(d);
+                requestAnimationFrame(() => d.classList.add('visible'));
+                setTimeout(() => { d.classList.remove('visible'); setTimeout(() => d.remove(), 300); }, 3000);
+            }
+        }
+
+        // =========================================================================
+        // 9. KERNEL (Bootstrapper & Main Loop)
+        // =========================================================================
+        class MatrixKernel {
+            constructor() {
+                this.config = new ConfigurationManager();
+                this.grid = new MatrixGrid(this.config);
+                this.simulation = new SimulationSystem(this.grid, this.config);
+                this.effectRegistry = new EffectRegistry(this.grid, this.config);
+                
+                this.effectRegistry.register(new PulseEffect(this.grid, this.config));
+                this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
+
+                this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.fontMgr = new FontManager(this.config);
+                this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr);
+
+                // Boot
+                this.fontMgr.init();
+                this.frame = 0; 
+                this.lastTime = 0; 
+                this.accumulator = 0; 
+                this.timestep = 1000 / 60;
+                
+                let resizeTimer;
+                window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => this._resize(), 100); });
+                this.config.subscribe((k) => { if(['resolution','stretchX','stretchY','fontSize','horizontalSpacingFactor'].includes(k) || k === 'ALL') this._resize(); });
+                
+                this._resize();
+                requestAnimationFrame(t => this._loop(t));
+            }
+
+            _resize() {
+                this.renderer.resize();
+                this.grid.resize(window.innerWidth / this.config.state.stretchX, window.innerHeight / this.config.state.stretchY);
+            }
+
+            _loop(time) {
+                if (!this.lastTime) this.lastTime = time;
+                const delta = time - this.lastTime; this.lastTime = time;
+                this.accumulator += delta;
+                while (this.accumulator >= this.timestep) {
+                    this.frame++;
+                    this.effectRegistry.update();
+                    this.simulation.update(this.frame);
+                    this.accumulator -= this.timestep;
+                }
+                this.renderer.render(this.frame);
+                requestAnimationFrame(t => this._loop(t));
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => new MatrixKernel());
+    </script>
+</body>
+</html>
