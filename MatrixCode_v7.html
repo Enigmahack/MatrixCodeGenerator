@@ -1472,7 +1472,7 @@
                 this.c = c; this.eff = effects; this.fonts = fonts; this.notifications = notificationMgr;
                 this.dom = { panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'), tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'), toast: null, track: null, tooltip: null };
                 
-                this.scrollState = { position: 0, velocity: 0, isDragging: false, startX: 0, lastX: 0, dragDistance: 0, isAnimating: false };
+                this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
                 this.ignoreNextClick = false;
 
                 this.fonts.subscribe(f => this.refresh('fontFamily'));
@@ -1643,6 +1643,11 @@
                     this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); 
                 }
 
+                // 1. Force native scroll behavior
+                this.dom.tabs.style.overflowX = 'auto';
+                // 2. Prevent Mac "Swipe Back" gesture and boundary bouncing
+                this.dom.tabs.style.overscrollBehaviorX = 'contain';
+
                 const cats = [...new Set(this.defs.map(d => d.cat))];
                 cats.forEach((cat, i) => {
                     const btn = document.createElement('button'); btn.className = `tab-btn ${i===0?'active':''}`; btn.textContent = cat;
@@ -1671,40 +1676,40 @@
                     e.target.value = '';
                 };
 
-                const startDrag = (x) => { this.scrollState.isDragging = true; this.scrollState.startX = x; this.scrollState.lastX = x; this.scrollState.velocity = 0; this.scrollState.dragDistance = 0; this.scrollState.isAnimating = false; this.ignoreNextClick = false; };
-                const moveDrag = (x) => {
-                    if (!this.scrollState.isDragging) return;
-                    const delta = this.scrollState.lastX - x; this.scrollState.lastX = x; this.scrollState.velocity = delta;
-                    this.scrollState.dragDistance += Math.abs(delta); if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true;
-                    const maxScroll = Math.max(0, this.dom.track.scrollWidth - this.dom.tabs.clientWidth);
-                    this.scrollState.position += delta;
-                    this.dom.track.style.transform = `translateX(${-this.scrollState.position}px)`;
+                const startDrag = (e) => {
+                    // Only start drag on Left Click
+                    if (e.button !== 0) return; 
+                    this.scrollState.isDown = true;
+                    this.scrollState.startX = e.pageX - this.dom.tabs.offsetLeft;
+                    this.scrollState.scrollLeft = this.dom.tabs.scrollLeft;
+                    this.scrollState.dragDistance = 0;
+                    this.ignoreNextClick = false;
+                    this.dom.tabs.style.cursor = 'grabbing';
                 };
-                const endDrag = () => { this.scrollState.isDragging = false; this.startPhysicsAnimation(); };
-                
-                this.dom.tabs.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientX); });
-                this.dom.tabs.addEventListener('mousemove', (e) => { e.preventDefault(); moveDrag(e.clientX); });
-                this.dom.tabs.addEventListener('mouseup', endDrag);
-                this.dom.tabs.addEventListener('mouseleave', () => { if(this.scrollState.isDragging) endDrag(); });
-                this.dom.tabs.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
-                this.dom.tabs.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:false});
-                this.dom.tabs.addEventListener('touchend', endDrag);
-                this.dom.tabs.addEventListener('wheel', (e) => { if (e.deltaY !== 0) { e.preventDefault(); this.scrollState.velocity += e.deltaY * 0.5; this.startPhysicsAnimation(); } }, { passive: false });
-                
-                this.refresh();
-            }
 
-            startPhysicsAnimation() { if (this.scrollState.isAnimating) return; this.scrollState.isAnimating = true; this.updateScrollPhysics(); }
-            updateScrollPhysics() {
-                if(this.scrollState.isDragging) { this.scrollState.isAnimating = false; return; }
-                const s = this.scrollState; const maxScroll = Math.max(0, this.dom.track.scrollWidth - this.dom.tabs.clientWidth);
-                s.velocity *= 0.95;
-                if (s.position < 60 && s.velocity < 0) s.velocity *= (0.5 + (0.4 * (s.position / 60)));
-                else if (s.position > maxScroll - 60 && s.velocity > 0) s.velocity *= (0.5 + (0.4 * ((maxScroll - s.position) / 60)));
-                s.position += s.velocity;
-                if (s.position < 0) { s.position = 0; s.velocity = 0; } else if (s.position > maxScroll) { s.position = maxScroll; s.velocity = 0; }
-                this.dom.track.style.transform = `translateX(${-s.position}px)`;
-                if (Math.abs(s.velocity) < 0.1) { s.isAnimating = false; s.velocity = 0; } else requestAnimationFrame(() => this.updateScrollPhysics());
+                const stopDrag = () => {
+                    this.scrollState.isDown = false;
+                    this.dom.tabs.style.cursor = 'grab'; // Fallback cursor
+                };
+
+                const doDrag = (e) => {
+                    if (!this.scrollState.isDown) return;
+                    e.preventDefault(); // Stop selection
+                    const x = e.pageX - this.dom.tabs.offsetLeft;
+                    const walk = (x - this.scrollState.startX) * 1.5; // Scroll-fast multiplier
+                    this.dom.tabs.scrollLeft = this.scrollState.scrollLeft - walk;
+                    
+                    this.scrollState.dragDistance += Math.abs(x - this.scrollState.startX);
+                    // If we dragged more than 3px, we assume it's a drag, not a click
+                    if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true;
+                };
+
+                this.dom.tabs.addEventListener('mousedown', startDrag);
+                this.dom.tabs.addEventListener('mouseleave', stopDrag);
+                this.dom.tabs.addEventListener('mouseup', stopDrag);
+                this.dom.tabs.addEventListener('mousemove', doDrag);
+               
+                this.refresh();
             }
             
             showTooltip(text, target) {
