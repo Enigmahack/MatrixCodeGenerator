@@ -21,6 +21,28 @@
             --safe-right: env(safe-area-inset-right, 20px);
         }
         * { box-sizing: border-box; }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+            border-left: 1px solid rgba(34, 197, 94, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(34, 197, 94, 0.3);
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.5);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+        /* Firefox Support */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(34, 197, 94, 0.3) rgba(0, 0, 0, 0.3);
+        }
         body { 
             overflow: hidden; 
             background-color: var(--bg-color); 
@@ -64,10 +86,27 @@
             scroll-behavior: smooth;
             -webkit-overflow-scrolling: touch;
             scroll-snap-type: x mandatory;
-            overscroll-behavior-x: contain; /* Fix for Mac Swipe Back */
-            scrollbar-width: none;
+            overscroll-behavior-x: contain;
+            scrollbar-width: thin;
+            scrollbar-color: var(--accent) rgba(0,0,0,0.1);
+            padding-bottom: 4px;
         }
-        #navTabs::-webkit-scrollbar { display: none; }
+
+        /* --- ENABLE & STYLE SCROLLBARS --- */
+        #navTabs::-webkit-scrollbar { 
+            display: block; 
+            height: 2px;    
+        }
+
+        #navTabs::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2); 
+        }
+
+        #navTabs::-webkit-scrollbar-thumb {
+            background: var(--accent);       
+            border-radius: 2px;
+            box-shadow: 0 0 5px var(--accent); 
+        }
         
         #tabTrack { display: inline-flex; width: max-content; }
 
@@ -236,7 +275,7 @@
         const APP_VERSION = "7.0";
 
         // =========================================================================
-        // 1. CORE UTILITIES
+        // 1. CORE UTILITIES / CONSTANTS
         // =========================================================================
         const Utils = {
             randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
@@ -264,6 +303,8 @@
                 document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
             }
         };
+
+        const CELL_TYPE = { EMPTY: 0, TRAIL: 1, TRACER: 2, ROTATOR: 3 };
 
         // =========================================================================
         // 1.1 NOTIFICATION SYSTEM 
@@ -297,25 +338,24 @@
                 this.storageKey = 'matrix_config_v7'; 
                 this.slotsKey = 'matrix_slots_v7';
                 
-                // Updated defaults based on matrix_conf.json
                 this.defaults = {
                     // --- GLOBAL ---
-                    streamColor: "#4fcf64", 
-                    streamSpeed: 13, // Updated
-                    trailGlow: 28, 
+                    streamColor: "#65d778", 
+                    streamSpeed: 15,
+                    trailGlow: 10, 
                     clearAlpha: 0.6,
                     enableBloom: true, 
-                    bloomStrength: 3, 
-                    bloomOpacity: 0.6,
-                    resolution: 1.5, 
+                    bloomStrength: 2, 
+                    bloomOpacity: 0.45,
+                    resolution: 1, 
                     smoothingEnabled: true, 
-                    smoothingAmount: 0.5, 
+                    smoothingAmount: 0.4, 
                     stretchX: 1, 
                     stretchY: 1.1,
 
                     // --- STREAMS ---
                     streamMinLength: 5, 
-                    streamMaxLength: 301, 
+                    streamMaxLength: 200, 
                     holeRate: 0.15,
                     ttlMinFrames: 12, 
                     ttlMaxFrames: 135, 
@@ -330,7 +370,7 @@
 
                     // --- FONT & GLYPHS ---
                     fontFamily: 'MatrixEmbedded', 
-                    fontSize: 24, 
+                    fontSize: 26, 
                     fontWeight: 'normal', 
                     italicEnabled: false,
                     mirrorEnabled: false, 
@@ -342,9 +382,9 @@
                     brightnessVariance: 20,
 
                     // --- MUTATORS (TRACERS) ---
-                    tracerColor: "#e5ffff", 
+                    tracerColor: "#d9f2f2", 
                     tracerSizeIncrease: 1, 
-                    tracerGlow: 25,
+                    tracerGlow: 15,
                     tracerAttackFrames: 8, 
                     tracerHoldFrames: 0, 
                     tracerReleaseFrames: 6,
@@ -378,24 +418,24 @@
                     pulseEnabled: true, 
                     pulseFrequencySeconds: 180, 
                     pulseDelayFrames: 60, 
-                    pulseDurationSeconds: 2.2, // Updated
+                    pulseDurationSeconds: 2.2, 
                     pulsePreserveSpaces: true, 
                     pulseRandomPosition: true, 
-                    pulseWidth: 130, // Updated
-                    pulseDimming: 0.2, // Updated
+                    pulseWidth: 130, 
+                    pulseDimming: 0.2, 
                     pulseIgnoreTracers: true,
                     pulseCircular: false,
                     pulseBlend: true,
-                    pulseInstantStart: false, // Updated
+                    pulseInstantStart: false,
 
                     // --- EVENTS (MINI PULSE) ---
                     miniPulseEnabled: true,
-                    miniPulseFrequencySeconds: 300, // Updated
-                    miniPulseDurationSeconds: 5, // Updated
-                    miniPulseSpawnChance: 0.03, // Updated
-                    miniPulseSize: 140, // Updated
-                    miniPulseThickness: 64, // Updated
-                    miniPulseSpeed: 14, // Updated
+                    miniPulseFrequencySeconds: 450,
+                    miniPulseDurationSeconds: 5,
+                    miniPulseSpawnChance: 0.03,
+                    miniPulseSize: 140,
+                    miniPulseThickness: 64,
+                    miniPulseSpeed: 14,
 
                     // --- EVENTS (DEJA VU) ---
                     dejaVuEnabled: true, 
@@ -477,8 +517,6 @@
         // =========================================================================
         // 3. DATA LAYER
         // =========================================================================
-        const CELL_TYPE = { EMPTY: 0, TRAIL: 1, TRACER: 2, ROTATOR: 3 };
-
         class MatrixGrid {
             constructor(config) {
                 this.config = config;
@@ -951,136 +989,141 @@
                 this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 }; this.ignoreNextClick = false;
                 this.fonts.subscribe(f => this.refresh('fontFamily'));
                 this.defs = [
-                    // GLOBAL
-                    { cat: 'Global', type: 'header', label: 'Main Look & Feel' },
-                    { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
-                    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
-                    { cat: 'Global', type: 'header', label: 'Glow & Atmosphere' },
-                    { cat: 'Global', id: 'trailGlow', type: 'range', label: 'Stream Glow', min: 0, max: 50, unit: 'px' },
-                    { cat: 'Global', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
-                    { cat: 'Global', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
-                    { cat: 'Global', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
-                    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true },
-                    { cat: 'Global', type: 'header', label: 'Display & Quality' },
-                    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
-                    { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
-                    { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
-                    // GLYPHS
-                    { cat: 'Glyphs', type: 'header', label: 'Font Selection' },
-                    { cat: 'Glyphs', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
-                    { cat: 'Glyphs', type: 'font_list' },
-                    { cat: 'Glyphs', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
-                    { cat: 'Glyphs', type: 'header', label: 'Character Styling' },
-                    { cat: 'Glyphs', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
-                    { cat: 'Glyphs', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] },
-                    { cat: 'Glyphs', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
-                    { cat: 'Glyphs', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
-                    { cat: 'Glyphs', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness' },
-                    { cat: 'Glyphs', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
-                    { cat: 'Glyphs', type: 'header', label: 'Grid & Spacing' },
-                    { cat: 'Glyphs', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
-                    { cat: 'Glyphs', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
-                    { cat: 'Glyphs', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -20, max: 20, unit: 'px' },
-                    { cat: 'Glyphs', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -20, max: 20, unit: 'px' },
-                    { cat: 'Glyphs', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
-                    { cat: 'Glyphs', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
-                    // STREAMS
-                    { cat: 'Streams', type: 'header', label: 'Stream Density' },
-                    { cat: 'Streams', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 5, max: 100, unit: 'chars' },
-                    { cat: 'Streams', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 20, max: 500, unit: 'chars' },
-                    { cat: 'Streams', id: 'holeRate', type: 'range', label: 'Gaps / Broken Code', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%' },
-                    { cat: 'Streams', type: 'header', label: 'Life Cycle' },
-                    { cat: 'Streams', id: 'ttlMinFrames', type: 'range', label: 'Min Life', min: 10, max: 400, unit: 'fr' },
-                    { cat: 'Streams', id: 'ttlMaxFrames', type: 'range', label: 'Max Life', min: 100, max: 600, unit: 'fr' },
-                    { cat: 'Streams', type: 'header', label: 'Deterioration (Fading)' },
-                    { cat: 'Streams', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
-                    { cat: 'Streams', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve (Shrink) Effect' }, 
-                    { cat: 'Streams', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
-                    { cat: 'Streams', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting' },
-                    { cat: 'Streams', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
-                    { cat: 'Streams', type: 'header', label: 'Visual Variation' },
-                    { cat: 'Streams', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers' },
-                    { cat: 'Streams', id: 'invertedTracerChance', type: 'range', label: 'Inverted Tracer Likelihood', min: 0.05, max: 0.5, step: 0.05, dep: 'invertedTracerEnabled' },
-                    // MUTATORS
-                    { cat: 'Mutators', type: 'header', label: 'Tracers' },
-                    { cat: 'Mutators', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
-                    { cat: 'Mutators', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
-                    { cat: 'Mutators', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
-                    { cat: 'Mutators', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
-                    { cat: 'Mutators', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
-                    { cat: 'Mutators', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
-                    { cat: 'Mutators', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Fallout' },
-                    { cat: 'Mutators', id: 'randomStopChance', type: 'range', label: 'Pause Likelihood', min: 0.01, max: 0.2, step: 0.01, dep: 'randomStopEnabled' },
-                    { cat: 'Mutators', type: 'header', label: 'Rotators' },
-                    { cat: 'Mutators', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
-                    { cat: 'Mutators', id: 'rotatorChance', type: 'range', label: 'Spawn Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
-                    { cat: 'Mutators', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled' },
-                    { cat: 'Mutators', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
-                    { cat: 'Mutators', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
-                    { cat: 'Mutators', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
-                    // GLYPH FX
-                    { cat: 'Glyph-FX', type: 'header', label: 'Star Power' },
-                    { cat: 'Glyph-FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
-                    { cat: 'Glyph-FX', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
-                    { cat: 'Glyph-FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter / Sparkle', dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-                    { cat: 'Glyph-FX', type: 'header', label: 'Rainbow Streams' },
-                    { cat: 'Glyph-FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
-                    { cat: 'Glyph-FX', id: 'rainbowStreamChance', type: 'range', label: 'Spawn Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
-                    { cat: 'Glyph-FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
-                    // EVENTS
-                    { cat: 'Events', type: 'header', label: 'Pulse Wave' },
-                    { cat: 'Events', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
-                    { cat: 'Events', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
-                    { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: 'Start the pulse at full width immediately instead of growing from zero.' },
-                    { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Color Blend', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
-                    
-                    { cat: 'Events', type: 'header', label: 'Mini Pulse Storm' },
-                    { cat: 'Events', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
-                    { cat: 'Events', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
-                    { cat: 'Events', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
-                    { cat: 'Events', id: 'miniPulseDurationSeconds', type: 'range', label: 'Storm Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
-                    { cat: 'Events', id: 'miniPulseSpawnChance', type: 'range', label: 'Blast Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled', description: 'How frequently new blasts appear during a storm.' },
-                    { cat: 'Events', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-                    { cat: 'Events', id: 'miniPulseThickness', type: 'range', label: 'Blast Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
-                    { cat: 'Events', id: 'miniPulseSpeed', type: 'range', label: 'Expansion Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
+                // GLOBAL
+                { cat: 'Global', type: 'header', label: 'Main Look & Feel' },
+                { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
+                { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
+                { cat: 'Global', type: 'header', label: 'Glow & Atmosphere' },
+                { cat: 'Global', id: 'trailGlow', type: 'range', label: 'Stream Glow', min: 0, max: 50, unit: 'px' },
+                { cat: 'Global', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
+                { cat: 'Global', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
+                { cat: 'Global', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
+                { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
+                { cat: 'Global', type: 'header', label: 'Display & Quality' },
+                { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
+                { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
+                { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
+                
+                // GLYPHS
+                { cat: 'Glyphs', type: 'header', label: 'Font Selection' },
+                { cat: 'Glyphs', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
+                { cat: 'Glyphs', type: 'font_list' },
+                { cat: 'Glyphs', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
+                { cat: 'Glyphs', type: 'header', label: 'Character Styling' },
+                { cat: 'Glyphs', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
+                { cat: 'Glyphs', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] },
+                { cat: 'Glyphs', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
+                { cat: 'Glyphs', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
+                { cat: 'Glyphs', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Randomizes the luminance of individual characters within a stream for a shimmering / flashing look.' },
+                { cat: 'Glyphs', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+                { cat: 'Glyphs', type: 'header', label: 'Grid & Spacing' },
+                { cat: 'Glyphs', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
+                { cat: 'Glyphs', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
+                { cat: 'Glyphs', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -20, max: 20, unit: 'px' },
+                { cat: 'Glyphs', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -20, max: 20, unit: 'px' },
+                { cat: 'Glyphs', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
+                { cat: 'Glyphs', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
+                
+                // STREAMS
+                { cat: 'Streams', type: 'header', label: 'Stream Density' },
+                { cat: 'Streams', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 5, max: 100, unit: 'chars' },
+                { cat: 'Streams', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 20, max: 500, unit: 'chars' },
+                { cat: 'Streams', id: 'holeRate', type: 'range', label: 'Gaps / Broken Code', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
+                { cat: 'Streams', type: 'header', label: 'Life Cycle' },
+                { cat: 'Streams', id: 'ttlMinFrames', type: 'range', label: 'Min Life', min: 10, max: 400, unit: 'fr', description: 'Time to Live (TTL) determines how long a stream stays on screen before decaying. This is time-based, whereas "Length" (above) is size-based.' },
+                { cat: 'Streams', id: 'ttlMaxFrames', type: 'range', label: 'Max Life', min: 100, max: 600, unit: 'fr' },
+                { cat: 'Streams', type: 'header', label: 'Stream Fade' },
+                { cat: 'Streams', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
+                { cat: 'Streams', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve (Shrink) Effect' }, 
+                { cat: 'Streams', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
+                { cat: 'Streams', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting' },
+                { cat: 'Streams', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
+                { cat: 'Streams', type: 'header', label: 'Visual Variation' },
+                { cat: 'Streams', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Spawns 'eraser' signals that travel downwards, clearing existing code trails." },
+                { cat: 'Streams', id: 'invertedTracerChance', type: 'range', label: 'Inverted Tracer Likelihood', min: 0.05, max: 0.5, step: 0.05, dep: 'invertedTracerEnabled' },
+                
+                // MUTATORS
+                { cat: 'Mutators', type: 'header', label: 'Tracers' },
+                { cat: 'Mutators', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
+                { cat: 'Mutators', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
+                { cat: 'Mutators', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
+                { cat: 'Mutators', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
+                { cat: 'Mutators', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
+                { cat: 'Mutators', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
+                { cat: 'Mutators', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Fallout', description: 'Simulates signal connection loss, causing streams to randomly stop falling and freeze in place.' },
+                { cat: 'Mutators', id: 'randomStopChance', type: 'range', label: 'Fallout Chance', min: 0.01, max: 0.2, step: 0.01, dep: 'randomStopEnabled' },
+                { cat: 'Mutators', type: 'header', label: 'Rotators' },
+                { cat: 'Mutators', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
+                { cat: 'Mutators', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
+                { cat: 'Mutators', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled' },
+                { cat: 'Mutators', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
+                { cat: 'Mutators', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
+                { cat: 'Mutators', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
+                
+                // GLYPH FX
+                { cat: 'Glyph-FX', type: 'header', label: 'Star Power' },
+                { cat: 'Glyph-FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
+                { cat: 'Glyph-FX', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
+                { cat: 'Glyph-FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter / Sparkle', dep: 'starPowerEnabled' },
+                { cat: 'Glyph-FX', type: 'header', label: 'Rainbow Streams' },
+                { cat: 'Glyph-FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
+                { cat: 'Glyph-FX', id: 'rainbowStreamChance', type: 'range', label: 'Rainbow Stream Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+                { cat: 'Glyph-FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
+                
+                // EVENTS
+                { cat: 'Events', type: 'header', label: 'Pulse Wave' },
+                { cat: 'Events', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
+                { cat: 'Events', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
+                { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: 'Start the pulse at full width immediately instead of growing from zero.' },
+                { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Color Blend', dep: 'pulseEnabled', description: 'Blends the pulse wave color with the active stream color rather than overriding it completely.' },
+                { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled' },
+                { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
+                
+                { cat: 'Events', type: 'header', label: 'Mini Pulse Storm' },
+                { cat: 'Events', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
+                { cat: 'Events', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Pulse Storms' },
+                { cat: 'Events', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
+                { cat: 'Events', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
+                { cat: 'Events', id: 'miniPulseSpawnChance', type: 'range', label: 'Blast Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled', description: 'How frequently new blasts appear during a storm.' },
+                { cat: 'Events', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
+                { cat: 'Events', id: 'miniPulseThickness', type: 'range', label: 'Blast Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+                { cat: 'Events', id: 'miniPulseSpeed', type: 'range', label: 'Expansion Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
 
-                    { cat: 'Events', type: 'header', label: 'Deja Vu' },
-                    { cat: 'Events', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
-                    { cat: 'Events', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
-                    { cat: 'Events', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuDurationSeconds', type: 'range', label: 'Total Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled' },
-                    // SYSTEM
-                    { cat: 'System', type: 'header', label: 'Save Slots' },
-                    { cat: 'System', type: 'slot', idx: 0 }, { cat: 'System', type: 'slot', idx: 1 }, { cat: 'System', type: 'slot', idx: 2 },
-                    { cat: 'System', type: 'header', label: 'Data Management' },
-                    { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
-                    { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
-                    { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
-                    { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
-                    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger' },
-                    // ABOUT
-                    { cat: 'About', type: 'about_content' }
-                ];
+                { cat: 'Events', type: 'header', label: 'Deja Vu' },
+                { cat: 'Events', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
+                { cat: 'Events', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
+                { cat: 'Events', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
+                { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled' },
+                // SYSTEM
+                { cat: 'System', type: 'header', label: 'Save Slots' },
+                { cat: 'System', type: 'slot', idx: 0 }, { cat: 'System', type: 'slot', idx: 1 }, { cat: 'System', type: 'slot', idx: 2 },
+                { cat: 'System', type: 'header', label: 'Data Management' },
+                { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
+                { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
+                { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
+                { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
+                { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger' },
+                // ABOUT
+                { cat: 'About', type: 'about_content' }
+            ];
                 this.c.subscribe((k, s) => this.refresh(k));
                 this.init();
             }
@@ -1102,7 +1145,10 @@
                 this.dom.toggle.onclick = () => this.dom.panel.classList.toggle('open');
                 this.dom.track = document.createElement('div'); this.dom.track.id = 'tabTrack'; this.dom.tabs.appendChild(this.dom.track);
                 if(!this.dom.tooltip) { this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); }
-                this.dom.tabs.style.overflowX = 'auto'; this.dom.tabs.style.overscrollBehaviorX = 'contain';
+                
+                // Ensure overflow handling matches standard behavior for wheel support
+                this.dom.tabs.style.overflowX = 'auto'; 
+                this.dom.tabs.style.overscrollBehaviorX = 'contain';
 
                 const cats = [...new Set(this.defs.map(d => d.cat))];
                 cats.forEach((cat, i) => {
@@ -1124,12 +1170,24 @@
                 };
                 document.getElementById('importFontFile').onchange = e => { const f=e.target.files[0]; if(f) this.fonts.importFont(f); e.target.value = ''; };
 
+                // --- DRAG LOGIC ---
                 const startDrag = (e) => { if (e.button !== 0) return; this.scrollState.isDown = true; this.scrollState.startX = e.pageX - this.dom.tabs.offsetLeft; this.scrollState.scrollLeft = this.dom.tabs.scrollLeft; this.scrollState.dragDistance = 0; this.ignoreNextClick = false; this.dom.tabs.style.cursor = 'grabbing'; };
                 const stopDrag = () => { this.scrollState.isDown = false; this.dom.tabs.style.cursor = 'grab'; };
                 const doDrag = (e) => { if (!this.scrollState.isDown) return; e.preventDefault(); const x = e.pageX - this.dom.tabs.offsetLeft; const walk = (x - this.scrollState.startX) * 1.5; this.dom.tabs.scrollLeft = this.scrollState.scrollLeft - walk; this.scrollState.dragDistance += Math.abs(x - this.scrollState.startX); if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true; };
 
                 this.dom.tabs.addEventListener('mousedown', startDrag); this.dom.tabs.addEventListener('mouseleave', stopDrag);
                 this.dom.tabs.addEventListener('mouseup', stopDrag); this.dom.tabs.addEventListener('mousemove', doDrag);
+
+                // --- MOUSE WHEEL SUPPORT ---
+                // Converts vertical mouse wheel scrolling into horizontal scrolling for the tabs
+                this.dom.tabs.addEventListener('wheel', (e) => {
+                    if (e.deltaY !== 0) {
+                        // preventDefault stops the browser "back" gesture or vertical page scroll
+                        e.preventDefault(); 
+                        this.dom.tabs.scrollLeft += e.deltaY;
+                    }
+                }, { passive: false });
+
                 this.refresh();
             }
             
@@ -1156,31 +1214,139 @@
             }
 
             renderControl(d) {
-                if(d.type === 'header') { const el = document.createElement('div'); el.className = 'section-header'; el.textContent = d.label; return el; }
-                if(d.type === 'about_content') { const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac'; div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`; return div; }
+                // 1. SECTION HEADER
+                if(d.type === 'header') { 
+                    const el = document.createElement('div'); 
+                    el.className = 'section-header'; 
+                    el.textContent = d.label; 
+                    return el; 
+                }
+
+                // 2. ABOUT CONTENT
+                if(d.type === 'about_content') { 
+                    const div = document.createElement('div'); 
+                    div.style.padding = '1rem'; 
+                    div.style.textAlign = 'center'; 
+                    div.style.color = '#86efac'; 
+                    div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`; 
+                    return div; 
+                }
 
                 const row = document.createElement('div');
-                if(d.type === 'button') { const btn = document.createElement('button'); btn.className = `action-btn ${d.class||'btn-info'}`; btn.textContent = d.label; btn.onclick = () => this.handleAction(d.action); row.appendChild(btn); }
+
+                // 3. ACTION BUTTONS
+                if(d.type === 'button') { 
+                    const btn = document.createElement('button'); 
+                    btn.className = `action-btn ${d.class||'btn-info'}`; 
+                    btn.textContent = d.label; 
+                    btn.id = `btn-${d.action}`;
+                    btn.name = d.action; 
+                    btn.onclick = () => this.handleAction(d.action); 
+                    row.appendChild(btn); 
+                }
+                
+                // 4. SAVE SLOTS
                 else if(d.type === 'slot') {
                     row.className = 'slot-container';
-                    const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[d.idx].name; inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
-                    const grp = document.createElement('div'); grp.className = 'slot-btn-group';
-                    const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.onclick = () => { this.c.saveToSlot(d.idx); this.notifications.show(`Saved Slot ${d.idx+1}`, 'success'); };
-                    const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.notifications.show(`Loaded Slot ${d.idx+1}`, 'success'); };
-                    grp.append(save, load); row.append(inp, grp);
+                    const inp = document.createElement('input'); 
+                    inp.className = 'slot-name-input'; 
+                    inp.value = this.c.slots[d.idx].name; 
+                    inp.id = `slot-input-${d.idx}`;
+                    inp.name = `slot_name_${d.idx}`;
+                    inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
+                    
+                    const grp = document.createElement('div'); 
+                    grp.className = 'slot-btn-group';
+                    
+                    const save = document.createElement('button'); 
+                    save.className = 'btn-icon'; 
+                    save.textContent = 'SAVE'; 
+                    save.id = `btn-save-${d.idx}`;
+                    save.onclick = () => { this.c.saveToSlot(d.idx); this.notifications.show(`Saved Slot ${d.idx+1}`, 'success'); };
+                    
+                    const load = document.createElement('button'); 
+                    load.className = 'btn-icon'; 
+                    load.textContent = 'LOAD'; 
+                    load.id = `btn-load-${d.idx}`;
+                    load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.notifications.show(`Loaded Slot ${d.idx+1}`, 'success'); };
+                    
+                    grp.append(save, load); 
+                    row.append(inp, grp);
                 }
-                else if(d.type === 'font_list') { row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row); }
+                
+                // 5. FONT LIST
+                else if(d.type === 'font_list') { 
+                    row.className = 'font-manager-list'; 
+                    row.id = 'fontListUI'; 
+                    this.updateFontList(row); 
+                }
+                
+                // 6. GENERIC INPUTS (Range, Checkbox, Select, Color)
                 else {
                     row.className = d.type === 'checkbox' ? 'checkbox-row' : 'control-row';
                     const labelGroup = this.createLabelGroup(d);
-                    if(d.type !== 'checkbox') { const hdr = document.createElement('div'); hdr.className = 'control-header'; hdr.appendChild(labelGroup); if(!d.hideValue && d.type === 'range') { const valDisp = document.createElement('span'); valDisp.id = `val-${d.id}`; hdr.appendChild(valDisp); } row.appendChild(hdr); } else { row.appendChild(labelGroup); }
+                    
+                    if(d.type !== 'checkbox') { 
+                        const hdr = document.createElement('div'); 
+                        hdr.className = 'control-header'; 
+                        hdr.appendChild(labelGroup); 
+                        if(!d.hideValue && d.type === 'range') { 
+                            const valDisp = document.createElement('span'); 
+                            valDisp.id = `val-${d.id}`; 
+                            hdr.appendChild(valDisp); 
+                        } 
+                        row.appendChild(hdr); 
+                    } else { 
+                        row.appendChild(labelGroup); 
+                    }
                     
                     let inp;
-                    if(d.type === 'range') { inp = document.createElement('input'); inp.type = 'range'; inp.min=d.min; inp.max=d.max; if(d.step) inp.step=d.step; inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id); inp.oninput = e => { const v = parseFloat(e.target.value); const actual = d.invert ? (d.max+d.min)-v : v; this.c.set(d.id, actual); const disp = document.getElementById(`val-${d.id}`); if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || ''); }; }
-                    else if(d.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(d.id); inp.oninput = e => this.c.set(d.id, e.target.value); w.appendChild(inp); row.appendChild(w); return row; }
-                    else if(d.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(d.id); inp.onchange = e => this.c.set(d.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
-                    else if(d.type === 'select') { inp = document.createElement('select'); (typeof d.options === 'function' ? d.options() : d.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(d.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(d.id, e.target.value); }
-                    row.appendChild(inp); if(d.id) inp.id = `in-${d.id}`; if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep)); if(d.id) row.id = `row-${d.id}`;
+                    if(d.type === 'range') { 
+                        inp = document.createElement('input'); 
+                        inp.type = 'range'; 
+                        inp.min=d.min; inp.max=d.max; 
+                        if(d.step) inp.step=d.step; 
+                        inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id); 
+                        inp.oninput = e => { const v = parseFloat(e.target.value); const actual = d.invert ? (d.max+d.min)-v : v; this.c.set(d.id, actual); const disp = document.getElementById(`val-${d.id}`); if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || ''); }; 
+                    }
+                    else if(d.type === 'color') { 
+                        const w = document.createElement('div'); 
+                        w.className = 'color-wrapper'; 
+                        inp = document.createElement('input'); 
+                        inp.type = 'color'; 
+                        inp.value = this.c.get(d.id); 
+                        inp.id = `in-${d.id}`;
+                        inp.name = d.id;
+                        inp.oninput = e => this.c.set(d.id, e.target.value); 
+                        w.appendChild(inp); 
+                        row.appendChild(w); 
+                        // Note: We return here for color, so ID assignment logic below wouldn't run otherwise
+                        if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep));
+                        if(d.id) row.id = `row-${d.id}`;
+                        return row; 
+                    }
+                    else if(d.type === 'checkbox') { 
+                        inp = document.createElement('input'); 
+                        inp.type = 'checkbox'; 
+                        inp.checked = this.c.get(d.id); 
+                        inp.onchange = e => this.c.set(d.id, e.target.checked); 
+                        row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
+                    }
+                    else if(d.type === 'select') { 
+                        inp = document.createElement('select'); 
+                        (typeof d.options === 'function' ? d.options() : d.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(d.id) === o.value) opt.selected = true; inp.appendChild(opt); }); 
+                        inp.onchange = e => this.c.set(d.id, e.target.value); 
+                    }
+                    
+                    row.appendChild(inp); 
+                    
+                    if(d.id) {
+                        inp.id = `in-${d.id}`;
+                        inp.name = d.id;
+                    }
+
+                    if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep)); 
+                    if(d.id) row.id = `row-${d.id}`;
                 }
                 return row;
             }
