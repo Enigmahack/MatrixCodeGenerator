@@ -801,6 +801,9 @@
         // =========================================================================
         // 5. EFFECT SYSTEM (OCP - Extensible)
         // =========================================================================
+        // =========================================================================
+        // 5. EFFECT SYSTEM (OCP - Extensible)
+        // =========================================================================
         class EffectRegistry {
             constructor(grid, config) {
                 this.grid = grid;
@@ -899,15 +902,13 @@
                 if(this.state === 'WAITING') { 
                     if(--this.timer <= 0) {
                         this.state = 'EXPANDING';
-                        
                         if (s.pulseInstantStart) {
                             this.radius = s.pulseWidth * 2;
                         } else {
-                            this.radius = 0; // Grow from center
+                            this.radius = 0;
                         }
                     }
                 }
-
                 else {
                     this.radius += this.speed;
                     const d = this.c.derived;
@@ -934,16 +935,18 @@
                 const width = s.pulseWidth * 2; 
                 const innerEdge = this.radius - width;
 
+                // ZONE 1: PASSED (Live Green Code)
                 if (this.state !== 'WAITING' && dist < innerEdge) {
                     return null; 
                 }
 
                 const snAlpha = this.snap.alphas[i];
                 let charCode = this.snap.chars[i];
-                const rgb = Utils.unpackRgb(this.snap.colors[i]);
-                const baseColor = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+                
+                // Color Logic Preparation
                 const tRgb = d.tracerRgb;
                 const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
+                let baseColorStr = null;
 
                 let isGap = false;
                 if (snAlpha <= 0.01) {
@@ -954,23 +957,51 @@
                 const char = String.fromCharCode(charCode);
                 const isTracer = (this.snap.tracers[i] === 1);
 
+                // ZONE 2: AHEAD (Frozen / Darkening)
                 if (this.state === 'WAITING' || dist > this.radius) {
+                    if(baseColorStr === null) {
+                        const rgb = Utils.unpackRgb(this.snap.colors[i]);
+                        baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+                    }
+
                     if(isTracer && s.pulseIgnoreTracers) {
                         return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
                     }
                     if (isGap) return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                     
-                    return { char, color: baseColor, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                    return { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
                 
+                // ZONE 3: INSIDE WAVE
                 if (s.pulsePreserveSpaces && isGap) {
                     return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
 
+                // Calculate Position in Wave (0.0 = Outer Edge/Tracer, 1.0 = Inner Edge/Base)
                 const rel = Math.max(0, Math.min(1, (this.radius - dist) / width));
+                
+                let finalColor = targetColor;
+
+                // NEW: BLENDING LOGIC
+                if (s.pulseBlend) {
+                    const baseInt = this.snap.colors[i];
+                    const bR = (baseInt >> 16) & 0xFF;
+                    const bG = (baseInt >> 8) & 0xFF;
+                    const bB = baseInt & 0xFF;
+
+                    // Interpolate: Target(Tracer) -> Base
+                    // rel=0 (Outer) => Target
+                    // rel=1 (Inner) => Base
+                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
+                    const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
+                    const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
+
+                    finalColor = `rgb(${mR},${mG},${mB})`;
+                }
+
                 return { 
                     char, 
-                    color: targetColor, 
+                    color: finalColor, 
                     alpha: 1.0, 
                     glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 
                     size: s.tracerSizeIncrease,
@@ -1580,6 +1611,7 @@
                     { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled', description: 'Starts the pulse from random locations.' },
                     { cat: 'Events', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: 'Start the pulse at full width immediately instead of growing from zero.' },
                     { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', description: 'Keeps the spaces when pulsing.' },
+                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Color Blend', dep: 'pulseEnabled', description: 'Blend the Tracer color into the Stream color.' },
                     { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled', description: 'Thickness of the expanding white square.' },
                     { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled', description: 'How dark the frozen code becomes before the wave hits.' },
                     { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled', description: 'Tracers remain fully illuminated during the pulse wave.' },
