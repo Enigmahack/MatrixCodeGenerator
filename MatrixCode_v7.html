@@ -423,6 +423,7 @@
                     pulseIgnoreTracers: true,
                     pulseCircular: false,
                     pulseBlend: true,
+                    pulseInstantStart: true,
 
                     // --- EVENTS (DEJA VU) ---
                     dejaVuEnabled: true, 
@@ -800,7 +801,6 @@
         // =========================================================================
         // 5. EFFECT SYSTEM (OCP - Extensible)
         // =========================================================================
-
         class EffectRegistry {
             constructor(grid, config) {
                 this.grid = grid;
@@ -809,7 +809,7 @@
             }
             register(effect) { this.effects.push(effect); }
             
-            // UPDATE: Returns boolean (true if triggered, false if blocked/active)
+            // Returns boolean (true if triggered, false if blocked/active)
             trigger(name) {
                 const fx = this.effects.find(e => e.name === name);
                 if(fx) return fx.trigger();
@@ -841,7 +841,6 @@
             }
             
             trigger() {
-                // UPDATE: Return false if already running
                 if(this.active) return false;
                 
                 const total = this.g.cols * this.g.rows;
@@ -889,7 +888,7 @@
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
                 
-                return true; // UPDATE: Success
+                return true; 
             }
 
             update() {
@@ -897,7 +896,18 @@
                 if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
                 if(!this.active) return;
                 
-                if(this.state === 'WAITING') { if(--this.timer <= 0) this.state = 'EXPANDING'; }
+                if(this.state === 'WAITING') { 
+                    if(--this.timer <= 0) {
+                        this.state = 'EXPANDING';
+                        
+                        if (s.pulseInstantStart) {
+                            this.radius = s.pulseWidth * 2;
+                        } else {
+                            this.radius = 0; // Grow from center
+                        }
+                    }
+                }
+
                 else {
                     this.radius += this.speed;
                     const d = this.c.derived;
@@ -974,13 +984,12 @@
             constructor(g, c) { super(g, c); this.name = "DejaVu"; this.active = false; this.autoTimer = c.state.dejaVuFrequencySeconds * 60; this.map = null; }
             
             trigger() { 
-                // UPDATE: Return false if already running
                 if(this.active) return false; 
                 this.active = true; 
                 this.timer = this.c.state.dejaVuDurationSeconds * 60; 
                 this.bars = []; 
                 this.map = new Uint8Array(this.g.rows); 
-                return true; // UPDATE: Success
+                return true; 
             }
 
             update() {
@@ -1569,6 +1578,7 @@
                     { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
                     { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
                     { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled', description: 'Starts the pulse from random locations.' },
+                    { cat: 'Events', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: 'Start the pulse at full width immediately instead of growing from zero.' },
                     { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', description: 'Keeps the spaces when pulsing.' },
                     { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled', description: 'Thickness of the expanding white square.' },
                     { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled', description: 'How dark the frozen code becomes before the wave hits.' },
