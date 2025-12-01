@@ -297,6 +297,36 @@
         };
 
         // =========================================================================
+        // 1.1 NOTIFICATION SYSTEM 
+        // =========================================================================
+        class NotificationManager {
+            constructor() {
+                this.container = document.getElementById('toast-container');
+                if (!this.container) {
+                    this.container = document.createElement('div');
+                    this.container.id = 'toast-container';
+                    document.body.appendChild(this.container);
+                }
+            }
+
+            show(msg, type = 'info') {
+                const d = document.createElement('div');
+                d.className = `toast-msg toast-${type}`;
+                d.textContent = msg;
+                
+                // Ensure container is still in DOM (Self-healing)
+                if(!document.body.contains(this.container)) document.body.appendChild(this.container);
+                
+                this.container.appendChild(d);
+                requestAnimationFrame(() => d.classList.add('visible'));
+                setTimeout(() => {
+                    d.classList.remove('visible');
+                    setTimeout(() => d.remove(), 300);
+                }, 3000);
+            }
+        }
+
+        // =========================================================================
         // 2. CONFIGURATION (Singleton)
         // =========================================================================
         class ConfigurationManager {
@@ -540,15 +570,34 @@
                 this.config = config;
                 this.streams = [];
                 this.releaseTimer = 0;
-                this.strategies = {
-                    'STANDARD': { spawn: (st) => {}, style: () => null },
+                
+                // REFACTOR: Standardized Mode Registry Pattern
+                this.modes = {
+                    'STANDARD': { 
+                        spawn: (st) => {}, 
+                        style: () => null 
+                    },
                     'STAR_POWER': { 
                         spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); }, 
-                        style: (st, f, s) => ({ h: (s.starPowerRainbowMode === 'char' ? (f + (st.x * 10)) % 360 : st.baseHue), s: s.starPowerSaturation, l: s.starPowerIntensity, cycle: s.starPowerColorCycle, speed: s.starPowerCycleSpeed, glitter: s.starPowerGlitter })
+                        style: (st, f, s) => ({ 
+                            h: (s.starPowerRainbowMode === 'char' ? (f + (st.x * 10)) % 360 : st.baseHue), 
+                            s: s.starPowerSaturation, 
+                            l: s.starPowerIntensity, 
+                            cycle: s.starPowerColorCycle, 
+                            speed: s.starPowerCycleSpeed, 
+                            glitter: s.starPowerGlitter 
+                        })
                     },
                     'RAINBOW': {
                         spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); },
-                        style: (st, f, s) => ({ h: st.baseHue, s: 100, l: s.rainbowStreamIntensity, cycle: false, speed: 0, glitter: false })
+                        style: (st, f, s) => ({ 
+                            h: st.baseHue, 
+                            s: 100, 
+                            l: s.rainbowStreamIntensity, 
+                            cycle: false, 
+                            speed: 0, 
+                            glitter: false 
+                        })
                     }
                 };
             }
@@ -573,12 +622,14 @@
 
                 if (this.releaseTimer <= 0) {
                     const available = this.streams.filter(st => !st.active && st.delay <= 0);
+                    // Fisher-Yates shuffle for randomness
                     for (let i = available.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [available[i], available[j]] = [available[j], available[i]]; }
                     
                     let count = 4;
                     for (const st of available) {
                         if (count-- <= 0) break;
                         let clear = true;
+                        // Collision check
                         for(let y=0; y < Math.min(this.grid.rows, 40); y++) {
                             const idx = this.grid.getIndex(st.x, y);
                             if(this.grid.decays[idx] > 0) { clear = false; break; }
@@ -632,7 +683,8 @@
                 if (s.starPowerEnabled && Math.random() < (s.starPowerFreq / 100)) st.mode = 'STAR_POWER';
                 else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) st.mode = 'RAINBOW';
                 
-                this.strategies[st.mode].spawn(st);
+                // USE REGISTRY
+                this.modes[st.mode].spawn(st);
                 
                 let skip = 0;
                 if(!st.isInverted) { while(skip < st.len && st.holes.has(skip)) skip++; }
@@ -658,7 +710,8 @@
                     }
                     this.grid.brightness[idx] = s.variableBrightnessEnabled ? Utils.randomFloat(this.config.derived.varianceMin, 1.0) : 1.0;
                     
-                    const style = this.strategies[st.mode].style(st, frame, s);
+                    // USE REGISTRY
+                    const style = this.modes[st.mode].style(st, frame, s);
                     if(style) this.grid.complexStyles.set(idx, style);
                     else this.grid.complexStyles.delete(idx);
                 } else {
@@ -693,33 +746,25 @@
                         this.grid.ages[i] = age;
                     }
 
-                    // 2. Rotator Logic (REACTIVE & GLOBAL)
+                    // 2. Rotator Logic
                     if (s.rotatorEnabled && this.grid.types[i] === CELL_TYPE.ROTATOR) {
                         const prog = this.grid.rotatorProg[i];
-                        
-                        // A. Finish what we started (Graceful Exit)
                         if (prog > 0) {
                             this.grid.rotatorProg[i]++;
                             if (this.grid.rotatorProg[i] > s.rotatorCrossfadeFrames) {
-                                // Commit change
                                 const next = this.grid.nextChars.get(i);
                                 if(next) this.grid.setChar(i, next);
                                 this.grid.rotatorProg[i] = 0;
                             }
                         } 
-                        // B. Trigger new rotation (Only if alive / not decaying)
                         else if (decay === 1) {
                             const cyclePhase = frame % d.rotatorCycleFrames;
-                            
                             if (s.rotatorCrossfadeFrames <= 2) {
-                                // Snap change on the beat
                                 if (cyclePhase === 0) {
                                     const next = Utils.getUniqueChar(this.grid.getChar(i));
                                     this.grid.setChar(i, next);
                                 }
                             } else {
-                                // Start Smooth Crossfade on the beat
-                                // REACTIVE: Trigger exactly when phase wraps to 0
                                 if (cyclePhase === 0) {
                                     this.grid.rotatorProg[i] = 1;
                                     this.grid.nextChars.set(i, Utils.getUniqueChar(this.grid.getChar(i)));
@@ -737,7 +782,7 @@
                         }
                     }
 
-                    // 4. Alpha Calculation (Gap Fix Applied)
+                    // 4. Alpha Calculation
                     let alpha = 0;
                     if (age > 0) {
                         alpha = 1.0; 
@@ -755,6 +800,7 @@
         // =========================================================================
         // 5. EFFECT SYSTEM (OCP - Extensible)
         // =========================================================================
+
         class EffectRegistry {
             constructor(grid, config) {
                 this.grid = grid;
@@ -762,12 +808,15 @@
                 this.effects = [];
             }
             register(effect) { this.effects.push(effect); }
+            
+            // UPDATE: Returns boolean (true if triggered, false if blocked/active)
             trigger(name) {
                 const fx = this.effects.find(e => e.name === name);
-                if(fx) fx.trigger();
+                if(fx) return fx.trigger();
+                return false;
             }
+            
             update() { this.effects.forEach(e => e.update()); }
-            // Returns override object or null
             getOverride(i) {
                 for(const fx of this.effects) {
                     const o = fx.getOverride(i);
@@ -779,7 +828,7 @@
 
         class AbstractEffect {
             constructor(g, c) { this.g = g; this.c = c; this.name = "Base"; }
-            trigger() {}
+            trigger() { return false; }
             update() {}
             getOverride(i) { return null; }
         }
@@ -792,7 +841,9 @@
             }
             
             trigger() {
-                if(this.active) return;
+                // UPDATE: Return false if already running
+                if(this.active) return false;
+                
                 const total = this.g.cols * this.g.rows;
                 
                 this.snap = {
@@ -837,6 +888,8 @@
                 
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+                
+                return true; // UPDATE: Success
             }
 
             update() {
@@ -871,8 +924,6 @@
                 const width = s.pulseWidth * 2; 
                 const innerEdge = this.radius - width;
 
-                // --- ZONE 1: PASSED (Live Green Code) ---
-                // Strict NULL return hands control to the refactored Renderer
                 if (this.state !== 'WAITING' && dist < innerEdge) {
                     return null; 
                 }
@@ -893,7 +944,6 @@
                 const char = String.fromCharCode(charCode);
                 const isTracer = (this.snap.tracers[i] === 1);
 
-                // --- ZONE 2: AHEAD (Frozen / Darkening) ---
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(isTracer && s.pulseIgnoreTracers) {
                         return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
@@ -903,7 +953,6 @@
                     return { char, color: baseColor, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
                 
-                // --- ZONE 3: INSIDE WAVE (Solid White) ---
                 if (s.pulsePreserveSpaces && isGap) {
                     return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
@@ -911,7 +960,7 @@
                 const rel = Math.max(0, Math.min(1, (this.radius - dist) / width));
                 return { 
                     char, 
-                    color: targetColor, // Always White
+                    color: targetColor, 
                     alpha: 1.0, 
                     glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 
                     size: s.tracerSizeIncrease,
@@ -923,7 +972,17 @@
 
         class DejaVuEffect extends AbstractEffect {
             constructor(g, c) { super(g, c); this.name = "DejaVu"; this.active = false; this.autoTimer = c.state.dejaVuFrequencySeconds * 60; this.map = null; }
-            trigger() { if(this.active) return; this.active = true; this.timer = this.c.state.dejaVuDurationSeconds * 60; this.bars = []; this.map = new Uint8Array(this.g.rows); }
+            
+            trigger() { 
+                // UPDATE: Return false if already running
+                if(this.active) return false; 
+                this.active = true; 
+                this.timer = this.c.state.dejaVuDurationSeconds * 60; 
+                this.bars = []; 
+                this.map = new Uint8Array(this.g.rows); 
+                return true; // UPDATE: Success
+            }
+
             update() {
                 const s = this.c.state;
                 if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
@@ -931,13 +990,11 @@
                 if(this.timer-- <= 0) { this.active = false; this.bars = []; this.map = null; return; }
 
                 this.map.fill(0);
-                // Spawn bars
                 if(Math.random() < s.dejaVuIntensity) {
                     const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight);
                     const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
                     this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
                 }
-                // Update bars & Map
                 for(let i=this.bars.length-1; i>=0; i--) {
                     const b = this.bars[i]; b.age++;
                     if(b.age > b.maxAge) this.bars.splice(i, 1);
@@ -945,13 +1002,12 @@
                         for(let r=b.y; r < b.y+b.h && r < this.g.rows; r++) this.map[r] = 1;
                     }
                 }
-                // Glitch Logic (Mutate Grid)
                 for(let y=0; y<this.g.rows; y++) {
                     if(this.map[y] === 1) {
                         for(let x=0; x<this.g.cols; x++) {
                             if(Math.random() < 0.1) {
                                 const i = this.g.getIndex(x, y);
-                                this.g.rotatorProg[i] = 0; // Stop rotation
+                                this.g.rotatorProg[i] = 0; 
                                 const c = Utils.getRandomChar();
                                 this.g.setChar(i, c);
                                 if(s.dejaVuRandomizeColors) {
@@ -999,6 +1055,13 @@
                 this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25;
                 this.bloomCtx.scale(0.25, 0.25);
                 
+                // UPDATE: Delegated to specific method
+                this.updateSmoothing();
+            }
+
+            // NEW: Lightweight update for CSS filters only
+            updateSmoothing() {
+                const s = this.config.state;
                 const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px';
                 this.cvs.style.filter = `blur(${blur})`;
             }
@@ -1235,7 +1298,6 @@
                     const w = Math.ceil(d.cellWidth) + 1;
                     const h = Math.ceil(d.cellHeight) + 1;
                     this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
-                    // NOTE: No clearRect here, preventing flicker
                 }
 
                 if(o.char && o.alpha > 0.01) {
@@ -1267,8 +1329,9 @@
         // 7. FONT MANAGER (Adapter)
         // =========================================================================
         class FontManager {
-            constructor(config) {
+            constructor(config, notificationMgr) {
                 this.config = config;
+                this.notifications = notificationMgr; // Dependency Injection
                 this.dbName = 'MatrixFontDB'; 
                 this.storeName = 'fonts'; 
                 this.db = null;
@@ -1278,10 +1341,7 @@
             }
 
             async init() {
-                // 1. Always inject embedded first so it's available immediately
                 if(DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) this.injectEmbeddedFont();
-                
-                // 2. Load custom fonts from persistent storage
                 try { 
                     await this._openDB(); 
                     await this._loadFontsFromDB(); 
@@ -1294,18 +1354,14 @@
             _notify() { this.subs.forEach(cb => cb(this.loadedFonts)); }
             
             injectEmbeddedFont() {
-                // Prevent duplicate injection
                 if(this.loadedFonts.some(f => f.name === this.embeddedFontName)) return;
-                
                 this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
                 this.loadedFonts.push({ name: this.embeddedFontName, display: "The Matrix Custom Code", isEmbedded: true });
             }
 
             _injectCSS(name, url, format) {
-                // Remove existing style if present to prevent clutter
                 const existing = document.getElementById(`style-${name}`);
                 if(existing) existing.remove();
-
                 const style = document.createElement('style'); 
                 style.id = `style-${name}`;
                 style.textContent = `@font-face { font-family: '${name}'; src: url('${url}') ${format}; }`;
@@ -1330,12 +1386,9 @@
                     if(!this.db) return res(); 
                     const t = this.db.transaction(this.storeName, 'readonly'); 
                     t.objectStore(this.storeName).getAll().onsuccess = e => { 
-                        // Clear existing custom fonts from memory to prevent duplicates on re-init
                         this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
-                        
                         e.target.result.forEach(f => { 
                             this.loadedFonts.push(f); 
-                            // Use the EXPLICIT mimeType stored in the record, fall back to blob.type
                             const type = f.mimeType || f.data.type;
                             const format = this._getFormatFromType(type);
                             this._injectCSS(f.name, URL.createObjectURL(f.data), format); 
@@ -1346,7 +1399,6 @@
                 }); 
             }
 
-            // Helper to determine format string from MIME type
             _getFormatFromType(type) {
                 if (type.includes('woff2')) return "format('woff2')";
                 if (type.includes('woff')) return "format('woff')";
@@ -1354,14 +1406,13 @@
                 return "format('truetype')";
             }
             
-            importFont(file, cb) {
+            // REFACTOR: Removed callback, uses NotificationManager directly
+            importFont(file) {
                 const reader = new FileReader();
                 reader.onload = e => {
                     const blob = new Blob([e.target.result], {type: file.type});
                     const id = `CustomFont_${Date.now()}`;
                     
-                    // Store the MIME type explicitly as a string property
-                    // This persists even if the Blob metadata is lost by the browser
                     const rec = { 
                         name: id, 
                         display: file.name, 
@@ -1376,9 +1427,9 @@
                         this.loadedFonts.push(rec); 
                         this.config.set('fontFamily', id); 
                         this._notify(); 
-                        cb(true, `Imported: ${file.name}`);
+                        this.notifications.show(`Imported: ${file.name}`, 'success');
                     };
-                    t.onerror = () => cb(false, "Database Write Failed");
+                    t.onerror = () => this.notifications.show("Database Write Failed", 'error');
                 };
                 reader.readAsArrayBuffer(file);
             }
@@ -1417,12 +1468,10 @@
         // 8. UI MANAGER (Adapter)
         // =========================================================================
         class UIManager {
-            constructor(c, effects, fonts) {
-                this.c = c; this.eff = effects; this.fonts = fonts;
-                // Initialize DOM placeholders; we will verify/create them in init()
+            constructor(c, effects, fonts, notificationMgr) {
+                this.c = c; this.eff = effects; this.fonts = fonts; this.notifications = notificationMgr;
                 this.dom = { panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'), tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'), toast: null, track: null, tooltip: null };
                 
-                // Physics State
                 this.scrollState = { position: 0, velocity: 0, isDragging: false, startX: 0, lastX: 0, dragDistance: 0, isAnimating: false };
                 this.ignoreNextClick = false;
 
@@ -1436,7 +1485,6 @@
                     { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, description: 'Falling code speed control.' },
                     
                     { cat: 'Global', type: 'header', label: 'Glow & Atmosphere' },
-                    { cat: 'Global', id: 'trailGlow', type: 'range', label: 'Stream Glow', min: 0, max: 50, unit: 'px', description: 'The standard glow of the falling green characters (separate from Bloom).' },
                     { cat: 'Global', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
                     { cat: 'Global', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
                     { cat: 'Global', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
@@ -1532,14 +1580,12 @@
                     { cat: 'Events', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
                     { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
                     { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Origin', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled', description: 'Starts the pulse from random locations.' },
                     { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', description: 'Keeps the spaces when pulsing.' },
                     { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled', description: 'Thickness of the expanding white square.' },
-                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Blend', dep: 'pulseEnabled', description: 'Blends from tracer color to stream color in the pulse.' },
                     { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled', description: 'How dark the frozen code becomes before the wave hits.' },
                     { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled', description: 'Tracers remain fully illuminated during the pulse wave.' },
                     { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled', description: 'Switch between a square wave (default) and a circular ripple.' },
-
 
                     { cat: 'Events', type: 'header', label: 'Deja Vu' },
                     { cat: 'Events', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
@@ -1549,8 +1595,8 @@
                     { cat: 'Events', id: 'dejaVuDurationSeconds', type: 'range', label: 'Total Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled', description: 'The typical time the individual flash remains on screen.' },
                     { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled', description: 'The duration a flash could be shorter or longer.' },
-                    { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 1, max: 20, unit: 'rows', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 5, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled', description: 'When glitching, randomize the color and brightness of the characters.' },
 
@@ -1592,15 +1638,7 @@
                 this.dom.toggle.onclick = () => this.dom.panel.classList.toggle('open');
                 this.dom.track = document.createElement('div'); this.dom.track.id = 'tabTrack'; this.dom.tabs.appendChild(this.dom.track);
                 
-                // --- SELF-HEALING DOM ---
-                // Ensure Toast Container exists
-                if(!document.getElementById('toast-container')) {
-                    const tc = document.createElement('div'); tc.id = 'toast-container'; document.body.appendChild(tc);
-                    this.dom.toast = tc;
-                } else {
-                    this.dom.toast = document.getElementById('toast-container');
-                }
-                // Ensure Tooltip exists
+                // --- REFACTOR: Removed Toast Container creation (Delegated to NotificationManager) ---
                 if(!this.dom.tooltip) { 
                     this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); 
                 }
@@ -1619,24 +1657,20 @@
                     this.dom.content.appendChild(grp);
                 });
 
-                // Event Listeners for File Imports
                 document.getElementById('importFile').onchange = e => { 
                     const f = e.target.files[0]; if(!f) return; 
                     const r=new FileReader(); r.onload=ev=>{ 
-                        try { const d=JSON.parse(ev.target.result); this.c.state={...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.toast('Config Loaded', 'success'); } 
-                        catch(e){ this.toast('Invalid File', 'error'); }
+                        try { const d=JSON.parse(ev.target.result); this.c.state={...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.notifications.show('Config Loaded', 'success'); } 
+                        catch(e){ this.notifications.show('Invalid File', 'error'); }
                         e.target.value = ''; 
                     }; r.readAsText(f); 
                 };
                 document.getElementById('importFontFile').onchange = e => { 
                     const f=e.target.files[0]; 
-                    if(f) this.fonts.importFont(f, (s,m)=> {
-                        this.toast(m, s?'success':'error');
-                        e.target.value = ''; 
-                    }); 
+                    if(f) this.fonts.importFont(f); // Refactored call (no callback)
+                    e.target.value = '';
                 };
 
-                // Scroll Physics
                 const startDrag = (x) => { this.scrollState.isDragging = true; this.scrollState.startX = x; this.scrollState.lastX = x; this.scrollState.velocity = 0; this.scrollState.dragDistance = 0; this.scrollState.isAnimating = false; this.ignoreNextClick = false; };
                 const moveDrag = (x) => {
                     if (!this.scrollState.isDragging) return;
@@ -1673,7 +1707,6 @@
                 if (Math.abs(s.velocity) < 0.1) { s.isAnimating = false; s.velocity = 0; } else requestAnimationFrame(() => this.updateScrollPhysics());
             }
             
-            // Helpers
             showTooltip(text, target) {
                 this.dom.tooltip.textContent = text; this.dom.tooltip.classList.add('visible');
                 const rect = target.getBoundingClientRect(); const tipRect = this.dom.tooltip.getBoundingClientRect();
@@ -1715,8 +1748,8 @@
                     row.className = 'slot-container';
                     const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[d.idx].name; inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
                     const grp = document.createElement('div'); grp.className = 'slot-btn-group';
-                    const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.onclick = () => { this.c.saveToSlot(d.idx); this.toast(`Saved Slot ${d.idx+1}`, 'success'); };
-                    const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.toast(`Loaded Slot ${d.idx+1}`, 'success'); };
+                    const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.onclick = () => { this.c.saveToSlot(d.idx); this.notifications.show(`Saved Slot ${d.idx+1}`, 'success'); };
+                    const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.notifications.show(`Loaded Slot ${d.idx+1}`, 'success'); };
                     grp.append(save, load); row.append(inp, grp);
                 }
                 else if(d.type === 'font_list') {
@@ -1765,12 +1798,19 @@
 
             handleAction(a) {
                 if(a === 'reset' && confirm('Reset all settings?')) this.c.reset();
-                if(a === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.toast('Cache Cleared', 'success'));
+                if(a === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.notifications.show('Cache Cleared', 'success'));
                 if(a === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, 'matrix_conf.json');
                 if(a === 'import') document.getElementById('importFile').click();
                 if(a === 'importFont') document.getElementById('importFontFile').click();
-                if(a === 'pulse') { this.eff.trigger('Pulse'); this.toast('Pulse Triggered', 'success'); }
-                if(a === 'dejavu') { this.eff.trigger('DejaVu'); this.toast('Glitch Triggered', 'success'); }
+                
+                if(a === 'pulse') { 
+                    if(this.eff.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success');
+                    else this.notifications.show('Pulse already active...', 'info');
+                }
+                if(a === 'dejavu') { 
+                    if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success');
+                    else this.notifications.show('Deja Vu already active...', 'info');
+                }
             }
 
             refresh(k) {
@@ -1833,22 +1873,6 @@
                     } catch(e) {}
                 });
             }
-
-            toast(msg, type) {
-                // Defensive coding: Check if toast container is null (should be fixed by init, but safe to check)
-                if(!this.dom.toast) {
-                    console.warn("Toast container missing, attempting recreation");
-                    this.dom.toast = document.getElementById('toast-container');
-                    if(!this.dom.toast) {
-                        const tc = document.createElement('div'); tc.id = 'toast-container'; document.body.appendChild(tc);
-                        this.dom.toast = tc;
-                    }
-                }
-                const d = document.createElement('div'); d.className = `toast-msg toast-${type}`; d.textContent = msg;
-                this.dom.toast.appendChild(d);
-                requestAnimationFrame(() => d.classList.add('visible'));
-                setTimeout(() => { d.classList.remove('visible'); setTimeout(() => d.remove(), 300); }, 3000);
-            }
         }
 
         // =========================================================================
@@ -1856,6 +1880,9 @@
         // =========================================================================
         class MatrixKernel {
             constructor() {
+                // 1. Initialize Notification System FIRST
+                this.notifications = new NotificationManager();
+                
                 this.config = new ConfigurationManager();
                 this.grid = new MatrixGrid(this.config);
                 this.simulation = new SimulationSystem(this.grid, this.config);
@@ -1865,8 +1892,10 @@
                 this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
 
                 this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
-                this.fontMgr = new FontManager(this.config);
-                this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr);
+                
+                // 2. INJECT dependencies: Pass 'this.notifications' to the managers
+                this.fontMgr = new FontManager(this.config, this.notifications);
+                this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
 
                 // Boot
                 this.fontMgr.init();
@@ -1877,7 +1906,12 @@
                 
                 let resizeTimer;
                 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => this._resize(), 100); });
-                this.config.subscribe((k) => { if(['resolution','stretchX','stretchY','fontSize','horizontalSpacingFactor'].includes(k) || k === 'ALL') this._resize(); });
+                
+                // Subscribe to smoothing changes
+                this.config.subscribe((k) => { 
+                    if(['resolution','stretchX','stretchY','fontSize','horizontalSpacingFactor'].includes(k) || k === 'ALL') this._resize(); 
+                    if(['smoothingEnabled', 'smoothingAmount'].includes(k)) this.renderer.updateSmoothing();
+                });
                 
                 this._resize();
                 requestAnimationFrame(t => this._loop(t));
