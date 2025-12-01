@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Matrix Digital Rain v7.0</title>
     <style>
-        /* --- CSS VARIABLES & THEME (v6.5 Parity) --- */
+        /* --- CSS VARIABLES & THEME --- */
         :root {
             --bg-color: #000;
             --panel-bg: rgba(10, 12, 16, 0.96); 
@@ -53,7 +53,7 @@
         }
         #panelHeader h2 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px var(--accent-glow); }
 
-        /* --- TABS NAVIGATION (Restored Scroll Snap & Hiding) --- */
+        /* --- TABS NAVIGATION --- */
         #navTabs { 
             overflow-x: auto; 
             white-space: nowrap;
@@ -61,18 +61,15 @@
             border-bottom: 1px solid var(--panel-border);
             position: relative;
             width: 100%;
-            /* Native Smooth Scrolling */
             scroll-behavior: smooth;
             -webkit-overflow-scrolling: touch;
             scroll-snap-type: x mandatory;
-            scrollbar-width: none; /* Firefox */
+            overscroll-behavior-x: contain; /* Fix for Mac Swipe Back */
+            scrollbar-width: none;
         }
         #navTabs::-webkit-scrollbar { display: none; }
         
-        #tabTrack {
-            display: inline-flex;
-            width: max-content;
-        }
+        #tabTrack { display: inline-flex; width: max-content; }
 
         .tab-btn { 
             flex: 0 0 auto; padding: 1rem 1.25rem; 
@@ -89,23 +86,14 @@
 
         /* Value Display Styling */
         .control-header span[id^="val-"] {
-            font-family: monospace;
-            font-size: 0.85rem;
-            color: var(--accent);
-            background: rgba(34, 197, 94, 0.1);
-            padding: 2px 6px;
-            border-radius: 4px;
+            font-family: monospace; font-size: 0.85rem;
+            color: var(--accent); background: rgba(34, 197, 94, 0.1);
+            padding: 2px 6px; border-radius: 4px;
         }
 
         /* --- CONTENT AREA --- */
         #contentArea { flex: 1; overflow-y: auto; padding: 1.5rem; -webkit-overflow-scrolling: touch; }
-        
-        .control-group { 
-            display: none; 
-            flex-direction: column; 
-            gap: 1.5rem; 
-            animation: fadeIn 0.3s ease; 
-        }
+        .control-group { display: none; flex-direction: column; gap: 1.5rem; animation: fadeIn 0.3s ease; }
         .control-group.active { display: flex; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -120,38 +108,24 @@
             border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;
         }
 
-        /* --- TOOLTIP UI --- */
+        /* --- TOOLTIP & TOAST --- */
         .control-label-group { display: flex; align-items: center; gap: 6px; flex: 1; }
         .info-icon {
             display: inline-flex; align-items: center; justify-content: center;
-            width: 22px; height: 22px; 
-            border-radius: 50%;
+            width: 22px; height: 22px; border-radius: 50%;
             border: 1px solid var(--text-muted); color: var(--text-muted);
-            font-size: 12px; cursor: help; transition: all 0.2s;
-            margin-left: 8px;
+            font-size: 12px; cursor: help; transition: all 0.2s; margin-left: 8px;
         }
         .info-icon:hover, .info-icon:active { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
 
         #ui-tooltip {
-            position: fixed; 
-            background: #1f2937;
-            border: 1px solid var(--accent);
-            color: #fff;
-            padding: 10px 14px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            line-height: 1.4;
-            z-index: 10000; 
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.15s;
-            max-width: 240px;
-            box-shadow: 0 4px 25px rgba(0,0,0,0.6);
-            visibility: hidden;
+            position: fixed; background: #1f2937; border: 1px solid var(--accent); color: #fff;
+            padding: 10px 14px; border-radius: 6px; font-size: 0.8rem; line-height: 1.4;
+            z-index: 10000; pointer-events: none; opacity: 0; transition: opacity 0.15s;
+            max-width: 240px; box-shadow: 0 4px 25px rgba(0,0,0,0.6); visibility: hidden;
         }
         #ui-tooltip.visible { opacity: 1; visibility: visible; }
 
-        /* --- TOAST NOTIFICATIONS --- */
         #toast-container {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
             z-index: 10001; pointer-events: none;
@@ -170,8 +144,7 @@
         .toast-error { border-color: var(--danger); color: #fca5a5; }
         .toast-info { border-color: var(--info); color: #93c5fd; }
 
-
-        /* Range Slider */
+        /* Controls */
         input[type="range"] { width: 100%; height: 6px; background: #1f2937; border-radius: 3px; outline: none; appearance: none; -webkit-appearance: none; padding: 0; margin: 0; cursor: pointer; }
         input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; transition: transform 0.1s; }
         input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
@@ -207,7 +180,6 @@
         .slot-btn-group { display: flex; gap: 0.25rem; }
         .btn-icon { padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: rgba(255,255,255,0.05); color: #ccc; }
         .btn-icon:hover { background: rgba(255,255,255,0.1); color: white; }
-        .btn-disabled { opacity: 0.3; cursor: not-allowed; }
         
         .font-manager-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
         .font-item { 
@@ -241,7 +213,6 @@
             #settingsPanel { width: 100%; max-width: 100%; border-left: none; }
         }
     </style>
-
 </head>
 <body>
     <canvas id="matrixCanvas"></canvas>
@@ -263,11 +234,10 @@
 
     <script>
         const APP_VERSION = "7.0";
-        // Empty to save space, but maintained as requested.
         const DEFAULT_FONT_DATA = ""; 
 
         // =========================================================================
-        // 1. CORE UTILITIES (Pure functions)
+        // 1. CORE UTILITIES
         // =========================================================================
         const Utils = {
             randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min,
@@ -313,16 +283,10 @@
                 const d = document.createElement('div');
                 d.className = `toast-msg toast-${type}`;
                 d.textContent = msg;
-                
-                // Ensure container is still in DOM (Self-healing)
                 if(!document.body.contains(this.container)) document.body.appendChild(this.container);
-                
                 this.container.appendChild(d);
                 requestAnimationFrame(() => d.classList.add('visible'));
-                setTimeout(() => {
-                    d.classList.remove('visible');
-                    setTimeout(() => d.remove(), 300);
-                }, 3000);
+                setTimeout(() => { d.classList.remove('visible'); setTimeout(() => d.remove(), 300); }, 3000);
             }
         }
 
@@ -333,112 +297,42 @@
             constructor() {
                 this.storageKey = 'matrix_config_v7'; 
                 this.slotsKey = 'matrix_slots_v7';
-                
-                // Full Feature Parity with v6.5
                 this.defaults = {
-                    // --- GLOBAL ---
-                    streamColor: "#4fcf64", 
-                    streamSpeed: 15, 
-                    trailGlow: 28, 
-                    clearAlpha: 0.6,
-                    enableBloom: true, 
-                    bloomStrength: 3, 
-                    bloomOpacity: 0.6,
-                    resolution: 1.5, 
-                    smoothingEnabled: true, 
-                    smoothingAmount: 0.5, 
-                    stretchX: 1, 
-                    stretchY: 1.1,
-
-                    // --- STREAMS ---
-                    streamMinLength: 5, 
-                    streamMaxLength: 301, 
-                    holeRate: 0.15,
-                    ttlMinFrames: 12, 
-                    ttlMaxFrames: 135, 
-                    decayFadeDurationFrames: 24,
-                    dissolveEnabled: true, 
-                    dissolveMinSize: 19, 
-                    deteriorationEnabled: true, 
-                    deteriorationType: 'ghost', 
-                    deteriorationStrength: 2,
-                    invertedTracerEnabled: true, 
-                    invertedTracerChance: 0.25,
-
-                    // --- FONT & GLYPHS ---
-                    fontFamily: 'MatrixEmbedded', 
-                    fontSize: 24, 
-                    fontWeight: 'normal', 
-                    italicEnabled: false,
-                    mirrorEnabled: false, 
-                    fontOffsetY: 0, 
-                    fontOffsetX: 0,
-                    horizontalSpacingFactor: 0.7, 
-                    verticalSpacingFactor: 0.95,
-                    variableBrightnessEnabled: true, 
-                    brightnessVariance: 20,
-
-                    // --- MUTATORS (TRACERS) ---
-                    tracerColor: "#e5ffff", 
-                    tracerSizeIncrease: 1, 
-                    tracerGlow: 25,
-                    tracerAttackFrames: 8, 
-                    tracerHoldFrames: 0, 
-                    tracerReleaseFrames: 6,
-                    randomStopEnabled: true, 
-                    randomStopChance: 0.02,
-
-                    // --- MUTATORS (ROTATORS) ---
-                    rotatorEnabled: true, 
-                    rotatorChance: 0.13, 
-                    rotatorSyncToTracer: true, 
-                    rotatorSyncMultiplier: 0.5,
-                    rotatorCycleFactor: 11, 
-                    rotatorCrossfadeFrames: 6,
-
-                    // --- GLYPH FX (STAR POWER) ---
-                    starPowerEnabled: false, 
-                    starPowerFreq: 100, 
-                    starPowerRainbowMode: 'char',
-                    starPowerColorCycle: false, 
-                    starPowerCycleSpeed: 14, 
-                    starPowerSaturation: 100, 
-                    starPowerIntensity: 51, 
-                    starPowerGlitter: false,
-
-                    // --- GLYPH FX (RAINBOW) ---
-                    rainbowStreamEnabled: false, 
-                    rainbowStreamChance: 1, 
-                    rainbowStreamIntensity: 50,
-
-                    // --- EVENTS (PULSE) ---
-                    pulseEnabled: true, 
-                    pulseFrequencySeconds: 180, 
-                    pulseDelayFrames: 60, 
-                    pulseDurationSeconds: 1.2,
-                    pulsePreserveSpaces: true, 
-                    pulseRandomPosition: true, 
-                    pulseWidth: 100, 
-                    pulseDimming: 0.1, 
-                    pulseIgnoreTracers: true,
-                    pulseCircular: false,
-                    pulseBlend: true,
-                    pulseInstantStart: true,
-
-                    // --- EVENTS (DEJA VU) ---
-                    dejaVuEnabled: true, 
-                    dejaVuAutoMode: true,
-                    dejaVuFrequencySeconds: 300, 
-                    dejaVuDurationSeconds: 5,
-                    dejaVuBarDurationFrames: 30, 
-                    dejaVuVarianceFrames: 60, 
-                    dejaVuIntensity: 0.06,
-                    dejaVuHoleBrightness: 0.02, 
-                    dejaVuMinRectHeight: 1, 
-                    dejaVuMaxRectHeight: 10, 
-                    dejaVuRandomizeColors: true
+                    // GLOBAL
+                    streamColor: "#4fcf64", streamSpeed: 15, trailGlow: 28, clearAlpha: 0.6,
+                    enableBloom: true, bloomStrength: 3, bloomOpacity: 0.6,
+                    resolution: 1.5, smoothingEnabled: true, smoothingAmount: 0.5, stretchX: 1, stretchY: 1.1,
+                    // STREAMS
+                    streamMinLength: 5, streamMaxLength: 301, holeRate: 0.15,
+                    ttlMinFrames: 12, ttlMaxFrames: 135, decayFadeDurationFrames: 24,
+                    dissolveEnabled: true, dissolveMinSize: 19, deteriorationEnabled: true, deteriorationStrength: 2,
+                    invertedTracerEnabled: true, invertedTracerChance: 0.25,
+                    // FONT
+                    fontFamily: 'MatrixEmbedded', fontSize: 24, fontWeight: 'normal', italicEnabled: false,
+                    mirrorEnabled: false, fontOffsetY: 0, fontOffsetX: 0, horizontalSpacingFactor: 0.7, verticalSpacingFactor: 0.95,
+                    variableBrightnessEnabled: true, brightnessVariance: 20,
+                    // MUTATORS
+                    tracerColor: "#e5ffff", tracerSizeIncrease: 1, tracerGlow: 25,
+                    tracerAttackFrames: 8, tracerHoldFrames: 0, tracerReleaseFrames: 6,
+                    randomStopEnabled: true, randomStopChance: 0.02,
+                    rotatorEnabled: true, rotatorChance: 0.13, rotatorSyncToTracer: true, rotatorSyncMultiplier: 0.5,
+                    rotatorCycleFactor: 11, rotatorCrossfadeFrames: 6,
+                    // FX
+                    starPowerEnabled: false, starPowerFreq: 100, starPowerRainbowMode: 'char', starPowerColorCycle: false,
+                    starPowerCycleSpeed: 14, starPowerSaturation: 100, starPowerIntensity: 51, starPowerGlitter: false,
+                    rainbowStreamEnabled: false, rainbowStreamChance: 1, rainbowStreamIntensity: 50,
+                    // PULSE
+                    pulseEnabled: true, pulseFrequencySeconds: 180, pulseDelayFrames: 60, pulseDurationSeconds: 1.2,
+                    pulsePreserveSpaces: true, pulseRandomPosition: true, pulseWidth: 100, pulseDimming: 0.1,
+                    pulseIgnoreTracers: true, pulseCircular: false, pulseBlend: true, pulseInstantStart: true,
+                    // MINI PULSE
+                    miniPulseEnabled: true, miniPulseFrequencySeconds: 60, miniPulseDurationSeconds: 3,
+                    miniPulseSpawnChance: 0.1, miniPulseSize: 200, miniPulseThickness: 40, miniPulseSpeed: 20,
+                    // DEJA VU
+                    dejaVuEnabled: true, dejaVuAutoMode: true, dejaVuFrequencySeconds: 300, dejaVuDurationSeconds: 5,
+                    dejaVuBarDurationFrames: 30, dejaVuVarianceFrames: 60, dejaVuIntensity: 0.06,
+                    dejaVuHoleBrightness: 0.02, dejaVuMinRectHeight: 1, dejaVuMaxRectHeight: 10, dejaVuRandomizeColors: true
                 };
-
                 this.state = { ...this.defaults };
                 this.derived = {};
                 this.slots = this._loadSlots();
@@ -453,17 +347,12 @@
             save() { try { localStorage.setItem(this.storageKey, JSON.stringify(this.state)); } catch (e) {} }
             
             get(key) { return this.state[key]; }
-            
             set(key, value) {
                 this.state[key] = value;
-                // Logic clamps to prevent broken ranges
                 if (key === 'streamMinLength') this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
                 if (key === 'streamMaxLength') this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
-                this.updateDerivedValues(); 
-                this.save(); 
-                this.notify(key);
+                this.updateDerivedValues(); this.save(); this.notify(key);
             }
-            
             reset() { this.state = { ...this.defaults }; this.updateDerivedValues(); this.save(); this.notify('ALL'); }
             saveToSlot(i) { this.slots[i] = { name: this.slots[i].name, data: JSON.parse(JSON.stringify(this.state)) }; this.saveSlots(); }
             loadFromSlot(i) { if(!this.slots[i].data) return false; this.state = { ...this.defaults, ...this.slots[i].data }; this.updateDerivedValues(); this.save(); this.notify('ALL'); return true; }
@@ -476,14 +365,7 @@
                 const cycleDur = 21 - s.streamSpeed;
                 const hFactor = Math.max(0.5, s.horizontalSpacingFactor);
                 const vFactor = Math.max(0.5, s.verticalSpacingFactor);
-                
-                // Logic Parity: Sync vs Manual Rotator
-                let rotFrames;
-                if (s.rotatorSyncToTracer) {
-                    rotFrames = Math.max(1, Math.floor(cycleDur / s.rotatorSyncMultiplier));
-                } else {
-                    rotFrames = Math.max(10, Math.round(60 - (s.rotatorCycleFactor * 2.5)));
-                }
+                let rotFrames = s.rotatorSyncToTracer ? Math.max(1, Math.floor(cycleDur / s.rotatorSyncMultiplier)) : Math.max(10, Math.round(60 - (s.rotatorCycleFactor * 2.5)));
 
                 this.derived = {
                     cycleDuration: cycleDur,
@@ -505,7 +387,7 @@
         }
 
         // =========================================================================
-        // 3. DATA LAYER (The Domain Model)
+        // 3. DATA LAYER
         // =========================================================================
         const CELL_TYPE = { EMPTY: 0, TRAIL: 1, TRACER: 2, ROTATOR: 3 };
 
@@ -513,57 +395,38 @@
             constructor(config) {
                 this.config = config;
                 this.cols = 0; this.rows = 0;
-                // Core data (Hot path)
-                this.chars = new Uint16Array(0);     // Stores charCode
-                this.types = new Uint8Array(0);      // CELL_TYPE
-                this.alphas = new Float32Array(0);   // Visual alpha
-                this.decays = new Uint8Array(0);     // Decay state
-                this.ages = new Int32Array(0);       // Lifecycle frame count
+                this.chars = new Uint16Array(0);
+                this.types = new Uint8Array(0);
+                this.alphas = new Float32Array(0);
+                this.decays = new Uint8Array(0);
+                this.ages = new Int32Array(0);
                 this.brightness = new Float32Array(0);
                 this.rotatorProg = new Uint8Array(0);
-                
-                // Sparse data (Cold path / Complex objects)
-                // We use a Map for properties that only ~5% of cells might have (like rainbow effects)
                 this.complexStyles = new Map(); 
-                this.nextChars = new Map(); // Store next char for rotators
+                this.nextChars = new Map();
             }
 
             resize(width, height) {
                 const d = this.config.derived;
                 const nc = Math.max(1, Math.floor(width / d.cellWidth));
                 const nr = Math.max(1, Math.floor(height / d.cellHeight));
-                
                 if (nc !== this.cols || nr !== this.rows) {
                     const total = nc * nr;
-                    // Reallocate buffers
-                    this.chars = new Uint16Array(total);
-                    this.types = new Uint8Array(total);
-                    this.alphas = new Float32Array(total);
-                    this.decays = new Uint8Array(total);
-                    this.ages = new Int32Array(total);
-                    this.brightness = new Float32Array(total);
+                    this.chars = new Uint16Array(total); this.types = new Uint8Array(total);
+                    this.alphas = new Float32Array(total); this.decays = new Uint8Array(total);
+                    this.ages = new Int32Array(total); this.brightness = new Float32Array(total);
                     this.rotatorProg = new Uint8Array(total);
-                    
-                    this.complexStyles.clear();
-                    this.nextChars.clear();
-                    
+                    this.complexStyles.clear(); this.nextChars.clear();
                     this.cols = nc; this.rows = nr;
                 }
             }
-
-            // --- Accessors for encapsulation ---
-            getIndex(x, y) { 
-                if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1;
-                return y * this.cols + x; 
-            }
-            
-            // Helper to set char from string
+            getIndex(x, y) { if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return -1; return y * this.cols + x; }
             setChar(idx, charStr) { this.chars[idx] = charStr.charCodeAt(0); }
             getChar(idx) { return String.fromCharCode(this.chars[idx]); }
         }
 
         // =========================================================================
-        // 4. SIMULATION LAYER (Pure Logic)
+        // 4. SIMULATION LAYER
         // =========================================================================
         class SimulationSystem {
             constructor(grid, config) {
@@ -571,34 +434,15 @@
                 this.config = config;
                 this.streams = [];
                 this.releaseTimer = 0;
-                
-                // REFACTOR: Standardized Mode Registry Pattern
                 this.modes = {
-                    'STANDARD': { 
-                        spawn: (st) => {}, 
-                        style: () => null 
-                    },
+                    'STANDARD': { spawn: (st) => {}, style: () => null },
                     'STAR_POWER': { 
                         spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); }, 
-                        style: (st, f, s) => ({ 
-                            h: (s.starPowerRainbowMode === 'char' ? (f + (st.x * 10)) % 360 : st.baseHue), 
-                            s: s.starPowerSaturation, 
-                            l: s.starPowerIntensity, 
-                            cycle: s.starPowerColorCycle, 
-                            speed: s.starPowerCycleSpeed, 
-                            glitter: s.starPowerGlitter 
-                        })
+                        style: (st, f, s) => ({ h: (s.starPowerRainbowMode === 'char' ? (f + (st.x * 10)) % 360 : st.baseHue), s: s.starPowerSaturation, l: s.starPowerIntensity, cycle: s.starPowerColorCycle, speed: s.starPowerCycleSpeed, glitter: s.starPowerGlitter })
                     },
                     'RAINBOW': {
                         spawn: (st) => { st.baseHue = Utils.randomInt(0, 360); },
-                        style: (st, f, s) => ({ 
-                            h: st.baseHue, 
-                            s: 100, 
-                            l: s.rainbowStreamIntensity, 
-                            cycle: false, 
-                            speed: 0, 
-                            glitter: false 
-                        })
+                        style: (st, f, s) => ({ h: st.baseHue, s: 100, l: s.rainbowStreamIntensity, cycle: false, speed: 0, glitter: false })
                     }
                 };
             }
@@ -611,53 +455,33 @@
             _manageStreams(frame) {
                 const s = this.config.state;
                 const d = this.config.derived;
-                
                 if (this.streams.length !== this.grid.cols) {
                     const diff = this.grid.cols - this.streams.length;
-                    if(diff > 0) {
-                        for(let i=0; i<diff; i++) this.streams.push(this._createStreamObj(this.streams.length));
-                    } else {
-                        this.streams.length = this.grid.cols;
-                    }
+                    if(diff > 0) { for(let i=0; i<diff; i++) this.streams.push(this._createStreamObj(this.streams.length)); } 
+                    else { this.streams.length = this.grid.cols; }
                 }
 
                 if (this.releaseTimer <= 0) {
                     const available = this.streams.filter(st => !st.active && st.delay <= 0);
-                    // Fisher-Yates shuffle for randomness
                     for (let i = available.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [available[i], available[j]] = [available[j], available[i]]; }
-                    
                     let count = 4;
                     for (const st of available) {
                         if (count-- <= 0) break;
                         let clear = true;
-                        // Collision check
-                        for(let y=0; y < Math.min(this.grid.rows, 40); y++) {
-                            const idx = this.grid.getIndex(st.x, y);
-                            if(this.grid.decays[idx] > 0) { clear = false; break; }
-                        }
-                        if (clear) this._activateStream(st);
-                        else st.delay = 20;
+                        for(let y=0; y < Math.min(this.grid.rows, 40); y++) { if(this.grid.decays[this.grid.getIndex(st.x, y)] > 0) { clear = false; break; } }
+                        if (clear) this._activateStream(st); else st.delay = 20;
                     }
                     this.releaseTimer = d.cycleDuration * 4;
                 } else this.releaseTimer--;
 
-                const cycle = frame % d.cycleDuration === 0;
-                if(!cycle) return;
+                if(frame % d.cycleDuration !== 0) return;
 
                 for(const st of this.streams) {
                     if (!st.active) { if (st.delay > 0) st.delay--; continue; }
-                    
                     st.age++;
-                    if (st.age >= st.visibleLen && !st.decayStarted) {
-                        st.decayY = (st.age - st.visibleLen) - 1; st.decayStarted = true;
-                    }
+                    if (st.age >= st.visibleLen && !st.decayStarted) { st.decayY = (st.age - st.visibleLen) - 1; st.decayStarted = true; }
                     if (!st.decayStarted && s.randomStopEnabled && Math.random() < s.randomStopChance) { st.len = st.y; }
-                    
-                    if (st.y < st.len) { 
-                        st.y++; 
-                        this._writeHead(st, frame); 
-                    }
-                    
+                    if (st.y < st.len) { st.y++; this._writeHead(st, frame); }
                     if (st.decayStarted) {
                         st.decayY++; 
                         const idx = this.grid.getIndex(st.x, st.decayY);
@@ -667,9 +491,7 @@
                 }
             }
 
-            _createStreamObj(x) {
-                return { x, y: -1, active: false, delay: 0, len: 0, holes: new Set(), decayY: -1, decayStarted: false, age: 0, visibleLen: 0, mode: 'STANDARD', baseHue: 0, isInverted: false };
-            }
+            _createStreamObj(x) { return { x, y: -1, active: false, delay: 0, len: 0, holes: new Set(), decayY: -1, decayStarted: false, age: 0, visibleLen: 0, mode: 'STANDARD', baseHue: 0, isInverted: false }; }
 
             _activateStream(st) {
                 const s = this.config.state;
@@ -679,154 +501,72 @@
                 st.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
                 st.visibleLen = Utils.randomInt(s.ttlMinFrames, s.ttlMaxFrames);
                 st.age = 0; st.active = true; st.y = -1; st.decayY = -1; st.decayStarted = false;
-                
                 st.mode = 'STANDARD';
                 if (s.starPowerEnabled && Math.random() < (s.starPowerFreq / 100)) st.mode = 'STAR_POWER';
                 else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) st.mode = 'RAINBOW';
-                
-                // USE REGISTRY
                 this.modes[st.mode].spawn(st);
-                
-                let skip = 0;
-                if(!st.isInverted) { while(skip < st.len && st.holes.has(skip)) skip++; }
-                st.y -= skip;
+                let skip = 0; if(!st.isInverted) { while(skip < st.len && st.holes.has(skip)) skip++; } st.y -= skip;
             }
 
             _writeHead(st, frame) {
                 const idx = this.grid.getIndex(st.x, st.y);
                 if (idx === -1) return;
-
-                const draw = st.isInverted ? st.holes.has(st.y) : !st.holes.has(st.y);
-                if (draw) {
+                if (st.isInverted ? st.holes.has(st.y) : !st.holes.has(st.y)) {
                     const s = this.config.state;
                     this.grid.types[idx] = (s.rotatorEnabled && Math.random() < s.rotatorChance) ? CELL_TYPE.ROTATOR : CELL_TYPE.TRACER;
-                    this.grid.ages[idx] = 1; 
-                    this.grid.decays[idx] = 1; 
-                    this.grid.rotatorProg[idx] = 0;
-                    
+                    this.grid.ages[idx] = 1; this.grid.decays[idx] = 1; this.grid.rotatorProg[idx] = 0;
                     const char = Utils.getRandomChar();
                     this.grid.setChar(idx, char);
-                    if(this.grid.types[idx] === CELL_TYPE.ROTATOR) {
-                        this.grid.nextChars.set(idx, Utils.getUniqueChar(char));
-                    }
+                    if(this.grid.types[idx] === CELL_TYPE.ROTATOR) this.grid.nextChars.set(idx, Utils.getUniqueChar(char));
                     this.grid.brightness[idx] = s.variableBrightnessEnabled ? Utils.randomFloat(this.config.derived.varianceMin, 1.0) : 1.0;
-                    
-                    // USE REGISTRY
                     const style = this.modes[st.mode].style(st, frame, s);
-                    if(style) this.grid.complexStyles.set(idx, style);
-                    else this.grid.complexStyles.delete(idx);
-                } else {
-                    this._clearCell(idx);
-                }
+                    if(style) this.grid.complexStyles.set(idx, style); else this.grid.complexStyles.delete(idx);
+                } else this._clearCell(idx);
             }
 
             _clearCell(idx) {
-                this.grid.types[idx] = CELL_TYPE.EMPTY;
-                this.grid.ages[idx] = 0;
-                this.grid.decays[idx] = 0;
-                this.grid.alphas[idx] = 0;
-                this.grid.complexStyles.delete(idx);
-                this.grid.nextChars.delete(idx);
+                this.grid.types[idx] = CELL_TYPE.EMPTY; this.grid.ages[idx] = 0; this.grid.decays[idx] = 0;
+                this.grid.alphas[idx] = 0; this.grid.complexStyles.delete(idx); this.grid.nextChars.delete(idx);
             }
 
             _updateCells(frame) {
-                const s = this.config.state;
-                const d = this.config.derived;
-                const total = this.grid.cols * this.grid.rows;
-
+                const s = this.config.state; const d = this.config.derived; const total = this.grid.cols * this.grid.rows;
                 for(let i=0; i<total; i++) {
-                    const decay = this.grid.decays[i];
-                    if(decay === 0) continue;
-
+                    const decay = this.grid.decays[i]; if(decay === 0) continue;
                     let age = this.grid.ages[i];
-
-                    // 1. Tracer Lifecycle
-                    if (age > 0) {
-                        age++;
-                        if (age > d.maxState) age = 0;
-                        this.grid.ages[i] = age;
-                    }
-
-                    // 2. Rotator Logic
+                    if (age > 0) { age++; if (age > d.maxState) age = 0; this.grid.ages[i] = age; }
                     if (s.rotatorEnabled && this.grid.types[i] === CELL_TYPE.ROTATOR) {
                         const prog = this.grid.rotatorProg[i];
                         if (prog > 0) {
                             this.grid.rotatorProg[i]++;
                             if (this.grid.rotatorProg[i] > s.rotatorCrossfadeFrames) {
-                                const next = this.grid.nextChars.get(i);
-                                if(next) this.grid.setChar(i, next);
-                                this.grid.rotatorProg[i] = 0;
+                                const next = this.grid.nextChars.get(i); if(next) this.grid.setChar(i, next); this.grid.rotatorProg[i] = 0;
                             }
-                        } 
-                        else if (decay === 1) {
+                        } else if (decay === 1) {
                             const cyclePhase = frame % d.rotatorCycleFrames;
-                            if (s.rotatorCrossfadeFrames <= 2) {
-                                if (cyclePhase === 0) {
-                                    const next = Utils.getUniqueChar(this.grid.getChar(i));
-                                    this.grid.setChar(i, next);
-                                }
-                            } else {
-                                if (cyclePhase === 0) {
-                                    this.grid.rotatorProg[i] = 1;
-                                    this.grid.nextChars.set(i, Utils.getUniqueChar(this.grid.getChar(i)));
-                                }
-                            }
+                            if (s.rotatorCrossfadeFrames <= 2) { if (cyclePhase === 0) this.grid.setChar(i, Utils.getUniqueChar(this.grid.getChar(i))); }
+                            else { if (cyclePhase === 0) { this.grid.rotatorProg[i] = 1; this.grid.nextChars.set(i, Utils.getUniqueChar(this.grid.getChar(i))); } }
                         }
                     }
-
-                    // 3. Decay Logic
-                    if (decay >= 2) {
-                        this.grid.decays[i]++;
-                        if (this.grid.decays[i] > s.decayFadeDurationFrames + 2) {
-                            this._clearCell(i);
-                            continue;
-                        }
-                    }
-
-                    // 4. Alpha Calculation
+                    if (decay >= 2) { this.grid.decays[i]++; if (this.grid.decays[i] > s.decayFadeDurationFrames + 2) { this._clearCell(i); continue; } }
                     let alpha = 0;
-                    if (age > 0) {
-                        alpha = 1.0; 
-                    } else if (decay === 1) {
-                        alpha = 0.95 * this.grid.brightness[i];
-                    } else if (decay >= 2) {
-                        const p = (decay - 2) / s.decayFadeDurationFrames;
-                        alpha = (0.95 * (1 - p)) * this.grid.brightness[i];
-                    }
+                    if (age > 0) alpha = 1.0; 
+                    else if (decay === 1) alpha = 0.95 * this.grid.brightness[i]; 
+                    else if (decay >= 2) { const p = (decay - 2) / s.decayFadeDurationFrames; alpha = (0.95 * (1 - p)) * this.grid.brightness[i]; }
                     this.grid.alphas[i] = alpha;
                 }
             }
         }
 
         // =========================================================================
-        // 5. EFFECT SYSTEM (OCP - Extensible)
-        // =========================================================================
-        // =========================================================================
-        // 5. EFFECT SYSTEM (OCP - Extensible)
+        // 5. EFFECT SYSTEM
         // =========================================================================
         class EffectRegistry {
-            constructor(grid, config) {
-                this.grid = grid;
-                this.config = config;
-                this.effects = [];
-            }
+            constructor(grid, config) { this.grid = grid; this.config = config; this.effects = []; }
             register(effect) { this.effects.push(effect); }
-            
-            // Returns boolean (true if triggered, false if blocked/active)
-            trigger(name) {
-                const fx = this.effects.find(e => e.name === name);
-                if(fx) return fx.trigger();
-                return false;
-            }
-            
+            trigger(name) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(); return false; }
             update() { this.effects.forEach(e => e.update()); }
-            getOverride(i) {
-                for(const fx of this.effects) {
-                    const o = fx.getOverride(i);
-                    if(o) return o;
-                }
-                return null;
-            }
+            getOverride(i) { for(const fx of this.effects) { const o = fx.getOverride(i); if(o) return o; } return null; }
         }
 
         class AbstractEffect {
@@ -842,217 +582,126 @@
                 this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
                 this.snap = null; this.autoTimer = c.state.pulseFrequencySeconds * 60;
             }
-            
             trigger() {
                 if(this.active) return false;
-                
                 const total = this.g.cols * this.g.rows;
-                
-                this.snap = {
-                    chars: new Uint16Array(this.g.chars),
-                    alphas: new Float32Array(this.g.alphas),
-                    colors: new Uint32Array(total), 
-                    tracers: new Uint8Array(total),
-                    fillChars: new Uint16Array(total)
-                };
-                
-                const d = this.c.derived;
-                const s = this.c.state;
-                const holdEnd = d.cycleDuration + d.holdFrames;
-
+                this.snap = { chars: new Uint16Array(this.g.chars), alphas: new Float32Array(this.g.alphas), colors: new Uint32Array(total), tracers: new Uint8Array(total), fillChars: new Uint16Array(total) };
+                const d = this.c.derived; const s = this.c.state; const holdEnd = d.cycleDuration + d.holdFrames;
                 for(let i=0; i<total; i++) {
-                    let rgb = d.streamRgb;
-                    let isTracer = false;
-                    const style = this.g.complexStyles.get(i);
-                    
+                    let rgb = d.streamRgb; let isTracer = false; const style = this.g.complexStyles.get(i);
                     if(style) rgb = Utils.hslToRgb(style.h, style.s, style.l);
                     else {
-                        const type = this.g.types[i];
-                        const age = this.g.ages[i];
-                        if(type === CELL_TYPE.TRACER || (type === CELL_TYPE.ROTATOR && age > 0)) {
-                            const at = age - 1;
-                            if(at >= 0 && at < holdEnd + s.tracerReleaseFrames) { 
-                                rgb = d.tracerRgb; 
-                                isTracer = true; 
-                            }
-                        }
+                        const type = this.g.types[i]; const age = this.g.ages[i];
+                        if(type === CELL_TYPE.TRACER || (type === CELL_TYPE.ROTATOR && age > 0)) { const at = age - 1; if(at >= 0 && at < holdEnd + s.tracerReleaseFrames) { rgb = d.tracerRgb; isTracer = true; } }
                     }
-                    this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b);
-                    this.snap.tracers[i] = isTracer ? 1 : 0;
-                    this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
+                    this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); this.snap.tracers[i] = isTracer ? 1 : 0; this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
                 }
-                
-                this.origin = s.pulseRandomPosition ? 
-                    {x:Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8), y:Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8)} : 
-                    {x:Math.floor(this.g.cols/2), y:Math.floor(this.g.rows/2)};
-                
+                this.origin = s.pulseRandomPosition ? {x:Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8), y:Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8)} : {x:Math.floor(this.g.cols/2), y:Math.floor(this.g.rows/2)};
                 this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
-                
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
-                
                 return true; 
             }
-
             update() {
                 const s = this.c.state;
                 if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
                 if(!this.active) return;
-                
                 if(this.state === 'WAITING') { 
-                    if(--this.timer <= 0) {
-                        this.state = 'EXPANDING';
-                        if (s.pulseInstantStart) {
-                            this.radius = s.pulseWidth * 2;
-                        } else {
-                            this.radius = 0;
-                        }
-                    }
-                }
-                else {
-                    this.radius += this.speed;
-                    const d = this.c.derived;
-                    const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+                    if(--this.timer <= 0) { this.state = 'EXPANDING'; this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; }
+                } else {
+                    this.radius += this.speed; const d = this.c.derived; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                     if(this.radius > maxDim + 400) { this.active = false; this.snap = null; }
                 }
             }
-
             getOverride(i) {
                 if(!this.active || !this.snap) return null;
-                
                 const s = this.c.state; const d = this.c.derived;
                 const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
-                
-                const cx = Math.floor(x * d.cellWidth * s.stretchX); 
-                const cy = Math.floor(y * d.cellHeight * s.stretchY);
-                const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); 
-                const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
-                
-                let dist = 0;
-                if (s.pulseCircular) dist = Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2));
-                else dist = Math.max(Math.abs(cx - ox), Math.abs(cy - oy));
-
-                const width = s.pulseWidth * 2; 
-                const innerEdge = this.radius - width;
-
-                // ZONE 1: PASSED (Live Green Code)
-                if (this.state !== 'WAITING' && dist < innerEdge) {
-                    return null; 
-                }
-
-                const snAlpha = this.snap.alphas[i];
-                let charCode = this.snap.chars[i];
-                
-                // Color Logic Preparation
-                const tRgb = d.tracerRgb;
-                const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
-                let baseColorStr = null;
-
-                let isGap = false;
-                if (snAlpha <= 0.01) {
-                    isGap = true;
-                    if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i];
-                }
-                
-                const char = String.fromCharCode(charCode);
-                const isTracer = (this.snap.tracers[i] === 1);
-
-                // ZONE 2: AHEAD (Frozen / Darkening)
+                const cx = Math.floor(x * d.cellWidth * s.stretchX); const cy = Math.floor(y * d.cellHeight * s.stretchY);
+                const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
+                let dist = s.pulseCircular ? Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2)) : Math.max(Math.abs(cx - ox), Math.abs(cy - oy));
+                const width = s.pulseWidth * 2; const innerEdge = this.radius - width;
+                if (this.state !== 'WAITING' && dist < innerEdge) return null; 
+                const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
+                const tRgb = d.tracerRgb; const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
+                let baseColorStr = null; let isGap = false;
+                if (snAlpha <= 0.01) { isGap = true; if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i]; }
+                const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
                 if (this.state === 'WAITING' || dist > this.radius) {
-                    if(baseColorStr === null) {
-                        const rgb = Utils.unpackRgb(this.snap.colors[i]);
-                        baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-                    }
-
-                    if(isTracer && s.pulseIgnoreTracers) {
-                        return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
-                    }
+                    if(baseColorStr === null) { const rgb = Utils.unpackRgb(this.snap.colors[i]); baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`; }
+                    if(isTracer && s.pulseIgnoreTracers) return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
                     if (isGap) return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
-                    
                     return { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
-                
-                // ZONE 3: INSIDE WAVE
-                if (s.pulsePreserveSpaces && isGap) {
-                    return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
-                }
-
-                // Calculate Position in Wave (0.0 = Outer Edge/Tracer, 1.0 = Inner Edge/Base)
+                if (s.pulsePreserveSpaces && isGap) return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 const rel = Math.max(0, Math.min(1, (this.radius - dist) / width));
-                
                 let finalColor = targetColor;
-
-                // NEW: BLENDING LOGIC
                 if (s.pulseBlend) {
-                    const baseInt = this.snap.colors[i];
-                    const bR = (baseInt >> 16) & 0xFF;
-                    const bG = (baseInt >> 8) & 0xFF;
-                    const bB = baseInt & 0xFF;
-
-                    // Interpolate: Target(Tracer) -> Base
-                    // rel=0 (Outer) => Target
-                    // rel=1 (Inner) => Base
-                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
-                    const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
-                    const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
-
+                    const baseInt = this.snap.colors[i]; const bR = (baseInt >> 16) & 0xFF; const bG = (baseInt >> 8) & 0xFF; const bB = baseInt & 0xFF;
+                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel); const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
                     finalColor = `rgb(${mR},${mG},${mB})`;
                 }
+                return { char, color: finalColor, alpha: 1.0, glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
+            }
+        }
 
-                return { 
-                    char, 
-                    color: finalColor, 
-                    alpha: 1.0, 
-                    glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 
-                    size: s.tracerSizeIncrease,
-                    solid: true,
-                    bgColor: '#000000'
-                };
+        class MiniPulseEffect extends AbstractEffect {
+            constructor(g, c) {
+                super(g, c); this.name = "MiniPulse"; this.active = false; this.sessionTimer = 0; this.autoTimer = c.state.miniPulseFrequencySeconds * 60; this.pulses = []; 
+            }
+            trigger() { if(this.active) return false; this.active = true; this.sessionTimer = this.c.state.miniPulseDurationSeconds * 60; this.pulses = []; return true; }
+            update() {
+                const s = this.c.state;
+                if (!this.active && s.miniPulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.miniPulseFrequencySeconds * 60; }
+                if (this.active) {
+                    this.sessionTimer--;
+                    if (Math.random() < s.miniPulseSpawnChance) { this.pulses.push({ x: Utils.randomInt(0, this.g.cols), y: Utils.randomInt(0, this.g.rows), r: 0, maxR: s.miniPulseSize, speed: s.miniPulseSpeed }); }
+                    if (this.sessionTimer <= 0 && this.pulses.length === 0) this.active = false;
+                }
+                for (let i = this.pulses.length - 1; i >= 0; i--) { const p = this.pulses[i]; p.r += p.speed; if (p.r > p.maxR + 100) this.pulses.splice(i, 1); }
+            }
+            getOverride(i) {
+                if (this.pulses.length === 0) return null;
+                const s = this.c.state; const d = this.c.derived;
+                const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
+                const cx = (x * d.cellWidth * s.stretchX); const cy = (y * d.cellHeight * s.stretchY);
+                for (const p of this.pulses) {
+                    const ox = (p.x * d.cellWidth * s.stretchX); const oy = (p.y * d.cellHeight * s.stretchY);
+                    let dist = s.pulseCircular ? Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2)) : Math.max(Math.abs(cx - ox), Math.abs(cy - oy));
+                    const innerEdge = p.r - s.miniPulseThickness;
+                    if (dist <= p.r && dist >= innerEdge) {
+                        let char = this.g.getChar(i);
+                        if (this.g.alphas[i] <= 0.05) { const glitchIndex = (i + Math.floor(p.r)) % Utils.CHARS.length; char = Utils.CHARS[glitchIndex]; }
+                        return { char: char, color: d.tracerColorStr, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: false };
+                    }
+                }
+                return null;
             }
         }
 
         class DejaVuEffect extends AbstractEffect {
             constructor(g, c) { super(g, c); this.name = "DejaVu"; this.active = false; this.autoTimer = c.state.dejaVuFrequencySeconds * 60; this.map = null; }
-            
-            trigger() { 
-                if(this.active) return false; 
-                this.active = true; 
-                this.timer = this.c.state.dejaVuDurationSeconds * 60; 
-                this.bars = []; 
-                this.map = new Uint8Array(this.g.rows); 
-                return true; 
-            }
-
+            trigger() { if(this.active) return false; this.active = true; this.timer = this.c.state.dejaVuDurationSeconds * 60; this.bars = []; this.map = new Uint8Array(this.g.rows); return true; }
             update() {
                 const s = this.c.state;
                 if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
                 if(!this.active) return;
                 if(this.timer-- <= 0) { this.active = false; this.bars = []; this.map = null; return; }
-
                 this.map.fill(0);
                 if(Math.random() < s.dejaVuIntensity) {
-                    const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight);
-                    const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
+                    const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
                     this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
                 }
                 for(let i=this.bars.length-1; i>=0; i--) {
                     const b = this.bars[i]; b.age++;
-                    if(b.age > b.maxAge) this.bars.splice(i, 1);
-                    else {
-                        for(let r=b.y; r < b.y+b.h && r < this.g.rows; r++) this.map[r] = 1;
-                    }
+                    if(b.age > b.maxAge) this.bars.splice(i, 1); else { for(let r=b.y; r < b.y+b.h && r < this.g.rows; r++) this.map[r] = 1; }
                 }
                 for(let y=0; y<this.g.rows; y++) {
                     if(this.map[y] === 1) {
                         for(let x=0; x<this.g.cols; x++) {
                             if(Math.random() < 0.1) {
-                                const i = this.g.getIndex(x, y);
-                                this.g.rotatorProg[i] = 0; 
-                                const c = Utils.getRandomChar();
-                                this.g.setChar(i, c);
-                                if(s.dejaVuRandomizeColors) {
-                                    this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
-                                }
+                                const i = this.g.getIndex(x, y); this.g.rotatorProg[i] = 0; const c = Utils.getRandomChar(); this.g.setChar(i, c);
+                                if(s.dejaVuRandomizeColors) this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
                             }
                         }
                     }
@@ -1062,9 +711,7 @@
                 if(!this.active || !this.map) return null;
                 const y = Math.floor(i / this.g.cols);
                 if(this.map[y] === 1) {
-                    const s = this.c.state;
-                    const alpha = this.g.alphas[i] < 0.1 ? s.dejaVuHoleBrightness : 1.0;
-                    if(alpha < 0.01) return null;
+                    const s = this.c.state; const alpha = this.g.alphas[i] < 0.1 ? s.dejaVuHoleBrightness : 1.0; if(alpha < 0.01) return null;
                     return { char: this.g.getChar(i), color: this.c.derived.tracerColorStr, alpha, glow: 20 * alpha, size: 2 };
                 }
                 return null;
@@ -1072,471 +719,176 @@
         }
 
         // =========================================================================
-        // 6. RENDERER (Implementation)
+        // 6. RENDERER
         // =========================================================================
         class CanvasRenderer {
             constructor(canvasId, grid, config, effects) {
-                this.cvs = document.getElementById(canvasId);
-                this.ctx = this.cvs.getContext('2d', { alpha: false });
-                this.bloomCvs = document.getElementById('bloomCanvas');
-                this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
-                this.grid = grid;
-                this.config = config;
-                this.effects = effects;
-                this.w = 0; this.h = 0;
+                this.cvs = document.getElementById(canvasId); this.ctx = this.cvs.getContext('2d', { alpha: false });
+                this.bloomCvs = document.getElementById('bloomCanvas'); this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+                this.grid = grid; this.config = config; this.effects = effects; this.w = 0; this.h = 0;
             }
-
             resize() {
-                const s = this.config.state;
-                this.w = window.innerWidth; this.h = window.innerHeight;
-                const scale = s.resolution;
-                this.cvs.width = this.w * scale; this.cvs.height = this.h * scale;
-                this.cvs.style.width = this.w + "px"; this.cvs.style.height = this.h + "px";
-                this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25;
-                this.bloomCtx.scale(0.25, 0.25);
+                const s = this.config.state; this.w = window.innerWidth; this.h = window.innerHeight; const scale = s.resolution;
+                this.cvs.width = this.w * scale; this.cvs.height = this.h * scale; this.cvs.style.width = this.w + "px"; this.cvs.style.height = this.h + "px";
+                this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25; this.bloomCtx.scale(0.25, 0.25);
                 this.updateSmoothing();
             }
-
-            updateSmoothing() {
-                const s = this.config.state;
-                const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px';
-                this.cvs.style.filter = `blur(${blur})`;
-            }
-
-            // REFACTOR: Fixed Logic to detect Rainbow/Style tracers
+            updateSmoothing() { const s = this.config.state; const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px'; this.cvs.style.filter = `blur(${blur})`; }
             _getTracerState(i, s) {
-                const age = this.grid.ages[i];
-                if (age <= 0 || this.grid.decays[i] >= 2) return { alpha: 0, phase: 'none' };
-
-                const type = this.grid.types[i];
-                
-                // FIX: Trust CELL_TYPE. If it says it's a tracer, it's a tracer.
-                // We no longer require 'style.cycle' to be true.
-                const isTracerCandidate = (type === CELL_TYPE.TRACER || type === CELL_TYPE.ROTATOR);
-
+                const age = this.grid.ages[i]; if (age <= 0 || this.grid.decays[i] >= 2) return { alpha: 0, phase: 'none' };
+                const type = this.grid.types[i]; const isTracerCandidate = (type === CELL_TYPE.TRACER || type === CELL_TYPE.ROTATOR);
                 if (!isTracerCandidate) return { alpha: 0, phase: 'none' };
-
-                const activeTime = age - 1; 
-                const attack = s.tracerAttackFrames;
-                const hold = s.tracerHoldFrames;
-                const release = s.tracerReleaseFrames;
-
-                if (activeTime < attack) {
-                    return { alpha: (attack > 0) ? (activeTime / attack) : 1.0, phase: 'attack' };
-                } 
-                else if (activeTime < attack + hold) {
-                    return { alpha: 1.0, phase: 'hold' };
-                } 
-                else if (activeTime < attack + hold + release) {
-                    const relTime = activeTime - (attack + hold);
-                    return { alpha: 1.0 - (relTime / release), phase: 'release' };
-                }
+                const activeTime = age - 1; const attack = s.tracerAttackFrames; const hold = s.tracerHoldFrames; const release = s.tracerReleaseFrames;
+                if (activeTime < attack) return { alpha: (attack > 0) ? (activeTime / attack) : 1.0, phase: 'attack' };
+                else if (activeTime < attack + hold) return { alpha: 1.0, phase: 'hold' };
+                else if (activeTime < attack + hold + release) { const relTime = activeTime - (attack + hold); return { alpha: 1.0 - (relTime / release), phase: 'release' }; }
                 return { alpha: 0, phase: 'none' };
             }
-
             render(frame) {
-                const s = this.config.state;
-                const d = this.config.derived;
-                const scale = s.resolution;
-                const bloom = s.enableBloom;
-
-                // 1. Clear
-                this.ctx.save();
-                this.ctx.scale(scale * s.stretchX, scale * s.stretchY);
-                this.ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`;
-                this.ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
+                const s = this.config.state; const d = this.config.derived; const scale = s.resolution; const bloom = s.enableBloom;
+                this.ctx.save(); this.ctx.scale(scale * s.stretchX, scale * s.stretchY);
+                this.ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`; this.ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
                 if(bloom) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
-
-                // 2. Setup Context
-                const fontBase = d.fontBaseStr;
-                this.ctx.font = fontBase; this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'center';
+                const fontBase = d.fontBaseStr; this.ctx.font = fontBase; this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'center';
                 if(s.mirrorEnabled) { this.ctx.scale(-1, 1); this.ctx.translate(-(this.w / s.stretchX), 0); }
-
-                if(bloom) {
-                    this.bloomCtx.font = fontBase; this.bloomCtx.textBaseline = 'middle'; this.bloomCtx.textAlign = 'center';
-                    this.bloomCtx.save(); this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY);
-                    if(s.mirrorEnabled) { this.bloomCtx.scale(-1, 1); this.bloomCtx.translate(-(this.w / s.stretchX), 0); }
-                }
-
-                // 3. PASS 1: STREAM (Body)
-                const defaultColor = d.streamColorStr;
-                let lastColor = defaultColor;
-                this.ctx.fillStyle = defaultColor; 
-                this.ctx.shadowBlur = 0; 
-                this.ctx.shadowColor = 'transparent';
-
+                if(bloom) { this.bloomCtx.font = fontBase; this.bloomCtx.textBaseline = 'middle'; this.bloomCtx.textAlign = 'center'; this.bloomCtx.save(); this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY); if(s.mirrorEnabled) { this.bloomCtx.scale(-1, 1); this.bloomCtx.translate(-(this.w / s.stretchX), 0); } }
+                
+                const defaultColor = d.streamColorStr; let lastColor = defaultColor;
+                this.ctx.fillStyle = defaultColor; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent';
                 if(bloom) this.bloomCtx.fillStyle = defaultColor;
-
-                const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
-                const total = this.grid.cols * this.grid.rows;
+                const xOff = s.fontOffsetX; const yOff = s.fontOffsetY; const total = this.grid.cols * this.grid.rows;
 
                 for(let i=0; i<total; i++) {
-                    // A. Check Override (Effects layer)
                     const override = this.effects.getOverride(i);
-                    if(override) {
-                        this._drawOverride(i, override, d, s, bloom);
-                        lastColor = null; 
-                        this.ctx.shadowBlur = 0;
-                        this.ctx.shadowColor = 'transparent';
-                        continue;
-                    }
-
-                    // B. Standard Cell
-                    let gridAlpha = this.grid.alphas[i];
+                    if(override) { this._drawOverride(i, override, d, s, bloom); lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; continue; }
+                    let gridAlpha = this.grid.alphas[i]; if(gridAlpha <= 0.01) continue;
+                    const tState = this._getTracerState(i, s); if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0; 
                     if(gridAlpha <= 0.01) continue;
-
-                    const tState = this._getTracerState(i, s);
-                    if (tState.phase === 'attack' || tState.phase === 'hold') {
-                        gridAlpha = 0.0; 
-                    } 
-
-                    if(gridAlpha <= 0.01) continue;
-
                     const decay = this.grid.decays[i];
                     const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
-                    const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-                    const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-
-                    // Color Logic
-                    let color = defaultColor;
-                    const style = this.grid.complexStyles.get(i);
-                    if(style) {
-                        if(style.glitter && Math.random() < 0.02) color = '#ffffff';
-                        else {
-                            let h = style.h;
-                            if(style.cycle) h = (h + (frame * style.speed)) % 360;
-                            color = Utils.hslToRgb(h|0, style.s, style.l);
-                            color = `rgb(${color.r},${color.g},${color.b})`;
-                        }
-                    }
-
-                    if(color !== lastColor) {
-                        this.ctx.fillStyle = color; 
-                        if(bloom) this.bloomCtx.fillStyle = color;
-                        lastColor = color;
-                    }
-
-                    // Draw
-                    const rotProg = this.grid.rotatorProg[i];
-                    const char = this.grid.getChar(i);
-                    
+                    const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff; const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+                    let color = defaultColor; const style = this.grid.complexStyles.get(i);
+                    if(style) { if(style.glitter && Math.random() < 0.02) color = '#ffffff'; else { let h = style.h; if(style.cycle) h = (h + (frame * style.speed)) % 360; color = Utils.hslToRgb(h|0, style.s, style.l); color = `rgb(${color.r},${color.g},${color.b})`; } }
+                    if(color !== lastColor) { this.ctx.fillStyle = color; if(bloom) this.bloomCtx.fillStyle = color; lastColor = color; }
+                    const rotProg = this.grid.rotatorProg[i]; const char = this.grid.getChar(i);
                     if(rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
-                        const p = rotProg / s.rotatorCrossfadeFrames;
-                        this.ctx.globalAlpha = gridAlpha * (1 - p);
-                        this.ctx.fillText(char, px, py);
-                        const next = this.grid.nextChars.get(i);
-                        if(next) {
-                            this.ctx.globalAlpha = gridAlpha * p;
-                            this.ctx.fillText(next, px, py);
-                        }
-                    } 
-                    else if(s.dissolveEnabled && decay >= 2) {
-                        const prog = (decay - 2) / s.decayFadeDurationFrames;
-                        const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-                        const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
-                        this.ctx.font = font; 
-                        
-                        if(s.deteriorationEnabled) {
-                            const off = s.deteriorationStrength * prog;
-                            this.ctx.globalAlpha = gridAlpha * 0.4 * prog;
-                            this.ctx.fillText(char, px, py - off);
-                            this.ctx.fillText(char, px, py + off);
-                        }
-                        
-                        this.ctx.globalAlpha = gridAlpha; 
-                        this.ctx.fillText(char, px, py);
+                        const p = rotProg / s.rotatorCrossfadeFrames; this.ctx.globalAlpha = gridAlpha * (1 - p); this.ctx.fillText(char, px, py);
+                        const next = this.grid.nextChars.get(i); if(next) { this.ctx.globalAlpha = gridAlpha * p; this.ctx.fillText(next, px, py); }
+                    } else if(s.dissolveEnabled && decay >= 2) {
+                        const prog = (decay - 2) / s.decayFadeDurationFrames; const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
+                        const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${size}px ${s.fontFamily}`; this.ctx.font = font; 
+                        if(s.deteriorationEnabled) { const off = s.deteriorationStrength * prog; this.ctx.globalAlpha = gridAlpha * 0.4 * prog; this.ctx.fillText(char, px, py - off); this.ctx.fillText(char, px, py + off); }
+                        this.ctx.globalAlpha = gridAlpha; this.ctx.fillText(char, px, py);
                         if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
                         this.ctx.font = fontBase; 
-                    }
-                    else {
-                        this.ctx.globalAlpha = gridAlpha;
-                        this.ctx.fillText(char, px, py);
-                        if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
-                    }
+                    } else { this.ctx.globalAlpha = gridAlpha; this.ctx.fillText(char, px, py); if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); } }
                 }
 
-                // 4. PASS 2: TRACERS (Overlay)
-                const tStr = d.tracerColorStr;
-                this.ctx.shadowBlur = s.tracerGlow; 
-                this.ctx.shadowColor = tStr;
-                
+                const tStr = d.tracerColorStr; this.ctx.shadowBlur = s.tracerGlow; this.ctx.shadowColor = tStr;
                 const tFont = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
-                this.ctx.font = tFont; 
-                if(bloom) { this.bloomCtx.font = tFont; }
+                this.ctx.font = tFont; if(bloom) this.bloomCtx.font = tFont;
 
                 for(let i=0; i<total; i++) {
                     if(this.effects.getOverride(i)) continue;
-
                     const tState = this._getTracerState(i, s);
-
                     if (tState.alpha > 0.01) {
                         const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
-                        const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-                        const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-                        
+                        const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff; const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
                         const style = this.grid.complexStyles.get(i);
-                        
-                        // FIX: Calculate Tracer Color dynamically based on style
                         let cStr = tStr;
-                        if (style) {
-                            let h = style.h;
-                            if(style.cycle) h = (h + (frame * style.speed)) % 360;
-                            // Make it super bright (L=90) to stand out as a tracer
-                            let tc = Utils.hslToRgb(h|0, 100, 90); 
-                            cStr = `rgb(${tc.r},${tc.g},${tc.b})`;
-                        }
-
-                        this.ctx.fillStyle = cStr; 
-                        this.ctx.shadowColor = cStr;
-                        if(bloom) this.bloomCtx.fillStyle = cStr;
-
-                        this.ctx.globalAlpha = tState.alpha;
-                        this.ctx.fillText(this.grid.getChar(i), px, py);
-                        if(bloom) { 
-                            this.bloomCtx.globalAlpha = tState.alpha; 
-                            this.bloomCtx.fillText(this.grid.getChar(i), px, py); 
-                        }
+                        if (style) { let h = style.h; if(style.cycle) h = (h + (frame * style.speed)) % 360; let tc = Utils.hslToRgb(h|0, 100, 90); cStr = `rgb(${tc.r},${tc.g},${tc.b})`; }
+                        this.ctx.fillStyle = cStr; this.ctx.shadowColor = cStr; if(bloom) this.bloomCtx.fillStyle = cStr;
+                        this.ctx.globalAlpha = tState.alpha; this.ctx.fillText(this.grid.getChar(i), px, py);
+                        if(bloom) { this.bloomCtx.globalAlpha = tState.alpha; this.bloomCtx.fillText(this.grid.getChar(i), px, py); }
                     }
                 }
-
                 this.ctx.restore(); 
-                if(bloom) {
-                    this.bloomCtx.restore();
-                    this.ctx.save();
-                    this.ctx.globalCompositeOperation = 'lighter';
-                    this.ctx.filter = `blur(${s.bloomStrength * 4}px)`;
-                    this.ctx.globalAlpha = s.bloomOpacity;
-                    this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale);
-                    this.ctx.restore();
-                }
+                if(bloom) { this.bloomCtx.restore(); this.ctx.save(); this.ctx.globalCompositeOperation = 'lighter'; this.ctx.filter = `blur(${s.bloomStrength * 4}px)`; this.ctx.globalAlpha = s.bloomOpacity; this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale); this.ctx.restore(); }
             }
 
             _drawOverride(i, o, d, s, bloom) {
-                const x = i % this.grid.cols; 
-                const y = Math.floor(i / this.grid.cols);
-                
-                const cx = (x * d.cellWidth) + s.fontOffsetX; 
-                const cy = (y * d.cellHeight) + s.fontOffsetY;
-                const px = cx + (d.cellWidth * 0.5); 
-                const py = cy + (d.cellHeight * 0.5);
-
-                if (o.solid) {
-                    const bg = o.bgColor || '#000000';
-                    this.ctx.fillStyle = bg;
-                    const w = Math.ceil(d.cellWidth) + 1;
-                    const h = Math.ceil(d.cellHeight) + 1;
-                    this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
-                }
-
+                const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
+                const cx = (x * d.cellWidth) + s.fontOffsetX; const cy = (y * d.cellHeight) + s.fontOffsetY;
+                const px = cx + (d.cellWidth * 0.5); const py = cy + (d.cellHeight * 0.5);
+                if (o.solid) { const bg = o.bgColor || '#000000'; this.ctx.fillStyle = bg; const w = Math.ceil(d.cellWidth) + 1; const h = Math.ceil(d.cellHeight) + 1; this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h); }
                 if(o.char && o.alpha > 0.01) {
-                    this.ctx.fillStyle = o.color; 
-                    this.ctx.shadowColor = o.color; 
-                    this.ctx.shadowBlur = o.glow || 0;
-                    
+                    this.ctx.fillStyle = o.color; this.ctx.shadowColor = o.color; this.ctx.shadowBlur = o.glow || 0;
                     const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-                    this.ctx.font = font;
-                    this.ctx.globalAlpha = o.alpha;
-                    
-                    this.ctx.fillText(o.char, px, py);
-                    
-                    if(bloom) {
-                        this.bloomCtx.save();
-                        this.bloomCtx.fillStyle = o.color; 
-                        this.bloomCtx.font = font; 
-                        this.bloomCtx.globalAlpha = o.alpha;
-                        this.bloomCtx.fillText(o.char, px, py);
-                        this.bloomCtx.restore();
-                    }
-                    
+                    this.ctx.font = font; this.ctx.globalAlpha = o.alpha; this.ctx.fillText(o.char, px, py);
+                    if(bloom) { this.bloomCtx.save(); this.bloomCtx.fillStyle = o.color; this.bloomCtx.font = font; this.bloomCtx.globalAlpha = o.alpha; this.bloomCtx.fillText(o.char, px, py); this.bloomCtx.restore(); }
                     this.ctx.font = d.fontBaseStr; 
                 }
             }
         }
 
         // =========================================================================
-        // 7. FONT MANAGER (Adapter)
+        // 7. FONT MANAGER
         // =========================================================================
         class FontManager {
             constructor(config, notificationMgr) {
-                this.config = config;
-                this.notifications = notificationMgr; // Dependency Injection
-                this.dbName = 'MatrixFontDB'; 
-                this.storeName = 'fonts'; 
-                this.db = null;
-                this.loadedFonts = []; 
-                this.subs = [];
-                this.embeddedFontName = 'MatrixEmbedded';
+                this.config = config; this.notifications = notificationMgr;
+                this.dbName = 'MatrixFontDB'; this.storeName = 'fonts'; this.db = null;
+                this.loadedFonts = []; this.subs = []; this.embeddedFontName = 'MatrixEmbedded';
             }
-
-            async init() {
-                if(DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) this.injectEmbeddedFont();
-                try { 
-                    await this._openDB(); 
-                    await this._loadFontsFromDB(); 
-                } catch(e) { 
-                    console.warn("Font DB Error", e); 
-                }
-            }
-
+            async init() { if(DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) this.injectEmbeddedFont(); try { await this._openDB(); await this._loadFontsFromDB(); } catch(e) { console.warn("Font DB Error", e); } }
             subscribe(cb) { this.subs.push(cb); }
             _notify() { this.subs.forEach(cb => cb(this.loadedFonts)); }
-            
-            injectEmbeddedFont() {
-                if(this.loadedFonts.some(f => f.name === this.embeddedFontName)) return;
-                this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
-                this.loadedFonts.push({ name: this.embeddedFontName, display: "The Matrix Custom Code", isEmbedded: true });
-            }
-
-            _injectCSS(name, url, format) {
-                const existing = document.getElementById(`style-${name}`);
-                if(existing) existing.remove();
-                const style = document.createElement('style'); 
-                style.id = `style-${name}`;
-                style.textContent = `@font-face { font-family: '${name}'; src: url('${url}') ${format}; }`;
-                document.head.appendChild(style);
-            }
-
-            _openDB() { 
-                return new Promise((res, rej) => { 
-                    const r = indexedDB.open(this.dbName, 1); 
-                    r.onupgradeneeded = e => { 
-                        if(!e.target.result.objectStoreNames.contains(this.storeName)) {
-                            e.target.result.createObjectStore(this.storeName, { keyPath: 'name' });
-                        }
-                    }; 
-                    r.onsuccess = e => { this.db = e.target.result; res(); }; 
-                    r.onerror = rej; 
-                }); 
-            }
-
-            _loadFontsFromDB() { 
-                return new Promise((res) => { 
-                    if(!this.db) return res(); 
-                    const t = this.db.transaction(this.storeName, 'readonly'); 
-                    t.objectStore(this.storeName).getAll().onsuccess = e => { 
-                        this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
-                        e.target.result.forEach(f => { 
-                            this.loadedFonts.push(f); 
-                            const type = f.mimeType || f.data.type;
-                            const format = this._getFormatFromType(type);
-                            this._injectCSS(f.name, URL.createObjectURL(f.data), format); 
-                        }); 
-                        this._notify(); 
-                        res(); 
-                    }; 
-                }); 
-            }
-
-            _getFormatFromType(type) {
-                if (type.includes('woff2')) return "format('woff2')";
-                if (type.includes('woff')) return "format('woff')";
-                if (type.includes('opentype') || type.includes('otf')) return "format('opentype')";
-                return "format('truetype')";
-            }
-            
-            // REFACTOR: Removed callback, uses NotificationManager directly
+            injectEmbeddedFont() { if(this.loadedFonts.some(f => f.name === this.embeddedFontName)) return; this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')"); this.loadedFonts.push({ name: this.embeddedFontName, display: "The Matrix Custom Code", isEmbedded: true }); }
+            _injectCSS(name, url, format) { const existing = document.getElementById(`style-${name}`); if(existing) existing.remove(); const style = document.createElement('style'); style.id = `style-${name}`; style.textContent = `@font-face { font-family: '${name}'; src: url('${url}') ${format}; }`; document.head.appendChild(style); }
+            _openDB() { return new Promise((res, rej) => { const r = indexedDB.open(this.dbName, 1); r.onupgradeneeded = e => { if(!e.target.result.objectStoreNames.contains(this.storeName)) { e.target.result.createObjectStore(this.storeName, { keyPath: 'name' }); } }; r.onsuccess = e => { this.db = e.target.result; res(); }; r.onerror = rej; }); }
+            _loadFontsFromDB() { return new Promise((res) => { if(!this.db) return res(); const t = this.db.transaction(this.storeName, 'readonly'); t.objectStore(this.storeName).getAll().onsuccess = e => { this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded); e.target.result.forEach(f => { this.loadedFonts.push(f); const type = f.mimeType || f.data.type; const format = this._getFormatFromType(type); this._injectCSS(f.name, URL.createObjectURL(f.data), format); }); this._notify(); res(); }; }); }
+            _getFormatFromType(type) { if (type.includes('woff2')) return "format('woff2')"; if (type.includes('woff')) return "format('woff')"; if (type.includes('opentype') || type.includes('otf')) return "format('opentype')"; return "format('truetype')"; }
             importFont(file) {
                 const reader = new FileReader();
                 reader.onload = e => {
-                    const blob = new Blob([e.target.result], {type: file.type});
-                    const id = `CustomFont_${Date.now()}`;
-                    
-                    const rec = { 
-                        name: id, 
-                        display: file.name, 
-                        data: blob,
-                        mimeType: file.type 
-                    };
-
+                    const blob = new Blob([e.target.result], {type: file.type}); const id = `CustomFont_${Date.now()}`;
+                    const rec = { name: id, display: file.name, data: blob, mimeType: file.type };
                     const t = this.db.transaction(this.storeName, 'readwrite');
-                    t.objectStore(this.storeName).put(rec).onsuccess = () => {
-                        const format = this._getFormatFromType(file.type);
-                        this._injectCSS(id, URL.createObjectURL(blob), format);
-                        this.loadedFonts.push(rec); 
-                        this.config.set('fontFamily', id); 
-                        this._notify(); 
-                        this.notifications.show(`Imported: ${file.name}`, 'success');
-                    };
+                    t.objectStore(this.storeName).put(rec).onsuccess = () => { const format = this._getFormatFromType(file.type); this._injectCSS(id, URL.createObjectURL(blob), format); this.loadedFonts.push(rec); this.config.set('fontFamily', id); this._notify(); this.notifications.show(`Imported: ${file.name}`, 'success'); };
                     t.onerror = () => this.notifications.show("Database Write Failed", 'error');
                 };
                 reader.readAsArrayBuffer(file);
             }
-
-            deleteFont(id) {
-                return new Promise(res => {
-                    const t = this.db.transaction(this.storeName, 'readwrite');
-                    t.objectStore(this.storeName).delete(id).onsuccess = () => {
-                        document.getElementById(`style-${id}`)?.remove();
-                        this.loadedFonts = this.loadedFonts.filter(f => f.name !== id);
-                        if(this.config.state.fontFamily === id) {
-                            this.config.set('fontFamily', this.config.defaults.fontFamily);
-                        }
-                        this._notify(); 
-                        res();
-                    };
-                });
-            }
-
-            deleteAllFonts() {
-                return new Promise(res => {
-                    const t = this.db.transaction(this.storeName, 'readwrite');
-                    t.objectStore(this.storeName).clear().onsuccess = () => {
-                        this.loadedFonts.filter(f => !f.isEmbedded).forEach(f => {
-                            document.getElementById(`style-${f.name}`)?.remove();
-                        });
-                        this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
-                        this._notify(); 
-                        res();
-                    };
-                });
-            }
+            deleteFont(id) { return new Promise(res => { const t = this.db.transaction(this.storeName, 'readwrite'); t.objectStore(this.storeName).delete(id).onsuccess = () => { document.getElementById(`style-${id}`)?.remove(); this.loadedFonts = this.loadedFonts.filter(f => f.name !== id); if(this.config.state.fontFamily === id) { this.config.set('fontFamily', this.config.defaults.fontFamily); } this._notify(); res(); }; }); }
+            deleteAllFonts() { return new Promise(res => { const t = this.db.transaction(this.storeName, 'readwrite'); t.objectStore(this.storeName).clear().onsuccess = () => { this.loadedFonts.filter(f => !f.isEmbedded).forEach(f => { document.getElementById(`style-${f.name}`)?.remove(); }); this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded); this._notify(); res(); }; }); }
         }
 
         // =========================================================================
-        // 8. UI MANAGER (Adapter)
+        // 8. UI MANAGER
         // =========================================================================
         class UIManager {
             constructor(c, effects, fonts, notificationMgr) {
                 this.c = c; this.eff = effects; this.fonts = fonts; this.notifications = notificationMgr;
-                this.dom = { panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'), tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'), toast: null, track: null, tooltip: null };
-                
-                this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
-                this.ignoreNextClick = false;
-
+                this.dom = { panel: document.getElementById('settingsPanel'), toggle: document.getElementById('menuToggle'), tabs: document.getElementById('navTabs'), content: document.getElementById('contentArea'), track: null, tooltip: null };
+                this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 }; this.ignoreNextClick = false;
                 this.fonts.subscribe(f => this.refresh('fontFamily'));
-                
-                // --- DEFINITIONS ---
                 this.defs = [
-                    // ==================== TAB 1: GLOBAL ====================
+                    // GLOBAL
                     { cat: 'Global', type: 'header', label: 'Main Look & Feel' },
                     { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
-                    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, description: 'Falling code speed control.' },
-                    
+                    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
                     { cat: 'Global', type: 'header', label: 'Glow & Atmosphere' },
+                    { cat: 'Global', id: 'trailGlow', type: 'range', label: 'Stream Glow', min: 0, max: 50, unit: 'px' },
                     { cat: 'Global', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
                     { cat: 'Global', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
                     { cat: 'Global', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
-                    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Simulates old CRT monitors by holding the image on the display.' },
-
+                    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true },
                     { cat: 'Global', type: 'header', label: 'Display & Quality' },
-                    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x', description: 'Lower for performance, higher for sharpness.' },
+                    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
                     { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
                     { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
-
-                    // ==================== TAB 2: GLYPHS ====================
+                    // GLYPHS
                     { cat: 'Glyphs', type: 'header', label: 'Font Selection' },
                     { cat: 'Glyphs', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
                     { cat: 'Glyphs', type: 'font_list' },
                     { cat: 'Glyphs', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
-                    
                     { cat: 'Glyphs', type: 'header', label: 'Character Styling' },
                     { cat: 'Glyphs', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
                     { cat: 'Glyphs', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] },
                     { cat: 'Glyphs', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
-                    { cat: 'Glyphs', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text', description: 'Flips the screen horizontally.' },
-                    { cat: 'Glyphs', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'When written, individual characters may have a slightly different brightness.' },
-                    { cat: 'Glyphs', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled', description: 'When written, the difference in % between the dimmest and brightest character.' },
-
+                    { cat: 'Glyphs', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
+                    { cat: 'Glyphs', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness' },
+                    { cat: 'Glyphs', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
                     { cat: 'Glyphs', type: 'header', label: 'Grid & Spacing' },
                     { cat: 'Glyphs', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
                     { cat: 'Glyphs', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
@@ -1544,107 +896,101 @@
                     { cat: 'Glyphs', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -20, max: 20, unit: 'px' },
                     { cat: 'Glyphs', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
                     { cat: 'Glyphs', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
-
-                    // ==================== TAB 3: STREAMS ====================
+                    // STREAMS
                     { cat: 'Streams', type: 'header', label: 'Stream Density' },
-                    { cat: 'Streams', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 5, max: 100, unit: 'chars', description: 'The length in characters the shortest a code stream can be.' },
-                    { cat: 'Streams', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 20, max: 500, unit: 'chars', description: 'The length in characters the longest a code stream can be.' },
+                    { cat: 'Streams', id: 'streamMinLength', type: 'range', label: 'Min Length', min: 5, max: 100, unit: 'chars' },
+                    { cat: 'Streams', id: 'streamMaxLength', type: 'range', label: 'Max Length', min: 20, max: 500, unit: 'chars' },
                     { cat: 'Streams', id: 'holeRate', type: 'range', label: 'Gaps / Broken Code', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%' },
-                    
                     { cat: 'Streams', type: 'header', label: 'Life Cycle' },
-                    { cat: 'Streams', id: 'ttlMinFrames', type: 'range', label: 'Min Life', min: 10, max: 400, unit: 'fr', description: 'The minimum duration in time a stream can live before being erased.' },
-                    { cat: 'Streams', id: 'ttlMaxFrames', type: 'range', label: 'Max Life', min: 100, max: 600, unit: 'fr', description: 'The maximum duration in time a stream can live before being erased.' },
-                    
+                    { cat: 'Streams', id: 'ttlMinFrames', type: 'range', label: 'Min Life', min: 10, max: 400, unit: 'fr' },
+                    { cat: 'Streams', id: 'ttlMaxFrames', type: 'range', label: 'Max Life', min: 100, max: 600, unit: 'fr' },
                     { cat: 'Streams', type: 'header', label: 'Deterioration (Fading)' },
-                    { cat: 'Streams', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr', description: 'How long it takes for a stream to fade away.' },
+                    { cat: 'Streams', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
                     { cat: 'Streams', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve (Shrink) Effect' }, 
-                    { cat: 'Streams', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'When fading out, it will fade to this size.' },
-                    { cat: 'Streams', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting', description: 'Makes the text fuzzy as it fades away.' },
-                    { cat: 'Streams', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled', description: 'How far the ghost text drifts from the center as it fades.' },
-
+                    { cat: 'Streams', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
+                    { cat: 'Streams', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting' },
+                    { cat: 'Streams', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
                     { cat: 'Streams', type: 'header', label: 'Visual Variation' },
-                    { cat: 'Streams', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: 'Tracers that are invisible, and write only occasionally.' },
+                    { cat: 'Streams', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers' },
                     { cat: 'Streams', id: 'invertedTracerChance', type: 'range', label: 'Inverted Tracer Likelihood', min: 0.05, max: 0.5, step: 0.05, dep: 'invertedTracerEnabled' },
-
-                    // ==================== TAB 4: MUTATORS ====================
-                    { cat: 'Mutators', type: 'header', label: 'Tracers (Writing Characters)' },
+                    // MUTATORS
+                    { cat: 'Mutators', type: 'header', label: 'Tracers' },
                     { cat: 'Mutators', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
                     { cat: 'Mutators', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
-                    { cat: 'Mutators', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px', description: 'When writing, how much larger the tracer is compared to the font size.' },
+                    { cat: 'Mutators', id: 'tracerSizeIncrease', type: 'range', label: 'Size Boost', min: 0, max: 20, unit:'px' },
                     { cat: 'Mutators', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
                     { cat: 'Mutators', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
                     { cat: 'Mutators', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
-                    
-                    { cat: 'Mutators', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Fallout', description: 'Tracers that will immediately stop writing and disappear.' },
+                    { cat: 'Mutators', id: 'randomStopEnabled', type: 'checkbox', label: 'Random Fallout' },
                     { cat: 'Mutators', id: 'randomStopChance', type: 'range', label: 'Pause Likelihood', min: 0.01, max: 0.2, step: 0.01, dep: 'randomStopEnabled' },
-
-                    { cat: 'Mutators', type: 'header', label: 'Rotators (Changing Chars)' },
+                    { cat: 'Mutators', type: 'header', label: 'Rotators' },
                     { cat: 'Mutators', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
                     { cat: 'Mutators', id: 'rotatorChance', type: 'range', label: 'Spawn Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
-                    { cat: 'Mutators', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: 'Locks rotation changes to tracer movements.' },
-                    { cat: 'Mutators', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x', description: 'How many times the tracer steps to a new cell before a tracer rotates.' },
+                    { cat: 'Mutators', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled' },
+                    { cat: 'Mutators', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
                     { cat: 'Mutators', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
                     { cat: 'Mutators', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
-
-                    // ==================== TAB 5: GLYPH-FX ====================
+                    // GLYPH FX
                     { cat: 'Glyph-FX', type: 'header', label: 'Star Power' },
-                    { cat: 'Glyph-FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', description: 'Gives the lead tracer "Star Power" as it writes.' },
+                    { cat: 'Glyph-FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
                     { cat: 'Glyph-FX', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
-                    { cat: 'Glyph-FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled', description: 'The color changes and cycling are set as a group, or per-character.' },
+                    { cat: 'Glyph-FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
                     { cat: 'Glyph-FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
                     { cat: 'Glyph-FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
                     { cat: 'Glyph-FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter / Sparkle', dep: 'starPowerEnabled' },
                     { cat: 'Glyph-FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
                     { cat: 'Glyph-FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-
                     { cat: 'Glyph-FX', type: 'header', label: 'Rainbow Streams' },
-                    { cat: 'Glyph-FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams', description: 'Spawns streams of random colors.' },
+                    { cat: 'Glyph-FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
                     { cat: 'Glyph-FX', id: 'rainbowStreamChance', type: 'range', label: 'Spawn Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
                     { cat: 'Glyph-FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
-
-                    // ==================== TAB 6: EVENTS ====================
+                    // EVENTS
                     { cat: 'Events', type: 'header', label: 'Pulse Wave' },
                     { cat: 'Events', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
                     { cat: 'Events', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
                     { cat: 'Events', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
                     { cat: 'Events', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled', description: 'Starts the pulse from random locations.' },
+                    { cat: 'Events', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pulse Start', dep: 'pulseEnabled' },
                     { cat: 'Events', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: 'Start the pulse at full width immediately instead of growing from zero.' },
-                    { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled', description: 'Keeps the spaces when pulsing.' },
-                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Color Blend', dep: 'pulseEnabled', description: 'Blend the Tracer color into the Stream color.' },
-                    { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled', description: 'Thickness of the expanding white square.' },
-                    { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled', description: 'How dark the frozen code becomes before the wave hits.' },
-                    { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled', description: 'Tracers remain fully illuminated during the pulse wave.' },
-                    { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled', description: 'Switch between a square wave (default) and a circular ripple.' },
+                    { cat: 'Events', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseBlend', type: 'checkbox', label: 'Pulse Color Blend', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseDimming', type: 'range', label: 'Background Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Keep Tracer Glow', dep: 'pulseEnabled' },
+                    { cat: 'Events', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
+                    
+                    { cat: 'Events', type: 'header', label: 'Mini Pulse Storm' },
+                    { cat: 'Events', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
+                    { cat: 'Events', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
+                    { cat: 'Events', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
+                    { cat: 'Events', id: 'miniPulseDurationSeconds', type: 'range', label: 'Storm Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
+                    { cat: 'Events', id: 'miniPulseSpawnChance', type: 'range', label: 'Blast Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled', description: 'How frequently new blasts appear during a storm.' },
+                    { cat: 'Events', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
+                    { cat: 'Events', id: 'miniPulseThickness', type: 'range', label: 'Blast Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+                    { cat: 'Events', id: 'miniPulseSpeed', type: 'range', label: 'Expansion Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
 
                     { cat: 'Events', type: 'header', label: 'Deja Vu' },
                     { cat: 'Events', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
                     { cat: 'Events', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
                     { cat: 'Events', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled', description: 'How many strip-writers will be spawned at a time' },
+                    { cat: 'Events', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuDurationSeconds', type: 'range', label: 'Total Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled', description: 'The typical time the individual flash remains on screen.' },
-                    { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled', description: 'The duration a flash could be shorter or longer.' },
+                    { cat: 'Events', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Average Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
+                    { cat: 'Events', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Duration Range', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Strip Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Strip Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
                     { cat: 'Events', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Brightness', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
-                    { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled', description: 'When glitching, randomize the color and brightness of the characters.' },
-
-                    // ==================== TAB 7: SYSTEM ====================
+                    { cat: 'Events', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Include Colors', dep: 'dejaVuEnabled' },
+                    // SYSTEM
                     { cat: 'System', type: 'header', label: 'Save Slots' },
-                    { cat: 'System', type: 'slot', idx: 0 },
-                    { cat: 'System', type: 'slot', idx: 1 },
-                    { cat: 'System', type: 'slot', idx: 2 },
-                    
+                    { cat: 'System', type: 'slot', idx: 0 }, { cat: 'System', type: 'slot', idx: 1 }, { cat: 'System', type: 'slot', idx: 2 },
                     { cat: 'System', type: 'header', label: 'Data Management' },
                     { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
                     { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
                     { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
-                    
                     { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
                     { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger' },
-
-                    // ==================== TAB 8: ABOUT ====================
+                    // ABOUT
                     { cat: 'About', type: 'about_content' }
                 ];
                 this.c.subscribe((k, s) => this.refresh(k));
@@ -1667,16 +1013,8 @@
             init() {
                 this.dom.toggle.onclick = () => this.dom.panel.classList.toggle('open');
                 this.dom.track = document.createElement('div'); this.dom.track.id = 'tabTrack'; this.dom.tabs.appendChild(this.dom.track);
-                
-                // --- REFACTOR: Removed Toast Container creation (Delegated to NotificationManager) ---
-                if(!this.dom.tooltip) { 
-                    this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); 
-                }
-
-                // 1. Force native scroll behavior
-                this.dom.tabs.style.overflowX = 'auto';
-                // 2. Prevent Mac "Swipe Back" gesture and boundary bouncing
-                this.dom.tabs.style.overscrollBehaviorX = 'contain';
+                if(!this.dom.tooltip) { this.dom.tooltip = document.createElement('div'); this.dom.tooltip.id = 'ui-tooltip'; document.body.appendChild(this.dom.tooltip); }
+                this.dom.tabs.style.overflowX = 'auto'; this.dom.tabs.style.overscrollBehaviorX = 'contain';
 
                 const cats = [...new Set(this.defs.map(d => d.cat))];
                 cats.forEach((cat, i) => {
@@ -1694,51 +1032,16 @@
 
                 document.getElementById('importFile').onchange = e => { 
                     const f = e.target.files[0]; if(!f) return; 
-                    const r=new FileReader(); r.onload=ev=>{ 
-                        try { const d=JSON.parse(ev.target.result); this.c.state={...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.notifications.show('Config Loaded', 'success'); } 
-                        catch(e){ this.notifications.show('Invalid File', 'error'); }
-                        e.target.value = ''; 
-                    }; r.readAsText(f); 
+                    const r=new FileReader(); r.onload=ev=>{ try { const d=JSON.parse(ev.target.result); this.c.state={...this.c.defaults, ...d.state}; this.c.updateDerivedValues(); this.c.save(); this.c.notify('ALL'); this.notifications.show('Config Loaded', 'success'); } catch(e){ this.notifications.show('Invalid File', 'error'); } e.target.value = ''; }; r.readAsText(f); 
                 };
-                document.getElementById('importFontFile').onchange = e => { 
-                    const f=e.target.files[0]; 
-                    if(f) this.fonts.importFont(f); // Refactored call (no callback)
-                    e.target.value = '';
-                };
+                document.getElementById('importFontFile').onchange = e => { const f=e.target.files[0]; if(f) this.fonts.importFont(f); e.target.value = ''; };
 
-                const startDrag = (e) => {
-                    // Only start drag on Left Click
-                    if (e.button !== 0) return; 
-                    this.scrollState.isDown = true;
-                    this.scrollState.startX = e.pageX - this.dom.tabs.offsetLeft;
-                    this.scrollState.scrollLeft = this.dom.tabs.scrollLeft;
-                    this.scrollState.dragDistance = 0;
-                    this.ignoreNextClick = false;
-                    this.dom.tabs.style.cursor = 'grabbing';
-                };
+                const startDrag = (e) => { if (e.button !== 0) return; this.scrollState.isDown = true; this.scrollState.startX = e.pageX - this.dom.tabs.offsetLeft; this.scrollState.scrollLeft = this.dom.tabs.scrollLeft; this.scrollState.dragDistance = 0; this.ignoreNextClick = false; this.dom.tabs.style.cursor = 'grabbing'; };
+                const stopDrag = () => { this.scrollState.isDown = false; this.dom.tabs.style.cursor = 'grab'; };
+                const doDrag = (e) => { if (!this.scrollState.isDown) return; e.preventDefault(); const x = e.pageX - this.dom.tabs.offsetLeft; const walk = (x - this.scrollState.startX) * 1.5; this.dom.tabs.scrollLeft = this.scrollState.scrollLeft - walk; this.scrollState.dragDistance += Math.abs(x - this.scrollState.startX); if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true; };
 
-                const stopDrag = () => {
-                    this.scrollState.isDown = false;
-                    this.dom.tabs.style.cursor = 'grab'; // Fallback cursor
-                };
-
-                const doDrag = (e) => {
-                    if (!this.scrollState.isDown) return;
-                    e.preventDefault(); // Stop selection
-                    const x = e.pageX - this.dom.tabs.offsetLeft;
-                    const walk = (x - this.scrollState.startX) * 1.5; // Scroll-fast multiplier
-                    this.dom.tabs.scrollLeft = this.scrollState.scrollLeft - walk;
-                    
-                    this.scrollState.dragDistance += Math.abs(x - this.scrollState.startX);
-                    // If we dragged more than 3px, we assume it's a drag, not a click
-                    if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true;
-                };
-
-                this.dom.tabs.addEventListener('mousedown', startDrag);
-                this.dom.tabs.addEventListener('mouseleave', stopDrag);
-                this.dom.tabs.addEventListener('mouseup', stopDrag);
-                this.dom.tabs.addEventListener('mousemove', doDrag);
-               
+                this.dom.tabs.addEventListener('mousedown', startDrag); this.dom.tabs.addEventListener('mouseleave', stopDrag);
+                this.dom.tabs.addEventListener('mouseup', stopDrag); this.dom.tabs.addEventListener('mousemove', doDrag);
                 this.refresh();
             }
             
@@ -1766,19 +1069,10 @@
 
             renderControl(d) {
                 if(d.type === 'header') { const el = document.createElement('div'); el.className = 'section-header'; el.textContent = d.label; return el; }
-                
-                if(d.type === 'about_content') {
-                    const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac';
-                    div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`;
-                    return div;
-                }
+                if(d.type === 'about_content') { const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac'; div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`; return div; }
 
                 const row = document.createElement('div');
-                
-                if(d.type === 'button') {
-                    const btn = document.createElement('button'); btn.className = `action-btn ${d.class||'btn-info'}`; btn.textContent = d.label;
-                    btn.onclick = () => this.handleAction(d.action); row.appendChild(btn);
-                }
+                if(d.type === 'button') { const btn = document.createElement('button'); btn.className = `action-btn ${d.class||'btn-info'}`; btn.textContent = d.label; btn.onclick = () => this.handleAction(d.action); row.appendChild(btn); }
                 else if(d.type === 'slot') {
                     row.className = 'slot-container';
                     const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[d.idx].name; inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
@@ -1787,46 +1081,18 @@
                     const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.notifications.show(`Loaded Slot ${d.idx+1}`, 'success'); };
                     grp.append(save, load); row.append(inp, grp);
                 }
-                else if(d.type === 'font_list') {
-                    row.className = 'font-manager-list'; row.id = 'fontListUI';
-                    this.updateFontList(row);
-                }
+                else if(d.type === 'font_list') { row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row); }
                 else {
                     row.className = d.type === 'checkbox' ? 'checkbox-row' : 'control-row';
                     const labelGroup = this.createLabelGroup(d);
-
-                    if(d.type !== 'checkbox') { 
-                        const hdr = document.createElement('div'); hdr.className = 'control-header'; 
-                        hdr.appendChild(labelGroup); 
-                        if(!d.hideValue && d.type === 'range') {
-                            const valDisp = document.createElement('span'); valDisp.id = `val-${d.id}`; 
-                            hdr.appendChild(valDisp);
-                        }
-                        row.appendChild(hdr); 
-                    } else {
-                        row.appendChild(labelGroup);
-                    }
+                    if(d.type !== 'checkbox') { const hdr = document.createElement('div'); hdr.className = 'control-header'; hdr.appendChild(labelGroup); if(!d.hideValue && d.type === 'range') { const valDisp = document.createElement('span'); valDisp.id = `val-${d.id}`; hdr.appendChild(valDisp); } row.appendChild(hdr); } else { row.appendChild(labelGroup); }
                     
                     let inp;
-                    if(d.type === 'range') { 
-                        inp = document.createElement('input'); inp.type = 'range'; inp.min=d.min; inp.max=d.max; if(d.step) inp.step=d.step; 
-                        inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id); 
-                        inp.oninput = e => { 
-                            const v = parseFloat(e.target.value); 
-                            const actual = d.invert ? (d.max+d.min)-v : v;
-                            this.c.set(d.id, actual); 
-                            const disp = document.getElementById(`val-${d.id}`);
-                            if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
-                        }; 
-                    }
+                    if(d.type === 'range') { inp = document.createElement('input'); inp.type = 'range'; inp.min=d.min; inp.max=d.max; if(d.step) inp.step=d.step; inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id); inp.oninput = e => { const v = parseFloat(e.target.value); const actual = d.invert ? (d.max+d.min)-v : v; this.c.set(d.id, actual); const disp = document.getElementById(`val-${d.id}`); if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || ''); }; }
                     else if(d.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(d.id); inp.oninput = e => this.c.set(d.id, e.target.value); w.appendChild(inp); row.appendChild(w); return row; }
                     else if(d.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(d.id); inp.onchange = e => this.c.set(d.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
                     else if(d.type === 'select') { inp = document.createElement('select'); (typeof d.options === 'function' ? d.options() : d.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(d.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(d.id, e.target.value); }
-                    
-                    row.appendChild(inp);
-                    if(d.id) inp.id = `in-${d.id}`;
-                    if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep));
-                    if(d.id) row.id = `row-${d.id}`;
+                    row.appendChild(inp); if(d.id) inp.id = `in-${d.id}`; if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep)); if(d.id) row.id = `row-${d.id}`;
                 }
                 return row;
             }
@@ -1842,6 +1108,10 @@
                     if(this.eff.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success');
                     else this.notifications.show('Pulse already active...', 'info');
                 }
+                if(a === 'minipulse') { 
+                    if(this.eff.trigger('MiniPulse')) this.notifications.show('Storm Triggered', 'success');
+                    else this.notifications.show('Storm already active...', 'info');
+                }
                 if(a === 'dejavu') { 
                     if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success');
                     else this.notifications.show('Deja Vu already active...', 'info');
@@ -1849,61 +1119,22 @@
             }
 
             refresh(k) {
-                if(k === 'ALL') {
-                    this.defs.forEach(d => { if(d.id) this.refresh(d.id); });
-                    this.refresh('fontFamily'); 
-                    return;
-                }
-
+                if(k === 'ALL') { this.defs.forEach(d => { if(d.id) this.refresh(d.id); }); this.refresh('fontFamily'); return; }
                 if(k === 'fontFamily') {
                     const sel = document.getElementById('in-fontFamily');
                     if(sel) { sel.innerHTML = ''; this._getFonts().forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get('fontFamily') === o.value) opt.selected = true; sel.appendChild(opt); }); }
-                    const list = document.getElementById('fontListUI');
-                    if(list) this.updateFontList(list);
-                    return;
+                    const list = document.getElementById('fontListUI'); if(list) this.updateFontList(list); return;
                 }
-
                 if(k) {
                     const inp = document.getElementById(`in-${k}`);
-                    if(inp) {
-                        const def = this.defs.find(d=>d.id===k);
-                        if(def) {
-                            const val = this.c.get(k);
-                            if(def.type === 'checkbox') inp.checked = val;
-                            else if(def.type === 'range') {
-                                inp.value = def.invert ? (def.max+def.min)-val : val;
-                                const disp = document.getElementById(`val-${k}`);
-                                if(disp) disp.textContent = def.transform ? def.transform(val) : val + (def.unit || '');
-                            }
-                            else inp.value = val;
-                        }
-                    }
+                    if(inp) { const def = this.defs.find(d=>d.id===k); if(def) { const val = this.c.get(k); if(def.type === 'checkbox') inp.checked = val; else if(def.type === 'range') { inp.value = def.invert ? (def.max+def.min)-val : val; const disp = document.getElementById(`val-${k}`); if(disp) disp.textContent = def.transform ? def.transform(val) : val + (def.unit || ''); } else inp.value = val; } }
                 }
-                
-                if(!k) {
-                    this.defs.forEach(d => {
-                        if(d.id && d.type === 'range') {
-                            const disp = document.getElementById(`val-${d.id}`);
-                            if(disp) {
-                                const val = this.c.get(d.id);
-                                disp.textContent = d.transform ? d.transform(val) : val + (d.unit || '');
-                            }
-                        }
-                    });
-                }
-
+                if(!k) { this.defs.forEach(d => { if(d.id && d.type === 'range') { const disp = document.getElementById(`val-${d.id}`); if(disp) { const val = this.c.get(d.id); disp.textContent = d.transform ? d.transform(val) : val + (d.unit || ''); } } }); }
                 const allDepRows = document.querySelectorAll('[data-dep]');
                 allDepRows.forEach(row => {
                     try {
-                        const depRule = JSON.parse(row.getAttribute('data-dep'));
-                        const rules = Array.isArray(depRule) ? depRule : [depRule];
-                        let conditionsMet = true;
-                        for (let rule of rules) {
-                            let target = rule; let expected = true;
-                            if (target.startsWith('!')) { target = target.substring(1); expected = false; }
-                            const actual = !!this.c.get(target);
-                            if (actual !== expected) { conditionsMet = false; break; }
-                        }
+                        const depRule = JSON.parse(row.getAttribute('data-dep')); const rules = Array.isArray(depRule) ? depRule : [depRule]; let conditionsMet = true;
+                        for (let rule of rules) { let target = rule; let expected = true; if (target.startsWith('!')) { target = target.substring(1); expected = false; } const actual = !!this.c.get(target); if (actual !== expected) { conditionsMet = false; break; } }
                         if(conditionsMet) row.classList.remove('control-disabled'); else row.classList.add('control-disabled');
                     } catch(e) {}
                 });
@@ -1911,38 +1142,29 @@
         }
 
         // =========================================================================
-        // 9. KERNEL (Bootstrapper & Main Loop)
+        // 9. KERNEL
         // =========================================================================
         class MatrixKernel {
             constructor() {
-                // 1. Initialize Notification System FIRST
                 this.notifications = new NotificationManager();
-                
                 this.config = new ConfigurationManager();
                 this.grid = new MatrixGrid(this.config);
                 this.simulation = new SimulationSystem(this.grid, this.config);
                 this.effectRegistry = new EffectRegistry(this.grid, this.config);
                 
                 this.effectRegistry.register(new PulseEffect(this.grid, this.config));
+                this.effectRegistry.register(new MiniPulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
 
                 this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
-                
-                // 2. INJECT dependencies: Pass 'this.notifications' to the managers
                 this.fontMgr = new FontManager(this.config, this.notifications);
                 this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
 
-                // Boot
                 this.fontMgr.init();
-                this.frame = 0; 
-                this.lastTime = 0; 
-                this.accumulator = 0; 
-                this.timestep = 1000 / 60;
-                
+                this.frame = 0; this.lastTime = 0; this.accumulator = 0; this.timestep = 1000 / 60;
                 let resizeTimer;
                 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => this._resize(), 100); });
                 
-                // Subscribe to smoothing changes
                 this.config.subscribe((k) => { 
                     if(['resolution','stretchX','stretchY','fontSize','horizontalSpacingFactor'].includes(k) || k === 'ALL') this._resize(); 
                     if(['smoothingEnabled', 'smoothingAmount'].includes(k)) this.renderer.updateSmoothing();
@@ -1952,10 +1174,7 @@
                 requestAnimationFrame(t => this._loop(t));
             }
 
-            _resize() {
-                this.renderer.resize();
-                this.grid.resize(window.innerWidth / this.config.state.stretchX, window.innerHeight / this.config.state.stretchY);
-            }
+            _resize() { this.renderer.resize(); this.grid.resize(window.innerWidth / this.config.state.stretchX, window.innerHeight / this.config.state.stretchY); }
 
             _loop(time) {
                 if (!this.lastTime) this.lastTime = time;
