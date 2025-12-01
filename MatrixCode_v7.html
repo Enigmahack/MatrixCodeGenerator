@@ -859,7 +859,6 @@
                 const s = this.c.state; const d = this.c.derived;
                 const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
                 
-                // Use Math.floor on geometry to align with grid rendering
                 const cx = Math.floor(x * d.cellWidth * s.stretchX); 
                 const cy = Math.floor(y * d.cellHeight * s.stretchY);
                 const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); 
@@ -869,71 +868,50 @@
                 if (s.pulseCircular) dist = Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2));
                 else dist = Math.max(Math.abs(cx - ox), Math.abs(cy - oy));
 
-                const waveW = s.pulseWidth * 2; 
+                const width = s.pulseWidth * 2; 
+                const innerEdge = this.radius - width;
 
-                // --- 1. PASSED (Reveal Live Sim) ---
-                // Add a small buffer (-2) to ensure clean handoff to live sim
-                if (this.state !== 'WAITING' && dist <= this.radius - waveW - 2) {
+                // --- ZONE 1: PASSED (Live Green Code) ---
+                // Strict NULL return hands control to the refactored Renderer
+                if (this.state !== 'WAITING' && dist < innerEdge) {
                     return null; 
                 }
 
                 const snAlpha = this.snap.alphas[i];
                 let charCode = this.snap.chars[i];
-                
-                // Base Color = Snapshot Color (Usually Green)
                 const rgb = Utils.unpackRgb(this.snap.colors[i]);
                 const baseColor = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-                
-                // Target Color = Tracer Color (Usually Cyan/White)
                 const tRgb = d.tracerRgb;
                 const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
 
-                // HANDLE EMPTY SPACE
+                let isGap = false;
                 if (snAlpha <= 0.01) {
-                    if (s.pulsePreserveSpaces) {
-                        // Ensure solid black is returned to clear previous frame trails
-                        return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000', blockBloom: true };
-                    } else {
-                        charCode = this.snap.fillChars[i];
-                    }
+                    isGap = true;
+                    if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i];
                 }
                 
                 const char = String.fromCharCode(charCode);
                 const isTracer = (this.snap.tracers[i] === 1);
 
-                // --- 2. AHEAD (Frozen / Waiting) ---
+                // --- ZONE 2: AHEAD (Frozen / Darkening) ---
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(isTracer && s.pulseIgnoreTracers) {
                         return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
                     }
-                    const dimAlpha = (snAlpha <= 0.01) ? 0.0 : (snAlpha * s.pulseDimming);
-                    return { char, color: baseColor, alpha: dimAlpha, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                    if (isGap) return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                    
+                    return { char, color: baseColor, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
                 
-                // --- 3. INSIDE WAVE ---
-                const rel = Math.max(0, Math.min(1, (this.radius - dist) / waveW));
-                
-                if (isTracer && s.pulseIgnoreTracers) {
-                    return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
+                // --- ZONE 3: INSIDE WAVE (Solid White) ---
+                if (s.pulsePreserveSpaces && isGap) {
+                    return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
 
-                // ISSUE 1 & 3 FIX: Color Logic
-                let waveColor;
-                if (s.pulseBlend) {
-                    // Interpolate Target (Front) -> Base (Back)
-                    // rel 0 = Front (Target), rel 1 = Back (Base)
-                    const tr = Math.floor(tRgb.r + (rgb.r - tRgb.r) * rel);
-                    const tg = Math.floor(tRgb.g + (rgb.g - tRgb.g) * rel);
-                    const tb = Math.floor(tRgb.b + (rgb.b - tRgb.b) * rel);
-                    waveColor = `rgb(${tr},${tg},${tb})`;
-                } else {
-                    // No blend? Pure Tracer color.
-                    waveColor = targetColor;
-                }
-
+                const rel = Math.max(0, Math.min(1, (this.radius - dist) / width));
                 return { 
                     char, 
-                    color: waveColor, 
+                    color: targetColor, // Always White
                     alpha: 1.0, 
                     glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 
                     size: s.tracerSizeIncrease,
@@ -1057,60 +1035,6 @@
                 return { alpha: 0, phase: 'none' };
             }
 
-            _drawOverride(i, o, d, s, bloom) {
-        const x = i % this.grid.cols; 
-        const y = Math.floor(i / this.grid.cols);
-        
-        // Calculate precise coordinates relative to the SCALED context
-        const cx = (x * d.cellWidth) + s.fontOffsetX; 
-        const cy = (y * d.cellHeight) + s.fontOffsetY;
-        const px = cx + (d.cellWidth * 0.5); 
-        const py = cy + (d.cellHeight * 0.5);
-
-        if (o.solid) {
-            const bg = o.bgColor || '#000000';
-            this.ctx.fillStyle = bg;
-            
-            // ISSUE 2 FIX: Robust Clearing
-            // Use Math.ceil to ensure we cover sub-pixel rendering artifacts
-            // Add slight overlap (+1) to prevent hairline gaps between cells
-            const w = Math.ceil(d.cellWidth) + 1;
-            const h = Math.ceil(d.cellHeight) + 1;
-            
-            // Fill Main Canvas
-            this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
-            
-            // Clear Bloom Canvas if requested (prevents ghost glow)
-            if(bloom && o.blockBloom) {
-                this.bloomCtx.clearRect(Math.floor(cx), Math.floor(cy), w, h);
-            }
-        }
-
-        // Draw Text
-        if(o.char && o.alpha > 0.01) {
-            this.ctx.fillStyle = o.color; 
-            this.ctx.shadowColor = o.color; 
-            this.ctx.shadowBlur = o.glow || 0;
-            
-            const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-            this.ctx.font = font;
-            this.ctx.globalAlpha = o.alpha;
-            
-            this.ctx.fillText(o.char, px, py);
-            
-            if(bloom) {
-                this.bloomCtx.save();
-                this.bloomCtx.fillStyle = o.color; 
-                this.bloomCtx.font = font; 
-                this.bloomCtx.globalAlpha = o.alpha;
-                this.bloomCtx.fillText(o.char, px, py);
-                this.bloomCtx.restore();
-            }
-            
-            this.ctx.font = d.fontBaseStr; 
-        }
-    }
-
             render(frame) {
                 const s = this.config.state;
                 const d = this.config.derived;
@@ -1140,7 +1064,7 @@
                 let lastColor = defaultColor;
                 this.ctx.fillStyle = defaultColor; 
                 
-                // OPTIMIZATION: Disable Shadow Blur for main stream pass
+                // Disable Shadow Blur for main stream pass
                 this.ctx.shadowBlur = 0; 
                 this.ctx.shadowColor = 'transparent';
 
@@ -1154,6 +1078,14 @@
                     const override = this.effects.getOverride(i);
                     if(override) {
                         this._drawOverride(i, override, d, s, bloom);
+                        
+                        // CRITICAL FIX: STATE RESET
+                        // The override changed the context (Color/Shadow). We must dirty the state
+                        // so the next standard cell forces a context update.
+                        lastColor = null; 
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.shadowColor = 'transparent';
+                        
                         continue;
                     }
 
@@ -1161,10 +1093,9 @@
                     let gridAlpha = this.grid.alphas[i];
                     if(gridAlpha <= 0.01) continue;
 
-                    // STRICT MASKING
                     const tState = this._getTracerState(i, s);
                     if (tState.phase === 'attack' || tState.phase === 'hold') {
-                        gridAlpha = 0.0; // Mask green layer while tracer is entering/holding
+                        gridAlpha = 0.0; 
                     } 
 
                     if(gridAlpha <= 0.01) continue;
@@ -1187,13 +1118,14 @@
                         }
                     }
 
+                    // OPTIMIZATION CHECK (Now Safe)
                     if(color !== lastColor) {
                         this.ctx.fillStyle = color; 
                         if(bloom) this.bloomCtx.fillStyle = color;
                         lastColor = color;
                     }
 
-                    // Crossfade (Rotator)
+                    // Draw Standard Characters
                     const rotProg = this.grid.rotatorProg[i];
                     const char = this.grid.getChar(i);
                     
@@ -1207,14 +1139,12 @@
                             this.ctx.fillText(next, px, py);
                         }
                     } 
-                    // Dissolve / Deterioration
                     else if(s.dissolveEnabled && decay >= 2) {
                         const prog = (decay - 2) / s.decayFadeDurationFrames;
                         const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
                         const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
                         this.ctx.font = font; 
                         
-                        // Ghosting
                         if(s.deteriorationEnabled) {
                             const off = s.deteriorationStrength * prog;
                             this.ctx.globalAlpha = gridAlpha * 0.4 * prog;
@@ -1225,9 +1155,8 @@
                         this.ctx.globalAlpha = gridAlpha; 
                         this.ctx.fillText(char, px, py);
                         if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
-                        this.ctx.font = fontBase; // Reset
+                        this.ctx.font = fontBase; 
                     }
-                    // Standard
                     else {
                         this.ctx.globalAlpha = gridAlpha;
                         this.ctx.fillText(char, px, py);
@@ -1239,7 +1168,6 @@
                 const tStr = d.tracerColorStr;
                 this.ctx.fillStyle = tStr; 
                 
-                // Re-enable Shadow Blur for Tracers ONLY
                 this.ctx.shadowBlur = s.tracerGlow; 
                 this.ctx.shadowColor = tStr;
                 
@@ -1293,23 +1221,45 @@
             }
 
             _drawOverride(i, o, d, s, bloom) {
-                const x = i % this.grid.cols; const y = Math.floor(i / this.grid.cols);
-                const px = (x * d.cellWidth + d.cellWidth * 0.5) + s.fontOffsetX;
-                const py = (y * d.cellHeight + d.cellHeight * 0.5) + s.fontOffsetY;
+                const x = i % this.grid.cols; 
+                const y = Math.floor(i / this.grid.cols);
                 
-                this.ctx.fillStyle = o.color; this.ctx.shadowColor = o.color; this.ctx.shadowBlur = o.glow || 0;
-                const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-                this.ctx.font = font;
-                this.ctx.globalAlpha = o.alpha;
-                this.ctx.fillText(o.char, px, py);
-                
-                if(bloom) {
-                    this.bloomCtx.save();
-                    this.bloomCtx.fillStyle = o.color; this.bloomCtx.font = font; this.bloomCtx.globalAlpha = o.alpha;
-                    this.bloomCtx.fillText(o.char, px, py);
-                    this.bloomCtx.restore();
+                const cx = (x * d.cellWidth) + s.fontOffsetX; 
+                const cy = (y * d.cellHeight) + s.fontOffsetY;
+                const px = cx + (d.cellWidth * 0.5); 
+                const py = cy + (d.cellHeight * 0.5);
+
+                if (o.solid) {
+                    const bg = o.bgColor || '#000000';
+                    this.ctx.fillStyle = bg;
+                    const w = Math.ceil(d.cellWidth) + 1;
+                    const h = Math.ceil(d.cellHeight) + 1;
+                    this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
+                    // NOTE: No clearRect here, preventing flicker
                 }
-                this.ctx.font = d.fontBaseStr; 
+
+                if(o.char && o.alpha > 0.01) {
+                    this.ctx.fillStyle = o.color; 
+                    this.ctx.shadowColor = o.color; 
+                    this.ctx.shadowBlur = o.glow || 0;
+                    
+                    const font = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                    this.ctx.font = font;
+                    this.ctx.globalAlpha = o.alpha;
+                    
+                    this.ctx.fillText(o.char, px, py);
+                    
+                    if(bloom) {
+                        this.bloomCtx.save();
+                        this.bloomCtx.fillStyle = o.color; 
+                        this.bloomCtx.font = font; 
+                        this.bloomCtx.globalAlpha = o.alpha;
+                        this.bloomCtx.fillText(o.char, px, py);
+                        this.bloomCtx.restore();
+                    }
+                    
+                    this.ctx.font = d.fontBaseStr; 
+                }
             }
         }
 
