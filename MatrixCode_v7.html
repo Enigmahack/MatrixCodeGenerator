@@ -1054,29 +1054,25 @@
                 this.cvs.style.width = this.w + "px"; this.cvs.style.height = this.h + "px";
                 this.bloomCvs.width = (this.w * scale) * 0.25; this.bloomCvs.height = (this.h * scale) * 0.25;
                 this.bloomCtx.scale(0.25, 0.25);
-                
-                // UPDATE: Delegated to specific method
                 this.updateSmoothing();
             }
 
-            // NEW: Lightweight update for CSS filters only
             updateSmoothing() {
                 const s = this.config.state;
                 const blur = s.smoothingEnabled ? `${s.smoothingAmount}px` : '0px';
                 this.cvs.style.filter = `blur(${blur})`;
             }
 
-            // Helper to determine Tracer lifecycle state
+            // REFACTOR: Fixed Logic to detect Rainbow/Style tracers
             _getTracerState(i, s) {
                 const age = this.grid.ages[i];
                 if (age <= 0 || this.grid.decays[i] >= 2) return { alpha: 0, phase: 'none' };
 
                 const type = this.grid.types[i];
-                const style = this.grid.complexStyles.get(i);
-                let isTracerCandidate = false;
-
-                if (style) { if(style.cycle) isTracerCandidate = true; }
-                else if (type === CELL_TYPE.TRACER || type === CELL_TYPE.ROTATOR) isTracerCandidate = true;
+                
+                // FIX: Trust CELL_TYPE. If it says it's a tracer, it's a tracer.
+                // We no longer require 'style.cycle' to be true.
+                const isTracerCandidate = (type === CELL_TYPE.TRACER || type === CELL_TYPE.ROTATOR);
 
                 if (!isTracerCandidate) return { alpha: 0, phase: 'none' };
 
@@ -1122,12 +1118,10 @@
                     if(s.mirrorEnabled) { this.bloomCtx.scale(-1, 1); this.bloomCtx.translate(-(this.w / s.stretchX), 0); }
                 }
 
-                // 3. PASS 1: STREAM (Green Characters)
+                // 3. PASS 1: STREAM (Body)
                 const defaultColor = d.streamColorStr;
                 let lastColor = defaultColor;
                 this.ctx.fillStyle = defaultColor; 
-                
-                // Disable Shadow Blur for main stream pass
                 this.ctx.shadowBlur = 0; 
                 this.ctx.shadowColor = 'transparent';
 
@@ -1141,14 +1135,9 @@
                     const override = this.effects.getOverride(i);
                     if(override) {
                         this._drawOverride(i, override, d, s, bloom);
-                        
-                        // CRITICAL FIX: STATE RESET
-                        // The override changed the context (Color/Shadow). We must dirty the state
-                        // so the next standard cell forces a context update.
                         lastColor = null; 
                         this.ctx.shadowBlur = 0;
                         this.ctx.shadowColor = 'transparent';
-                        
                         continue;
                     }
 
@@ -1181,14 +1170,13 @@
                         }
                     }
 
-                    // OPTIMIZATION CHECK (Now Safe)
                     if(color !== lastColor) {
                         this.ctx.fillStyle = color; 
                         if(bloom) this.bloomCtx.fillStyle = color;
                         lastColor = color;
                     }
 
-                    // Draw Standard Characters
+                    // Draw
                     const rotProg = this.grid.rotatorProg[i];
                     const char = this.grid.getChar(i);
                     
@@ -1227,16 +1215,14 @@
                     }
                 }
 
-                // 4. PASS 2: TRACERS (Overlay on top of stream)
+                // 4. PASS 2: TRACERS (Overlay)
                 const tStr = d.tracerColorStr;
-                this.ctx.fillStyle = tStr; 
-                
                 this.ctx.shadowBlur = s.tracerGlow; 
                 this.ctx.shadowColor = tStr;
                 
                 const tFont = `${s.italicEnabled?'italic':''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
                 this.ctx.font = tFont; 
-                if(bloom) { this.bloomCtx.fillStyle = tStr; this.bloomCtx.font = tFont; }
+                if(bloom) { this.bloomCtx.font = tFont; }
 
                 for(let i=0; i<total; i++) {
                     if(this.effects.getOverride(i)) continue;
@@ -1249,18 +1235,20 @@
                         const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
                         
                         const style = this.grid.complexStyles.get(i);
-                        if (style && style.cycle) {
-                            let h = (style.h + (frame * style.speed)) % 360;
+                        
+                        // FIX: Calculate Tracer Color dynamically based on style
+                        let cStr = tStr;
+                        if (style) {
+                            let h = style.h;
+                            if(style.cycle) h = (h + (frame * style.speed)) % 360;
+                            // Make it super bright (L=90) to stand out as a tracer
                             let tc = Utils.hslToRgb(h|0, 100, 90); 
-                            let cStr = `rgb(${tc.r},${tc.g},${tc.b})`;
-                            this.ctx.fillStyle = cStr; 
-                            this.ctx.shadowColor = cStr;
-                            if(bloom) this.bloomCtx.fillStyle = cStr;
-                        } else {
-                            this.ctx.fillStyle = tStr; 
-                            this.ctx.shadowColor = tStr;
-                            if(bloom) this.bloomCtx.fillStyle = tStr;
+                            cStr = `rgb(${tc.r},${tc.g},${tc.b})`;
                         }
+
+                        this.ctx.fillStyle = cStr; 
+                        this.ctx.shadowColor = cStr;
+                        if(bloom) this.bloomCtx.fillStyle = cStr;
 
                         this.ctx.globalAlpha = tState.alpha;
                         this.ctx.fillText(this.grid.getChar(i), px, py);
