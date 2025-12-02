@@ -1,8 +1,8 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.1.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.2.html
 #
-💻 Matrix Digital Rain Simulation v7.1
-The quest for the "perfect" rain continues. v7.1 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
+💻 Matrix Digital Rain Simulation v7.2
+The quest for the "perfect" rain continues. v7.2 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
 <img width="3840" height="1885" alt="image" src="https://github.com/user-attachments/assets/eecd274c-3cb1-42a6-a75b-e149feafaf36" />
 <img width="3839" height="1909" alt="image" src="https://github.com/user-attachments/assets/06dc1c92-19b2-4c1b-8faf-f7859d7e4ac7" />
@@ -15,18 +15,34 @@ The quest for the "perfect" rain continues. v7.1 represents a massive leap forwa
 
 
 #
-🚀 What's New in v7.1
-This release is all about Customization, Support, and Atmospherics. Simply fading text out wasn't accurate enough; it needed to "ghost" and deteriorate. Furthermore you can now load your own fonts. 
+🚀 What's New in v7.2
+This release focuses on deeper customization, advanced visual effects, and a refined user experience. We've overhauled core systems for better performance and introduced powerful new ways to control the digital rain.
 
-Custom Font Manager & Injection: You are no longer stuck with the default embedded fonts. v7.1 includes a full Font Manager that uses your browser's IndexedDB to save custom .ttf, .otf, and .woff files. If you have created a custom Matrix font, you can now drag and drop it directly into the simulation and it will persist across reloads.
+**Core System Overhauls & Performance:**
+*   **Modular Architecture**: Major refactoring of the simulation engine into a more modular `MatrixKernel` with dedicated systems for Grid, Simulation, Effects, and Rendering, enhancing maintainability and future expansion.
+*   **Optimized Grid**: The underlying grid structure has been re-engineered using TypedArrays for significant performance improvements, especially in large simulations.
 
-Code Ghosting: In the movie, the code doesn't just turn black; it blurs and "ghosts" as it fades. It creates fuzzy, drifting ghosts of characters as they die out, simulating a CRT phosphor decay effect.
+**Enhanced Visuals & Effects:**
+*   **Fine-tuned Deterioration**: Improved "Ghosting" with more control over `deteriorationStrength`, alongside refined `dissolve` effects for more realistic code decay.
+*   **Advanced Pulse Effect**: The `Pulse` effect now offers more control with new `pulseCircular`, `pulseBlend`, and `pulseInstantStart` options, allowing for a wider range of visual impact.
+*   **New "Mini Pulse" Effect**: Introducing a dynamic new "Mini Pulse" effect (also known as "Storm"), which spawns localized, expanding rings of code disruption, creating a chaotic and energetic visual burst. Configurable parameters include frequency, duration, spawn chance, size, thickness, and speed.
+*   **Inverted Tracers**: More explicit control over `invertedTracerChance` for streams that clear existing code rather than writing new characters, adding negative space to the rain.
 
-Synced Rotators: Previously, characters changed randomly. Now, with Rotator Sync, the changing characters (rotators) can lock their cycle speed to the movement of the tracers. This creates a "mechanical" feel, where the code shifts exactly as it falls.
+**Stream & Flow Control:**
+*   **Granular Stream Management**: New settings for `streamSpawnCount` and `eraserSpawnCount` allow for precise control over the number of falling streams and eraser streams.
+*   **Flow Rhythm**: `releaseInterval` now controls the rhythm of new stream releases, allowing for more dynamic and less uniform rain patterns.
+*   **Gap Control**: `minStreamGap` and `minEraserGap` provide better spatial control over stream placement, preventing streams from spawning too close together.
+*   **Life Cycle in Seconds**: `ttlMinSeconds` and `ttlMaxSeconds` now define stream lifespan in seconds for more intuitive configuration.
 
-"Gel" Physics UI: The settings panel tabs now feature a custom physics engine with "Gel Damping." When you scroll or drag the tabs, they bounce and settle organically rather than stopping abruptly—feels much better on touch screens.
+**User Interface & Experience:**
+*   **Accordion UI**: The settings panel has been redesigned with an intuitive accordion-style interface, making it easier to navigate and manage a growing number of options.
+*   **Mobile Scroll Guard**: Sliders on mobile devices now only respond to horizontal touch and drag gestures, preventing accidental value changes during vertical page scrolling.
+*   **Notification System**: A new, dedicated `NotificationManager` provides clear and consistent feedback for user actions like font imports, saves, and effect triggers.
+*   **Improved Font Management**: The `FontManager` has been refined for more robust handling of custom font files, including better format detection and integration with the new notification system.
 
-There's a LOT more in there from special features to colors, and more so take a look around the settings. 
+**Minor Adjustments:**
+*   Default values for several parameters like `streamColor`, `tracerColor`, `bloomStrength`, `bloomOpacity`, `resolution`, `smoothingAmount`, `fontSize`, `tracerGlow`, `pulseDurationSeconds`, `pulseWidth`, and `pulseDimming` have been updated for a more balanced out-of-the-box experience.
+*   The `randomStopEnabled` and `randomStopChance` features have been removed for a more focused stream behavior model.
 #
 ✨ Features
 🔠 Advanced Typography (Glyphs Tab)
@@ -64,4 +80,4 @@ WOFF2 Support: The engine now correctly detects and provides format hints for mo
 Touch Physics: The UI manager now calculates velocity and drag distance to distinguish between a "tap" and a "swipe," preventing accidental clicks while scrolling through tabs on mobile.
 #
 📝 Note on Upgrading from v6.2
-Because v7.1 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
+Because v7.2 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
