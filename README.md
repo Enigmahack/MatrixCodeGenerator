@@ -4,15 +4,10 @@ https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.2.html
 💻 Matrix Digital Rain Simulation v7.2
 The quest for the "perfect" rain continues. v7.2 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
-<img width="3840" height="1885" alt="image" src="https://github.com/user-attachments/assets/eecd274c-3cb1-42a6-a75b-e149feafaf36" />
-<img width="3839" height="1909" alt="image" src="https://github.com/user-attachments/assets/06dc1c92-19b2-4c1b-8faf-f7859d7e4ac7" />
-<img width="3837" height="1914" alt="image" src="https://github.com/user-attachments/assets/6ebe42d1-2e39-47bc-9ebc-a3681d3c0262" />
-<img width="3834" height="1915" alt="image" src="https://github.com/user-attachments/assets/d0037881-19d5-48dd-957a-4118b6b23e09" />
-<img width="3839" height="1915" alt="image" src="https://github.com/user-attachments/assets/41dcfdc5-b7a9-4064-8f63-3f5feef2dc52" />
-<img width="3836" height="1915" alt="image" src="https://github.com/user-attachments/assets/7d15e00a-f446-4961-8ecb-f302d998642f" />
-<img width="3836" height="1917" alt="image" src="https://github.com/user-attachments/assets/8d57dd80-df38-4ad4-91b6-e430657e84f0" />
-
-
+<img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
+<img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
+<img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/71adcfee-d368-4ebc-ad31-5b0bb58c75a5" />
+<img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
 
 #
 🚀 What's New in v7.2
