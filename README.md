@@ -1,8 +1,8 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.1.html
 #
-💻 Matrix Digital Rain Simulation v7.0
-The quest for the "perfect" rain continues. v7.0 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
+💻 Matrix Digital Rain Simulation v7.1
+The quest for the "perfect" rain continues. v7.1 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
 <img width="3840" height="1885" alt="image" src="https://github.com/user-attachments/assets/eecd274c-3cb1-42a6-a75b-e149feafaf36" />
 <img width="3839" height="1909" alt="image" src="https://github.com/user-attachments/assets/06dc1c92-19b2-4c1b-8faf-f7859d7e4ac7" />
@@ -15,10 +15,10 @@ The quest for the "perfect" rain continues. v7.0 represents a massive leap forwa
 
 
 #
-🚀 What's New in v7.0
+🚀 What's New in v7.1
 This release is all about Customization, Support, and Atmospherics. Simply fading text out wasn't accurate enough; it needed to "ghost" and deteriorate. Furthermore you can now load your own fonts. 
 
-Custom Font Manager & Injection: You are no longer stuck with the default embedded fonts. v7.0 includes a full Font Manager that uses your browser's IndexedDB to save custom .ttf, .otf, and .woff files. If you have created a custom Matrix font, you can now drag and drop it directly into the simulation and it will persist across reloads.
+Custom Font Manager & Injection: You are no longer stuck with the default embedded fonts. v7.1 includes a full Font Manager that uses your browser's IndexedDB to save custom .ttf, .otf, and .woff files. If you have created a custom Matrix font, you can now drag and drop it directly into the simulation and it will persist across reloads.
 
 Code Ghosting: In the movie, the code doesn't just turn black; it blurs and "ghosts" as it fades. It creates fuzzy, drifting ghosts of characters as they die out, simulating a CRT phosphor decay effect.
 
@@ -64,4 +64,4 @@ WOFF2 Support: The engine now correctly detects and provides format hints for mo
 Touch Physics: The UI manager now calculates velocity and drag distance to distinguish between a "tap" and a "swipe," preventing accidental clicks while scrolling through tabs on mobile.
 #
 📝 Note on Upgrading from v6.2
-Because v7.0 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
+Because v7.1 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
