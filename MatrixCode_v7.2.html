@@ -1612,13 +1612,14 @@
                             inp.step=d.step; 
                             inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id);                            
                             inp.oninput = e => { 
-                                if (this._isDraggingHorizontally) { 
+                                
                                     const v = parseFloat(e.target.value); 
                                     const actual = d.invert ? (d.max+d.min)-v : v; 
                                     this.c.set(d.id, actual); 
                                     const disp = document.getElementById(`val-${d.id}`); 
                                     
-                                    if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || ''); }}; 
+                                    if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
+                                }; 
 
                             let startX = 0; 
                             let startY = 0; 
