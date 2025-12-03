@@ -85,14 +85,14 @@ This project now supports a modular development workflow using a Python script t
 
 ### `matrix_builder.py` Script
 
-The `matrix_builder.py` script provides two main commands: `split` and `combine`.
+The `matrix_builder.py` script provides three main commands: `split`, `combine`, and `refresh`.
 
 #### `split` command
 
 This command takes a monolithic HTML file (e.g., `MatrixCode_vX.Y.html`) and splits it into a modular directory structure. The output directory will contain:
 -   `index.html`: A development-friendly HTML file that links to all the individual CSS and JavaScript files.
 -   `css/style.css`: The extracted CSS styles.
--   `js/`: A directory containing JavaScript files for each class and utility, organized by category (e.g., `js/core/Utils.js`, `js/ui/UIManager.js`).
+-   `js/`: A directory containing JavaScript files for each class and utility, organized by category (e.g., `js/core/Utils.js`, `js/ui/UIManager.js`). New effect or simulation mode files will be automatically detected and placed into their respective `js/effects/` or `js/simulation/` subdirectories.
 
 **Usage:**
 ```bash
@@ -106,7 +106,7 @@ This will create a `MatrixCode_v7.2_dev` directory containing the modular projec
 
 #### `combine` command
 
-This command takes a modular project directory (created by the `split` command) and combines all its contents back into a single monolithic HTML file. This is useful for generating release builds or for packaging the application into a single portable file.
+This command takes a modular project directory and combines all its contents back into a single monolithic HTML file. It intelligently orders the JavaScript files based on dependencies and directory structure, automatically including any newly added effect or simulation mode files. This is useful for generating release builds or for packaging the application into a single portable file.
 
 **Usage:**
 ```bash
@@ -118,6 +118,20 @@ python3 matrix_builder.py combine MatrixCode_v7.2_dev MatrixCode_v7.2_Release.ht
 ```
 This will create a `MatrixCode_v7.2_Release.html` file containing the combined application.
 
+#### `refresh` command
+
+This command updates the `index.html` file within a modular project directory to reflect any changes in the JavaScript file structure (e.g., adding a new effect file). It ensures that the development `index.html` correctly links all current JavaScript files in the appropriate loading order.
+
+**Usage:**
+```bash
+python3 matrix_builder.py refresh <input_directory>
+```
+**Example:**
+```bash
+python3 matrix_builder.py refresh MatrixCode_v7.3_dev
+```
+This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any newly added `.js` files.
+
 ### Workflow Example
 
 1.  **Initial Split:**
@@ -126,7 +140,17 @@ This will create a `MatrixCode_v7.2_Release.html` file containing the combined a
     ```
 2.  **Development:**
     Navigate to the `MatrixCode_v7.2_dev/` directory. Open `MatrixCode_v7.2_dev/index.html` in your web browser for development.
-    Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory. The `index.html` file automatically references these modular files, so your changes will be reflected upon refreshing the browser.
+    Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory.
+
+    **If you add new `.js` files (e.g., a new effect):**
+    After creating the new file (e.g., `js/effects/MyNewEffect.js`), you must also:
+    *   Manually register the new effect in `js/core/MatrixKernel.js` (e.g., `this.effectRegistry.register(new MyNewEffect(...));`).
+    *   If you want a UI button, manually add it to `js/ui/UIManager.js`'s `this.defs` array and handle its action in `handleAction()`.
+    *   **Then, run the `refresh` command** to update your development `index.html`:
+        ```bash
+        python3 matrix_builder.py refresh MatrixCode_v7.2_dev
+        ```
+    Your `MatrixCode_v7.2_dev/index.html` will now include the new script.
 
 3.  **Generate Release Build:**
     Once you are satisfied with your changes, run the `combine` command to generate a new monolithic release file:

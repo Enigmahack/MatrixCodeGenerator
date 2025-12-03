@@ -3,6 +3,7 @@ import re
 import sys
 import argparse
 import shutil
+import glob
 from datetime import datetime
 
 # --- Configuration ---
@@ -45,30 +46,96 @@ CODE_MAP = {
     'CanvasRenderer': 'js/rendering/CanvasRenderer.js',
 }
 
-# Order is critical for the combined build
-LOAD_ORDER = [
-    'js/core/Utils.js',
-    'js/ui/NotificationManager.js',
-    'js/config/ConfigurationManager.js',
-    'js/data/MatrixGrid.js',
-    'js/simulation/StreamModes.js',
-    'js/simulation/SimulationSystem.js',
-    'js/effects/EffectRegistry.js',
-    'js/effects/PulseEffect.js',
-    'js/effects/MiniPulseEffect.js',
-    'js/effects/DejaVuEffect.js',
-    'js/rendering/CanvasRenderer.js',
-    'js/data/FontData.js',
-    'js/ui/FontManager.js',
-    'js/ui/UIManager.js',
-    'js/core/MatrixKernel.js',
-]
-
 # Helper to create directories
 def ensure_dir(file_path):
     directory = os.path.dirname(file_path)
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
+
+def get_combine_order(source_dir):
+    """
+    Dynamically determine the file combination order based on directory structure
+    and a set of explicit priorities.
+    """
+    
+    # Directories to scan in specific order
+    DIR_ORDER = [
+        'js/core',
+        'js/ui',       # NotificationManager (independent)
+        'js/config',
+        'js/data',
+        'js/simulation',
+        'js/effects',
+        'js/rendering',
+        # 'js/ui' handled again implicitly or via explicit list if needed, but 'ui' is already listed.
+        # UIManager/FontManager are dependent on others. We handle this via FORCED_LAST.
+    ]
+    
+    # Files that MUST load first within the project scope (or their dir scope)
+    FORCED_FIRST = [
+        'js/core/Utils.js',
+        'js/ui/NotificationManager.js',
+        'js/config/ConfigurationManager.js',
+        'js/data/MatrixGrid.js',
+        'js/data/FontData.js',
+        'js/simulation/StreamModes.js',
+        'js/simulation/SimulationSystem.js',
+        'js/effects/EffectRegistry.js'
+    ]
+    
+    # Files that MUST load last
+    FORCED_LAST = [
+        'js/rendering/CanvasRenderer.js',
+        'js/ui/FontManager.js',
+        'js/ui/UIManager.js',
+        'js/core/MatrixKernel.js'
+    ]
+    
+    all_files = []
+    
+    # 1. Walk directories in order
+    for d in DIR_ORDER:
+        full_path = os.path.join(source_dir, d)
+        if not os.path.exists(full_path):
+            continue
+            
+        # Get all JS files in this specific directory (non-recursive to respect DIR_ORDER)
+        # Actually, os.walk is recursive. Let's use os.listdir for control or glob.
+        # But we want to allow nested folders? Let's stick to top-level of these dirs for now as per structure.
+        
+        js_files = glob.glob(os.path.join(full_path, "*.js"))
+        
+        # Normalize paths relative to source_dir
+        rel_files = [os.path.relpath(f, source_dir) for f in js_files]
+        all_files.extend(rel_files)
+
+    # Remove duplicates (in case DIR_ORDER causes overlaps, though unlikely with current structure)
+    all_files = list(dict.fromkeys(all_files))
+    
+    # Filter out the forced ones
+    dynamic_files = [f for f in all_files if f not in FORCED_FIRST and f not in FORCED_LAST]
+    
+    # Sort dynamic files alphabetically (or could be by sub-folder)
+    dynamic_files.sort()
+    
+    # Assemble final order
+    # Note: We verify existence of FORCED files during read, or filtering here.
+    # We should only include FORCED files that actually exist in the gathered list?
+    # Or strictly enforce them? 
+    # Let's strictly enforce the *order*, but only include if they exist (to allow partial builds?)
+    # For safety, we just return the list. The reader will check existence.
+    
+    final_order = []
+    
+    for f in FORCED_FIRST:
+        final_order.append(f)
+        
+    final_order.extend(dynamic_files)
+    
+    for f in FORCED_LAST:
+        final_order.append(f)
+        
+    return final_order
 
 def split_monolith(input_file, output_dir):
     print(f"Splitting {input_file} into {output_dir}...")
@@ -89,14 +156,88 @@ def split_monolith(input_file, output_dir):
         print("  - Warning: No CSS found.")
 
     # 2. Extract HTML Body (excluding scripts)
-    # We want everything inside body, but we replace the main script tag with our loaders
     body_match = re.search(r'<body.*?>(.*?)</body>', content, re.DOTALL)
     if body_match:
         body_content = body_match.group(1)
-        # Remove the main script block
         body_content_clean = re.sub(r'<script>.*?</script>', '', body_content, flags=re.DOTALL).strip()
         
-        # Construct the Dev HTML
+        # Note: We don't know the exact file list yet for the dynamic loader in index.html.
+        # For now, we will use the same get_combine_order logic *after* we write the files, 
+        # or we can write a placeholder and update it? 
+        # Simpler: Write the files first, THEN generate index.html at the end.
+    
+    # 3. Extract and Split JavaScript
+    script_match = re.search(r'<script>(.*?)</script>', content, re.DOTALL)
+    files_content = {} # Define here to be accessible later
+
+    if script_match:
+        full_js = script_match.group(1)
+        lines = full_js.split('\n')
+        current_file = 'js/core/Utils.js' 
+        buffer = []
+        
+        def get_target_file(line):
+            # Check known map
+            for key, path in CODE_MAP.items():
+                if f"class {key}" in line: return path
+                if f"const {key}" in line:
+                    if key in ['APP_VERSION', 'Utils', 'CELL_TYPE', 'DEFAULT_FONT_DATA']:
+                        if key in line: return path
+            
+            # Heuristic for new Effects
+            # "class SomeEffect extends AbstractEffect" or just "class SomeEffect"
+            # We match "class XEffect"
+            effect_match = re.search(r'class\s+(\w+Effect)\b', line)
+            if effect_match:
+                name = effect_match.group(1)
+                # If not mapped explicitly
+                if name not in CODE_MAP:
+                    return f"js/effects/{name}.js"
+            
+            # Heuristic for new Modes
+            mode_match = re.search(r'class\s+(\w+Mode)\b', line)
+            if mode_match:
+                name = mode_match.group(1)
+                if name not in CODE_MAP:
+                    return f"js/simulation/{name}.js"
+
+            return None
+
+        for line in lines:
+            new_target = get_target_file(line)
+            
+            if "class AbstractEffect" in line:
+                new_target = CODE_MAP['AbstractEffect']
+
+            if new_target and new_target != current_file:
+                if current_file:
+                    if current_file not in files_content: files_content[current_file] = []
+                    files_content[current_file].extend(buffer)
+                    buffer = []
+                current_file = new_target
+            
+            buffer.append(line)
+
+        if current_file:
+            if current_file not in files_content: files_content[current_file] = []
+            files_content[current_file].extend(buffer)
+
+        # Write JS files
+        for rel_path, lines_list in files_content.items():
+            full_path = os.path.join(output_dir, rel_path)
+            ensure_dir(full_path)
+            text = '\n'.join(lines_list).strip() + '\n'
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            print(f"  - Wrote {rel_path}")
+            
+    # 4. Generate index.html (Now that files exist)
+    if body_match:
+        # Get the dynamic order based on what we just wrote
+        # We need to pass output_dir to get_combine_order
+        # But get_combine_order expects the files to exist. We just wrote them.
+        load_order = get_combine_order(output_dir)
+        
         dev_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -110,8 +251,10 @@ def split_monolith(input_file, output_dir):
 
     <!-- Dev Scripts -->
 """
-        for script_path in LOAD_ORDER:
-            dev_html += f'    <script src="{script_path}"></script>\n'
+        for script_path in load_order:
+            # Check if file actually exists (it should)
+            if os.path.exists(os.path.join(output_dir, script_path)):
+                dev_html += f'    <script src="{script_path}"></script>\n'
             
         dev_html += """
     <script>
@@ -124,152 +267,6 @@ def split_monolith(input_file, output_dir):
         with open(os.path.join(output_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(dev_html)
         print(f"  - Generated index.html")
-
-    # 3. Extract and Split JavaScript
-    script_match = re.search(r'<script>(.*?)</script>', content, re.DOTALL)
-    if script_match:
-        full_js = script_match.group(1)
-        
-        # We need to parse the JS to find boundaries. 
-        # This is a simple parser that looks for "class Name" or "const Name =" 
-        # It assumes standard formatting from the source file.
-        
-        # Strategy: We will iterate through the known keys in CODE_MAP.
-        # We find the start index of each key definition.
-        # We sort these start indices to know the order they appear in the file.
-        # The text between index[i] and index[i+1] belongs to key[i].
-        
-        definitions = []
-        
-        for key in CODE_MAP.keys():
-            # Regex for class definition
-            class_pattern = re.compile(r'\bclass\s+' + re.escape(key) + r'\b')
-            # Regex for const definition
-            const_pattern = re.compile(r'\bconst\s+' + re.escape(key) + r'\s*=')
-            
-            match = None
-            match_type = ""
-            
-            m_class = class_pattern.search(full_js)
-            m_const = const_pattern.search(full_js)
-            
-            if m_class:
-                match = m_class
-                match_type = "class"
-            elif m_const:
-                match = m_const
-                match_type = "const"
-            
-            if match:
-                definitions.append({
-                    'key': key,
-                    'start': match.start(),
-                    'file': CODE_MAP[key]
-                })
-        
-        # Sort by position in file
-        definitions.sort(key=lambda x: x['start'])
-        
-        # Now extract content
-        for i, item in enumerate(definitions):
-            start = item['start']
-            # For the last item, go to the end of the string
-            end = definitions[i+1]['start'] if i + 1 < len(definitions) else len(full_js)
-            
-            # Look backward from start to find comments or headers
-            # We want to capture the section headers like // === ...
-            
-            # Simple heuristic: Go back to the previous newline, then check if preceding lines are comments
-            chunk = full_js[start:end]
-            
-            # This chunk might be missing the header "class X" because we searched for it?
-            # No, full_js[start:] includes the match.
-            
-            # Refined extraction:
-            # We want to grab the preceding comments too if they exist immediately before
-            # But checking boundaries of previous chunk is safer.
-            
-            prev_end = definitions[i-1]['start'] if i > 0 else 0
-            # The gap between prev_end and start might contain the section header for this item
-            # OR it might contain the closing brace of the previous item.
-            # This is tricky without a full parser.
-            
-            # Alternative Strategy:
-            # The file is structured with distinct sections.
-            # Let's regex for the header comments: // === 1. CORE ... ===
-            # The current file structure is very clean.
-            
-            # Let's try a simpler approach for this specific file structure.
-            # We will read the file line by line and toggle output files based on detection.
-            pass # Moved to the logic below
-            
-        # LINE BY LINE PARSER STRATEGY
-        lines = full_js.split('\n')
-        current_file = None
-        buffer = []
-        
-        # Default file for things at the top (APP_VERSION)
-        current_file = 'js/core/Utils.js' 
-        
-        # Mapping logic
-        def get_target_file(line):
-            for key, path in CODE_MAP.items():
-                if f"class {key}" in line:
-                    return path
-                if f"const {key}" in line:
-                    # Special handling for APP_VERSION or Utils
-                    if key == 'APP_VERSION' and 'APP_VERSION' in line: return path
-                    if key == 'Utils' and 'Utils' in line: return path
-                    if key == 'CELL_TYPE' and 'CELL_TYPE' in line: return path
-                    if key == 'DEFAULT_FONT_DATA' and 'DEFAULT_FONT_DATA' in line: return path
-            return None
-
-        files_content = {}
-        
-        for line in lines:
-            # Detect start of a new block
-            new_target = get_target_file(line)
-            
-            # Special handling: AbstractEffect should go to EffectRegistry
-            if "class AbstractEffect" in line:
-                new_target = CODE_MAP['AbstractEffect']
-
-            if new_target and new_target != current_file:
-                # If we were buffering, save to the old file
-                if current_file:
-                    if current_file not in files_content: files_content[current_file] = []
-                    files_content[current_file].extend(buffer)
-                    buffer = []
-                
-                current_file = new_target
-            
-            buffer.append(line)
-
-        # Flush last buffer
-        if current_file:
-            if current_file not in files_content: files_content[current_file] = []
-            files_content[current_file].extend(buffer)
-
-        # Write files
-        for rel_path, lines_list in files_content.items():
-            full_path = os.path.join(output_dir, rel_path)
-            ensure_dir(full_path)
-            
-            # Clean up: Remove leading/trailing empty lines
-            text = '\n'.join(lines_list).strip() + '\n'
-            
-            # For Utils.js, make sure APP_VERSION is at the top if it got pushed down
-            # (The line parser should handle it, but just in case)
-            
-            # Write
-            mode = 'a' if os.path.exists(full_path) else 'w'
-            # We should probably overwrite initially to be clean, but our loop splits chunks.
-            # Actually, the dictionary aggregation `files_content` handles the chunks.
-            # So we can just write 'w'.
-            
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(text)
-            print(f"  - Wrote {rel_path}")
 
     print("Split complete.")
 
@@ -293,46 +290,83 @@ def combine_modular(source_dir, output_file):
         with open(css_path, 'r', encoding='utf-8') as f:
             css_block = f.read()
     
-    # 3. Read JS Files
+    # 3. Read JS Files (Dynamic Order)
+    load_order = get_combine_order(source_dir)
+    
     js_combined = ""
-    for js_rel_path in LOAD_ORDER:
+    for js_rel_path in load_order:
         js_path = os.path.join(source_dir, js_rel_path)
         if os.path.exists(js_path):
             with open(js_path, 'r', encoding='utf-8') as f:
-                js_combined += f"\n// --- {os.path.basename(js_rel_path)} ---\\n"
+                js_combined += f"\n// --- {os.path.basename(js_rel_path)} ---\n"
                 js_combined += f.read() + "\n"
         else:
+            # Warning only if it was in our FORCED lists but missing
             print(f"Warning: Expected JS file not found: {js_rel_path}")
 
     # 4. Construct Final HTML
-    # Replace CSS link with style block
     html_content = re.sub(r'<link rel="stylesheet" href="css/style.css">', 
                           f'<style>\n{css_block}\n</style>', 
                           html_content)
     
-    # Replace script tags with combined JS
-    # We look for the "Dev Scripts" section or just before the closing body
-    
-    # Regex to remove the individual script tags we added
-    # Matches <script src="..." ></script>
     html_content = re.sub(r'<script src="js/.*?".*?></script>', '', html_content)
     
-    # Inject the master script
     master_script = f"""<script>
 {js_combined}
     </script>"""
     
-    # Insert before the inline script or closing body
-    # We had a placeholder inline script in the split version
-    
     html_content = html_content.replace('<!-- Dev Scripts -->', master_script)
-    
-    # Clean up empty lines if any
     
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
     print(f"Build complete: {output_file}")
+
+
+def refresh_dev_index(source_dir):
+    print(f"Refreshing index.html in {source_dir}...")
+    
+    index_path = os.path.join(source_dir, 'index.html')
+    if not os.path.exists(index_path):
+        print("Error: index.html not found.")
+        return
+
+    with open(index_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Strip existing scripts
+    # We look for the <!-- Dev Scripts --> marker as a safe anchor if possible, 
+    # or just regex replace all script src tags.
+    
+    # Better approach: Read the "skeleton" (everything except the script src lines we inserted)
+    # But we don't have a clean skeleton.
+    
+    # Regex to remove <script src="js/..."> tags
+    content_clean = re.sub(r'\s*<script src="js/.*?".*?></script>', '', content)
+    
+    # Generate new script tags
+    load_order = get_combine_order(source_dir)
+    new_scripts = ""
+    for script_path in load_order:
+        if os.path.exists(os.path.join(source_dir, script_path)):
+            new_scripts += f'    <script src="{script_path}"></script>\n'
+            
+    # Insert them back. 
+    # We look for <!-- Dev Scripts -->
+    if '<!-- Dev Scripts -->' in content_clean:
+        content_new = content_clean.replace('<!-- Dev Scripts -->', '<!-- Dev Scripts -->\n' + new_scripts)
+    else:
+        # Fallback: Insert before the first inline script or closing body
+        # This is risky if there are other scripts.
+        # Let's try to put it before the inline script that has "MatrixKernel" or "DOMContentLoaded"
+        # Or just before </body>
+        print("Warning: <!-- Dev Scripts --> marker not found. Appending to body end.")
+        content_new = content_clean.replace('</body>', new_scripts + '</body>')
+
+    with open(index_path, 'w', encoding='utf-8') as f:
+        f.write(content_new)
+        
+    print(f"Updated index.html with {len(load_order)} scripts.")
 
 
 # --- CLI ---
@@ -350,11 +384,17 @@ if __name__ == "__main__":
     combine_parser.add_argument('input', help='Input directory (containing index.html)')
     combine_parser.add_argument('output', help='Output HTML file')
 
+    # Refresh Command
+    refresh_parser = subparsers.add_parser('refresh', help='Update index.html with current JS files')
+    refresh_parser.add_argument('input', help='Input directory')
+
     args = parser.parse_args()
 
     if args.command == 'split':
         split_monolith(args.input, args.output)
     elif args.command == 'combine':
         combine_modular(args.input, args.output)
+    elif args.command == 'refresh':
+        refresh_dev_index(args.input)
     else:
         parser.print_help()
