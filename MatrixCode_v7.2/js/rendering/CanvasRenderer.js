@@ -41,7 +41,7 @@ class CanvasRenderer {
                     for(const i of this.grid.activeIndices) {
                         // Copied Body for Optimization
                         const override = this.effects.getOverride(i);
-                        if(override) { this._drawOverride(i, override, d, s, bloom); lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; continue; }
+                        if(override && !override.blend) { this._drawOverride(i, override, d, s, bloom); lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; continue; }
                         let gridAlpha = this.grid.alphas[i]; if(gridAlpha <= 0.01) continue;
                         const tState = this._getTracerState(i, s); if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0; 
                         if(gridAlpha <= 0.01) continue;
@@ -63,12 +63,17 @@ class CanvasRenderer {
                             if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
                             this.ctx.font = fontBase; 
                         } else { this.ctx.globalAlpha = gridAlpha; this.ctx.fillText(char, px, py); if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); } }
+
+                        if (override && override.blend) {
+                             this._drawOverride(i, override, d, s, bloom);
+                             lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent';
+                        }
                     }
                 } else {
                     for(let i=0; i<total; i++) {
                         // Original Body
                         const override = this.effects.getOverride(i);
-                        if(override) { this._drawOverride(i, override, d, s, bloom); lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; continue; }
+                        if(override && !override.blend) { this._drawOverride(i, override, d, s, bloom); lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; continue; }
                         let gridAlpha = this.grid.alphas[i]; if(gridAlpha <= 0.01) continue;
                         const tState = this._getTracerState(i, s); if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0; 
                         if(gridAlpha <= 0.01) continue;
@@ -90,6 +95,11 @@ class CanvasRenderer {
                             if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); }
                             this.ctx.font = fontBase; 
                         } else { this.ctx.globalAlpha = gridAlpha; this.ctx.fillText(char, px, py); if(bloom) { this.bloomCtx.globalAlpha = gridAlpha; this.bloomCtx.fillText(char, px, py); } }
+
+                        if (override && override.blend) {
+                             this._drawOverride(i, override, d, s, bloom);
+                             lastColor = null; this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent';
+                        }
                     }
                 }
 

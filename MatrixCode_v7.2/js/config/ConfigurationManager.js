@@ -93,6 +93,18 @@ class ConfigurationManager {
                     pulseBlend: true,
                     pulseInstantStart: false,
 
+                    // --- EVENTS (CLEAR PULSE) ---
+                    clearPulseEnabled: true, 
+                    clearPulseFrequencySeconds: 240, 
+                    clearPulseDurationSeconds: 2.2, 
+                    clearPulsePreserveSpaces: true, 
+                    clearPulseRandomPosition: true, 
+                    clearPulseWidth: 130, 
+                    clearPulseIgnoreTracers: true,
+                    clearPulseCircular: false,
+                    clearPulseBlend: true,
+                    clearPulseInstantStart: false,
+
                     // --- EVENTS (MINI PULSE) ---
                     miniPulseEnabled: true,
                     miniPulseFrequencySeconds: 450,
@@ -101,6 +113,7 @@ class ConfigurationManager {
                     miniPulseSize: 140,
                     miniPulseThickness: 64,
                     miniPulseSpeed: 14,
+                    miniPulsePreserveSpaces: true,
 
                     // --- EVENTS (DEJA VU) ---
                     dejaVuEnabled: true, 
@@ -119,8 +132,9 @@ class ConfigurationManager {
                     supermanEnabled: true,
                     supermanDurationSeconds: 5,
                     supermanFlickerRate: 3, // How many frames between shape changes (lower is faster)
-                    supermanWidth: 4, // Vertical spread (amplitude)
-                    supermanProb: 4, // Branching probability
+                    supermanWidth: 4, // Vertical spread (amplitude) / Jitter
+                    supermanSpawnSpeed: 40, // Multiplier for how fast it crosses the screen
+                    supermanFadeSpeed: 20, // Fade out divisor (higher = slower fade)
                     supermanIncludeColors: false, // If true, keeps original color but super-bright
                     supermanGlow: 4, 
                     supermanBoltThickness: 4,

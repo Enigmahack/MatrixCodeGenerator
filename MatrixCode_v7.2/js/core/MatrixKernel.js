@@ -7,6 +7,7 @@ class MatrixKernel {
                 this.effectRegistry = new EffectRegistry(this.grid, this.config);
                 
                 this.effectRegistry.register(new PulseEffect(this.grid, this.config));
+                this.effectRegistry.register(new ClearPulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new MiniPulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
                 this.effectRegistry.register(new SupermanEffect(this.grid, this.config));

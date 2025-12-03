@@ -45,7 +45,7 @@
         }
         
         canvas { display: block; position: absolute; top: 0; left: 0; }
-        #matrixCanvas { z-index: 1; transition: filter 0.3s ease; }
+        #matrixCanvas { z-index: 1; transition: filter 0.3s ease; transform: translateZ(0); -webkit-transform: translateZ(0); }
 
         /* --- SETTINGS PANEL UI --- */
         #settingsPanel {

@@ -4,7 +4,9 @@ class SupermanEffect extends AbstractEffect {
                 this.name = "Superman"; 
                 this.active = false; 
                 this.lightningPath = new Set();
+                this.afterimages = new Map(); 
                 this.timer = 0;
+                this.spawnX = 0;
             }
 
             trigger() { 
@@ -12,26 +14,61 @@ class SupermanEffect extends AbstractEffect {
                 this.active = true; 
                 this.timer = this.c.state.supermanDurationSeconds * 60; 
                 this.flickerTimer = 0;
+                this.spawnX = 0;
+                this.afterimages.clear();
                 this._generateBolt();
                 return true; 
             }
 
             update() {
-                if(!this.active) return;
-                this.timer--;
+                const s = this.c.state;
                 
-                if (this.timer <= 0) {
-                    this.active = false;
-                    this.lightningPath.clear();
-                    return;
+                // Update afterimages (fade out)
+                if (this.afterimages.size > 0) {
+                    // Fade speed: higher = slower. Default ~20.
+                    // 20 -> 0.05 decay. 
+                    const decay = 1.0 / Math.max(1, s.supermanFadeSpeed || 20); 
+                    
+                    for (const [index, alpha] of this.afterimages) {
+                        const newAlpha = alpha - decay;
+                        if (newAlpha <= 0.01) {
+                            this.afterimages.delete(index);
+                        } else {
+                            this.afterimages.set(index, newAlpha);
+                        }
+                    }
                 }
 
-                // Flicker logic: regenerate the bolt shape every N frames
-                const s = this.c.state;
-                this.flickerTimer++;
-                if (this.flickerTimer >= s.supermanFlickerRate) {
-                    this._generateBolt();
-                    this.flickerTimer = 0;
+                if(!this.active && this.afterimages.size === 0) {
+                     return;
+                }
+
+                if (this.active) {
+                    this.timer--;
+                    
+                    // Spawning logic
+                    // Speed 40 ~ crosses screen in roughly 0.5-1s depending on refresh rate.
+                    // Factor: Speed 40 -> 0.04 * cols per frame. 
+                    // If cols=100, 4 cells/frame. 25 frames total.
+                    const speedVal = s.supermanSpawnSpeed || 40;
+                    const speedFactor = Math.max(1, speedVal) / 1000; 
+                    this.spawnX += (this.g.cols * speedFactor);
+                    
+                    if (this.spawnX > this.g.cols) this.spawnX = this.g.cols;
+
+                    if (this.timer <= 0) {
+                        this.active = false;
+                        this.lightningPath.clear();
+                        return;
+                    }
+
+                    this.flickerTimer++;
+                    if (this.flickerTimer >= s.supermanFlickerRate) {
+                        this._generateBolt();
+                        this.flickerTimer = 0;
+                    } else {
+                        this._refreshAfterimages();
+                    }
                 }
             }
 
@@ -39,81 +76,65 @@ class SupermanEffect extends AbstractEffect {
                 this.lightningPath.clear();
                 const s = this.c.state;
                 const startY = Math.floor(this.g.rows / 2);
+                let cy = startY;
                 
-                // Create multiple "tendrils" for a thick electricity look
-                const tendrils = 1; 
-                
-                for(let t=0; t<tendrils; t++) {
-                    let cy = startY + Utils.randomInt(-1, 1); // Slight variance at source
-                    for (let x = 0; x < this.g.cols; x++) {
-                        // Erratic movement calculation
-                        const variance = Math.max(1, s.supermanWidth); // Scale variance by setting
-                        const move = Utils.randomInt(-variance, variance);
-                        cy += move;
-                        
-                        // Bounds checking
-                        if (cy < 0) cy = 0;
-                        if (cy >= this.g.rows) cy = this.g.rows - 1;
+                const limitX = Math.floor(this.spawnX);
 
-                        const thickness = s.supermanBoltThickness; // Change this value to make it thicker (e.g., 2, 3, 5)
-                        const halfThick = Math.floor(thickness / 2);
+                for (let x = 0; x < this.g.cols; x++) {
+                    if (x > limitX) break;
 
-                        for (let dy = -halfThick; dy <= halfThick; dy++) {
-                            const thickY = cy + dy;
-                            // Check bounds to prevent wrapping or errors
-                            if (thickY >= 0 && thickY < this.g.rows) {
-                                const idx = this.g.getIndex(x, thickY);
-                                if (idx !== -1) this.lightningPath.add(idx);
+                    // Jitter / Width logic
+                    const variance = Math.max(1, s.supermanWidth); 
+                    const noise = Utils.randomInt(-variance, variance);
+                    
+                    // Gentle center pull to keep it on screen but allow jitter
+                    const distFromCenter = (this.g.rows / 2) - cy;
+                    cy += noise + (distFromCenter * 0.05); 
+
+                    if (cy < 0) cy = 0;
+                    if (cy >= this.g.rows) cy = this.g.rows - 1;
+
+                    const thickness = s.supermanBoltThickness; 
+                    const halfThick = Math.floor(thickness / 2);
+
+                    for (let dy = -halfThick; dy <= halfThick; dy++) {
+                        const thickY = Math.round(cy) + dy;
+                        if (thickY >= 0 && thickY < this.g.rows) {
+                            const idx = this.g.getIndex(x, thickY);
+                            if (idx !== -1) {
+                                this.lightningPath.add(idx);
                             }
-                        }
-
-                        // Branching logic (Tree structure)
-                        if (Math.random() < s.supermanProb) {
-                            this._createBranch(x, cy, Utils.randomInt(0, 50));
                         }
                     }
                 }
+                
+                this._refreshAfterimages();
             }
 
-            _createBranch(startX, startY, length) {
-                let cy = startY;
-                const s = this.c.state;
-                // Determine direction (usually forks out)
-                const dirY = Math.random() > 0.2 ? 1 : -1;
-
-                for (let i = 1; i < length; i++) {
-                    let cx = startX + i;
-                    if (cx >= this.g.cols) break;
-
-                    // Branches move away from main line faster
-                    cy += (Utils.randomInt(0, 0.5) * dirY); 
-                    
-                    if (cy < 0 || cy >= this.g.rows) break;
-                    
-                    const idx = this.g.getIndex(cx, cy);
-                    if (idx !== -1) this.lightningPath.add(idx);
+            _refreshAfterimages() {
+                for (const idx of this.lightningPath) {
+                    this.afterimages.set(idx, 1.0);
                 }
             }
 
             getOverride(i) {
-                if (!this.active || !this.lightningPath.has(i)) return null;
+                if (this.afterimages.has(i)) {
+                    const alphaChar = this.g.alphas[i];
+                    if (alphaChar <= 0.05) return null;
 
-                // Check if there is actual content at this grid position
-                // "Ignored spaces" interpretation: Only light up if there is a char
-                const alpha = this.g.alphas[i];
-                if (alpha <= 0.05) return null;
+                    const effectAlpha = this.afterimages.get(i);
+                    const s = this.c.state;
 
-                const s = this.c.state;
-                
-                // High Voltage look
-                return {
-                    char: this.g.getChar(i),
-                    color: s.supermanIncludeColors ? null : '#21cd33ff', 
-                    color: s.supermanIncludeColors ? '#ffffffff' : '#b9e4b8ff', 
-                    alpha: 1, 
-                    glow: s.supermanGlow, 
-                    size: 1,
-                    solid: true
-                };
+                    return {
+                        char: this.g.getChar(i),
+                        color: s.supermanIncludeColors ? '#ffffffff' : '#b9e4b8ff', 
+                        alpha: effectAlpha, 
+                        glow: s.supermanGlow, 
+                        size: 1,
+                        solid: false, 
+                        blend: true 
+                    };
+                }
+                return null;
             }
         }

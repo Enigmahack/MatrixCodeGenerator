@@ -6,9 +6,11 @@ class UIManager {
                         this.fonts.subscribe(f => this.refresh('fontFamily'));
                         this.defs = [
             // GLOBAL TAB
-            { cat: 'Global', type: 'accordion_header', label: 'Code Timing' },
+            { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
+            { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
+            { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
-            { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Release Rhythm (Nth Tick)', min: 1, max: 10, step: 1 },
+            { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Tracers Released per Cycle', min: 1, max: 10, step: 1 },
         
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -16,10 +18,6 @@ class UIManager {
             { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
         
             // APPEARANCE TAB
-            { cat: 'Appearance', type: 'accordion_header', label: 'Colors' },
-            { cat: 'Appearance', id: 'streamColor', type: 'color', label: 'Code Color' },
-            { cat: 'Appearance', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
-        
             { cat: 'Appearance', type: 'accordion_header', label: 'Glyph Details' },
             { cat: 'Appearance', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
@@ -78,63 +76,87 @@ class UIManager {
             { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
         
-            { cat: 'Behavior', type: 'accordion_header', label: 'Movie FX' },
-            { cat: 'Behavior', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
-            { cat: 'Behavior', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
-            { cat: 'Behavior', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseDimming', type: 'range', label: 'Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Ignore Tracers', dep: 'pulseEnabled' },
-            { cat: 'Behavior', id: 'pulseCircular', type: 'checkbox', label: 'Circular', dep: 'pulseEnabled' },
-            
-            { cat: 'Behavior', type: 'button', label: 'Trigger Storm', action: 'minipulse', class: 'btn-warn' },
-            { cat: 'Behavior', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
-            { cat: 'Behavior', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'Behavior', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'Behavior', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
-            { cat: 'Behavior', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'Behavior', id: 'miniPulseThickness', type: 'range', label: 'Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'Behavior', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
-        
-            { cat: 'Behavior', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
-            { cat: 'Behavior', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
-            { cat: 'Behavior', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Dur', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Var', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Bright', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'Behavior', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Colors', dep: 'dejaVuEnabled' },
-            
-            { cat: 'Behavior', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
-            { cat: 'Behavior', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
-            { cat: 'Behavior', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
-            { cat: 'Behavior', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
-            { cat: 'Behavior', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 5, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
-            { cat: 'Behavior', id: 'supermanIncludeColors', type: 'checkbox', label: 'Extra Bright', dep: 'supermanEnabled' },
-            { cat: 'Behavior', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 4, dep: 'supermanEnabled' },
-            { cat: 'Behavior', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 5, step: 1, dep: 'supermanEnabled' },
+            // FX TAB (NEW)
+            { cat: 'FX', type: 'header', label: 'Movie FX' }, // Using header for main section
 
-            { cat: 'Behavior', type: 'accordion_header', label: 'Special FX' },
-            { cat: 'Behavior', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
-            { cat: 'Behavior', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
-            { cat: 'Behavior', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
-            { cat: 'Behavior', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
-            { cat: 'Behavior', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
-            { cat: 'Behavior', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'Behavior', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'Behavior', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Pulse' },
+            { cat: 'FX', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
+            { cat: 'FX', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
+            { cat: 'FX', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseDimming', type: 'range', label: 'Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Ignore Tracers', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseCircular', type: 'checkbox', label: 'Circular', dep: 'pulseEnabled' },
             
-            { cat: 'Behavior', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
-            { cat: 'Behavior', id: 'rainbowStreamChance', type: 'range', label: 'Rainbow Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
-            { cat: 'Behavior', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Clear Pulse' },
+            { cat: 'FX', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
+            { cat: 'FX', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
+            { cat: 'FX', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular', dep: 'clearPulseEnabled' },
+
+            { cat: 'FX', type: 'accordion_header', label: 'Pulse Storm' },
+            { cat: 'FX', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
+            { cat: 'FX', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
+            { cat: 'FX', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseThickness', type: 'range', label: 'Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
+        
+            { cat: 'FX', type: 'accordion_header', label: 'Deja Vu' },
+            { cat: 'FX', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
+            { cat: 'FX', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
+            { cat: 'FX', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Dur', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Var', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuMinRectHeight', type: 'range', label: 'Min Height', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Bright', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Colors', dep: 'dejaVuEnabled' },
+            
+            { cat: 'FX', type: 'accordion_header', label: 'Superman' },
+            { cat: 'FX', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
+            { cat: 'FX', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
+            { cat: 'FX', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
+            { cat: 'FX', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', description: 'Higher values mean trails last longer.' },
+            { cat: 'FX', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 5, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
+            { cat: 'FX', id: 'supermanIncludeColors', type: 'checkbox', label: 'Extra Bright', dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 4, dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 5, step: 1, dep: 'supermanEnabled' },
+
+            { cat: 'FX', type: 'header', label: 'Special FX' }, // Header for Special FX
+
+            { cat: 'FX', type: 'accordion_header', label: 'Star Power' },
+            { cat: 'FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
+            { cat: 'FX', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
+            { cat: 'FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
+            { cat: 'FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
+            { cat: 'FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
+            { cat: 'FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
+            { cat: 'FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
+            { cat: 'FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
+            
+            { cat: 'FX', type: 'accordion_header', label: 'Rainbow Streams' },
+            { cat: 'FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
+            { cat: 'FX', id: 'rainbowStreamChance', type: 'range', label: 'Rainbow Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+            { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
         
             // SYSTEM TAB
             { cat: 'System', type: 'accordion_header', label: 'Config' },
@@ -340,6 +362,9 @@ class UIManager {
                         // --- MOUSE WHEEL SUPPORT ---
                                         // Converts vertical mouse wheel scrolling into horizontal scrolling for the tabs
                                         this.dom.tabs.addEventListener('wheel', (e) => {
+                                            if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
+                                                return;
+                                            }
                                             if (e.deltaY !== 0) {
                                                 // preventDefault stops the browser "back" gesture or vertical page scroll
                                                 e.preventDefault(); 
@@ -387,6 +412,7 @@ class UIManager {
                 } else if (d.type === 'slot') {
                     row.className = 'slot-container';
                     const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[d.idx].name; inp.id = `slot-input-${d.idx}`; inp.name = `slot_name_${d.idx}`; inp.onchange = e => this.c.renameSlot(d.idx, e.target.value);
+                    inp.onfocus = e => e.target.value = '';
                     const grp = document.createElement('div'); grp.className = 'slot-btn-group';
                     const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${d.idx}`; save.onclick = () => { this.c.saveToSlot(d.idx); this.notifications.show(`Saved Slot ${d.idx+1}`, 'success'); };
                     const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${d.idx}`; load.onclick = () => { if(this.c.loadFromSlot(d.idx)) this.notifications.show(`Loaded Slot ${d.idx+1}`, 'success'); };
@@ -410,39 +436,85 @@ class UIManager {
                             inp.step=d.step; 
                             inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id);                            
                             inp.oninput = e => { 
-                                
                                     const v = parseFloat(e.target.value); 
                                     const actual = d.invert ? (d.max+d.min)-v : v; 
                                     this.c.set(d.id, actual); 
                                     const disp = document.getElementById(`val-${d.id}`); 
-                                    
                                     if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
                                 }; 
 
-                            let startX = 0; 
-                            let startY = 0; 
-                            let isDragging = false; 
-                            this._isDraggingHorizontally = false; 
-                            inp.addEventListener('touchstart', e => { 
-                                startX = e.touches[0].clientX; 
-                                startY = e.touches[0].clientY; 
-                                isDragging = true; 
-                                this._isDraggingHorizontally = false; }); 
+                            let startX = 0;
+                            let startY = 0;
+                            let startValue = 0;
+                            let isHorizontalDrag = false;
 
-                            inp.addEventListener('touchmove', e => { 
-                                if (!isDragging) return; 
-                                    const currentX = e.touches[0].clientX; 
-                                    const currentY = e.touches[0].clientY; const dx = currentX - startX; 
-                                    const dy = currentY - startY; // If vertical movement is much greater than horizontal, prevent default 
+                            inp.addEventListener('touchstart', e => {
+                                startX = e.touches[0].clientX;
+                                startY = e.touches[0].clientY;
+                                startValue = parseFloat(e.target.value);
+                                isHorizontalDrag = false;
+                                
+                                // HACK: Prevent "jump to tap". 
+                                // We let the event fire so browser knows we touched, but we immediately revert the value
+                                // in the next tick, effectively ignoring the "tap to set" behavior.
+                                // This forces the user to drag to change value.
+                                requestAnimationFrame(() => {
+                                    e.target.value = startValue;
+                                    // Also ensure the model/display isn't updated to the jump value
+                                    const actual = d.invert ? (d.max+d.min)-startValue : startValue;
+                                    // We don't call c.set here because we want to avoid jitter in the engine, 
+                                    // just visual revert on the slider control.
+                                });
+                            }, { passive: false });
 
-                                if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) { // Threshold of 10px to differentiate from accidental slight vertical movement 
-                                    e.preventDefault(); this._isDraggingHorizontally = false; }
-                                    else if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) { 
-                                            this._isDraggingHorizontally = true; } 
-                                        else { 
-                                            this._isDraggingHorizontally = false; }}); 
-                                            
-                                        inp.addEventListener('touchend', () => { isDragging = false; this._isDraggingHorizontally = false; }); }
+                            inp.addEventListener('touchmove', e => {
+                                const x = e.touches[0].clientX;
+                                const y = e.touches[0].clientY;
+                                const dx = x - startX;
+                                const dy = y - startY;
+
+                                // Determine direction
+                                if (!isHorizontalDrag && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 5) {
+                                    isHorizontalDrag = true;
+                                }
+
+                                if (isHorizontalDrag) {
+                                    e.preventDefault(); // Stop scrolling
+                                    
+                                    // Manually calculate value based on position
+                                    const rect = inp.getBoundingClientRect();
+                                    // Clamp x relative to input width
+                                    const relativeX = Math.min(Math.max(0, x - rect.left), rect.width);
+                                    const percent = relativeX / rect.width;
+                                    
+                                    const min = parseFloat(d.min);
+                                    const max = parseFloat(d.max);
+                                    let newVal = min + (percent * (max - min));
+                                    
+                                    // Handle step
+                                    if (d.step) {
+                                        const step = parseFloat(d.step);
+                                        newVal = Math.round(newVal / step) * step;
+                                    }
+                                    
+                                    // Clamp
+                                    if (newVal < min) newVal = min;
+                                    if (newVal > max) newVal = max;
+
+                                    // Update Input
+                                    inp.value = newVal;
+                                    
+                                    // Update Engine
+                                    const actual = d.invert ? (max+min)-newVal : newVal; 
+                                    this.c.set(d.id, actual); 
+                                    
+                                    // Update Display
+                                    const disp = document.getElementById(`val-${d.id}`); 
+                                    if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
+                                }
+                                // Else: Vertical move, do nothing, let browser scroll.
+                            }, { passive: false });
+                        }
 
                     else if(d.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(d.id); inp.id = `in-${d.id}`; inp.name = d.id; inp.oninput = e => this.c.set(d.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep)); if(d.id) row.id = `row-${d.id}`; return row; }
                     else if(d.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(d.id); inp.onchange = e => this.c.set(d.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
@@ -461,7 +533,8 @@ class UIManager {
                 if(a === 'import') document.getElementById('importFile').click();
                 if(a === 'importFont') document.getElementById('importFontFile').click();
                 if(a === 'pulse') { if(this.eff.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
-                if(a === 'minipulse') { if(this.eff.trigger('MiniPulse')) this.notifications.show('Storm Triggered', 'success'); else this.notifications.show('Storm already active...', 'info'); }
+                if(a === 'clearpulse') { if(this.eff.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
+                if(a === 'minipulse') { if(this.eff.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm already active...', 'info'); }
                 if(a === 'dejavu') { if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
                 if(a === 'superman') { if(this.eff.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
             }
@@ -500,7 +573,3 @@ class UIManager {
                 } catch(e) { console.warn("UI Error", e); }
             }
         }
-        
-        // =========================================================================
-        // 9. KERNEL
-        // =========================================================================

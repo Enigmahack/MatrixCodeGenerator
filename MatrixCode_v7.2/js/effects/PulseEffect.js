@@ -18,7 +18,32 @@ class PulseEffect extends AbstractEffect {
                     }
                     this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); this.snap.tracers[i] = isTracer ? 1 : 0; this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
                 }
-                this.origin = s.pulseRandomPosition ? {x:Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8), y:Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8)} : {x:Math.floor(this.g.cols/2), y:Math.floor(this.g.rows/2)};
+                
+                // Position Logic
+                let ox, oy;
+                if (s.pulseRandomPosition) {
+                    ox = Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8);
+                    oy = Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8);
+                    
+                    // Snapping Logic
+                    const cx = Math.floor(this.g.cols / 2);
+                    const cy = Math.floor(this.g.rows / 2);
+                    
+                    // Calculate pixel distance from center
+                    const pxDistX = Math.abs(ox - cx) * d.cellWidth * s.stretchX;
+                    const pxDistY = Math.abs(oy - cy) * d.cellHeight * s.stretchY;
+                    
+                    // If within pulse width (approx), snap to center
+                    if (pxDistX < s.pulseWidth && pxDistY < s.pulseWidth) {
+                        ox = cx;
+                        oy = cy;
+                    }
+                } else {
+                    ox = Math.floor(this.g.cols/2);
+                    oy = Math.floor(this.g.rows/2);
+                }
+                this.origin = {x: ox, y: oy};
+
                 this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
@@ -41,7 +66,30 @@ class PulseEffect extends AbstractEffect {
                 const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
                 const cx = Math.floor(x * d.cellWidth * s.stretchX); const cy = Math.floor(y * d.cellHeight * s.stretchY);
                 const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
-                let dist = s.pulseCircular ? Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2)) : Math.max(Math.abs(cx - ox), Math.abs(cy - oy));
+                
+                let dist;
+                if (s.pulseCircular) {
+                    dist = Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2));
+                } else {
+                    // Aspect Ratio Pulse
+                    const canvasW = this.g.cols * d.cellWidth * s.stretchX;
+                    const canvasH = this.g.rows * d.cellHeight * s.stretchY;
+                    // Avoid division by zero
+                    const ratio = (canvasH > 0) ? (canvasW / canvasH) : 1;
+                    
+                    const dx = Math.abs(cx - ox);
+                    const dy = Math.abs(cy - oy);
+                    
+                    // Scale Y distance by aspect ratio so it "grows" slower/faster to match width
+                    // If W > H (Ratio > 1), we want dy to count 'more' so it reaches H boundary when dx reaches W boundary?
+                    // Wait. If W=1000, H=500. Ratio=2.
+                    // Edge X=500, Edge Y=250.
+                    // max(500, 250 * 2) = 500. Equal.
+                    // So dist = max(dx, dy * ratio).
+                    
+                    dist = Math.max(dx, dy * ratio);
+                }
+
                 const width = s.pulseWidth * 2; const innerEdge = this.radius - width;
                 if (this.state !== 'WAITING' && dist < innerEdge) return null; 
                 const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
