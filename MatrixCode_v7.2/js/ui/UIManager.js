@@ -112,7 +112,16 @@ class UIManager {
             { cat: 'Behavior', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Max Height', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
             { cat: 'Behavior', id: 'dejaVuHoleBrightness', type: 'range', label: 'Hole Bright', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
             { cat: 'Behavior', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Colors', dep: 'dejaVuEnabled' },
-        
+            
+            { cat: 'Behavior', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
+            { cat: 'Behavior', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
+            { cat: 'Behavior', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
+            { cat: 'Behavior', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
+            { cat: 'Behavior', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 5, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
+            { cat: 'Behavior', id: 'supermanIncludeColors', type: 'checkbox', label: 'Extra Bright', dep: 'supermanEnabled' },
+            { cat: 'Behavior', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 4, dep: 'supermanEnabled' },
+            { cat: 'Behavior', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 5, step: 1, dep: 'supermanEnabled' },
+
             { cat: 'Behavior', type: 'accordion_header', label: 'Special FX' },
             { cat: 'Behavior', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
             { cat: 'Behavior', id: 'starPowerFreq', type: 'range', label: 'Spawn Rate', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
@@ -454,6 +463,7 @@ class UIManager {
                 if(a === 'pulse') { if(this.eff.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
                 if(a === 'minipulse') { if(this.eff.trigger('MiniPulse')) this.notifications.show('Storm Triggered', 'success'); else this.notifications.show('Storm already active...', 'info'); }
                 if(a === 'dejavu') { if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
+                if(a === 'superman') { if(this.eff.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
             }
 
             refresh(k) {

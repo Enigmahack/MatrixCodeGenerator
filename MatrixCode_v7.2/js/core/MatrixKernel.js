@@ -9,6 +9,7 @@ class MatrixKernel {
                 this.effectRegistry.register(new PulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new MiniPulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
+                this.effectRegistry.register(new SupermanEffect(this.grid, this.config));
 
                 this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
                 this.fontMgr = new FontManager(this.config, this.notifications);

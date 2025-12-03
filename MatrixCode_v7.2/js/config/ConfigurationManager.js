@@ -1,7 +1,7 @@
 class ConfigurationManager {
             constructor() {
-                this.storageKey = 'matrix_config_v7'; 
-                this.slotsKey = 'matrix_slots_v7';
+                this.storageKey = 'matrix_config_v7.3'; 
+                this.slotsKey = 'matrix_slots_v7.3';
                 
                 this.defaults = {
                     // --- GLOBAL ---
@@ -113,7 +113,17 @@ class ConfigurationManager {
                     dejaVuHoleBrightness: 0.02, 
                     dejaVuMinRectHeight: 1, 
                     dejaVuMaxRectHeight: 10, 
-                    dejaVuRandomizeColors: true
+                    dejaVuRandomizeColors: true, 
+
+                    // --- EVENTS (SUPERMAN) ---
+                    supermanEnabled: true,
+                    supermanDurationSeconds: 5,
+                    supermanFlickerRate: 3, // How many frames between shape changes (lower is faster)
+                    supermanWidth: 4, // Vertical spread (amplitude)
+                    supermanProb: 4, // Branching probability
+                    supermanIncludeColors: false, // If true, keeps original color but super-bright
+                    supermanGlow: 4, 
+                    supermanBoltThickness: 4,
                 };
 
                 this.state = { ...this.defaults };
