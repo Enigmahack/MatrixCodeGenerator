@@ -3,6 +3,7 @@ class PulseEffect extends AbstractEffect {
                 super(g, c); this.name = "Pulse"; 
                 this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
                 this.snap = null; this.autoTimer = c.state.pulseFrequencySeconds * 60;
+                this.renderData = null; // Cache for update-calc
             }
             trigger() {
                 if(this.active) return false;
@@ -19,25 +20,15 @@ class PulseEffect extends AbstractEffect {
                     this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); this.snap.tracers[i] = isTracer ? 1 : 0; this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
                 }
                 
-                // Position Logic
                 let ox, oy;
                 if (s.pulseRandomPosition) {
                     ox = Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8);
                     oy = Utils.randomInt(this.g.rows*0.2, this.g.rows*0.8);
-                    
-                    // Snapping Logic
                     const cx = Math.floor(this.g.cols / 2);
                     const cy = Math.floor(this.g.rows / 2);
-                    
-                    // Calculate pixel distance from center
                     const pxDistX = Math.abs(ox - cx) * d.cellWidth * s.stretchX;
                     const pxDistY = Math.abs(oy - cy) * d.cellHeight * s.stretchY;
-                    
-                    // If within pulse width (approx), snap to center
-                    if (pxDistX < s.pulseWidth && pxDistY < s.pulseWidth) {
-                        ox = cx;
-                        oy = cy;
-                    }
+                    if (pxDistX < s.pulseWidth && pxDistY < s.pulseWidth) { ox = cx; oy = cy; }
                 } else {
                     ox = Math.floor(this.g.cols/2);
                     oy = Math.floor(this.g.rows/2);
@@ -49,54 +40,142 @@ class PulseEffect extends AbstractEffect {
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
                 return true; 
             }
+            
             update() {
                 const s = this.c.state;
                 if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
-                if(!this.active) return;
+                if(!this.active) { this.renderData = null; return; }
+                
+                const d = this.c.derived;
+                
                 if(this.state === 'WAITING') { 
                     if(--this.timer <= 0) { this.state = 'EXPANDING'; this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; }
                 } else {
-                    this.radius += this.speed; const d = this.c.derived; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-                    if(this.radius > maxDim + 400) { this.active = false; this.snap = null; }
-                }
-            }
-            getOverride(i) {
-                if(!this.active || !this.snap) return null;
-                const s = this.c.state; const d = this.c.derived;
-                const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
-                const cx = Math.floor(x * d.cellWidth * s.stretchX); const cy = Math.floor(y * d.cellHeight * s.stretchY);
-                const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
-                
-                let dist;
-                if (s.pulseCircular) {
-                    dist = Math.sqrt(Math.pow(cx - ox, 2) + Math.pow(cy - oy, 2));
-                } else {
-                    // Aspect Ratio Pulse
-                    const canvasW = this.g.cols * d.cellWidth * s.stretchX;
-                    const canvasH = this.g.rows * d.cellHeight * s.stretchY;
-                    // Avoid division by zero
-                    const ratio = (canvasH > 0) ? (canvasW / canvasH) : 1;
-                    
-                    const dx = Math.abs(cx - ox);
-                    const dy = Math.abs(cy - oy);
-                    
-                    // Scale Y distance by aspect ratio so it "grows" slower/faster to match width
-                    // If W > H (Ratio > 1), we want dy to count 'more' so it reaches H boundary when dx reaches W boundary?
-                    // Wait. If W=1000, H=500. Ratio=2.
-                    // Edge X=500, Edge Y=250.
-                    // max(500, 250 * 2) = 500. Equal.
-                    // So dist = max(dx, dy * ratio).
-                    
-                    dist = Math.max(dx, dy * ratio);
+                    this.radius += this.speed; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+                    if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
                 }
 
-                const width = s.pulseWidth * 2; const innerEdge = this.radius - width;
-                if (this.state !== 'WAITING' && dist < innerEdge) return null; 
+                // --- Optimization Pre-calc ---
+                const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); 
+                const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
+                const width = s.pulseWidth * 2; 
+                const innerEdge = this.radius - width;
+                
+                let ratio = 1;
+                if (!s.pulseCircular) {
+                    const canvasW = this.g.cols * d.cellWidth * s.stretchX;
+                    const canvasH = this.g.rows * d.cellHeight * s.stretchY;
+                    ratio = (canvasH > 0) ? (canvasW / canvasH) : 1;
+                }
+
+                // AABB for the outer radius
+                // For circular: standard bounding box.
+                // For rect: radius applies to the MAX dimension.
+                // Rect dist = max(dx, dy * ratio).
+                // So max dx = radius. max dy = radius / ratio.
+                
+                let minX, maxX, minY, maxY;
+                if (s.pulseCircular) {
+                    minX = ox - this.radius; maxX = ox + this.radius;
+                    minY = oy - this.radius; maxY = oy + this.radius;
+                } else {
+                    minX = ox - this.radius; maxX = ox + this.radius;
+                    const rY = this.radius / ratio;
+                    minY = oy - rY; maxY = oy + rY;
+                }
+
+                this.renderData = {
+                    ox, oy,
+                    radius: this.radius,
+                    radiusSq: this.radius * this.radius,
+                    innerEdge,
+                    innerEdgeSq: innerEdge * innerEdge, // innerEdge can be negative, handled
+                    width,
+                    ratio,
+                    minX, maxX, minY, maxY
+                };
+            }
+
+            getOverride(i) {
+                if(!this.active || !this.snap) return null;
+                // If WAITING, we cover everything (pause mode), so we cannot skip AABB.
+                // Wait, PulseEffect behavior: "While waiting, dim everything".
+                // So we MUST process all pixels if state is WAITING.
+                
+                const s = this.c.state; const d = this.c.derived;
+                
+                // Use renderData for fast rejection IF expanding
+                const rd = this.renderData;
+                let dist = 0;
+                
+                if (this.state === 'WAITING') {
+                    // Global dimming, logic applies to everyone. No spatial reject.
+                    // But dist is 0 (or effectively infinite from radius 0?) 
+                    // Logic says: if (WAITING || dist > radius) -> Dim/Pause look.
+                    // So we just fall through to the dimming block.
+                } else {
+                    // EXPANDING
+                    const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
+                    const cx = Math.floor(x * d.cellWidth * s.stretchX); 
+                    const cy = Math.floor(y * d.cellHeight * s.stretchY);
+
+                    // AABB Check
+                    // If outside AABB, it is "outside the wave".
+                    // In PulseEffect, "outside the wave" means (dist > radius).
+                    // And (dist > radius) means DIMMED/PAUSED.
+                    // So we CANNOT skip processing. We must return the dimmed override.
+                    
+                    // HOWEVER, if dist < innerEdge (inside the hole), we return NULL (normal stream).
+                    // We can optimize that check.
+                    
+                    // innerEdge AABB?
+                    // If cx,cy is inside the 'inner hole', return null.
+                    // Inner hole AABB:
+                    // Circular: innerRadius = rd.innerEdge.
+                    // Rect: same logic.
+                    
+                    if (rd.innerEdge > 0) {
+                        // Check if definitely inside the hole
+                        let inHole = false;
+                        if (s.pulseCircular) {
+                            // Inner AABB
+                            if (cx > rd.ox - rd.innerEdge && cx < rd.ox + rd.innerEdge &&
+                                cy > rd.oy - rd.innerEdge && cy < rd.oy + rd.innerEdge) {
+                                // Potential hole match, do precise check
+                                const dx = cx - rd.ox; const dy = cy - rd.oy;
+                                if ((dx*dx + dy*dy) < rd.innerEdgeSq) return null; // Definitely inside hole
+                            }
+                        } else {
+                            // Rect inner hole is exact AABB
+                            const rY = rd.innerEdge / rd.ratio;
+                            if (cx > rd.ox - rd.innerEdge && cx < rd.ox + rd.innerEdge &&
+                                cy > rd.oy - rY && cy < rd.oy + rY) {
+                                return null; // Inside rect hole
+                            }
+                        }
+                    }
+
+                    // Calculate Dist for wave edge
+                    if (s.pulseCircular) {
+                        const dx = cx - rd.ox; const dy = cy - rd.oy;
+                        dist = Math.sqrt(dx*dx + dy*dy); // Sqrt needed for linear interpolation 'rel'
+                    } else {
+                        const dx = Math.abs(cx - rd.ox);
+                        const dy = Math.abs(cy - rd.oy);
+                        dist = Math.max(dx, dy * rd.ratio);
+                    }
+                    
+                    if (dist < rd.innerEdge) return null;
+                }
+
+                // ... Rest of logic uses 'dist' ...
+                
                 const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
                 const tRgb = d.tracerRgb; const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
                 let baseColorStr = null; let isGap = false;
                 if (snAlpha <= 0.01) { isGap = true; if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i]; }
                 const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
+                
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(baseColorStr === null) { const rgb = Utils.unpackRgb(this.snap.colors[i]); baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`; }
                     if(isTracer && s.pulseIgnoreTracers) return { char, color: targetColor, alpha: 1.0, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
@@ -104,7 +183,8 @@ class PulseEffect extends AbstractEffect {
                     return { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
                 if (s.pulsePreserveSpaces && isGap) return { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
-                const rel = Math.max(0, Math.min(1, (this.radius - dist) / width));
+                
+                const rel = Math.max(0, Math.min(1, (this.radius - dist) / (s.pulseWidth * 2)));
                 let finalColor = targetColor;
                 if (s.pulseBlend) {
                     const baseInt = this.snap.colors[i]; const bR = (baseInt >> 16) & 0xFF; const bG = (baseInt >> 8) & 0xFF; const bB = baseInt & 0xFF;

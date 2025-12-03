@@ -7,7 +7,7 @@ class ConfigurationManager {
                     // --- GLOBAL ---
                     streamColor: "#65d778", 
                     streamSpeed: 15,
-                    clearAlpha: 0.6,
+                    clearAlpha: 0.9,
                     enableBloom: true, 
                     bloomStrength: 2, 
                     bloomOpacity: 0.45,
@@ -37,7 +37,7 @@ class ConfigurationManager {
 
                     // --- FONT & GLYPHS ---
                     fontFamily: 'MatrixEmbedded', 
-                    fontSize: 26, 
+                    fontSize: 19, 
                     fontWeight: 'normal', 
                     italicEnabled: false,
                     mirrorEnabled: false, 
@@ -81,27 +81,27 @@ class ConfigurationManager {
 
                     // --- EVENTS (PULSE) ---
                     pulseEnabled: true, 
-                    pulseFrequencySeconds: 180, 
+                    pulseFrequencySeconds: 220, 
                     pulseDelayFrames: 60, 
-                    pulseDurationSeconds: 2.2, 
+                    pulseDurationSeconds: 1.8, 
                     pulsePreserveSpaces: true, 
                     pulseRandomPosition: true, 
                     pulseWidth: 130, 
                     pulseDimming: 0.2, 
                     pulseIgnoreTracers: true,
                     pulseCircular: false,
-                    pulseBlend: true,
+                    pulseBlend: false,
                     pulseInstantStart: false,
 
                     // --- EVENTS (CLEAR PULSE) ---
                     clearPulseEnabled: true, 
-                    clearPulseFrequencySeconds: 240, 
-                    clearPulseDurationSeconds: 2.2, 
+                    clearPulseFrequencySeconds: 195, 
+                    clearPulseDurationSeconds: 1, 
                     clearPulsePreserveSpaces: true, 
                     clearPulseRandomPosition: true, 
-                    clearPulseWidth: 130, 
+                    clearPulseWidth: 150, 
                     clearPulseIgnoreTracers: true,
-                    clearPulseCircular: false,
+                    clearPulseCircular: true,
                     clearPulseBlend: true,
                     clearPulseInstantStart: false,
 
@@ -109,9 +109,9 @@ class ConfigurationManager {
                     miniPulseEnabled: true,
                     miniPulseFrequencySeconds: 450,
                     miniPulseDurationSeconds: 5,
-                    miniPulseSpawnChance: 0.03,
+                    miniPulseSpawnChance: 0.06,
                     miniPulseSize: 140,
-                    miniPulseThickness: 64,
+                    miniPulseThickness: 92,
                     miniPulseSpeed: 14,
                     miniPulsePreserveSpaces: true,
 
@@ -126,18 +126,19 @@ class ConfigurationManager {
                     dejaVuHoleBrightness: 0.02, 
                     dejaVuMinRectHeight: 1, 
                     dejaVuMaxRectHeight: 10, 
-                    dejaVuRandomizeColors: true, 
+                    dejaVuRandomizeColors: false, 
 
                     // --- EVENTS (SUPERMAN) ---
                     supermanEnabled: true,
-                    supermanDurationSeconds: 5,
-                    supermanFlickerRate: 3, // How many frames between shape changes (lower is faster)
-                    supermanWidth: 4, // Vertical spread (amplitude) / Jitter
-                    supermanSpawnSpeed: 40, // Multiplier for how fast it crosses the screen
-                    supermanFadeSpeed: 20, // Fade out divisor (higher = slower fade)
-                    supermanIncludeColors: false, // If true, keeps original color but super-bright
+                    supermanDurationSeconds: 6,
+                    supermanFlickerRate: 2, 
+                    supermanWidth: 2, 
+                    supermanSpawnSpeed: 75, 
+                    supermanFadeSpeed: 6, 
+                    supermanIncludeColors: true, 
                     supermanGlow: 4, 
-                    supermanBoltThickness: 4,
+                    supermanBoltThickness: 5,
+                    supermanProb: 4
                 };
 
                 this.state = { ...this.defaults };

@@ -9,6 +9,7 @@ class UIManager {
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
             { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
+            { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
             { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
         
@@ -19,7 +20,6 @@ class UIManager {
         
             // APPEARANCE TAB
             { cat: 'Appearance', type: 'accordion_header', label: 'Glyph Details' },
-            { cat: 'Appearance', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
