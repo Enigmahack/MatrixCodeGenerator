@@ -1,4 +1,4 @@
-const APP_VERSION = "7.1";
+const APP_VERSION = "7.3";
 
         // =========================================================================
         // 1. CORE UTILITIES / CONSTANTS

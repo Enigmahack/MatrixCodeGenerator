@@ -1,8 +1,8 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.2.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.3.html
 #
-💻 Matrix Digital Rain Simulation v7.2
-The quest for the "perfect" rain continues. v7.2 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
+💻 Matrix Digital Rain Simulation v7.3
+The quest for the "perfect" rain continues. v7.3 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
 <img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
@@ -10,7 +10,7 @@ The quest for the "perfect" rain continues. v7.2 represents a massive leap forwa
 <img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
 
 #
-🚀 What's New in v7.2
+🚀 What's New in v7.3
 This release focuses on deeper customization, advanced visual effects, and a refined user experience. We've overhauled core systems for better performance and introduced powerful new ways to control the digital rain.
 
 **Core System Overhauls & Performance:**
@@ -18,9 +18,18 @@ This release focuses on deeper customization, advanced visual effects, and a ref
 *   **Optimized Grid**: The underlying grid structure has been re-engineered using TypedArrays for significant performance improvements, especially in large simulations.
 
 **Enhanced Visuals & Effects:**
+*   **Advanced Pulse Effects (Pulse & Clear Pulse)**: Both the standard `Pulse` and new `Clear Pulse` effects now offer:
+    *   **Aspect Ratio Awareness**: Pulses initiating from the center expand with the canvas's aspect ratio, ensuring they hit all outer edges simultaneously.
+    *   **Center Snapping**: Pulses randomly spawned near the center will snap to the exact center for a more impactful, symmetrical effect.
+*   **New "Clear Pulse" Effect**: Introduces a non-intrusive pulse that passes through the live matrix code without pausing the simulation or dimming the background. It highlights active code and fills gaps, creating a connected, tracer-like wave. Configurable with its own frequency, duration, width, and blending options.
+*   **Pulse Storm (formerly Mini Pulse) Enhancements**: Renamed to "Pulse Storm", this effect now includes a "Preserve Spaces" option to control whether empty gaps are filled during the storm, and features improved alpha blending for a smoother fade-out.
+*   **Superman Effect Refinements**: The "Superman" effect has been significantly enhanced:
+    *   **Controlled Movement**: Improved erratic movement with a center-biased path, ensuring the lightning bolt stays within a reasonable vertical range.
+    *   **Dynamic Spawning**: The bolt now spawns left-to-right with adjustable speed, leaving a visible "impression" behind.
+    *   **Fade-out Duration**: Features a configurable fade-out duration, allowing the trails to dissipate smoothly.
+    *   **Single Branch Focus**: Streamlined to a single, powerful lightning bolt for a more focused effect.
+    *   **Performance Optimizations**: Further performance improvements for a smoother experience.
 *   **Fine-tuned Deterioration**: Improved "Ghosting" with more control over `deteriorationStrength`, alongside refined `dissolve` effects for more realistic code decay.
-*   **Advanced Pulse Effect**: The `Pulse` effect now offers more control with new `pulseCircular`, `pulseBlend`, and `pulseInstantStart` options, allowing for a wider range of visual impact.
-*   **New "Mini Pulse" Effect**: Introducing a dynamic new "Mini Pulse" effect (also known as "Storm"), which spawns localized, expanding rings of code disruption, creating a chaotic and energetic visual burst. Configurable parameters include frequency, duration, spawn chance, size, thickness, and speed.
 *   **Inverted Tracers**: More explicit control over `invertedTracerChance` for streams that clear existing code rather than writing new characters, adding negative space to the rain.
 
 **Stream & Flow Control:**
@@ -30,13 +39,15 @@ This release focuses on deeper customization, advanced visual effects, and a ref
 *   **Life Cycle in Seconds**: `ttlMinSeconds` and `ttlMaxSeconds` now define stream lifespan in seconds for more intuitive configuration.
 
 **User Interface & Experience:**
+*   **Reorganized FX Tab**: A new dedicated "FX" tab consolidates all visual effects, categorized into "Movie FX" (Pulse, Clear Pulse, Pulse Storm, Deja Vu, Superman) and "Special FX" (Star Power, Rainbow Streams), each within its own accordion menu for improved navigation.
 *   **Accordion UI**: The settings panel has been redesigned with an intuitive accordion-style interface, making it easier to navigate and manage a growing number of options.
-*   **Mobile Scroll Guard**: Sliders on mobile devices now only respond to horizontal touch and drag gestures, preventing accidental value changes during vertical page scrolling.
+*   **Enhanced Mobile Scroll Guard**: Sliders on mobile devices now only respond to horizontal touch and drag gestures, completely preventing accidental value changes during vertical page scrolling, even when touching the slider area.
+*   **Clear on Focus for Save Slots**: Input fields for saving/renaming presets now clear their content upon focus, streamlining the renaming process.
 *   **Notification System**: A new, dedicated `NotificationManager` provides clear and consistent feedback for user actions like font imports, saves, and effect triggers.
 *   **Improved Font Management**: The `FontManager` has been refined for more robust handling of custom font files, including better format detection and integration with the new notification system.
 
 **Minor Adjustments:**
-*   Default values for several parameters like `streamColor`, `tracerColor`, `bloomStrength`, `bloomOpacity`, `resolution`, `smoothingAmount`, `fontSize`, `tracerGlow`, `pulseDurationSeconds`, `pulseWidth`, and `pulseDimming` have been updated for a more balanced out-of-the-box experience.
+*   Default values for several parameters like `streamColor`, `tracerColor`, `bloomStrength`, `bloomOpacity`, `resolution`, `smoothingAmount`, `fontSize`, `tracerGlow`, `pulseDurationSeconds`, `pulseWidth`, and `pulseDimming` have been updated for a more balanced out-of-box experience.
 *   The `randomStopEnabled` and `randomStopChance` features have been removed for a more focused stream behavior model.
 #
 ✨ Features
@@ -74,8 +85,8 @@ WOFF2 Support: The engine now correctly detects and provides format hints for mo
 
 Touch Physics: The UI manager now calculates velocity and drag distance to distinguish between a "tap" and a "swipe," preventing accidental clicks while scrolling through tabs on mobile.
 #
-📝 Note on Upgrading from v6.2
-Because v7.2 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
+📝 Note on Upgrading from v7.2
+Because v7.3 introduces new effect controls and UI changes, your previous settings from v7.2 might be reset to defaults upon first load due to config schema changes. However, the export/import JSON structure remains backward compatible for most core settings.
 
 ---
 
@@ -100,9 +111,9 @@ python3 matrix_builder.py split <input_monolith_file> <output_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py split MatrixCode_v7.2.html MatrixCode_v7.2_dev
+python3 matrix_builder.py split MatrixCode_v7.3.html MatrixCode_v7.3_dev
 ```
-This will create a `MatrixCode_v7.2_dev` directory containing the modular project structure.
+This will create a `MatrixCode_v7.3_dev` directory containing the modular project structure.
 
 #### `combine` command
 
@@ -114,9 +125,9 @@ python3 matrix_builder.py combine <input_directory> <output_monolith_file>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py combine MatrixCode_v7.2_dev MatrixCode_v7.2_Release.html
+python3 matrix_builder.py combine MatrixCode_v7.3_dev MatrixCode_v7.3_Release.html
 ```
-This will create a `MatrixCode_v7.2_Release.html` file containing the combined application.
+This will create a `MatrixCode_v7.3_Release.html` file containing the combined application.
 
 #### `refresh` command
 
@@ -136,10 +147,10 @@ This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any n
 
 1.  **Initial Split:**
     ```bash
-    python3 matrix_builder.py split MatrixCode_v7.2.html MatrixCode_v7.2_dev
+    python3 matrix_builder.py split MatrixCode_v7.3.html MatrixCode_v7.3_dev
     ```
 2.  **Development:**
-    Navigate to the `MatrixCode_v7.2_dev/` directory. Open `MatrixCode_v7.2_dev/index.html` in your web browser for development.
+    Navigate to the `MatrixCode_v7.3_dev/` directory. Open `MatrixCode_v7.3_dev/index.html` in your web browser for development.
     Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory.
 
     **If you add new `.js` files (e.g., a new effect):**
@@ -148,13 +159,13 @@ This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any n
     *   If you want a UI button, manually add it to `js/ui/UIManager.js`'s `this.defs` array and handle its action in `handleAction()`.
     *   **Then, run the `refresh` command** to update your development `index.html`:
         ```bash
-        python3 matrix_builder.py refresh MatrixCode_v7.2_dev
+        python3 matrix_builder.py refresh MatrixCode_v7.3_dev
         ```
-    Your `MatrixCode_v7.2_dev/index.html` will now include the new script.
+    Your `MatrixCode_v7.3_dev/index.html` will now include the new script.
 
 3.  **Generate Release Build:**
     Once you are satisfied with your changes, run the `combine` command to generate a new monolithic release file:
     ```bash
-    python3 matrix_builder.py combine MatrixCode_v7.2_dev MatrixCode_v7.2_Updated.html
+    python3 matrix_builder.py combine MatrixCode_v7.3_dev MatrixCode_v7.3_Release.html
     ```
-    The `MatrixCode_v7.2_Updated.html` file will contain all your latest changes in a single, self-contained file.
+    The `MatrixCode_v7.3_Release.html` file will contain all your latest changes in a single, self-contained file.
