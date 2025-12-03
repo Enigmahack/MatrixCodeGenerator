@@ -10,7 +10,7 @@ class UIManager {
             { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
-            { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.",s min: 1, max: 10, step: 1 },
+            { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
         
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
