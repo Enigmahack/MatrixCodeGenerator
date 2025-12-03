@@ -76,3 +76,61 @@ Touch Physics: The UI manager now calculates velocity and drag distance to disti
 #
 📝 Note on Upgrading from v6.2
 Because v7.2 introduces a new database structure for fonts, your previous settings from v6.2 might be reset to defaults upon first load. However, the export/import JSON structure remains backward compatible for most core settings.
+
+---
+
+## 🏗️ Development Workflow
+
+This project now supports a modular development workflow using a Python script to manage file splitting and combination. This allows for easier development and maintenance of individual components while still enabling the creation of a single monolithic HTML file for release.
+
+### `matrix_builder.py` Script
+
+The `matrix_builder.py` script provides two main commands: `split` and `combine`.
+
+#### `split` command
+
+This command takes a monolithic HTML file (e.g., `MatrixCode_vX.Y.html`) and splits it into a modular directory structure. The output directory will contain:
+-   `index.html`: A development-friendly HTML file that links to all the individual CSS and JavaScript files.
+-   `css/style.css`: The extracted CSS styles.
+-   `js/`: A directory containing JavaScript files for each class and utility, organized by category (e.g., `js/core/Utils.js`, `js/ui/UIManager.js`).
+
+**Usage:**
+```bash
+python3 matrix_builder.py split <input_monolith_file> <output_directory>
+```
+**Example:**
+```bash
+python3 matrix_builder.py split MatrixCode_v7.2.html MatrixCode_v7.2_dev
+```
+This will create a `MatrixCode_v7.2_dev` directory containing the modular project structure.
+
+#### `combine` command
+
+This command takes a modular project directory (created by the `split` command) and combines all its contents back into a single monolithic HTML file. This is useful for generating release builds or for packaging the application into a single portable file.
+
+**Usage:**
+```bash
+python3 matrix_builder.py combine <input_directory> <output_monolith_file>
+```
+**Example:**
+```bash
+python3 matrix_builder.py combine MatrixCode_v7.2_dev MatrixCode_v7.2_Release.html
+```
+This will create a `MatrixCode_v7.2_Release.html` file containing the combined application.
+
+### Workflow Example
+
+1.  **Initial Split:**
+    ```bash
+    python3 matrix_builder.py split MatrixCode_v7.2.html MatrixCode_v7.2_dev
+    ```
+2.  **Development:**
+    Navigate to the `MatrixCode_v7.2_dev/` directory. Open `MatrixCode_v7.2_dev/index.html` in your web browser for development.
+    Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory. The `index.html` file automatically references these modular files, so your changes will be reflected upon refreshing the browser.
+
+3.  **Generate Release Build:**
+    Once you are satisfied with your changes, run the `combine` command to generate a new monolithic release file:
+    ```bash
+    python3 matrix_builder.py combine MatrixCode_v7.2_dev MatrixCode_v7.2_Updated.html
+    ```
+    The `MatrixCode_v7.2_Updated.html` file will contain all your latest changes in a single, self-contained file.
