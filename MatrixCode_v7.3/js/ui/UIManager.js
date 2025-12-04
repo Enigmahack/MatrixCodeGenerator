@@ -432,89 +432,79 @@ class UIManager {
                         inp.type = 'range'; 
                         inp.min=d.min; 
                         inp.max=d.max; 
-                        if(d.step) 
-                            inp.step=d.step; 
-                            inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id);                            
-                            inp.oninput = e => { 
-                                    const v = parseFloat(e.target.value); 
-                                    const actual = d.invert ? (d.max+d.min)-v : v; 
-                                    this.c.set(d.id, actual); 
-                                    const disp = document.getElementById(`val-${d.id}`); 
-                                    if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
-                                }; 
+                        if(d.step) inp.step=d.step; 
+                        
+                        let isTouching = false;
 
-                            let startX = 0;
-                            let startY = 0;
-                            let startValue = 0;
-                            let isHorizontalDrag = false;
+                        inp.value = d.invert ? (d.max+d.min)-this.c.get(d.id) : this.c.get(d.id);                            
+                        
+                        inp.oninput = e => { 
+                            if (isTouching) return; // Block native updates during touch interaction
+                            const v = parseFloat(e.target.value); 
+                            const actual = d.invert ? (d.max+d.min)-v : v; 
+                            this.c.set(d.id, actual); 
+                            const disp = document.getElementById(`val-${d.id}`); 
+                            if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
+                        }; 
 
-                            inp.addEventListener('touchstart', e => {
-                                startX = e.touches[0].clientX;
-                                startY = e.touches[0].clientY;
-                                startValue = parseFloat(e.target.value);
-                                isHorizontalDrag = false;
+                        let startX = 0;
+                        let startY = 0;
+                        let startValue = 0;
+                        let isHorizontalDrag = false;
+
+                        inp.addEventListener('touchstart', e => {
+                            isTouching = true;
+                            startX = e.touches[0].clientX;
+                            startY = e.touches[0].clientY;
+                            startValue = parseFloat(e.target.value);
+                            isHorizontalDrag = false;
+                            
+                            // Prevent "jump to tap" visually
+                            requestAnimationFrame(() => {
+                                inp.value = startValue;
+                            });
+                        }, { passive: false });
+
+                        inp.addEventListener('touchmove', e => {
+                            const x = e.touches[0].clientX;
+                            const y = e.touches[0].clientY;
+                            const dx = x - startX;
+                            const dy = y - startY;
+
+                            if (!isHorizontalDrag && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 5) {
+                                isHorizontalDrag = true;
+                            }
+
+                            if (isHorizontalDrag) {
+                                e.preventDefault(); 
+                                const rect = inp.getBoundingClientRect();
+                                const relativeX = Math.min(Math.max(0, x - rect.left), rect.width);
+                                const percent = relativeX / rect.width;
+                                const min = parseFloat(d.min);
+                                const max = parseFloat(d.max);
+                                let newVal = min + (percent * (max - min));
+                                if (d.step) {
+                                    const step = parseFloat(d.step);
+                                    newVal = Math.round(newVal / step) * step;
+                                }
+                                if (newVal < min) newVal = min;
+                                if (newVal > max) newVal = max;
+
+                                inp.value = newVal;
                                 
-                                // HACK: Prevent "jump to tap". 
-                                // We let the event fire so browser knows we touched, but we immediately revert the value
-                                // in the next tick, effectively ignoring the "tap to set" behavior.
-                                // This forces the user to drag to change value.
-                                requestAnimationFrame(() => {
-                                    e.target.value = startValue;
-                                    // Also ensure the model/display isn't updated to the jump value
-                                    const actual = d.invert ? (d.max+d.min)-startValue : startValue;
-                                    // We don't call c.set here because we want to avoid jitter in the engine, 
-                                    // just visual revert on the slider control.
-                                });
-                            }, { passive: false });
-
-                            inp.addEventListener('touchmove', e => {
-                                const x = e.touches[0].clientX;
-                                const y = e.touches[0].clientY;
-                                const dx = x - startX;
-                                const dy = y - startY;
-
-                                // Determine direction
-                                if (!isHorizontalDrag && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 5) {
-                                    isHorizontalDrag = true;
-                                }
-
-                                if (isHorizontalDrag) {
-                                    e.preventDefault(); // Stop scrolling
-                                    
-                                    // Manually calculate value based on position
-                                    const rect = inp.getBoundingClientRect();
-                                    // Clamp x relative to input width
-                                    const relativeX = Math.min(Math.max(0, x - rect.left), rect.width);
-                                    const percent = relativeX / rect.width;
-                                    
-                                    const min = parseFloat(d.min);
-                                    const max = parseFloat(d.max);
-                                    let newVal = min + (percent * (max - min));
-                                    
-                                    // Handle step
-                                    if (d.step) {
-                                        const step = parseFloat(d.step);
-                                        newVal = Math.round(newVal / step) * step;
-                                    }
-                                    
-                                    // Clamp
-                                    if (newVal < min) newVal = min;
-                                    if (newVal > max) newVal = max;
-
-                                    // Update Input
-                                    inp.value = newVal;
-                                    
-                                    // Update Engine
-                                    const actual = d.invert ? (max+min)-newVal : newVal; 
-                                    this.c.set(d.id, actual); 
-                                    
-                                    // Update Display
-                                    const disp = document.getElementById(`val-${d.id}`); 
-                                    if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
-                                }
-                                // Else: Vertical move, do nothing, let browser scroll.
-                            }, { passive: false });
-                        }
+                                const actual = d.invert ? (max+min)-newVal : newVal; 
+                                this.c.set(d.id, actual); 
+                                
+                                const disp = document.getElementById(`val-${d.id}`); 
+                                if(disp) disp.textContent = d.transform ? d.transform(actual) : actual + (d.unit || '');
+                            }
+                        }, { passive: false });
+                        
+                        inp.addEventListener('touchend', () => {
+                            isTouching = false;
+                            isHorizontalDrag = false;
+                        });
+                    }
 
                     else if(d.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(d.id); inp.id = `in-${d.id}`; inp.name = d.id; inp.oninput = e => this.c.set(d.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(d.dep) row.setAttribute('data-dep', JSON.stringify(d.dep)); if(d.id) row.id = `row-${d.id}`; return row; }
                     else if(d.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(d.id); inp.onchange = e => this.c.set(d.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
