@@ -137,23 +137,15 @@ class ClearPulseEffect extends AbstractEffect {
         }
 
         // 4. Wave Bounds Check
-        // If inside hole OR outside radius, return null (Normal Stream/No Dimming)
         if (dist < rd.innerEdge || dist > rd.radius) return null;
 
-        // --- Logic Inside the Pulse Wave ---
 
         // Check Live Alpha to determine if cell is empty
         const alpha = this.g.alphas[i];
         const isGap = (alpha <= 0.01);
 
-        // BEHAVIOR: Preserve Spaces
-        // If it is a gap, and we want to preserve spaces, return null (transparent/no effect)
         if (s.clearPulsePreserveSpaces && isGap) return null;
 
-        // NOTE: The 'Ignore Tracers' check has been REMOVED here. 
-        // This ensures the effect applies to ALL non-empty cells (stream tails, rotators, etc).
-
-        // Determine Character
         let char;
         if (isGap) {
             // Fill the gap (Reveal effect) using snapshot

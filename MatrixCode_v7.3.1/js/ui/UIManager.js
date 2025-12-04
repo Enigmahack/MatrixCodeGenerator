@@ -158,6 +158,13 @@ class UIManager {
             { cat: 'FX', id: 'rainbowStreamChance', type: 'range', label: 'Rainbow Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
         
+            { cat: 'FX', type: 'accordion_header', label: 'Firewall Anomaly' }, 
+            { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-danger' },
+            { cat: 'FX', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall FX' },
+            { cat: 'FX', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
+            { cat: 'FX', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 20, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
+            { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
+
             // SYSTEM TAB
             { cat: 'System', type: 'accordion_header', label: 'Config' },
             { cat: 'System', type: 'slot', idx: 0 },
@@ -303,36 +310,6 @@ class UIManager {
                                         const nextControlElement = this.renderControl(this.defs[nextDefIndex]);
                                         if (nextControlElement) {
                                             activeAppendingBody.appendChild(nextControlElement);
-                                            // Remove from defs iteration logic?? No, forEach continues.
-                                            // We must flag it as processed or handle it.
-                                            // Actually, the simplest way without modifying the loop structure is to let the loop hit it, 
-                                            // but we need to know it's already done.
-                                            // OR: simpler approach: Just let the loop continue. 
-                                            // But 'activeAppendingBody' is now 'cautionZoneDiv'.
-                                            // The next item will be appended to 'cautionZoneDiv'.
-                                            // We just need to reset 'activeAppendingBody' back to 'originalAppendingBody' after the next item.
-                                            // But we can't easily do that inside a forEach loop.
-                                            
-                                            // Alternative: Do NOT perform lookahead.
-                                            // Just let 'activeAppendingBody' remain as 'cautionZoneDiv' for the next item.
-                                            // But we need to break out of it after the next item.
-                                            // This implies structure knowledge. 
-                                            
-                                            // Let's stick to the visual container logic:
-                                            // We rendered the header. We set 'activeAppendingBody' to the caution div.
-                                            // The NEXT item in the loop will be appended to 'activeAppendingBody' (the caution div).
-                                            // We need a way to "pop" the stack.
-                                            // Since we know it's the last item in the System tab usually, maybe it's fine?
-                                            // Or we can flag the next item to pop.
-                                            // Let's assume caution items are always leaf nodes in this specific UI.
-                                            
-                                            // Actually, simpler: Just render the caution zone container here, append the header.
-                                            // Let the loop proceed.
-                                            // The loop will append the next item to 'activeAppendingBody'.
-                                            // If 'activeAppendingBody' is the caution zone, it works.
-                                            // But subsequent items (if any) would also go there.
-                                            // In this specific config, Factory Reset is the last item in Maintenance.
-                                            // So it is fine.
                                         }
                                     }
                                 } else {
@@ -527,6 +504,8 @@ class UIManager {
                 if(a === 'minipulse') { if(this.eff.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm already active...', 'info'); }
                 if(a === 'dejavu') { if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
                 if(a === 'superman') { if(this.eff.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
+                if(a === 'firewall') { if(this.eff.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); 
+                }
             }
 
             refresh(k) {

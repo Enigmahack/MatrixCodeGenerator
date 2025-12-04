@@ -348,7 +348,7 @@
         <div id="panelHeader"><h2>Settings</h2></div>
         <div id="navTabs"></div>
         <div id="contentArea"></div>
-        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v7.3</div></div>
+        <div id="panelFooter"><div id="globalStatus" class="status-msg">Matrix Code v7.3.1</div></div>
     </div>
 
     <script>
@@ -502,6 +502,12 @@ class ConfigurationManager {
                     rainbowStreamChance: 1, 
                     rainbowStreamIntensity: 50,
 
+                    // --- GLYPH FX (FIREWALL ANOMALY) --- 
+                    firewallEnabled: true, 
+                    firewallFrequencySeconds: 150, 
+                    firewallReverseDurationFrames: 10,
+                    firewallEraseDurationFrames: 25,
+
                     // --- EVENTS (PULSE) ---
                     pulseEnabled: true, 
                     pulseFrequencySeconds: 220, 
@@ -626,10 +632,6 @@ class ConfigurationManager {
                 };
             }
         }
-
-        // =========================================================================
-        // 3. DATA LAYER
-        // =========================================================================
 
 // --- MatrixGrid.js ---
 class MatrixGrid {
@@ -1084,23 +1086,15 @@ class ClearPulseEffect extends AbstractEffect {
         }
 
         // 4. Wave Bounds Check
-        // If inside hole OR outside radius, return null (Normal Stream/No Dimming)
         if (dist < rd.innerEdge || dist > rd.radius) return null;
 
-        // --- Logic Inside the Pulse Wave ---
 
         // Check Live Alpha to determine if cell is empty
         const alpha = this.g.alphas[i];
         const isGap = (alpha <= 0.01);
 
-        // BEHAVIOR: Preserve Spaces
-        // If it is a gap, and we want to preserve spaces, return null (transparent/no effect)
         if (s.clearPulsePreserveSpaces && isGap) return null;
 
-        // NOTE: The 'Ignore Tracers' check has been REMOVED here. 
-        // This ensures the effect applies to ALL non-empty cells (stream tails, rotators, etc).
-
-        // Determine Character
         let char;
         if (isGap) {
             // Fill the gap (Reveal effect) using snapshot
@@ -1237,6 +1231,157 @@ class DejaVuEffect extends AbstractEffect {
                 };
             }
         }
+
+// --- FirewallEffect.js ---
+class FirewallEffect extends AbstractEffect {
+    constructor(g, c) {
+        super(g, c);
+        this.name = "Firewall";
+        this.active = false;
+        this.autoTimer = c.state.firewallFrequencySeconds * 60;
+        this.column = -1;
+        this.state = 'IDLE'; 
+        this.reverseTimer = 0;
+        this.eraseTimer = 0;
+        this.snapChars = null;
+        this.cleanupFrames = 2; // Add a final cleanup buffer frame
+    }
+
+    trigger() {
+        if (this.active) return false;
+        
+        // 1. Pick Random Column
+        this.column = Utils.randomInt(1, this.g.cols - 2); 
+        this.reverseTimer = this.c.state.firewallReverseDurationFrames; 
+        this.eraseTimer = this.c.state.firewallEraseDurationFrames + this.cleanupFrames; // Add buffer
+        this.active = true;
+        this.state = 'REVERSING';
+
+        // 2. Snapshot the existing code
+        this.snapChars = new Uint16Array(this.g.rows);
+        for (let y = 0; y < this.g.rows; y++) {
+            const idx = this.g.getIndex(this.column, y);
+            this.snapChars[y] = this.g.chars[idx];
+        }
+        
+        return true;
+    }
+
+    update() {
+        const s = this.c.state;
+
+        // Auto-trigger logic
+        if (!this.active && s.firewallEnabled && this.autoTimer-- <= 0) { 
+            this.trigger(); 
+            this.autoTimer = s.firewallFrequencySeconds * 60; 
+        }
+        if (!this.active) { return; }
+
+        if (this.state === 'REVERSING') {
+            if (this.reverseTimer-- <= 0) {
+                this.state = 'ERASING';
+            }
+        } else if (this.state === 'ERASING') {
+            this.eraseTimer--;
+            
+            // If we are in the last two frames (cleanup buffer), ensure the column is empty
+            if (this.eraseTimer <= this.cleanupFrames) {
+                // Deep clean the column so it is totally empty
+                for (let y = 0; y < this.g.rows; y++) {
+                    const idx = this.g.getIndex(this.column, y);
+                    this.g.types[idx] = CELL_TYPE.EMPTY;
+                    this.g.alphas[idx] = 0;
+                    this.g.ages[idx] = 0;
+                    this.g.decays[idx] = 0;
+                    this.g.rotatorProg[idx] = 0;
+                    this.g.complexStyles.delete(idx);
+                }
+            }
+
+            if (this.eraseTimer <= 0) {
+                this.active = false;
+                this.snapChars = null;
+            }
+        }
+    }
+
+    getOverride(i) {
+        if (!this.active || this.snapChars === null) return null;
+
+        const x = i % this.g.cols; 
+        if (x !== this.column) return null; 
+        
+        const y = Math.floor(i / this.g.cols);
+        const s = this.c.state;
+        const d = this.c.derived;
+
+        const originalChar = String.fromCharCode(this.snapChars[y]);
+
+        // Fix for residual flash: If timer is in cleanup phase, return a transparent block.
+        if (this.state === 'ERASING' && this.eraseTimer <= this.cleanupFrames) {
+             return { char: '', color: '#000000', alpha: 0.0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+        }
+
+        // --- PHASE 1: REVERSE FLOW ---
+        if (this.state === 'REVERSING') {
+            const maxT = s.firewallReverseDurationFrames;
+            const progress = 1.0 - (this.reverseTimer / maxT);
+            
+            // Sample characters from below to create upward illusion
+            let charToDraw = originalChar;
+            const slideOffset = Math.floor(progress * this.g.rows * 0.5); 
+            const sampleY = Math.min(this.g.rows - 1, y + slideOffset);
+            
+            const charCode = this.snapChars[sampleY] || this.snapChars[y];
+            
+            return {
+                char: String.fromCharCode(charCode),
+                color: d.streamColorStr, // Use stream color
+                alpha: 1.0,
+                glow: 20,
+                size: 2,
+                solid: false,
+                blend: false
+            };
+        } 
+        
+        // --- PHASE 2: ERASE & FADE ---
+        else if (this.state === 'ERASING') {
+            const maxT = s.firewallEraseDurationFrames - this.cleanupFrames; // Base duration for fade
+            const progress = 1.0 - (this.eraseTimer / maxT);
+
+            // Calculate Alpha for the Fade
+            const alpha = Math.max(0, 1.0 - progress);
+            
+            if (alpha <= 0.01) return null;
+
+            // Use the base stream color RGB values
+            const streamRgb = d.streamRgb;
+            
+            // Flicker the solid color between the stream color and a bright white/tracer color
+            const isTracer = Math.random() > 0.7;
+            const r = isTracer ? 255 : streamRgb.r;
+            const g = isTracer ? 255 : streamRgb.g;
+            const b = isTracer ? 255 : streamRgb.b;
+            
+            // Create RGBA string so the BLOCK fades
+            const rgbaColor = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+            return {
+                char: originalChar,
+                color: rgbaColor, 
+                alpha: alpha, 
+                glow: 30 * alpha,
+                size: 4,
+                solid: true, 
+                bgColor: rgbaColor, 
+                blend: false
+            };
+        }
+
+        return null;
+    }
+}
 
 // --- MiniPulseEffect.js ---
 class MiniPulseEffect extends AbstractEffect {
@@ -2054,6 +2199,13 @@ class UIManager {
             { cat: 'FX', id: 'rainbowStreamChance', type: 'range', label: 'Rainbow Chance', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
         
+            { cat: 'FX', type: 'accordion_header', label: 'Firewall Anomaly' }, 
+            { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-danger' },
+            { cat: 'FX', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall FX' },
+            { cat: 'FX', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
+            { cat: 'FX', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 20, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
+            { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 60, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
+
             // SYSTEM TAB
             { cat: 'System', type: 'accordion_header', label: 'Config' },
             { cat: 'System', type: 'slot', idx: 0 },
@@ -2199,36 +2351,6 @@ class UIManager {
                                         const nextControlElement = this.renderControl(this.defs[nextDefIndex]);
                                         if (nextControlElement) {
                                             activeAppendingBody.appendChild(nextControlElement);
-                                            // Remove from defs iteration logic?? No, forEach continues.
-                                            // We must flag it as processed or handle it.
-                                            // Actually, the simplest way without modifying the loop structure is to let the loop hit it, 
-                                            // but we need to know it's already done.
-                                            // OR: simpler approach: Just let the loop continue. 
-                                            // But 'activeAppendingBody' is now 'cautionZoneDiv'.
-                                            // The next item will be appended to 'cautionZoneDiv'.
-                                            // We just need to reset 'activeAppendingBody' back to 'originalAppendingBody' after the next item.
-                                            // But we can't easily do that inside a forEach loop.
-                                            
-                                            // Alternative: Do NOT perform lookahead.
-                                            // Just let 'activeAppendingBody' remain as 'cautionZoneDiv' for the next item.
-                                            // But we need to break out of it after the next item.
-                                            // This implies structure knowledge. 
-                                            
-                                            // Let's stick to the visual container logic:
-                                            // We rendered the header. We set 'activeAppendingBody' to the caution div.
-                                            // The NEXT item in the loop will be appended to 'activeAppendingBody' (the caution div).
-                                            // We need a way to "pop" the stack.
-                                            // Since we know it's the last item in the System tab usually, maybe it's fine?
-                                            // Or we can flag the next item to pop.
-                                            // Let's assume caution items are always leaf nodes in this specific UI.
-                                            
-                                            // Actually, simpler: Just render the caution zone container here, append the header.
-                                            // Let the loop proceed.
-                                            // The loop will append the next item to 'activeAppendingBody'.
-                                            // If 'activeAppendingBody' is the caution zone, it works.
-                                            // But subsequent items (if any) would also go there.
-                                            // In this specific config, Factory Reset is the last item in Maintenance.
-                                            // So it is fine.
                                         }
                                     }
                                 } else {
@@ -2423,6 +2545,8 @@ class UIManager {
                 if(a === 'minipulse') { if(this.eff.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm already active...', 'info'); }
                 if(a === 'dejavu') { if(this.eff.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
                 if(a === 'superman') { if(this.eff.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
+                if(a === 'firewall') { if(this.eff.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); 
+                }
             }
 
             refresh(k) {
@@ -2474,6 +2598,7 @@ class MatrixKernel {
                 this.effectRegistry.register(new MiniPulseEffect(this.grid, this.config));
                 this.effectRegistry.register(new DejaVuEffect(this.grid, this.config));
                 this.effectRegistry.register(new SupermanEffect(this.grid, this.config));
+                this.effectRegistry.register(new FirewallEffect(this.grid, this.config));
 
                 this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
                 this.fontMgr = new FontManager(this.config, this.notifications);
@@ -2514,6 +2639,7 @@ class MatrixKernel {
 
 
     </script>
+    
     
     
     

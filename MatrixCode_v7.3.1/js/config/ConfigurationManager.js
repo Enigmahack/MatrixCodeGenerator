@@ -79,6 +79,12 @@ class ConfigurationManager {
                     rainbowStreamChance: 1, 
                     rainbowStreamIntensity: 50,
 
+                    // --- GLYPH FX (FIREWALL ANOMALY) --- 
+                    firewallEnabled: true, 
+                    firewallFrequencySeconds: 150, 
+                    firewallReverseDurationFrames: 10,
+                    firewallEraseDurationFrames: 25,
+
                     // --- EVENTS (PULSE) ---
                     pulseEnabled: true, 
                     pulseFrequencySeconds: 220, 
@@ -203,7 +209,3 @@ class ConfigurationManager {
                 };
             }
         }
-
-        // =========================================================================
-        // 3. DATA LAYER
-        // =========================================================================

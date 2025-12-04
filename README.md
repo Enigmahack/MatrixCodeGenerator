@@ -49,6 +49,23 @@ This release focuses on deeper customization, advanced visual effects, and a ref
 **Minor Adjustments:**
 *   Default values for several parameters like `streamColor`, `tracerColor`, `bloomStrength`, `bloomOpacity`, `resolution`, `smoothingAmount`, `fontSize`, `tracerGlow`, `pulseDurationSeconds`, `pulseWidth`, and `pulseDimming` have been updated for a more balanced out-of-box experience.
 *   The `randomStopEnabled` and `randomStopChance` features have been removed for a more focused stream behavior model.
+
+#
+🚀 What's New in v7.3.1
+This patch release includes bug fixes, mobile usability enhancements, and a brand new visual effect.
+
+**Bug Fixes:**
+*   Resolved an issue where certain configurations could lead to incorrect character rendering.
+*   Fixed minor performance regressions introduced in specific effect combinations.
+
+**Mobile Enhancements:**
+*   Further improvements to mobile responsiveness and touch interactions, especially for slider controls and panel navigation.
+*   Optimized resource loading for faster initial page load on mobile devices.
+
+**New Visual Effect:**
+*   **Firewall Effect**: A dynamic effect that simulates a firewall's protective barrier, adding a layer of visual defense with configurable patterns and intensity.
+
+#
 #
 ✨ Features
 🔠 Advanced Typography (Glyphs Tab)
