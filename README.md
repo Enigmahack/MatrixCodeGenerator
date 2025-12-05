@@ -66,6 +66,10 @@ This patch release includes bug fixes, mobile usability enhancements, and a bran
 *   **Firewall Effect**: A dynamic effect that simulates a firewall's protective barrier, adding a layer of visual defense with configurable patterns and intensity.
 
 #
+🚀 What's New in v7.3.2
+This version primarily focuses on refining the robust architecture introduced in `v7.3.1`, ensuring stability and minor optimizations without introducing major new features or breaking changes. It's about polishing the experience and reinforcing the foundational improvements.
+
+#
 #
 ✨ Features
 🔠 Advanced Typography (Glyphs Tab)
@@ -102,8 +106,9 @@ WOFF2 Support: The engine now correctly detects and provides format hints for mo
 
 Touch Physics: The UI manager now calculates velocity and drag distance to distinguish between a "tap" and a "swipe," preventing accidental clicks while scrolling through tabs on mobile.
 #
-📝 Note on Upgrading from v7.2
-Because v7.3 introduces new effect controls and UI changes, your previous settings from v7.2 might be reset to defaults upon first load due to config schema changes. However, the export/import JSON structure remains backward compatible for most core settings.
+📝 Note on Upgrading from Previous Versions
+
+With continuous improvements and architectural changes, especially the significant modularization introduced in `v7.3` and refined through `v7.3.1` and `v7.3.2`, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
 
 ---
 
