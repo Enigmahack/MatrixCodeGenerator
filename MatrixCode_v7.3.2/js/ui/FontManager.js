@@ -122,13 +122,12 @@ class FontManager {
             const transaction = this.db.transaction(this.storeName, 'readonly');
             const objectStore = transaction.objectStore(this.storeName);
 
-            objectStore.getAll().onsuccess = event => {
+            objectStore.getAll().onsuccess = async event => { // <-- Make this async
                 const storedFonts = event.target.result;
 
                 // Reset the font list, keeping only the embedded font.
                 this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
 
-                // Inject fonts from the database into the application.
                 // Use Promise.all to await all font injections from DB
                 await Promise.all(storedFonts.map(async font => {
                     this.loadedFonts.push(font);
