@@ -1,8 +1,8 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.3.2.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.4.html
 #
-💻 Matrix Digital Rain Simulation v7.3
-The quest for the "perfect" rain continues. v7.3 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
+💻 Matrix Digital Rain Simulation v7.4
+The quest for the "perfect" rain continues. v7.4 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
 <img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
@@ -51,7 +51,7 @@ This release focuses on deeper customization, advanced visual effects, and a ref
 *   The `randomStopEnabled` and `randomStopChance` features have been removed for a more focused stream behavior model.
 
 #
-🚀 What's New in v7.3.1
+🚀 What's New in v7.4
 This patch release includes bug fixes, mobile usability enhancements, and a brand new visual effect.
 
 **Bug Fixes:**
@@ -108,7 +108,7 @@ Touch Physics: The UI manager now calculates velocity and drag distance to disti
 #
 📝 Note on Upgrading from Previous Versions
 
-With continuous improvements and architectural changes, especially the significant modularization introduced in `v7.3` and refined through `v7.3.1` and `v7.3.2`, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
+With continuous improvements and architectural changes, especially the significant modularization introduced in `v7.4` and refined through `v7.4` and `v7.4`, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
 
 ---
 
@@ -133,7 +133,7 @@ python3 matrix_builder.py split <input_monolith_file> <output_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py split MatrixCode_v7.3.html MatrixCode_v7.3_dev
+python3 matrix_builder.py split MatrixCode_v7.4.html MatrixCode_v7.4_dev
 ```
 This will create a `MatrixCode_v7.3_dev` directory containing the modular project structure.
 
@@ -147,7 +147,7 @@ python3 matrix_builder.py combine <input_directory> <output_monolith_file>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py combine MatrixCode_v7.3_dev MatrixCode_v7.3_Release.html
+python3 matrix_builder.py combine MatrixCode_v7.4_dev MatrixCode_v7.4_Release.html
 ```
 This will create a `MatrixCode_v7.3_Release.html` file containing the combined application.
 
@@ -161,7 +161,7 @@ python3 matrix_builder.py refresh <input_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py refresh MatrixCode_v7.3_dev
+python3 matrix_builder.py refresh MatrixCode_v7.4_dev
 ```
 This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any newly added `.js` files.
 
@@ -172,7 +172,7 @@ This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any n
     python3 matrix_builder.py split MatrixCode_v7.3.html MatrixCode_v7.3_dev
     ```
 2.  **Development:**
-    Navigate to the `MatrixCode_v7.3_dev/` directory. Open `MatrixCode_v7.3_dev/index.html` in your web browser for development.
+    Navigate to the `MatrixCode_v7.4_dev/` directory. Open `MatrixCode_v7.4_dev/index.html` in your web browser for development.
     Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory.
 
     **If you add new `.js` files (e.g., a new effect):**

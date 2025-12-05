@@ -77,14 +77,14 @@ class UIManager {
      */
     _generateGlobalSettings() {
         return [
-            { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color' },
+            { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
             { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
         
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
-            { cat: 'Global', id: 'enableGlyphAtlas', type: 'checkbox', label: 'Glyph Atlas (Performance)', description: 'Pre-renders characters to improve performance. Disable if you see visual artifacts.' },
+            { cat: 'Global', id: 'enableGlyphAtlas', type: 'checkbox', label: 'Performance pre-render' },
             { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
             { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
         ];
@@ -97,15 +97,21 @@ class UIManager {
      */
     _generateAppearanceSettings() {
         return [
-            { cat: 'Appearance', type: 'accordion_header', label: 'Glyph Details' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Details' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
-            { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] },
+            { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
             { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
-            { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Randomizes the luminance of individual characters within a stream for a shimmering / flashing look.' },
+        
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
+            { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Allows for brightness variance when characters are written' },
             { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+            { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
+            { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
+            { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
+            { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
         
             { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
@@ -113,12 +119,6 @@ class UIManager {
             { cat: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
             { cat: 'Appearance', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
             { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
-        
-            { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
-            { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolve (Shrink) Effect' }, 
-            { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Target Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled' },
-            { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Ghosting' },
-            { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghost Distance', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
         
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
             { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
@@ -138,26 +138,26 @@ class UIManager {
     _generateBehaviorSettings() {
         return [
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
-            { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Min Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
-            { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Max Life', min: 1, max: 30, step: 0.5, unit: 's' },
+            { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
+            { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
-            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1 },
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled' },
+            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps / Broken Code', min: 0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
+            { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
-            { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Spawns 'eraser' signals that travel downwards, clearing existing code trails." },
-            { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Tracer Chance', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+            { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Tracers that only write occassional characters" },
+            { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
             { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
-            { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: "Lock the rotator change to the cycles that move the tracers" },
             { cat: 'Behavior', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
             { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
@@ -180,14 +180,14 @@ class UIManager {
             { cat: 'FX', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
             { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Ignore Tracers', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseDimming', type: 'range', label: 'Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Preserve Tracer Glow', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
             { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseCircular', type: 'checkbox', label: 'Circular', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'pulseEnabled' },
+            { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: "Start at a full square" },
+            { cat: 'FX', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
             
             { cat: 'FX', type: 'accordion_header', label: 'Clear Pulse' },
             { cat: 'FX', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
@@ -196,12 +196,12 @@ class UIManager {
             { cat: 'FX', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
             { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
             { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'clearPulseEnabled' },
+            { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled', description: "Start at a full square" },
+            { cat: 'FX', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'clearPulseEnabled' },
 
             { cat: 'FX', type: 'accordion_header', label: 'Pulse Storm' },
             { cat: 'FX', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
@@ -292,13 +292,21 @@ class UIManager {
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
         
             { cat: 'System', type: 'accordion_header', label: 'Maintenance' },
+            { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
             { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
             // CAUTION separator - will be handled in renderControl
             { cat: 'System', type: 'header', label: 'CAUTION ZONE' }, // Use header for visual separation and text
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
         
             { cat: 'System', type: 'accordion_header', label: 'About' },
-            { cat: 'System', type: 'about_content' }
+            { cat: 'System', type: 'about_content' },
+
+            { cat: 'System', type: 'accordion_header', label: 'FAQ' },
+            { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.' },
+            { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.' },
+            { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Details" you can import your own TTF or OTF font file.' },
+            { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "FX" tab.' },
+            { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' }
         ];
     }
 
@@ -311,6 +319,9 @@ class UIManager {
 
         // Create and populate tabs and content containers
         this._setupTabs();
+
+        // Update footer version
+        document.getElementById('globalStatus').textContent = `Matrix Code v${APP_VERSION}`;
 
         // Initialize File Input Handlers
         this._setupFileHandlers();
@@ -790,8 +801,37 @@ class UIManager {
         }
         if (def.type === 'about_content') {
             const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac';
-            div.innerHTML = `<h3 style="margin-top:0; margin-bottom: 1rem; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3><div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`;
+            
+            const logoChar = Utils.getRandomKatakanaChar();
+            const initialColor = this.c.get('streamColor');
+            const initialSvgDataUrl = Utils.generateGlyphSVG(logoChar, initialColor, 48, this.c.get('fontFamily'));
+
+            div.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+                    <img id="matrixLogo" src="${initialSvgDataUrl}" alt="Matrix Logo" style="height: 48px; width: 48px; margin-right: 10px;"/>
+                    <h3 style="margin:0; color:#fff; font-size: 1.1rem; letter-spacing:1px;">Matrix Digital Rain</h3>
+                </div>
+                <div style="background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px; margin-bottom:1.5rem;"><p style="margin:0.5rem 0;"><strong>Version:</strong> ${APP_VERSION}</p><p style="margin:0.5rem 0;"><strong>Created:</strong> November 2025</p></div><p style="font-size:0.9rem;"><a href="https://github.com/enigmahack" target="_blank" style="color:#22c55e; text-decoration:none; border-bottom:1px solid #22c55e; padding-bottom:2px; transition:all 0.2s;">github.com/enigmahack</a></p>`;
             return div;
+        }
+        if (def.type === 'info_description') {
+            const div = document.createElement('div');
+            div.className = 'info-description';
+            div.textContent = def.text;
+            return div;
+        }
+        if (def.type === 'faq_item') {
+            const container = document.createElement('div');
+            container.className = 'faq-item';
+            const question = document.createElement('div');
+            question.className = 'faq-question';
+            question.textContent = def.question;
+            const answer = document.createElement('div');
+            answer.className = 'faq-answer';
+            answer.textContent = def.answer;
+            container.appendChild(question);
+            container.appendChild(answer);
+            return container;
         }
         const row = document.createElement('div');
         if (def.type === 'button') {
@@ -966,8 +1006,35 @@ class UIManager {
                     }); 
                 }
                 const list = document.getElementById('fontListUI'); 
-                if(list) this.updateFontList(list); 
-                return;
+                                if (list) this.updateFontList(list); 
+                                // Update logo when font family changes, re-randomize char
+                                const logo = document.getElementById('matrixLogo');
+                                if (logo) {
+                                    const randomChar = Utils.getRandomKatakanaChar();
+                                    const currentColor = this.c.get('streamColor');
+                                    logo.src = Utils.generateGlyphSVG(randomChar, currentColor, 48, this.c.get('fontFamily'));
+                                }
+                                const favicon = document.getElementById('favicon');
+                                if (favicon) {
+                                    const randomChar = Utils.getRandomKatakanaChar();
+                                    const currentColor = this.c.get('streamColor');
+                                    favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
+                                }
+                                return;
+                            }
+            if (key === 'streamColor') {
+                const logo = document.getElementById('matrixLogo');
+                if (logo) {
+                    const randomChar = Utils.getRandomKatakanaChar(); // Re-randomize char on color change too
+                    const currentColor = this.c.get('streamColor');
+                    logo.src = Utils.generateGlyphSVG(randomChar, currentColor, 48, this.c.get('fontFamily'));
+                }
+                const favicon = document.getElementById('favicon');
+                if (favicon) {
+                    const randomChar = Utils.getRandomKatakanaChar();
+                    const currentColor = this.c.get('streamColor');
+                    favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
+                }
             }
             if(key) {
                 const inp = document.getElementById(`in-${key}`);

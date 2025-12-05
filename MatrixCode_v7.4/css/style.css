@@ -157,6 +157,36 @@
             padding-left: 0.25rem;
         }
 
+        .info-description {
+            font-size: 1.0rem;
+            color: var(--text-muted);
+            padding: 0.5rem 0.25rem;
+            margin-bottom: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .faq-item {
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px dashed rgba(255,255,255,0.08);
+        }
+        .faq-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .faq-question {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+        }
+        .faq-answer {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
         /* --- TAB CONTENT STYLES --- */
         .tab-content-group {
             display: none;

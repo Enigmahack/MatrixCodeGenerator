@@ -1,4 +1,4 @@
-const APP_VERSION = "7.3.2"; // Retained current version
+const APP_VERSION = "7.4"; // Retained current version
 
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS
@@ -125,6 +125,18 @@ const Utils = {
     // List of available characters for random selection
     CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
 
+    // Subset of Katakana characters for specific use cases
+    KATAKANA_CHARS: 'ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
+
+    /**
+     * Returns a random character from the predefined KATAKANA_CHARS list.
+     * @returns {string} A single random Katakana character.
+     */
+    getRandomKatakanaChar: () => {
+        const index = Utils.randomInt(0, Utils.KATAKANA_CHARS.length - 1);
+        return Utils.KATAKANA_CHARS[index];
+    },
+
     /**
      * Returns a random character from the predefined CHARS list.
      * @returns {string} A single random character.
@@ -167,6 +179,33 @@ const Utils = {
         // Clean up
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    },
+
+    /**
+     * Generates an SVG data URL for a single Matrix glyph.
+     * @param {string} char - The character to render (e.g., '0').
+     * @param {string} color - The color of the character (e.g., '#00FF00').
+     * @param {number} size - The font size in pixels.
+     * @param {string} fontFamily - The font family to use.
+     * @returns {string} A data URL containing the SVG image.
+     */
+    generateGlyphSVG: (char, color, size = 24, fontFamily = 'monospace') => {
+        // Ensure the char is a string and handle potential empty or non-string inputs
+        char = String(char || ' '); 
+
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                <rect width="${size}" height="${size}" fill="transparent"/>
+                <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+                      font-family="${fontFamily}" font-size="${size * 0.8}" fill="${color}">
+                    ${char}
+                </text>
+            </svg>
+        `.replace(/\s+/g, ' ').trim(); // Minify SVG string
+
+        // Encode SVG to UTF-8 before Base64 encoding for characters outside Latin1 range
+        const utf8Svg = unescape(encodeURIComponent(svg));
+        return `data:image/svg+xml;base64,${btoa(utf8Svg)}`;
     }
 };
 
