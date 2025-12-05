@@ -16,11 +16,7 @@ class StreamMode {
 class StandardMode extends StreamMode {
     // Inherits default behavior with no specific changes
     style(stream, frame, state) {
-        // Convert stream color to HSL to provide a consistent style object
-        // This ensures effects like Pulse and Deja Vu treat standard streams identical to Rainbow streams
-        const rgb = Utils.hexToRgb(state.streamColor);
-        const hsl = Utils.rgbToHsl(rgb.r, rgb.g, rgb.b);
-        return { h: hsl.h, s: hsl.s, l: hsl.l, cycle: false, speed: 0, glitter: false };
+        return null;
     }
 }
 
@@ -37,7 +33,7 @@ class StarPowerMode extends StreamMode {
     }
 
     _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter };
+        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
     }
 }
 
@@ -51,7 +47,7 @@ class RainbowMode extends StreamMode {
     }
 
     _createStyle(hue, saturation, lightness) {
-        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false };
+        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
     }
 }
 

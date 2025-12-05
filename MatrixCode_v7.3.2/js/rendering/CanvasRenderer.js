@@ -379,7 +379,7 @@ class CanvasRenderer {
                 const style = this.grid.complexStyles.get(i);
                 
                 let cStr = tStr;
-                if (style) {
+                if (style && style.isEffect) {
                     let h = style.h;
                     if (style.cycle) h = (h + (frame * style.speed)) % 360;
                     const tc = Utils.hslToRgb(h | 0, 100, 90);
