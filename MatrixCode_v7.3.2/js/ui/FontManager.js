@@ -15,7 +15,7 @@ class FontManager {
      */
     async init() {
         if (DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) {
-            this.injectEmbeddedFont();
+            await this.injectEmbeddedFont();
         }
 
         try {
@@ -45,11 +45,11 @@ class FontManager {
     /**
      * Inject the embedded default Matrix font if it hasn't already been loaded.
      */
-    injectEmbeddedFont() {
+    async injectEmbeddedFont() {
         const isFontInjected = this.loadedFonts.some(f => f.name === this.embeddedFontName);
         if (isFontInjected) return;
 
-        this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
+        await this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
         this.loadedFonts.push({
             name: this.embeddedFontName,
             display: 'The Matrix Custom Code',
@@ -63,7 +63,7 @@ class FontManager {
      * @param {string} url - The URL or source of the font data.
      * @param {string} format - The format of the font data (e.g., 'format("woff2")').
      */
-    _injectCSS(name, url, format) {
+    async _injectCSS(name, url, format) {
         const existingStyle = document.getElementById(`style-${name}`);
         if (existingStyle) existingStyle.remove();
 
@@ -76,6 +76,15 @@ class FontManager {
             }
         `;
         document.head.appendChild(style);
+
+        // Wait for the font to be loaded
+        try {
+            await document.fonts.load(`1em '${name}'`);
+            return true; // Font loaded successfully
+        } catch (e) {
+            console.error(`Failed to load font ${name}:`, e);
+            return false; // Font failed to load
+        }
     }
 
     /**
@@ -120,13 +129,14 @@ class FontManager {
                 this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
 
                 // Inject fonts from the database into the application.
-                storedFonts.forEach(font => {
+                // Use Promise.all to await all font injections from DB
+                await Promise.all(storedFonts.map(async font => {
                     this.loadedFonts.push(font);
 
                     const type = font.mimeType || font.data.type;
                     const format = this._getFormatFromType(type);
-                    this._injectCSS(font.name, URL.createObjectURL(font.data), format);
-                });
+                    await this._injectCSS(font.name, URL.createObjectURL(font.data), format);
+                }));
 
                 this._notify();
                 resolve();

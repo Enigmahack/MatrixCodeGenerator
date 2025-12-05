@@ -3,7 +3,6 @@ class MatrixKernel {
         // Initialize core components
         this._initializeManagers();
         this._initializeEffects();
-        this._initializeRendererAndUI();
         
         // Frame handling and rendering variables
         this.frame = 0;
@@ -16,6 +15,11 @@ class MatrixKernel {
 
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
+    }
+
+    async initAsync() {
+        // Asynchronous initialization steps
+        await this._initializeRendererAndUI();
 
         // Perform the initial resize setup and start the loop
         this._resize();
@@ -54,13 +58,13 @@ class MatrixKernel {
      * Initializes the CanvasRenderer, FontManager, and UIManager.
      * @private
      */
-    _initializeRendererAndUI() {
+    async _initializeRendererAndUI() {
         this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
 
-        // Initialize font manager
-        this.fontMgr.init();
+        // Initialize font manager and await its completion
+        await this.fontMgr.init();
     }
 
     /**
@@ -151,4 +155,7 @@ class MatrixKernel {
 }
 
 // Initialize the MatrixKernel on DOMContentLoaded
-window.addEventListener('DOMContentLoaded', () => new MatrixKernel());
+window.addEventListener('DOMContentLoaded', async () => {
+    const kernel = new MatrixKernel();
+    await kernel.initAsync();
+});
