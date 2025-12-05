@@ -10,10 +10,7 @@ class FirewallEffect extends AbstractEffect {
         this.eraseTimer = 0;
         this.snapChars = null;
         this.cleanupFrames = 2; // Add a final cleanup buffer frame
-        this.shiftCounter = 0;
-        this.shiftInterval = 2; // Shift every 2 frames during reversing
-        this._firewallRandomColor = null; // Store the random color for a given trigger
-    } // Added missing closing brace
+    }
 
     trigger() {
         if (this.active) return false;
@@ -30,14 +27,6 @@ class FirewallEffect extends AbstractEffect {
         for (let y = 0; y < this.g.rows; y++) {
             const idx = this.g.getIndex(this.column, y);
             this.snapChars[y] = this.g.chars[idx];
-        }
-
-        // Generate random color once per trigger if enabled
-        if (this.c.state.firewallRandomColorEnabled) {
-            const randomHue = Utils.randomInt(0, 359);
-            this._firewallRandomColor = Utils.hslToRgb(randomHue, 100, 70);
-        } else {
-            this._firewallRandomColor = null; // Clear if not using random color
         }
         
         return true;
@@ -56,12 +45,6 @@ class FirewallEffect extends AbstractEffect {
         if (this.state === 'REVERSING') {
             if (this.reverseTimer-- <= 0) {
                 this.state = 'ERASING';
-            } else {
-                this.shiftCounter++;
-                if (this.shiftCounter >= this.shiftInterval) {
-                    this._shiftColumnCharsUpwards();
-                    this.shiftCounter = 0;
-                }
             }
         } else if (this.state === 'ERASING') {
             this.eraseTimer--;
@@ -87,15 +70,6 @@ class FirewallEffect extends AbstractEffect {
         }
     }
 
-    _shiftColumnCharsUpwards() {
-        if (!this.snapChars) return;
-        const topChar = this.snapChars[0];
-        for (let y = 0; y < this.g.rows - 1; y++) {
-            this.snapChars[y] = this.snapChars[y + 1];
-        }
-        this.snapChars[this.g.rows - 1] = topChar;
-    }
-
     getOverride(i) {
         if (!this.active || this.snapChars === null) return null;
 
@@ -115,7 +89,15 @@ class FirewallEffect extends AbstractEffect {
 
         // --- PHASE 1: REVERSE FLOW ---
         if (this.state === 'REVERSING') {
-            const charCode = this.snapChars[y];
+            const maxT = s.firewallReverseDurationFrames;
+            const progress = 1.0 - (this.reverseTimer / maxT);
+            
+            // Sample characters from below to create upward illusion
+            let charToDraw = originalChar;
+            const slideOffset = Math.floor(progress * this.g.rows * 0.5); 
+            const sampleY = Math.min(this.g.rows - 1, y + slideOffset);
+            
+            const charCode = this.snapChars[sampleY] || this.snapChars[y];
             
             return {
                 char: String.fromCharCode(charCode),
@@ -138,16 +120,17 @@ class FirewallEffect extends AbstractEffect {
             
             if (alpha <= 0.01) return null;
 
-            let finalRgb;
-            if (s.firewallRandomColorEnabled) {
-                finalRgb = this._firewallRandomColor;
-            } else {
-                // Use the configured firewall color
-                finalRgb = Utils.hexToRgb(s.firewallColor);
-            }
+            // Use the base stream color RGB values
+            const streamRgb = d.streamRgb;
+            
+            // Flicker the solid color between the stream color and a bright white/tracer color
+            const isTracer = Math.random() > 0.7;
+            const r = isTracer ? 255 : streamRgb.r;
+            const g = isTracer ? 255 : streamRgb.g;
+            const b = isTracer ? 255 : streamRgb.b;
             
             // Create RGBA string so the BLOCK fades
-            const rgbaColor = `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${alpha})`;
+            const rgbaColor = `rgba(${r}, ${g}, ${b}, ${alpha})`;
 
             return {
                 char: originalChar,

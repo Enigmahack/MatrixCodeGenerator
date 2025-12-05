@@ -102,10 +102,8 @@ class ConfigurationManager {
             // --- GLYPH FX (FIREWALL ANOMALY) ---
             firewallEnabled: true,
             firewallFrequencySeconds: 150,
-            firewallReverseDurationFrames: 10,
-            firewallEraseDurationFrames: 25,
-            firewallRandomColorEnabled: true,
-            firewallColor: "#00ff00",
+            firewallReverseDurationFrames: 100,
+            firewallEraseDurationFrames: 100,
 
             // --- EVENTS (PULSES) ---
             pulseEnabled: true,
@@ -154,7 +152,7 @@ class ConfigurationManager {
             dejaVuRandomizeColors: false,
 
             supermanEnabled: true,
-            supermanFrequencySeconds: 240,
+            supermanFrequencySeconds: 375,
             supermanDurationSeconds: 6,
             supermanFlickerRate: 2,
             supermanWidth: 2,

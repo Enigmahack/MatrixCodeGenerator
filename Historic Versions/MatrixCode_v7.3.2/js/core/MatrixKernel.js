@@ -9,8 +9,8 @@ class MatrixKernel {
         this.lastTime = 0;
         this.accumulator = 0;
         this.timestep = 1000 / 60;
-        this._effectTimers = {}; // Initialize map for effect timers
-        this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
+
+        // Window resize handling
         this._setupResizeListener();
 
         // Configuration subscription for dynamic updates
@@ -107,26 +107,6 @@ class MatrixKernel {
             if (smoothingTriggers.has(key)) {
                 this.renderer.updateSmoothing();
             }
-
-            const autoEffects = [
-                { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
-                { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
-                { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
-                { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
-                { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
-            ];
-
-            autoEffects.forEach(effect => {
-                if ((key === effect.enabledKey && this.config.state[effect.enabledKey]) || key === 'ALL') {
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                } else if (key === effect.enabledKey && !this.config.state[effect.enabledKey]) {
-                    // If an effect is specifically disabled, remove its timer
-                    delete this._effectTimers[effect.effectName];
-                }
-            });
         });
     }
 
@@ -171,41 +151,6 @@ class MatrixKernel {
         this.frame++;
         this.effectRegistry.update();
         this.simulation.update(this.frame);
-
-        const autoEffects = [
-            { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
-            { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
-            { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
-            { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
-            { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
-        ];
-
-        autoEffects.forEach(effect => {
-            if (this.config.state[effect.enabledKey]) {
-                if (!this._effectTimers[effect.effectName]) {
-                    // Initialize timer with randomization if not already set
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                }
-
-                this._effectTimers[effect.effectName]--;
-
-                if (this._effectTimers[effect.effectName] <= 0) {
-                    this.effectRegistry.trigger(effect.effectName);
-                    // Reset timer with randomization
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5);
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                }
-            } else {
-                // If effect is disabled, ensure its timer is reset or cleared
-                if (this._effectTimers[effect.effectName]) {
-                    delete this._effectTimers[effect.effectName];
-                }
-            }
-        });
     }
 }
 

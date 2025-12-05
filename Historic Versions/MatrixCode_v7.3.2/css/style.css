@@ -149,14 +149,6 @@
             border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;
         }
 
-        .accordion-subheader {
-            margin-top: 0.75rem; margin-bottom: 0.2rem;
-            font-size: 0.85rem; font-weight: 700; color: #fff;
-            text-transform: uppercase; letter-spacing: 1px;
-            border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 3px;
-            padding-left: 0.25rem;
-        }
-
         /* --- TAB CONTENT STYLES --- */
         .tab-content-group {
             display: none;

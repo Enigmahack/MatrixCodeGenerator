@@ -178,12 +178,12 @@ class UIManager {
             { cat: 'FX', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
             { cat: 'FX', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'pulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
             { cat: 'FX', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Ignore Tracers', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseDimming', type: 'range', label: 'Dimming', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'pulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
             { cat: 'FX', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled' },
@@ -194,10 +194,10 @@ class UIManager {
             { cat: 'FX', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
             { cat: 'FX', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'clearPulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
             { cat: 'FX', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'clearPulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
             { cat: 'FX', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Pos', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled' },
@@ -208,55 +208,57 @@ class UIManager {
             { cat: 'FX', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
             { cat: 'FX', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
             { cat: 'FX', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
             { cat: 'FX', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
+            { cat: 'FX', id: 'miniPulseThickness', type: 'range', label: 'Thickness', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
             { cat: 'FX', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
             { cat: 'FX', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'FX', id: 'miniPulseSize', type: 'range', label: 'Blast Size', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
         
             { cat: 'FX', type: 'accordion_header', label: 'Deja Vu' },
             { cat: 'FX', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
             { cat: 'FX', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
             { cat: 'FX', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
             { cat: 'FX', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Maximum Thickness', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity (hole bright)', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Enable Color Writing', dep: 'dejaVuEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
+            { cat: 'FX', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Frequency', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
+            { cat: 'FX', id: 'dejaVuLengthVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 60, step: 1, unit: 'fr', dep: 'dejaVuEnabled' },
             
             { cat: 'FX', type: 'accordion_header', label: 'Superman' },
             { cat: 'FX', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
             { cat: 'FX', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
-            { cat: 'FX', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'supermanEnabled' },
             { cat: 'FX', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanIncludeColors', type: 'checkbox', label: 'Additional Glow', dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 450, step: 1, unit: 'fr', dep: 'supermanEnabled' },
+
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
+            { cat: 'FX', id: 'supermanIncludeColors', type: 'checkbox', label: 'Extra Bright', dep: 'supermanEnabled' },
             { cat: 'FX', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', description: 'Higher values mean trails last longer.' },
-            { cat: 'FX', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 10, dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 4, dep: 'supermanEnabled' },
+            { cat: 'FX', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 5, step: 1, dep: 'supermanEnabled' },
+
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
             { cat: 'FX', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
-            { cat: 'FX', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
-            { cat: 'FX', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
+            { cat: 'FX', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 5, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
+            { cat: 'FX', id: 'supermanSpawnSpeed', type: 'range', label: 'Speed from left to right', min: 10, max: 100, dep: 'supermanEnabled' },
 
             { cat: 'FX', type: 'header', label: 'Special FX' }, // Header for Special FX
 
             { cat: 'FX', type: 'accordion_header', label: 'Star Power' },
             { cat: 'FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
             { cat: 'FX', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'starPowerEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Look' },
             { cat: 'FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
+            { cat: 'FX', type: 'accordion_header', label: 'Feel' },
             { cat: 'FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
             
@@ -266,12 +268,9 @@ class UIManager {
             { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
         
             { cat: 'FX', type: 'accordion_header', label: 'Firewall Anomaly' }, 
-            { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-info' },
+            { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-success' },
             { cat: 'FX', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall FX' },
             { cat: 'FX', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'firewallEnabled' },
-            { cat: 'FX', id: 'firewallRandomColorEnabled', type: 'checkbox', label: 'Random Color', dep: 'firewallEnabled' },
-            { cat: 'FX', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
             { cat: 'FX', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
             { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
         ];
@@ -434,14 +433,7 @@ class UIManager {
                 currentAccordionBody = this._createAccordion(container, def.label);
                 return;
             } 
-            // Handle Accordion Subheaders
-            else if (def.type === 'accordion_subheader') {
-                if (currentAccordionBody) {
-                    const el = this.renderControl(def);
-                    if (el) currentAccordionBody.appendChild(el);
-                }
-                return;
-            }
+            
             // Handle Section Headers (Break out of accordion)
             // Exception: CAUTION ZONE remains inside for special handling below
             if (def.type === 'header' && def.label !== 'CAUTION ZONE') {
@@ -778,13 +770,6 @@ class UIManager {
      */
     renderControl(def) {
         if (def.type === 'accordion_header') { return null; }
-        if (def.type === 'accordion_subheader') {
-            const el = document.createElement('div');
-            el.className = 'accordion-subheader';
-            el.textContent = def.label;
-            if(def.dep) el.setAttribute('data-dep', JSON.stringify(def.dep));
-            return el;
-        }
         if (def.type === 'header') {
             const el = document.createElement('div'); el.className = 'section-header'; el.textContent = def.label; return el;
         }
