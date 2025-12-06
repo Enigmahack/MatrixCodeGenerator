@@ -5,6 +5,7 @@ class SimulationSystem {
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
+        this.overlapInitialized = false;
     }
 
     _initializeModes(config) {
@@ -20,7 +21,50 @@ class SimulationSystem {
             this._resetColumns();
         }
         this._manageStreams(frame);
+        this._manageOverlapGrid(frame);
         this._updateCells(frame);
+    }
+
+    _manageOverlapGrid(frame) {
+        if (!this.config.state.overlapEnabled) return;
+        
+        // Initialize if empty
+        if (!this.overlapInitialized) {
+            for(let i=0; i<this.grid.overlapChars.length; i++) {
+                if (Math.random() < this.config.state.overlapDensity) {
+                    this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
+                } else {
+                    this.grid.overlapChars[i] = 0; // Empty
+                }
+            }
+            this.overlapInitialized = true;
+            this.grid.noiseDirty = true;
+        }
+
+        // Slowly churn the noise
+        // Note: User requested Shimmer to be optional. 
+        // Wait, user requested "choosing overlap color should cause a refresh".
+        // This means we need to redraw the noise layer when color changes.
+        // The CanvasRenderer checks `noiseDirty`.
+        // Changing color doesn't change characters, so Simulation doesn't care.
+        // But CanvasRenderer needs to redraw.
+        // So `ConfigurationManager` or `UIManager` should set `noiseDirty`?
+        // Or `CanvasRenderer` should check if `overlapColor` changed.
+        // I will handle color change in Renderer (by checking state vs last state).
+        // Simulation only handles character churn.
+        
+        if (this.config.state.overlapShimmer) {
+             const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
+             for(let k=0; k<updates; k++) {
+                const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
+                if (Math.random() < this.config.state.overlapDensity) {
+                    this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+                } else {
+                    this.grid.overlapChars[idx] = 0;
+                }
+            }
+            this.grid.noiseDirty = true;
+        }
     }
 
     _resetColumns() {
@@ -138,7 +182,8 @@ class SimulationSystem {
             mode: 'STANDARD',
             baseHue: 0,
             isInverted: false,
-            isEraser: forceEraser
+            isEraser: forceEraser,
+            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1))
         };
 
         if (forceEraser) {
@@ -210,9 +255,20 @@ class SimulationSystem {
             this.grid.ages[idx] = 1;
             this.grid.decays[idx] = 1;
             this.grid.rotatorProg[idx] = 0;
+            
+            if (Math.random() < s.paletteBias) {
+                this.grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
+            } else {
+                this.grid.paletteIndices[idx] = stream.pIdx;
+            }
+            
             this.grid.activeIndices.add(idx);
 
             this.grid.setChar(idx, Utils.getRandomChar());
+            if (s.overlapEnabled) {
+                this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+            }
+            
             this.grid.brightness[idx] = s.variableBrightnessEnabled
                 ? Utils.randomFloat(d.varianceMin, 1.0)
                 : 1.0;
@@ -234,6 +290,7 @@ class SimulationSystem {
         this.grid.ages[idx] = 0;
         this.grid.decays[idx] = 0;
         this.grid.alphas[idx] = 0;
+        this.grid.overlapChars[idx] = 0;
 
         this.grid.complexStyles.delete(idx);
         this.grid.nextChars.delete(idx);
@@ -294,6 +351,13 @@ class SimulationSystem {
             const nextChar = this.grid.nextChars.get(idx);
             if (nextChar) {
                 this.grid.setChar(idx, nextChar);
+                if (this.config.state.overlapEnabled) {
+                    const nextOverlap = this.grid.nextOverlapChars.get(idx);
+                    if (nextOverlap) {
+                        this.grid.overlapChars[idx] = nextOverlap;
+                        this.grid.noiseDirty = true;
+                    }
+                }
             }
             this.grid.rotatorProg[idx] = 0;
         } else {
@@ -305,9 +369,16 @@ class SimulationSystem {
         if (frame % cycleFrames === 0) {
             if (crossfadeFrames <= 2) {
                 this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                if (this.config.state.overlapEnabled) {
+                    this.grid.overlapChars[idx] = Utils.getUniqueChar(String.fromCharCode(this.grid.overlapChars[idx])).charCodeAt(0);
+                }
             } else {
                 this.grid.rotatorProg[idx] = 1;
                 this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                if (this.config.state.overlapEnabled) {
+                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
+                    this.grid.nextOverlapChars.set(idx, Utils.getUniqueChar(currentOverlap).charCodeAt(0));
+                }
             }
         }
     }

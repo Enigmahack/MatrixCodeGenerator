@@ -314,6 +314,34 @@
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
 
+        /* Color List Styling */
+        .color-list-wrapper { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; width: 100%; margin-top: 8px; }
+        .color-list-item { position: relative; display: flex; align-items: center; justify-content: center; width: 50px; height: 50px; }
+        .color-list-item input[type="color"] { width: 48px; height: 48px; border-width: 2px; }
+        
+        .btn-icon-remove {
+            position: absolute; top: -6px; right: -6px;
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #ef4444; color: white; border: 1px solid #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; cursor: pointer; font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            z-index: 5;
+            line-height: 1; padding-bottom: 2px;
+        }
+
+        .btn-icon-add {
+            width: 48px; height: 48px; border-radius: 50%;
+            border: 2px dashed var(--accent);
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent);
+            font-size: 24px; font-weight: bold;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+            line-height: 1; padding-bottom: 3px;
+        }
+        .btn-icon-add:hover { background: rgba(34, 197, 94, 0.3); transform: scale(1.05); }
+
         .checkbox-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 40px; transition: opacity 0.3s; }
         input[type="checkbox"] { width: 40px; height: 20px; background: #374151; border-radius: 20px; position: relative; transition: 0.3s; cursor: pointer; appearance: none; -webkit-appearance: none; }
         input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s; }

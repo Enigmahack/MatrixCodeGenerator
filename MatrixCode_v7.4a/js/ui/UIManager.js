@@ -51,9 +51,9 @@ class UIManager {
      */
     _generateDefinitions() {
         return [
-            // GLOBAL TAB
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
-            { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
+            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
+            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             ...this._generateGlobalSettings(),
 
             // APPEARANCE TAB
@@ -112,6 +112,12 @@ class UIManager {
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
+            
+            { cat: 'Appearance', type: 'accordion_header', label: 'Imposition Layer' },
+            { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap' },
+            { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled' },
+            { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled' },
+            { cat: 'Appearance', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{label:'Streams Only',value:'stream'},{label:'All Characters',value:'all'}], dep: 'overlapEnabled' },
         
             { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
@@ -783,6 +789,61 @@ class UIManager {
     }
 
     /**
+     * Renders the content of a color list control into the provided wrapper.
+     * @private
+     * @param {HTMLElement} wrapper - The container element.
+     * @param {Object} def - The control definition.
+     */
+    _renderColorList(wrapper, def) {
+        wrapper.innerHTML = '';
+        const palette = this.c.get(def.id) || ["#00FF00"];
+        
+        palette.forEach((color, idx) => {
+            const item = document.createElement('div');
+            item.className = 'color-list-item';
+            
+            const cInput = document.createElement('input');
+            cInput.type = 'color';
+            cInput.value = color;
+            cInput.oninput = e => {
+                const newP = [...this.c.get(def.id)];
+                newP[idx] = e.target.value;
+                this.c.set(def.id, newP);
+            };
+            
+            item.appendChild(cInput);
+            
+            if (palette.length > 1 && idx > 0) {
+                const delBtn = document.createElement('div');
+                delBtn.className = 'btn-icon-remove';
+                delBtn.textContent = '×';
+                delBtn.onclick = () => {
+                    const newP = this.c.get(def.id).filter((_, i) => i !== idx);
+                    this.c.set(def.id, newP);
+                    this._renderColorList(wrapper, def);
+                    this.refresh('streamPalette');
+                };
+                item.appendChild(delBtn);
+            }
+            
+            wrapper.appendChild(item);
+        });
+        
+        if (palette.length < (def.max || 3)) {
+            const addBtn = document.createElement('div');
+            addBtn.className = 'btn-icon-add';
+            addBtn.textContent = '+';
+            addBtn.onclick = () => {
+                const newP = [...this.c.get(def.id), "#ffffff"];
+                this.c.set(def.id, newP);
+                this._renderColorList(wrapper, def);
+                this.refresh('streamPalette');
+            };
+            wrapper.appendChild(addBtn);
+        }
+    }
+
+    /**
      * Dynamically renders a UI control element based on its definition.
      * @param {Object} def - The definition object for the control.
      * @returns {HTMLElement|null} The created control element, or null if it's an accordion header.
@@ -940,6 +1001,18 @@ class UIManager {
             }
 
             else if(def.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(def.id); inp.id = `in-${def.id}`; inp.name = def.id; inp.oninput = e => this.c.set(def.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`; return row; }
+            
+            else if(def.type === 'color_list') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'color-list-wrapper';
+                wrapper.id = `in-${def.id}`;
+                this._renderColorList(wrapper, def);
+                row.appendChild(wrapper);
+                if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
+                if(def.id) row.id = `row-${def.id}`;
+                return row;
+            }
+
             else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
             row.appendChild(inp);
@@ -1042,6 +1115,22 @@ class UIManager {
                     favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
                 }
             }
+            if (key === 'streamPalette') {
+                 const palette = this.c.get('streamPalette');
+                 const biasRow = document.getElementById('row-paletteBias');
+                 if (biasRow) {
+                     if (palette && palette.length > 1) {
+                         biasRow.classList.remove('control-disabled');
+                     } else {
+                         biasRow.classList.add('control-disabled');
+                     }
+                 }
+                 // Re-render the list itself if needed? 
+                 // Actually the _renderColorList calls refresh implicitly by updating DOM? 
+                 // No, _renderColorList updates DOM directly. 
+                 // But we need to update the Bias slider state.
+            }
+
             if(key) {
                 const inp = document.getElementById(`in-${key}`);
                 if(inp) { 
@@ -1049,6 +1138,7 @@ class UIManager {
                     if(def) { 
                         const val = this.c.get(key); 
                         if(def.type === 'checkbox') inp.checked = val; 
+                        else if(def.type === 'color_list') this._renderColorList(inp, def);
                         else if(def.type === 'range') { 
                             inp.value = def.invert ? (def.max+def.min)-val : val; 
                             const disp = document.getElementById(`val-${key}`); 

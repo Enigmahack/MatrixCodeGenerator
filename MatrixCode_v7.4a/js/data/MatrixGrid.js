@@ -19,6 +19,7 @@ class MatrixGrid {
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
+        this.noiseDirty = true;
     }
 
     /**
@@ -87,12 +88,19 @@ class MatrixGrid {
         this.decays = new Uint8Array(totalCells);
         this.ages = new Int32Array(totalCells);
         this.brightness = new Float32Array(totalCells);
-        this.rotatorProg = new Uint8Array(totalCells);
+        this.rotatorProg = new Float32Array(totalCells);
 
-        // Clear auxiliary storage
-        this.complexStyles.clear();
-        this.nextChars.clear();
-        this.activeIndices.clear();
+        // Color Palette Index (0-2)
+        this.paletteIndices = new Uint8Array(totalCells);
+        
+        // Imposition Layer (Overlap)
+        this.overlapChars = new Uint16Array(totalCells);
+
+        this.activeIndices = new Set();
+        this.complexStyles = new Map();
+        this.nextChars = new Map();
+        this.nextOverlapChars = new Map();
+        this.noiseDirty = true;
 
         // Update grid dimensions
         this.cols = newCols;

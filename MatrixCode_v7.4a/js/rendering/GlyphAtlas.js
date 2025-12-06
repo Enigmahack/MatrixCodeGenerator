@@ -11,10 +11,11 @@ class GlyphAtlas {
         this.cellSize = 0;
         this.atlasWidth = 0;
         this.atlasHeight = 0;
+        this.blockHeight = 0; // Height of one color set
         
         // State tracking for updates
         this.currentFont = '';
-        this.currentColor = '';
+        this.currentPalette = '';
         this.needsUpdate = true;
 
         // Pre-calculated half sizes for centering
@@ -29,24 +30,24 @@ class GlyphAtlas {
         const d = this.config.derived;
 
         // Check if update is needed (font, color, or size change)
-        // We use the MAX font size needed (including tracer size increase)
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
-        const primaryColor = d.streamColorStr;
+        const paletteStr = d.paletteColorsStr.join(',');
+        // Include overlap color in dependency check
+        const fullConfigStr = paletteStr + '|' + s.overlapColor;
 
         if (this.currentFont === fontBase && 
-            this.currentColor === primaryColor && 
+            this.currentPalette === fullConfigStr && 
             !this.needsUpdate) {
             return;
         }
 
         this.currentFont = fontBase;
-        this.currentColor = primaryColor;
+        this.currentPalette = fullConfigStr;
         this.needsUpdate = false;
 
         // Calculate cell dimensions (add padding for glow/blur)
-        // Padding needs to account for the largest blur we might apply
         const padding = Math.max(s.tracerGlow, 10) * 2;
         this.cellSize = Math.ceil(maxSize + padding);
         this.halfCell = this.cellSize / 2;
@@ -57,7 +58,11 @@ class GlyphAtlas {
         const rows = Math.ceil(charList.length / cols);
 
         this.atlasWidth = cols * this.cellSize;
-        this.atlasHeight = rows * this.cellSize;
+        this.blockHeight = rows * this.cellSize; // Height of ONE color set
+        
+        // Total height = Palette Colors + 1 Overlap Color
+        const colorsToDraw = [...d.paletteColorsStr, s.overlapColor];
+        this.atlasHeight = this.blockHeight * colorsToDraw.length;
 
         // Resize canvas
         this.canvas.width = this.atlasWidth;
@@ -68,40 +73,35 @@ class GlyphAtlas {
         this.ctx.font = fontBase;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
-        
-        // Draw Characters
-        // We draw TWO sets: 
-        // 1. The "Green" (Stream) set
-        // 2. The "White" (Tracer) set? 
-        // Actually, simpler approach: Draw WHITE characters. 
-        // Then use `globalCompositeOperation` to tint them?
-        // No, tinting at runtime is slow.
-        // We should stick to the PRIMARY stream color for the main atlas.
-        // Tracers (White) can be drawn with standard fillText or a secondary white atlas.
-        // For now, let's optimize the BULK of the rendering: the Green Stream Characters.
-
-        this.ctx.fillStyle = primaryColor;
 
         this.charMap.clear();
 
-        for (let i = 0; i < charList.length; i++) {
-            const char = charList[i];
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            
-            const x = col * this.cellSize + this.halfCell;
-            const y = row * this.cellSize + this.halfCell;
+        // Draw Characters for each color in the palette + overlap
+        colorsToDraw.forEach((color, pIdx) => {
+            this.ctx.fillStyle = color;
+            const yOffset = pIdx * this.blockHeight;
 
-            this.ctx.fillText(char, x, y);
+            for (let i = 0; i < charList.length; i++) {
+                const char = charList[i];
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                
+                const x = col * this.cellSize + this.halfCell;
+                const y = row * this.cellSize + this.halfCell + yOffset;
 
-            // Store the source rectangle for this character
-            this.charMap.set(char, {
-                x: col * this.cellSize,
-                y: row * this.cellSize,
-                w: this.cellSize,
-                h: this.cellSize
-            });
-        }
+                this.ctx.fillText(char, x, y);
+
+                // Store map ONLY for the first block (pIdx 0) as relative coords are same
+                if (pIdx === 0) {
+                    this.charMap.set(char, {
+                        x: col * this.cellSize,
+                        y: row * this.cellSize,
+                        w: this.cellSize,
+                        h: this.cellSize
+                    });
+                }
+            }
+        });
     }
 
     /**

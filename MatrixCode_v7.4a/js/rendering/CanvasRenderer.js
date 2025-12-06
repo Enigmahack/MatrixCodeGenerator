@@ -4,6 +4,15 @@ class CanvasRenderer {
         this.ctx = this.cvs.getContext('2d', { alpha: false });
         this.bloomCvs = document.getElementById('bloomCanvas');
         this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+        
+        // Off-screen buffer for overlap composition
+        this.bufferCvs = document.createElement('canvas');
+        this.bufferCtx = this.bufferCvs.getContext('2d', { alpha: true });
+        
+        // Unified Render State Arrays
+        this.frameAlphas = null;
+        this.frameChars = null;
+        this.frameFlags = null; // Bit 0: Active, Bit 1: Overlap Allowed
 
         this.grid = grid;
         this.config = config;
@@ -29,6 +38,18 @@ class CanvasRenderer {
         // Bloom canvas is 1/4 size for performance and glow effect
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
+        
+        // Buffer canvas (1:1 scale for pixel accuracy)
+        this._resizeCanvas(this.bufferCvs, this.w, this.h, scale);
+        this.bufferCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+        
+        // Allocate Frame Buffers
+        if (!this.grid.chars) return;
+        
+        const size = this.grid.chars.length;
+        this.frameAlphas = new Float32Array(size);
+        this.frameChars = new Uint16Array(size);
+        this.frameFlags = new Uint8Array(size);
 
         this.updateSmoothing();
     }
@@ -76,6 +97,8 @@ class CanvasRenderer {
     }
 
     render(frame) {
+        if (!this.frameAlphas) return;
+
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
@@ -96,8 +119,97 @@ class CanvasRenderer {
         }
 
         this._drawGrid(d, s, frame, bloomEnabled);
+        
+        if (s.overlapEnabled) {
+            this._drawOverlap(d, s, frame, bloomEnabled, scale);
+        }
 
         if (bloomEnabled) this._applyBloom(s, scale);
+    }
+
+    _drawOverlap(d, s, frame, bloomEnabled, scale) {
+        const ctx = this.bufferCtx;
+        const cvs = this.bufferCvs;
+        
+        // 1. Clear Buffer
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        
+        // Save state
+        ctx.save();
+        
+        // 2. Draw Mask (Active Grid)
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+        const overlapYOffset = d.paletteColorsStr.length * this.glyphAtlas.blockHeight;
+        
+        // Unified Dynamic Pass
+        for (const i of this.grid.activeIndices) {
+            // Filter 1: Decouple from Effects (Superman, etc)
+            const style = this.grid.complexStyles.get(i);
+            if (style && style.isEffect) continue;
+
+            let gridAlpha = this.grid.alphas[i];
+            let maskChar = this.grid.getChar(i);
+
+            // Sync with Tracer Logic
+            const tState = this._getTracerState(i, s);
+            if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
+            
+            // Sync with Effect Overrides (Pulse Pause)
+            const override = this.effects.getOverride(i);
+            if (override) {
+                if (typeof override.alpha === 'number') gridAlpha = override.alpha;
+                if (override.char) maskChar = override.char;
+            }
+
+            if (gridAlpha <= 0.05) continue;
+            
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+            
+            const sprite = this.glyphAtlas.get(maskChar);
+            
+            if (sprite) {
+                ctx.globalAlpha = gridAlpha;
+                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+            }
+        }
+        
+        // 3. Composite Operation: "source-in"
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.globalAlpha = 1.0; 
+        
+        // 4. Draw Imposition Layer (Dynamic)
+        for (const i of this.grid.activeIndices) {
+            // Same filters for efficiency
+            const style = this.grid.complexStyles.get(i);
+            if (style && style.isEffect) continue;
+
+            const code = this.grid.overlapChars[i];
+            if (code === 0) continue;
+
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+            
+            const char = String.fromCharCode(code);
+            const sprite = this.glyphAtlas.get(char);
+            
+            if (sprite) {
+                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + overlapYOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+            }
+        }
+        
+        ctx.restore(); // Restore composite mode
+        
+        // 5. Draw Buffer to Main Screen
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0); 
+        this.ctx.drawImage(cvs, 0, 0);
+        this.ctx.restore();
     }
 
     _resetContext(ctx, s, scale) {
@@ -194,24 +306,30 @@ class CanvasRenderer {
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
 
             let color = defaultColor;
+            let pIdx = this.grid.paletteIndices[i];
+            
+            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
+            if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
+            
+            const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
+
             const style = this.grid.complexStyles.get(i);
             if (style) {
                 color = this._getCellColor(style, frame);
+            } else {
+                color = paletteColor;
             }
 
             // Check if we can use Atlas for this specific cell
-            // We use atlas if: 
-            // 1. Atlas is enabled globally
-            // 2. Cell color matches the primary stream color (Atlas currently mono-color)
-            // OR we can accept that rainbow cells use the fallback
-            const canUseAtlas = useAtlas && (color === defaultColor);
+            const canUseAtlas = useAtlas && (color === paletteColor);
 
             if (!canUseAtlas && color !== lastColor) {
                 this._setFillStyle(color, bloomEnabled);
+                lastColor = color;
             }
 
             if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled);
+                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
             } else {
                  this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
             }
@@ -234,10 +352,11 @@ class CanvasRenderer {
         return Utils.createRGBString(rgb);
     }
 
-    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled) {
+    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
         const sprite = this.glyphAtlas.get(char);
+        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
 
         if (!sprite) return; // Should not happen
 
@@ -257,19 +376,19 @@ class CanvasRenderer {
 
              // Outgoing
              this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
 
              // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
@@ -289,18 +408,18 @@ class CanvasRenderer {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
                  // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
                  // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
 
         this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
 

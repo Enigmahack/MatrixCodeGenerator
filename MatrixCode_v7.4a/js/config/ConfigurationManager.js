@@ -26,6 +26,8 @@ class ConfigurationManager {
         return {
             // --- GLOBAL ---
             streamColor: "#65d778",
+            streamPalette: ["#65d778"],
+            paletteBias: 0.0,
             tracerColor: "#d9f2f2",
             fontSize: 24,
             streamSpeed: 16,
@@ -42,6 +44,13 @@ class ConfigurationManager {
             mirrorEnabled: false,
             variableBrightnessEnabled: true,
             brightnessVariance: 20,
+            
+            // Overlap / Imposition Layer
+            overlapEnabled: false,
+            overlapColor: "#FFD700",
+            overlapDensity: 0.5,
+            overlapTarget: "stream",
+            
             dissolveEnabled: true,
             dissolveMinSize: 18,
             deteriorationEnabled: true,
@@ -201,6 +210,11 @@ class ConfigurationManager {
                 const parsed = JSON.parse(storedState);
                 delete parsed.customFonts; // Remove unsupported keys if present
                 this.state = { ...this.defaults, ...parsed };
+                
+                // Migration: Ensure streamPalette exists
+                if (!this.state.streamPalette) {
+                    this.state.streamPalette = [this.state.streamColor];
+                }
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -348,6 +362,8 @@ class ConfigurationManager {
             streamRgb: Utils.hexToRgb(s.streamColor),
             tracerRgb: Utils.hexToRgb(s.tracerColor),
             streamColorStr: Utils.createRGBString(Utils.hexToRgb(s.streamColor)),
+            paletteRgbs: (s.streamPalette || [s.streamColor]).map(c => Utils.hexToRgb(c)),
+            paletteColorsStr: (s.streamPalette || [s.streamColor]).map(c => Utils.createRGBString(Utils.hexToRgb(c))),
             tracerColorStr: Utils.createRGBString(Utils.hexToRgb(s.tracerColor)),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };

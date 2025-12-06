@@ -297,6 +297,31 @@
         input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
+        /* Color List Styling */
+        .color-list-wrapper { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; width: 100%; margin-top: 8px; }
+        .color-list-item { position: relative; display: flex; align-items: center; justify-content: center; width: 50px; height: 50px; }
+        .color-list-item input[type="color"] { width: 48px; height: 48px; border-width: 2px; }
+        .btn-icon-remove {
+            position: absolute; top: -6px; right: -6px;
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #ef4444; color: white; border: 1px solid #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; cursor: pointer; font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            z-index: 5;
+            line-height: 1; padding-bottom: 2px;
+        }
+        .btn-icon-add {
+            width: 48px; height: 48px; border-radius: 50%;
+            border: 2px dashed var(--accent);
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent);
+            font-size: 24px; font-weight: bold;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+            line-height: 1; padding-bottom: 3px;
+        }
+        .btn-icon-add:hover { background: rgba(34, 197, 94, 0.3); transform: scale(1.05); }
         .checkbox-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 40px; transition: opacity 0.3s; }
         input[type="checkbox"] { width: 40px; height: 20px; background: #374151; border-radius: 20px; position: relative; transition: 0.3s; cursor: pointer; appearance: none; -webkit-appearance: none; }
         input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s; }
@@ -617,6 +642,8 @@ class ConfigurationManager {
         return {
             // --- GLOBAL ---
             streamColor: "#65d778",
+            streamPalette: ["#65d778"],
+            paletteBias: 0.0,
             tracerColor: "#d9f2f2",
             fontSize: 24,
             streamSpeed: 16,
@@ -632,6 +659,11 @@ class ConfigurationManager {
             mirrorEnabled: false,
             variableBrightnessEnabled: true,
             brightnessVariance: 20,
+            // Overlap / Imposition Layer
+            overlapEnabled: false,
+            overlapColor: "#FFD700",
+            overlapDensity: 0.5,
+            overlapTarget: "stream",
             dissolveEnabled: true,
             dissolveMinSize: 18,
             deteriorationEnabled: true,
@@ -783,6 +815,10 @@ class ConfigurationManager {
                 const parsed = JSON.parse(storedState);
                 delete parsed.customFonts; // Remove unsupported keys if present
                 this.state = { ...this.defaults, ...parsed };
+                // Migration: Ensure streamPalette exists
+                if (!this.state.streamPalette) {
+                    this.state.streamPalette = [this.state.streamColor];
+                }
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -915,6 +951,8 @@ class ConfigurationManager {
             streamRgb: Utils.hexToRgb(s.streamColor),
             tracerRgb: Utils.hexToRgb(s.tracerColor),
             streamColorStr: Utils.createRGBString(Utils.hexToRgb(s.streamColor)),
+            paletteRgbs: (s.streamPalette || [s.streamColor]).map(c => Utils.hexToRgb(c)),
+            paletteColorsStr: (s.streamPalette || [s.streamColor]).map(c => Utils.createRGBString(Utils.hexToRgb(c))),
             tracerColorStr: Utils.createRGBString(Utils.hexToRgb(s.tracerColor)),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };
@@ -947,6 +985,7 @@ class MatrixGrid {
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
+        this.noiseDirty = true;
     }
     /**
      * Resizes the grid based on new width and height, reallocating arrays only if dimensions change.
@@ -1008,11 +1047,16 @@ class MatrixGrid {
         this.decays = new Uint8Array(totalCells);
         this.ages = new Int32Array(totalCells);
         this.brightness = new Float32Array(totalCells);
-        this.rotatorProg = new Uint8Array(totalCells);
-        // Clear auxiliary storage
-        this.complexStyles.clear();
-        this.nextChars.clear();
-        this.activeIndices.clear();
+        this.rotatorProg = new Float32Array(totalCells);
+        // Color Palette Index (0-2)
+        this.paletteIndices = new Uint8Array(totalCells);
+        // Imposition Layer (Overlap)
+        this.overlapChars = new Uint16Array(totalCells);
+        this.activeIndices = new Set();
+        this.complexStyles = new Map();
+        this.nextChars = new Map();
+        this.nextOverlapChars = new Map();
+        this.noiseDirty = true;
         // Update grid dimensions
         this.cols = newCols;
         this.rows = newRows;
@@ -1909,6 +1953,13 @@ class CanvasRenderer {
         this.ctx = this.cvs.getContext('2d', { alpha: false });
         this.bloomCvs = document.getElementById('bloomCanvas');
         this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+        // Off-screen buffer for overlap composition
+        this.bufferCvs = document.createElement('canvas');
+        this.bufferCtx = this.bufferCvs.getContext('2d', { alpha: true });
+        // Unified Render State Arrays
+        this.frameAlphas = null;
+        this.frameChars = null;
+        this.frameFlags = null; // Bit 0: Active, Bit 1: Overlap Allowed
         this.grid = grid;
         this.config = config;
         this.effects = effects;
@@ -1928,6 +1979,15 @@ class CanvasRenderer {
         // Bloom canvas is 1/4 size for performance and glow effect
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
+        // Buffer canvas (1:1 scale for pixel accuracy)
+        this._resizeCanvas(this.bufferCvs, this.w, this.h, scale);
+        this.bufferCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+        // Allocate Frame Buffers
+        if (!this.grid.chars) return;
+        const size = this.grid.chars.length;
+        this.frameAlphas = new Float32Array(size);
+        this.frameChars = new Uint16Array(size);
+        this.frameFlags = new Uint8Array(size);
         this.updateSmoothing();
     }
     _resizeCanvas(canvas, width, height, scale) {
@@ -1967,6 +2027,7 @@ class CanvasRenderer {
         return { alpha: 0, phase: 'none' };
     }
     render(frame) {
+        if (!this.frameAlphas) return;
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
@@ -1983,7 +2044,75 @@ class CanvasRenderer {
             this._applyMirrorEffect(this.bloomCtx, s, scale);
         }
         this._drawGrid(d, s, frame, bloomEnabled);
+        if (s.overlapEnabled) {
+            this._drawOverlap(d, s, frame, bloomEnabled, scale);
+        }
         if (bloomEnabled) this._applyBloom(s, scale);
+    }
+    _drawOverlap(d, s, frame, bloomEnabled, scale) {
+        const ctx = this.bufferCtx;
+        const cvs = this.bufferCvs;
+        // 1. Clear Buffer
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        // Save state
+        ctx.save();
+        // 2. Draw Mask (Active Grid)
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+        const overlapYOffset = d.paletteColorsStr.length * this.glyphAtlas.blockHeight;
+        // Unified Dynamic Pass
+        for (const i of this.grid.activeIndices) {
+            // Filter 1: Decouple from Effects (Superman, etc)
+            const style = this.grid.complexStyles.get(i);
+            if (style && style.isEffect) continue;
+            let gridAlpha = this.grid.alphas[i];
+            let maskChar = this.grid.getChar(i);
+            // Sync with Tracer Logic
+            const tState = this._getTracerState(i, s);
+            if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
+            // Sync with Effect Overrides (Pulse Pause)
+            const override = this.effects.getOverride(i);
+            if (override) {
+                if (typeof override.alpha === 'number') gridAlpha = override.alpha;
+                if (override.char) maskChar = override.char;
+            }
+            if (gridAlpha <= 0.05) continue;
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+            const sprite = this.glyphAtlas.get(maskChar);
+            if (sprite) {
+                ctx.globalAlpha = gridAlpha;
+                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+            }
+        }
+        // 3. Composite Operation: "source-in"
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.globalAlpha = 1.0; 
+        // 4. Draw Imposition Layer (Dynamic)
+        for (const i of this.grid.activeIndices) {
+            // Same filters for efficiency
+            const style = this.grid.complexStyles.get(i);
+            if (style && style.isEffect) continue;
+            const code = this.grid.overlapChars[i];
+            if (code === 0) continue;
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+            const char = String.fromCharCode(code);
+            const sprite = this.glyphAtlas.get(char);
+            if (sprite) {
+                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + overlapYOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+            }
+        }
+        ctx.restore(); // Restore composite mode
+        // 5. Draw Buffer to Main Screen
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0); 
+        this.ctx.drawImage(cvs, 0, 0);
+        this.ctx.restore();
     }
     _resetContext(ctx, s, scale) {
         ctx.save();
@@ -2060,21 +2189,24 @@ class CanvasRenderer {
             const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
             let color = defaultColor;
+            let pIdx = this.grid.paletteIndices[i];
+            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
+            if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
+            const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
             const style = this.grid.complexStyles.get(i);
             if (style) {
                 color = this._getCellColor(style, frame);
+            } else {
+                color = paletteColor;
             }
             // Check if we can use Atlas for this specific cell
-            // We use atlas if: 
-            // 1. Atlas is enabled globally
-            // 2. Cell color matches the primary stream color (Atlas currently mono-color)
-            // OR we can accept that rainbow cells use the fallback
-            const canUseAtlas = useAtlas && (color === defaultColor);
+            const canUseAtlas = useAtlas && (color === paletteColor);
             if (!canUseAtlas && color !== lastColor) {
                 this._setFillStyle(color, bloomEnabled);
+                lastColor = color;
             }
             if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled);
+                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
             } else {
                  this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
             }
@@ -2093,10 +2225,11 @@ class CanvasRenderer {
         const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
         return Utils.createRGBString(rgb);
     }
-    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled) {
+    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
         const sprite = this.glyphAtlas.get(char);
+        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
         if (!sprite) return; // Should not happen
         // NOTE: Rotator crossfade in Atlas mode is simplified (no crossfade)
         // or we can implement it by drawing two sprites?
@@ -2112,18 +2245,18 @@ class CanvasRenderer {
              const nextSprite = next ? this.glyphAtlas.get(next) : null;
              // Outgoing
              this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
              // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
@@ -2141,16 +2274,16 @@ class CanvasRenderer {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
                  // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
                  // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
         this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
     _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontBase) {
@@ -2287,9 +2420,10 @@ class GlyphAtlas {
         this.cellSize = 0;
         this.atlasWidth = 0;
         this.atlasHeight = 0;
+        this.blockHeight = 0; // Height of one color set
         // State tracking for updates
         this.currentFont = '';
-        this.currentColor = '';
+        this.currentPalette = '';
         this.needsUpdate = true;
         // Pre-calculated half sizes for centering
         this.halfCell = 0;
@@ -2301,21 +2435,21 @@ class GlyphAtlas {
         const s = this.config.state;
         const d = this.config.derived;
         // Check if update is needed (font, color, or size change)
-        // We use the MAX font size needed (including tracer size increase)
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
-        const primaryColor = d.streamColorStr;
+        const paletteStr = d.paletteColorsStr.join(',');
+        // Include overlap color in dependency check
+        const fullConfigStr = paletteStr + '|' + s.overlapColor;
         if (this.currentFont === fontBase && 
-            this.currentColor === primaryColor && 
+            this.currentPalette === fullConfigStr && 
             !this.needsUpdate) {
             return;
         }
         this.currentFont = fontBase;
-        this.currentColor = primaryColor;
+        this.currentPalette = fullConfigStr;
         this.needsUpdate = false;
         // Calculate cell dimensions (add padding for glow/blur)
-        // Padding needs to account for the largest blur we might apply
         const padding = Math.max(s.tracerGlow, 10) * 2;
         this.cellSize = Math.ceil(maxSize + padding);
         this.halfCell = this.cellSize / 2;
@@ -2324,7 +2458,10 @@ class GlyphAtlas {
         const cols = Math.ceil(Math.sqrt(charList.length));
         const rows = Math.ceil(charList.length / cols);
         this.atlasWidth = cols * this.cellSize;
-        this.atlasHeight = rows * this.cellSize;
+        this.blockHeight = rows * this.cellSize; // Height of ONE color set
+        // Total height = Palette Colors + 1 Overlap Color
+        const colorsToDraw = [...d.paletteColorsStr, s.overlapColor];
+        this.atlasHeight = this.blockHeight * colorsToDraw.length;
         // Resize canvas
         this.canvas.width = this.atlasWidth;
         this.canvas.height = this.atlasHeight;
@@ -2333,33 +2470,29 @@ class GlyphAtlas {
         this.ctx.font = fontBase;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
-        // Draw Characters
-        // We draw TWO sets: 
-        // 1. The "Green" (Stream) set
-        // 2. The "White" (Tracer) set? 
-        // Actually, simpler approach: Draw WHITE characters. 
-        // Then use `globalCompositeOperation` to tint them?
-        // No, tinting at runtime is slow.
-        // We should stick to the PRIMARY stream color for the main atlas.
-        // Tracers (White) can be drawn with standard fillText or a secondary white atlas.
-        // For now, let's optimize the BULK of the rendering: the Green Stream Characters.
-        this.ctx.fillStyle = primaryColor;
         this.charMap.clear();
-        for (let i = 0; i < charList.length; i++) {
-            const char = charList[i];
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const x = col * this.cellSize + this.halfCell;
-            const y = row * this.cellSize + this.halfCell;
-            this.ctx.fillText(char, x, y);
-            // Store the source rectangle for this character
-            this.charMap.set(char, {
-                x: col * this.cellSize,
-                y: row * this.cellSize,
-                w: this.cellSize,
-                h: this.cellSize
-            });
-        }
+        // Draw Characters for each color in the palette + overlap
+        colorsToDraw.forEach((color, pIdx) => {
+            this.ctx.fillStyle = color;
+            const yOffset = pIdx * this.blockHeight;
+            for (let i = 0; i < charList.length; i++) {
+                const char = charList[i];
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = col * this.cellSize + this.halfCell;
+                const y = row * this.cellSize + this.halfCell + yOffset;
+                this.ctx.fillText(char, x, y);
+                // Store map ONLY for the first block (pIdx 0) as relative coords are same
+                if (pIdx === 0) {
+                    this.charMap.set(char, {
+                        x: col * this.cellSize,
+                        y: row * this.cellSize,
+                        w: this.cellSize,
+                        h: this.cellSize
+                    });
+                }
+            }
+        });
     }
     /**
      * Returns the source coordinates for a character.
@@ -2378,6 +2511,7 @@ class SimulationSystem {
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
+        this.overlapInitialized = false;
     }
     _initializeModes(config) {
         return {
@@ -2391,7 +2525,46 @@ class SimulationSystem {
             this._resetColumns();
         }
         this._manageStreams(frame);
+        this._manageOverlapGrid(frame);
         this._updateCells(frame);
+    }
+    _manageOverlapGrid(frame) {
+        if (!this.config.state.overlapEnabled) return;
+        // Initialize if empty
+        if (!this.overlapInitialized) {
+            for(let i=0; i<this.grid.overlapChars.length; i++) {
+                if (Math.random() < this.config.state.overlapDensity) {
+                    this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
+                } else {
+                    this.grid.overlapChars[i] = 0; // Empty
+                }
+            }
+            this.overlapInitialized = true;
+            this.grid.noiseDirty = true;
+        }
+        // Slowly churn the noise
+        // Note: User requested Shimmer to be optional. 
+        // Wait, user requested "choosing overlap color should cause a refresh".
+        // This means we need to redraw the noise layer when color changes.
+        // The CanvasRenderer checks `noiseDirty`.
+        // Changing color doesn't change characters, so Simulation doesn't care.
+        // But CanvasRenderer needs to redraw.
+        // So `ConfigurationManager` or `UIManager` should set `noiseDirty`?
+        // Or `CanvasRenderer` should check if `overlapColor` changed.
+        // I will handle color change in Renderer (by checking state vs last state).
+        // Simulation only handles character churn.
+        if (this.config.state.overlapShimmer) {
+             const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
+             for(let k=0; k<updates; k++) {
+                const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
+                if (Math.random() < this.config.state.overlapDensity) {
+                    this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+                } else {
+                    this.grid.overlapChars[idx] = 0;
+                }
+            }
+            this.grid.noiseDirty = true;
+        }
     }
     _resetColumns() {
         this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
@@ -2490,7 +2663,8 @@ class SimulationSystem {
             mode: 'STANDARD',
             baseHue: 0,
             isInverted: false,
-            isEraser: forceEraser
+            isEraser: forceEraser,
+            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1))
         };
         if (forceEraser) {
             return this._initializeEraserStream(baseStream, s);
@@ -2549,8 +2723,16 @@ class SimulationSystem {
             this.grid.ages[idx] = 1;
             this.grid.decays[idx] = 1;
             this.grid.rotatorProg[idx] = 0;
+            if (Math.random() < s.paletteBias) {
+                this.grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
+            } else {
+                this.grid.paletteIndices[idx] = stream.pIdx;
+            }
             this.grid.activeIndices.add(idx);
             this.grid.setChar(idx, Utils.getRandomChar());
+            if (s.overlapEnabled) {
+                this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+            }
             this.grid.brightness[idx] = s.variableBrightnessEnabled
                 ? Utils.randomFloat(d.varianceMin, 1.0)
                 : 1.0;
@@ -2570,6 +2752,7 @@ class SimulationSystem {
         this.grid.ages[idx] = 0;
         this.grid.decays[idx] = 0;
         this.grid.alphas[idx] = 0;
+        this.grid.overlapChars[idx] = 0;
         this.grid.complexStyles.delete(idx);
         this.grid.nextChars.delete(idx);
         this.grid.activeIndices.delete(idx); // Improves performance
@@ -2619,6 +2802,13 @@ class SimulationSystem {
             const nextChar = this.grid.nextChars.get(idx);
             if (nextChar) {
                 this.grid.setChar(idx, nextChar);
+                if (this.config.state.overlapEnabled) {
+                    const nextOverlap = this.grid.nextOverlapChars.get(idx);
+                    if (nextOverlap) {
+                        this.grid.overlapChars[idx] = nextOverlap;
+                        this.grid.noiseDirty = true;
+                    }
+                }
             }
             this.grid.rotatorProg[idx] = 0;
         } else {
@@ -2629,9 +2819,16 @@ class SimulationSystem {
         if (frame % cycleFrames === 0) {
             if (crossfadeFrames <= 2) {
                 this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                if (this.config.state.overlapEnabled) {
+                    this.grid.overlapChars[idx] = Utils.getUniqueChar(String.fromCharCode(this.grid.overlapChars[idx])).charCodeAt(0);
+                }
             } else {
                 this.grid.rotatorProg[idx] = 1;
                 this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                if (this.config.state.overlapEnabled) {
+                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
+                    this.grid.nextOverlapChars.set(idx, Utils.getUniqueChar(currentOverlap).charCodeAt(0));
+                }
             }
         }
     }
@@ -3029,9 +3226,9 @@ class UIManager {
      */
     _generateDefinitions() {
         return [
-            // GLOBAL TAB
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
-            { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
+            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
+            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             ...this._generateGlobalSettings(),
             // APPEARANCE TAB
             ...this._generateAppearanceSettings(),
@@ -3082,6 +3279,11 @@ class UIManager {
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Imposition Layer' },
+            { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap' },
+            { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled' },
+            { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled' },
+            { cat: 'Appearance', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{label:'Streams Only',value:'stream'},{label:'All Characters',value:'all'}], dep: 'overlapEnabled' },
             { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
             { cat: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
@@ -3680,6 +3882,54 @@ class UIManager {
         return group;
     }
     /**
+     * Renders the content of a color list control into the provided wrapper.
+     * @private
+     * @param {HTMLElement} wrapper - The container element.
+     * @param {Object} def - The control definition.
+     */
+    _renderColorList(wrapper, def) {
+        wrapper.innerHTML = '';
+        const palette = this.c.get(def.id) || ["#00FF00"];
+        palette.forEach((color, idx) => {
+            const item = document.createElement('div');
+            item.className = 'color-list-item';
+            const cInput = document.createElement('input');
+            cInput.type = 'color';
+            cInput.value = color;
+            cInput.oninput = e => {
+                const newP = [...this.c.get(def.id)];
+                newP[idx] = e.target.value;
+                this.c.set(def.id, newP);
+            };
+            item.appendChild(cInput);
+            if (palette.length > 1 && idx > 0) {
+                const delBtn = document.createElement('div');
+                delBtn.className = 'btn-icon-remove';
+                delBtn.textContent = '×';
+                delBtn.onclick = () => {
+                    const newP = this.c.get(def.id).filter((_, i) => i !== idx);
+                    this.c.set(def.id, newP);
+                    this._renderColorList(wrapper, def);
+                    this.refresh('streamPalette');
+                };
+                item.appendChild(delBtn);
+            }
+            wrapper.appendChild(item);
+        });
+        if (palette.length < (def.max || 3)) {
+            const addBtn = document.createElement('div');
+            addBtn.className = 'btn-icon-add';
+            addBtn.textContent = '+';
+            addBtn.onclick = () => {
+                const newP = [...this.c.get(def.id), "#ffffff"];
+                this.c.set(def.id, newP);
+                this._renderColorList(wrapper, def);
+                this.refresh('streamPalette');
+            };
+            wrapper.appendChild(addBtn);
+        }
+    }
+    /**
      * Dynamically renders a UI control element based on its definition.
      * @param {Object} def - The definition object for the control.
      * @returns {HTMLElement|null} The created control element, or null if it's an accordion header.
@@ -3818,6 +4068,16 @@ class UIManager {
                 });
             }
             else if(def.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(def.id); inp.id = `in-${def.id}`; inp.name = def.id; inp.oninput = e => this.c.set(def.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`; return row; }
+            else if(def.type === 'color_list') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'color-list-wrapper';
+                wrapper.id = `in-${def.id}`;
+                this._renderColorList(wrapper, def);
+                row.appendChild(wrapper);
+                if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
+                if(def.id) row.id = `row-${def.id}`;
+                return row;
+            }
             else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
             row.appendChild(inp);
@@ -3918,6 +4178,21 @@ class UIManager {
                     favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
                 }
             }
+            if (key === 'streamPalette') {
+                 const palette = this.c.get('streamPalette');
+                 const biasRow = document.getElementById('row-paletteBias');
+                 if (biasRow) {
+                     if (palette && palette.length > 1) {
+                         biasRow.classList.remove('control-disabled');
+                     } else {
+                         biasRow.classList.add('control-disabled');
+                     }
+                 }
+                 // Re-render the list itself if needed? 
+                 // Actually the _renderColorList calls refresh implicitly by updating DOM? 
+                 // No, _renderColorList updates DOM directly. 
+                 // But we need to update the Bias slider state.
+            }
             if(key) {
                 const inp = document.getElementById(`in-${key}`);
                 if(inp) { 
@@ -3925,6 +4200,7 @@ class UIManager {
                     if(def) { 
                         const val = this.c.get(key); 
                         if(def.type === 'checkbox') inp.checked = val; 
+                        else if(def.type === 'color_list') this._renderColorList(inp, def);
                         else if(def.type === 'range') { 
                             inp.value = def.invert ? (def.max+def.min)-val : val; 
                             const disp = document.getElementById(`val-${key}`); 
@@ -4086,11 +4362,11 @@ class MatrixKernel {
      * @private
      */
     _resize() {
-        this.renderer.resize();
         this.grid.resize(
             window.innerWidth / this.config.state.stretchX,
             window.innerHeight / this.config.state.stretchY
         );
+        this.renderer.resize();
     }
     /**
      * The main animation loop, handling updates and rendering.

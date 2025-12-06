@@ -135,11 +135,11 @@ class MatrixKernel {
      * @private
      */
     _resize() {
-        this.renderer.resize();
         this.grid.resize(
             window.innerWidth / this.config.state.stretchX,
             window.innerHeight / this.config.state.stretchY
         );
+        this.renderer.resize();
     }
 
     /**
