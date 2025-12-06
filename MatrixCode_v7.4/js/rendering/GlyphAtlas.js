@@ -31,7 +31,8 @@ class GlyphAtlas {
         // Check if update is needed (font, color, or size change)
         // We use the MAX font size needed (including tracer size increase)
         const maxSize = s.fontSize + s.tracerSizeIncrease;
-        const fontBase = `${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
+        const style = s.italicEnabled ? 'italic ' : '';
+        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
         const primaryColor = d.streamColorStr;
 
         if (this.currentFont === fontBase && 

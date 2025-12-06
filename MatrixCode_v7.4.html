@@ -54,10 +54,8 @@
     overscroll-behavior: none;
     overflow: hidden; /* Retained from existing style */
 }
-        
         canvas { display: block; position: absolute; top: 0; left: 0; }
         #matrixCanvas { z-index: 1; transition: filter 0.3s ease; transform: translateZ(0); -webkit-transform: translateZ(0); }
-
         /* --- SETTINGS PANEL UI --- */
         #settingsPanel {
             position: fixed; top: 0; right: 0; height: 100vh; height: 100dvh; width: 340px;
@@ -70,17 +68,15 @@
             color: var(--text-main);
         }
         #settingsPanel.open { transform: translateX(0); }
-        
-        #panelHeader {
+        #panelHeader { 
             padding: 1.25rem; 
             padding-top: max(1.25rem, var(--safe-top));
             border-bottom: 1px solid var(--panel-border);
             background: linear-gradient(90deg, rgba(34,197,94,0.1) 0%, transparent 100%);
         }
         #panelHeader h2 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px var(--accent-glow); }
-
         /* --- TABS NAVIGATION --- */
-        #navTabs {
+        #navTabs { 
             overflow-x: auto; 
             white-space: nowrap;
             background: rgba(0,0,0,0.3);
@@ -95,24 +91,19 @@
             scrollbar-color: var(--accent) rgba(0,0,0,0.1);
             padding-bottom: 4px;
         }
-
         /* --- ENABLE & STYLE SCROLLBARS --- */
         #navTabs::-webkit-scrollbar { 
             display: block; 
             height: 2px;    
         }
-
         #navTabs::-webkit-scrollbar-track {
             background: rgba(0,0,0,0.2); 
         }
-
         #navTabs::-webkit-scrollbar-thumb {
             background: var(--accent);       
             border-radius: 2px; 
         }
-        
         #tabTrack { display: inline-flex; width: max-content; }
-
         .tab-btn { 
             flex: 0 0 auto; padding: 1rem 1.25rem; 
             text-align: center; color: var(--text-muted); 
@@ -125,7 +116,6 @@
         }
         .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
         .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); background: rgba(34,197,94,0.1); }
-
         /* Value Display Styling */
         .control-header span[id^="val-"] {
             font-family: monospace; font-size: 0.85rem;
@@ -133,7 +123,6 @@
             padding: 2px 6px; border-radius: 4px;
             min-width: 24px; text-align: center; display: inline-block;
         }
-
         /* --- CONTENT AREA --- */
         #contentArea { 
             flex: 1; overflow-y: auto; 
@@ -144,18 +133,15 @@
         .control-group { display: none; flex-direction: column; gap: 1.5rem; animation: fadeIn 0.3s ease; }
         .control-group.active { display: flex; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-
         .control-disabled { opacity: 0.3; pointer-events: none; filter: grayscale(1); transition: opacity 0.3s ease, filter 0.3s ease; }
         .control-row { width: 100%; transition: opacity 0.3s; }
         .control-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
-        
         .section-header {
             margin-top: 1rem; margin-bottom: 0.25rem;
             font-size: 0.8rem; font-weight: 700; color: #fff;
             text-transform: uppercase; letter-spacing: 1.5px;
             border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;
         }
-
         .accordion-subheader {
             margin-top: 0.75rem; margin-bottom: 0.2rem;
             font-size: 0.85rem; font-weight: 700; color: #fff;
@@ -163,7 +149,6 @@
             border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 3px;
             padding-left: 0.25rem;
         }
-
         .info-description {
             font-size: 1.0rem;
             color: var(--text-muted);
@@ -171,7 +156,6 @@
             margin-bottom: 0.5rem;
             line-height: 1.4;
         }
-
         .faq-item {
             margin-bottom: 1rem;
             padding-bottom: 1rem;
@@ -193,7 +177,6 @@
             color: var(--text-muted);
             line-height: 1.5;
         }
-
         /* --- TAB CONTENT STYLES --- */
         .tab-content-group {
             display: none;
@@ -205,7 +188,6 @@
         .tab-content-group.active {
             display: flex;
         }
-
         /* --- ACCORDION STYLES --- */
 .accordion-item {
     background-color: rgba(0,0,0,0.2);
@@ -256,7 +238,6 @@
 .accordion-content.open {
     display: flex; /* Shown when open */
 }
-
 /* Specific styling for caution zone in System tab */
 .caution-zone {
     border: 1px solid var(--danger);
@@ -284,7 +265,6 @@
             font-size: 12px; cursor: help; transition: all 0.2s; margin-left: 8px; margin-right: 8px;
         }
         .info-icon:hover, .info-icon:active { border-color: var(--accent); color: var(--accent); background: rgba(34, 197, 94, 0.1); }
-
         #ui-tooltip {
             position: fixed; background: #1f2937; border: 1px solid var(--accent); color: #fff;
             padding: 10px 14px; border-radius: 6px; font-size: 0.8rem; line-height: 1.4;
@@ -292,7 +272,6 @@
             max-width: 240px; box-shadow: 0 4px 25px rgba(0,0,0,0.6); visibility: hidden;
         }
         #ui-tooltip.visible { opacity: 1; visibility: visible; }
-
         #toast-container {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
             z-index: 10001; pointer-events: none;
@@ -310,23 +289,19 @@
         .toast-success { border-color: var(--accent); color: var(--text-main); }
         .toast-error { border-color: var(--danger); color: #fca5a5; }
         .toast-info { border-color: var(--info); color: #93c5fd; }
-
         /* Controls */
         input[type="range"] { width: 100%; height: 6px; background: #1f2937; border-radius: 3px; outline: none; appearance: none; -webkit-appearance: none; padding: 0; margin: 0; cursor: pointer; }
         input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; transition: transform 0.1s; }
         input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
-
         .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 40px; }
         input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
-
         .checkbox-row { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 40px; transition: opacity 0.3s; }
         input[type="checkbox"] { width: 40px; height: 20px; background: #374151; border-radius: 20px; position: relative; transition: 0.3s; cursor: pointer; appearance: none; -webkit-appearance: none; }
         input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.3s; }
         input[type="checkbox"]:checked { background: var(--accent); }
         input[type="checkbox"]:checked::after { transform: translateX(20px); }
-
         select {
             width: 100%; padding: 0.5rem; background: #1f2937; color: var(--text-main);
             border: 1px solid var(--panel-border); border-radius: 4px;
@@ -334,20 +309,17 @@
         }
         select:focus { border-color: var(--accent); }
         option.custom-font-opt { color: #fcd34d; font-style: italic; background-color: #2a2d35; }
-
         .action-btn { width: 100%; padding: 0.75rem; border-radius: 6px; font-weight: 600; cursor: pointer; color: white; border: 1px solid transparent; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.5); transition: all 0.2s; }
         .action-btn:hover { background: rgba(34, 197, 94, 0.4); }
         .btn-info { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.5); }
         .btn-warn { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.5); color: #fcd34d; }
         .btn-danger { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
-
         .slot-container { display: flex; flex-wrap: wrap; gap: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
         .slot-name-input { flex: 1; background: transparent; border: none; border-bottom: 1px solid #374151; color: var(--text-main); padding: 0.25rem; font-family: monospace; font-size: 0.9rem; min-width: 0; }
         .slot-name-input:focus { outline: none; border-color: var(--accent); }
         .slot-btn-group { display: flex; gap: 0.25rem; }
         .btn-icon { padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: rgba(255,255,255,0.05); color: #ccc; }
         .btn-icon:hover { background: rgba(255,255,255,0.1); color: white; }
-        
         .font-manager-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
         .font-item { 
             display: flex; align-items: center; justify-content: space-between; 
@@ -360,10 +332,8 @@
             cursor: pointer; transition: all 0.2s;
         }
         .font-delete-btn:hover { background: rgba(239, 68, 68, 0.3); color: white; }
-
         #panelFooter { padding: 1rem; border-top: 1px solid var(--panel-border); text-align: center; }
         .status-msg { font-size: 0.8rem; font-family: monospace; color: var(--text-muted); opacity: 0.6; }
-        
         #menuToggle {
     position: fixed;
     top: max(0.75em, var(--safe-top));
@@ -382,62 +352,51 @@
     backdrop-filter: blur(4px); /* Retained from existing style */
     cursor: pointer; /* Retained from existing style */
 }
-
 #menuToggle:hover {
     background: var(--accent);
     color: #000;
     box-shadow: 0 0 20px var(--accent);
     transform: rotate(90deg);
 }
-
         @media (max-width: 600px) {
             #settingsPanel { width: 100%; max-width: 100%; border-left: none; }
         }
-    </style>
+</style>
     <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E">
 </head>
 <body>
     <!-- Primary Canvas for Matrix Animation -->
     <canvas id="matrixCanvas" aria-label="Matrix Digital Rain Animation"></canvas>
-
     <!-- Hidden Bloom Canvas for Layer Effects -->
     <canvas id="bloomCanvas" hidden aria-hidden="true"></canvas>
-
     <!-- Toggle Button for Opening Settings Menu -->
     <button id="menuToggle" aria-controls="settingsPanel" aria-expanded="false" aria-label="Open Settings">
         <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5zm7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65z"></path>
+            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5zm7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03 .66.07 .98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65z"></path>
         </svg>
     </button>
-
     <!-- Input for Importing Files -->
     <input type="file" id="importFile" accept=".json" hidden aria-label="Import JSON Configuration" />
     <input type="file" id="importFontFile" accept=".ttf,.otf,.woff,.woff2" hidden aria-label="Import Font Files" />
-
     <!-- Settings Panel -->
     <aside id="settingsPanel" role="dialog" aria-hidden="true">
         <header id="panelHeader" role="banner">
             <h2 class="panel-title">Settings</h2>
         </header>
-
         <!-- Navigation Tabs -->
         <nav id="navTabs" role="tablist" aria-label="Settings Navigation"></nav>
-
         <!-- Content Area -->
         <main id="contentArea">
             <!-- Dynamic content will populate through scripts -->
         </main>
-
         <!-- Panel Footer -->
         <footer id="panelFooter">
             <p id="globalStatus" class="status-msg"></p>
         </footer>
     </aside>
-
     <script>
 // --- Utils.js ---
 const APP_VERSION = "7.4"; // Retained current version
-
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS
 // =========================================================================
@@ -449,7 +408,6 @@ const Utils = {
      * @returns {number} A random integer.
      */
     randomInt: (min, max) => min + Math.floor(Math.random() * (max - min + 1)),
-
     /**
      * Generates a random floating-point number between min (inclusive) and max (exclusive).
      * @param {number} min - The minimum value (inclusive).
@@ -457,7 +415,6 @@ const Utils = {
      * @returns {number} A random floating-point number.
      */
     randomFloat: (min, max) => min + Math.random() * (max - min),
-
     /**
      * Converts a 6-character hex color code (e.g., "#RRGGBB") to an { r, g, b } object format.
      * @param {string} hex - The hex color string.
@@ -475,7 +432,6 @@ const Utils = {
             b: value & 0xFF
         };
     },
-
     /**
      * Packs 3 RGB components (r, g, b) into a single 24-bit integer.
      * @param {number} r - Red component (0-255).
@@ -484,7 +440,6 @@ const Utils = {
      * @returns {number} The packed 24-bit integer.
      */
     packRgb: (r, g, b) => ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF),
-
     /**
      * Unpacks a 24-bit integer into RGB components {r, g, b}.
      * @param {number} intVal - The packed 24-bit integer.
@@ -495,7 +450,6 @@ const Utils = {
         g: (intVal >> 8) & 0xFF,
         b: intVal & 0xFF
     }),
-
     /**
      * Converts HSL (hue, saturation, lightness) to RGB { r, g, b }.
      * @param {number} h - Hue (0-360).
@@ -506,11 +460,9 @@ const Utils = {
     hslToRgb: (h, s, l) => {
         s /= 100;
         l /= 100;
-
         const chroma = (1 - Math.abs(2 * l - 1)) * s;
         const x = chroma * (1 - Math.abs((h / 60) % 2 - 1));
         const m = l - chroma / 2;
-
         let rgb = [0, 0, 0];
         if (h >= 0 && h < 60) rgb = [chroma, x, 0];
         else if (h >= 60 && h < 120) rgb = [x, chroma, 0];
@@ -518,21 +470,18 @@ const Utils = {
         else if (h >= 180 && h < 240) rgb = [0, x, chroma];
         else if (h >= 240 && h < 300) rgb = [x, 0, chroma];
         else if (h >= 300 && h < 360) rgb = [chroma, 0, x];
-
         return {
             r: Math.round((rgb[0] + m) * 255),
             g: Math.round((rgb[1] + m) * 255),
             b: Math.round((rgb[2] + m) * 255)
         };
     },
-
     /**
      * Creates an RGB color string from an {r, g, b} object.
      * @param {{r: number, g: number, b: number}} color - The color object.
      * @returns {string} An RGB color string (e.g., "rgb(255,0,0)").
      */
     createRGBString: (color) => `rgb(${color.r},${color.g},${color.b})`,
-
     /**
      * Converts RGB {r, g, b} to HSL {h, s, l}.
      * @param {number} r - Red (0-255).
@@ -544,7 +493,6 @@ const Utils = {
         r /= 255; g /= 255; b /= 255;
         const max = Math.max(r, g, b), min = Math.min(r, g, b);
         let h, s, l = (max + min) / 2;
-
         if (max === min) {
             h = s = 0; // achromatic
         } else {
@@ -559,13 +507,10 @@ const Utils = {
         }
         return { h, s: s * 100, l: l * 100 };
     },
-
     // List of available characters for random selection
     CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
-
     // Subset of Katakana characters for specific use cases
     KATAKANA_CHARS: 'ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
-
     /**
      * Returns a random character from the predefined KATAKANA_CHARS list.
      * @returns {string} A single random Katakana character.
@@ -574,7 +519,6 @@ const Utils = {
         const index = Utils.randomInt(0, Utils.KATAKANA_CHARS.length - 1);
         return Utils.KATAKANA_CHARS[index];
     },
-
     /**
      * Returns a random character from the predefined CHARS list.
      * @returns {string} A single random character.
@@ -583,7 +527,6 @@ const Utils = {
         const index = Utils.randomInt(0, Utils.CHARS.length - 1);
         return Utils.CHARS[index];
     },
-
     /**
      * Returns a random character from the CHARS list, excluding the provided character.
      * @param {string} exclude - The character to exclude from the random selection.
@@ -597,7 +540,6 @@ const Utils = {
         } while (char === exclude);
         return char;
     },
-
     /**
      * Downloads a JSON object as a file.
      * @param {Object} data - The JSON object to download.
@@ -606,19 +548,15 @@ const Utils = {
     downloadJson: (data, filename = "file.json") => {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
-
         const link = document.createElement("a");
         link.href = url;
         link.download = filename;
-
         document.body.appendChild(link);
         link.click();
-
         // Clean up
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     },
-
     /**
      * Generates an SVG data URL for a single Matrix glyph.
      * @param {string} char - The character to render (e.g., '0').
@@ -630,7 +568,6 @@ const Utils = {
     generateGlyphSVG: (char, color, size = 24, fontFamily = 'monospace') => {
         // Ensure the char is a string and handle potential empty or non-string inputs
         char = String(char || ' '); 
-
         const svg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
                 <rect width="${size}" height="${size}" fill="transparent"/>
@@ -640,13 +577,11 @@ const Utils = {
                 </text>
             </svg>
         `.replace(/\s+/g, ' ').trim(); // Minify SVG string
-
         // Encode SVG to UTF-8 before Base64 encoding for characters outside Latin1 range
         const utf8Svg = unescape(encodeURIComponent(svg));
         return `data:image/svg+xml;base64,${btoa(utf8Svg)}`;
     }
 };
-
 // Predefined cell types for use in the grid
 const CELL_TYPE = {
     EMPTY: 0,
@@ -654,109 +589,25 @@ const CELL_TYPE = {
     TRACER: 2,
     ROTATOR: 3
 };
-
     // =========================================================================
     // 1.1 NOTIFICATION SYSTEM 
     // =========================================================================
-
-// --- NotificationManager.js ---
-class NotificationManager {
-    constructor() {
-        this.container = document.getElementById('toast-container') || this._createContainer();
-    }
-
-    /**
-     * Creates and initializes the toast container if it doesn't exist.
-     * @returns {HTMLElement} The toast container DOM element.
-     */
-    _createContainer() {
-        const container = document.createElement('div');
-        container.id = 'toast-container';
-        container.setAttribute('aria-live', 'polite'); // Accessibility: Announce updates to screen readers.
-        container.setAttribute('role', 'status'); // Accessibility: Define the type of content the container holds.
-        document.body.appendChild(container);
-        return container;
-    }
-
-    /**
-     * Displays a notification with the specified message and type.
-     * @param {string} message - The message to display in the notification.
-     * @param {string} [type='info'] - The type of the notification ('info', 'success', 'error', etc.).
-     * @param {number} [duration=3000] - The duration (in milliseconds) for the notification to be visible.
-     */
-    show(message, type = 'info', duration = 3000) {
-        // Create the notification element.
-        const toast = this._createToast(message, type);
-
-        // Ensure the container is attached.
-        if (!document.body.contains(this.container)) {
-            document.body.appendChild(this.container);
-        }
-
-        // Add the notification to the container and apply the "visible" class for animation.
-        this.container.appendChild(toast);
-        requestAnimationFrame(() => toast.classList.add('visible'));
-
-        // Set timers for hiding and removing the notification.
-        this._scheduleToastRemoval(toast, duration);
-    }
-
-    /**
-     * Creates an individual toast element.
-     * @private
-     * @param {string} message - The message to display.
-     * @param {string} type - The type of the notification.
-     * @returns {HTMLElement} The toast DOM element.
-     */
-    _createToast(message, type) {
-        const toast = document.createElement('div');
-        toast.className = `toast-msg toast-${type}`;
-        toast.textContent = message;
-        toast.setAttribute('role', 'alert'); // Accessibility: Specify that this is an alert message.
-        return toast;
-    }
-
-    /**
-     * Schedules the removal of the notification after the specified duration.
-     * Handles smooth animation states before removing the DOM element.
-     * @private
-     * @param {HTMLElement} toast - The toast element to remove.
-     * @param {number} duration - How long the toast remains visible.
-     */
-    _scheduleToastRemoval(toast, duration) {
-        setTimeout(() => {
-            // Trigger fade-out animation by removing the "visible" class.
-            toast.classList.remove('visible');
-            // Remove the toast element from the DOM after the animation completes.
-            setTimeout(() => toast.remove(), 300); // Matches CSS animation transition time.
-        }, duration);
-    }
-}
-
-    // =========================================================================
-    // 2.0 CONFIGURATION MANAGER 
-    // =========================================================================
-
 // --- ConfigurationManager.js ---
 class ConfigurationManager {
     constructor() {
         this.storageKey = 'matrix_config_v7.4';
         this.slotsKey = 'matrix_slots_v7.4';
         this.defaults = this._initializeDefaults();
-
         this.state = { ...this.defaults };
         this.derived = {};
         this.slots = this._loadSlots();
         this.subscribers = [];
-
         this._loadState();
         this.updateDerivedValues();
     }
-
-    // ==================== 
+    // ====================
     // Initialization Helpers
-    // ==================== 
-
+    // ====================
     /**
      * Initializes the default configuration settings.
      * @private
@@ -774,7 +625,6 @@ class ConfigurationManager {
             enableGlyphAtlas: true,
             smoothingEnabled: true,
             smoothingAmount: 0.5,
-
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
             fontWeight: "normal",
@@ -797,7 +647,6 @@ class ConfigurationManager {
             fontOffsetY: 0,
             stretchX: 1,
             stretchY: 1.2,
-
             // --- BEHAVIOR ---
             ttlMinSeconds: 1,
             ttlMaxSeconds: 8,
@@ -818,7 +667,6 @@ class ConfigurationManager {
             rotatorSyncMultiplier: 0.5,
             rotatorCycleFactor: 11,
             rotatorCrossfadeFrames: 6,
-
             // --- FX ---
             pulseEnabled: true,
             pulseFrequencySeconds: 220,
@@ -831,7 +679,6 @@ class ConfigurationManager {
             pulseRandomPosition: true,
             pulseInstantStart: false,
             pulseCircular: false,
-
             clearPulseEnabled: true,
             clearPulseFrequencySeconds: 195,
             clearPulseDurationSeconds: 1,
@@ -886,7 +733,6 @@ class ConfigurationManager {
             firewallColor: "#00ff00",
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
-
             // Properties not directly exposed in UI but used in defaults.json or internally
             deteriorationType: "ghost",
             tracerSizeIncrease: 1,
@@ -899,7 +745,6 @@ class ConfigurationManager {
             clearPulseInstantStart: false
         };
     }
-
     /**
      * Loads configuration slots from local storage.
      * @private
@@ -914,11 +759,9 @@ class ConfigurationManager {
         } catch (e) {
             console.warn('Failed to load slots:', e);
         }
-
         // Default slots if not found or error occurs
         return Array(3).fill(null).map((_, i) => ({ name: `Save Slot ${i + 1}`, data: null }));
     }
-
     /**
      * Saves configuration slots to local storage.
      */
@@ -929,7 +772,6 @@ class ConfigurationManager {
             console.warn('Failed to save slots:', e);
         }
     }
-
     /**
      * Loads the application state from local storage.
      * @private
@@ -946,7 +788,6 @@ class ConfigurationManager {
             console.warn('Failed to load configuration:', e);
         }
     }
-
     /**
      * Saves the current application state to local storage.
      */
@@ -957,7 +798,6 @@ class ConfigurationManager {
             console.warn('Failed to save configuration:', e);
         }
     }
-
     /**
      * Retrieves the value of a specific configuration key.
      * @param {string} key - The key of the configuration setting.
@@ -966,7 +806,6 @@ class ConfigurationManager {
     get(key) {
         return this.state[key];
     }
-
     /**
      * Sets the value of a configuration key and triggers updates.
      * @param {string} key - The key of the configuration setting.
@@ -974,21 +813,17 @@ class ConfigurationManager {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
-
         this.state[key] = value;
-
         // Maintain consistency between related properties
         if (key === 'streamMinLength') {
             this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
         } else if (key === 'streamMaxLength') {
             this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
         }
-
         this.updateDerivedValues();
         this.save();
         this.notify(key);
     }
-
     /**
      * Resets the application state to its default values.
      */
@@ -998,7 +833,6 @@ class ConfigurationManager {
         this.save();
         this.notify('ALL');
     }
-
     /**
      * Saves the current application state to a specific slot.
      * @param {number} index - The index of the slot (0-2).
@@ -1014,7 +848,6 @@ class ConfigurationManager {
             console.warn(`Attempted to save to non-existent slot index: ${index}`);
         }
     }
-
     /**
      * Loads the application state from a specific slot.
      * @param {number} index - The index of the slot (0-2).
@@ -1022,14 +855,12 @@ class ConfigurationManager {
      */
     loadFromSlot(index) {
         if (!this.slots[index]?.data) return false; // Use optional chaining for safety
-
         this.state = { ...this.defaults, ...this.slots[index].data };
         this.updateDerivedValues();
         this.save();
         this.notify('ALL');
         return true;
     }
-
     /**
      * Renames a specific configuration slot.
      * @param {number} index - The index of the slot (0-2).
@@ -1043,7 +874,6 @@ class ConfigurationManager {
             console.warn(`Attempted to rename non-existent slot index: ${index}`);
         }
     }
-
     /**
      * Subscribes a callback function to configuration changes.
      * @param {Function} callback - The function to call when configuration changes.
@@ -1053,7 +883,6 @@ class ConfigurationManager {
             this.subscribers.push(callback);
         }
     }
-
     /**
      * Notifies all subscribed listeners about a configuration change.
      * @param {string} key - The key of the changed configuration setting.
@@ -1061,7 +890,6 @@ class ConfigurationManager {
     notify(key) {
         this.subscribers.forEach((callback) => callback(key, this.state));
     }
-
     /**
      * Updates all derived configuration values based on the current state.
      * These are values calculated from base settings for performance or convenience.
@@ -1074,7 +902,6 @@ class ConfigurationManager {
         const rotatorCycleFrames = s.rotatorSyncToTracer
             ? Math.max(1, Math.floor(cycleDuration / s.rotatorSyncMultiplier))
             : Math.max(10, Math.round(60 - s.rotatorCycleFactor * 2.5));
-
         this.derived = {
             cycleDuration,
             safeAttack: Math.min(Math.max(1, s.tracerAttackFrames), cycleDuration),
@@ -1093,21 +920,21 @@ class ConfigurationManager {
         };
     }
 }
-
-
     // =========================================================================
     // 3.0 MATRIX GRID
     // =========================================================================
-
+// --- FontData.js ---
+const DEFAULT_FONT_DATA ="data:application/octet-stream;base64,d09GMgABAAAAABNAAA0AAAAANtwAABLpAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP0ZGVE0cGlwGYACEGhEICtQov1oLgXoAATYCJAODbgQgBYRYB4YaG60qsyLYOAAgyntGVE3mIP5PyROZeUF/NWSvBIIzjOrpE5K4Q9hxhAMNj8M88ibjVcuOzYJvE99g40+GE5HPiEgqEl5d1mptQ5dHw0IhPkKSWfgH5bD3k1TE2J6sTfKoCfak6WY4P/Db/D9XsK6xomzGbBxSBiaRUqk994wE+yMuKtRFldUL/55sU1f9IsrAbd2w1hYiYo1/r4javbrXu6/inaWgk7eXp6XDJAgge5GazX8u0wTMVrBTKXB3W5mnFoacSfyGNUwNo3AK9a40wCUTeplrEcTaluswkxds2lS5qgQPxLLDvKzFYaqODWNFrkTG8Z/G3H/b0t0kqWNmJ4hIM42sNBKtQNrdQuR/10qbf0BqcghleVuvBjrzmiOeA1QtZ0qYTf6fV1lpAdWyL6JSBPKU2la4SllXf0K7wvO13574dtgT0Uz1kqiVu4hGW2g08apeOpXQyfZLDt/WGEZm1Nad8vig27aIV8ULU5eU0YEtgK7Ol4jTmwHeB2wsi+l1ixwAAcKBTv4YQgkwXMTsQUgh0OGZkHku4aJMOEIlR6jmCLU3RGiCA8EBkiY3AdZFaAMBYHaaB8D61R30lTqFqL5JkAbdthlBgeq/9qXvp9nQAKzFNrcVA9mF+KE/PYGj+H69W1h+nkE5ZLCEN+H10UgijSyu3LUkljjkhIt6jTXd+77r1+q/3gOQTTR0UuBx+Qh3Pu6Uq4a627O+6MfqP+4u+Pfgn/mn/rF/5B/6gSe/K932tLsdbcHjVZC4qHkQygHD6UAqQO1m9sISRDAQQiiD2BwuMCzC8PUTRghFWp0egBlGUCDIAoAMYDp7K7iAwBsFBRMSShhieKvduXHIdR/UqwOkPMt2XM8PwihO0iwvyqpu2o4YB4A6gz8aT6az+QLin95o2knwngqq5+ARxLnHIXwWELOAw8kI7gJAUQoClBci1N8MABQgfxbsujQHNXP1bS5Ib4YziHJQQKjV0WVRkYPKaaux23aWR/pNuNW4+VL5nW9eT89X5Su8aYi5fIlhxmHNwyy35UTRI3m5PJK6By/A3tyCMv5HXqcWL7elxymLItN2cZrZbEQurCo1IXzZ7eY5t/zpskxAofpzMTQzZhlzl+/uDsvOxqGNvUh0YySJgm6RNxrlAtqPArFna5Hp5Iy30bRucj16UuM8EliDMTs64DDOWtNIDBg/bTSDD93Akf1d/EnufemXdisrf7A1LCP+ZvoFL1edjkMa2bD1lOXVZxIIocT4C97G20ln8cPSXlPzv9nprHDXWBCelM/mDuNb36Q8TkA4VSBErqgjqu6vfypyABgGuvh4RFJdXNYrVP8y+uFPBV+sOcvpHfs6CBbUnksbpr37F8abGGmrHgDPWtIvm5SRJv+UayViwdJ1o+mXNZ2qPMUor+8Ehp6Ld6Y2hxLaCnfZiPibAj8H+Fat/IEIzVeGf09HRsDFro668/H9qxjKxb4eggWlL/s0Bh7Sj8RfIgwhOd1ytWVaZxiWXzPKB38SC/qcYykBBPxdkAVvg1BJmSNi/U19QwVaWmJ5/wVgaOgr9vVsliIZYkFvd+AKJ7a+wgvfmr8D7O4sMj0f3Z7PyLw3XR76NVVwRnrb3Vl/IXFgo2Jz/b3II50L4GgBjvmeXu7rn09ACrgbB/191NuzeKfh6TqtrUW1om0Lnwy2+yef1LYKmwiJ2x2HZdDqkKMiZrxXaC7LODLQJ72w7LSeNu5XvfPTXNr7iFGuyD+hAkkJSYf/Yd7bVqw5C8FImElUhSxMHR6PovsNfVO/0xjThkyp5/UEglm6LjClznyjv9D1HD8pXYQlyFnePZVdBpRWNRYbvIhzv2Nyl53/btUFSFSiAtTNspMDlCevTwd5mvGB/xaCSt4YI48GkVEVdxqoOVMrqPC34IOkjQ1ePdFra2795HUWvMw9DY75eJz+rOLFiB4fNtL2wdyCjW+tlkwxcSE5wN3OIhVoF4IKkEgnx961mY5By82g8Wbpl+bK8f10VLeVw466hCmV+Rl7n443hWXi81G/b1caY3jfWhWBDKzH3Yhux9Mbu13HsLAlD9TCy8AH1Tx1QM3c08wNGUbRbtAGaE8o8SZh0Hf0SjYEDTxEjyzKrVROmWA06LA8X9c6dCt8/kKWWKhSyV6r7R5FpoCJ0h1zhMGDlKsKMSk7CXkY5Z/sAqR2Ps69Iv7Gdoam5dHgwYaLNe3BPf5yRk/XpLzXtgzd9RLsBQGvkmHNjpGa2dJFTX8vOJ1ceiXxe/0Fa4HIqEDKBJh8J6yMv5//rnc/k9ADPiTYj8pJmxjJlsw8MlIAefJ2+V/OAfdbd9OJwG6IRZzjpKVfMuBx85SIp/idiU4m0X0hb/BNk/JRGzLVoMjqauJpBrL0bGNaMCf6RKv4uZIv8Xpk5stAX/k/cTn1azVttS82K7yXvPcoRvW9v7eZfF3CfwgsCNjF4kAUvqeqZ6qQeL97qn6q/gJQYuIyYE1ln+zg5s7+C+r2sTjspFWQ8Zn5ZXn8uUavbGKJtXiVK7oIA4LdARxo6fsgjd7qUomFsA4zanIuE8y6LqMDYYYWA6FhLmxrsVBUo0kEbUJ4cZKjIgOVTRwf42CMZIzRLko2pMSgYAgKSL0M1qcbSjjynUZawujHkDMvUhhYGYBVC4rawepSY8EQy+44VMYvhGlsA6iqUWu8YHSvmYGCVxl4ODOLAinNAyKBf3o1rU2nsa30/GdGMISyl0ae9nUKYae8x6wT3A7DyI0G2Dq5rToTTGkEDR1TnFbAU/9aoK63QdKGGMce3AIi8Vd0V3bnRQsPLDxQKGO7c1Mg1yo8sPBMuNlo3XLZdnmLTxV++bmda4U9I6MTo0DacUAJxSUKVHWcrIRvQQ3x/5OPZ+oBKRtjL4sFaaKxP3uxcwh9l9g/7mDxxXe+2oLF4LsvsWDVTyrfU+fVJwogok6b+HWHNscnN1hb8CZzz9faOOL94AwRv7HiK6hYrc4I5n4X4IkOG7fl+4836XSsTOXXzaubGrv6g+JoghkyWJN+S58HZtXLdXoOL5ErcOpaOzQTmfCtd7ZR03qPvWE+OYTuDOgY53yRCanHzaZzfu8qYwGxlBWXeeyENqTyEJJ4CP77WA+tuWA4BN8/09tfBgqinLpT3wgCI52W/HzvbEN+6zi7lP5DSKyTHvIDNIpAtpWMesxu2oGUJkvjGRr9RFZzRjzngdK8RlGZ6Gi50iLSkdPWhhsST+4e/tjx7NfxCbZUUszix02wJNISqRSY+sU6xHioruQBq9RP4adgjnSPzC6elbOZv5xVwiwGBn9fos7vM3WP8jdTl1iw39VkQzGeaNKiGKEqkc/gM/kZPQqGgMHnJ6qjeVvmop5YdOnK+dyv2zeClcFVMxhuv7Kq438Kyw3DvLNUpXMENo4gvSoe45of9hMsCwDpUnojaqE0ZVngBEs9LCHJqQBThaqay4va10Tobb1++b+TJZEWCywnU8ok8uH7V7uvds3EjEA9RiPR/FfF+seSYNe66JpouO5GLu7gLRpplR2728A85B0QrM7SFuxTS1Tig4SDmIRTCQcXhV2irNRbXDC/eEEtJj4tOK2qpABbQDcbLGC4eJgNUvrZM7UgwbyjwRaXkIIsqKpTEkX4RS2zhCSLPBK3F6qXk4ggEc93RzxMpraP3PhNBt/zMC8VGBjUlmGzXLTYLAKygxK8xmJ0tBjslbaKi0D8KeBSbh6yNnC/tyLSerBq8UzvQ17LmsQik7LJUE0vIM6OtAdX25u/sZi3GhYN13IygsS+OZnUeVBArUmwuU+gHj4th1M8SjWhufDP8g4fjGwun+L7xh1dDXXuSC00wUjHNt/aIG2QtsyqClGTa3yfFhJa13Iq3LhLRNTVNSE1K2sgvRhB7tL44XzaXQT5iiEsFTKg/xtjZ8vso7MvON5cXtPPEWEpZFGzOFQU9sdDxrHDjGMQPxPXBlJZm6zo0gr6CghrNvTouxcbuzldtQjm/ctSeUBHE+Ss1X1qyx08JTDxjZkUC+UUEs2LOaJ24XRRZVTZTQ0dPBelA/yihDo+1Al81/4ioG9wOdePWOVWRWJOQraPEhUwMAsxZewVUaWb7OXZsGr6iu2bzF2Z3yFWcnaIJVlUvKp0zzfXNnxLriF/S58UENubt4FktCribGrykgjNbAWMLlq5TSqbJ82QLtaJcHycMGkMLY/j1n+GF3+oXAV2X4L3yaBzs7Ain/bo3fB+rqxWdmnJpXFw2t3bvyxGGavcYFTM4Hmz55s+mbtAF8wnC4r2jw8tgUF/WTrSJEvzWum1dmMtd1d09V4CpvoeHWyWWTth1nnHm4erSoLqyUw3rOgcZd2SgqxqcubAnMIk+4Jq+zu9ZDuwl/rCHE+Hh8+BV1D8BIRCxz7zrvgF9U9xEjQkvsR/k09GRIA1kOotw9n9NASxgLKeIsAKsTzieh8NLrDKf46v+rx1R9qlO3jIfctHNzvy7p7l6/nGKyILogYqZ/52IeJIN23fBMyhFeWkP3f/mXtWqzMYi+cVUwygAM4sJFFPkQZzZenSTdMl//yveLn7Jbx7BnqaAOG5iNzbZznWHimbQ1FRtFsiGRKsBBOAFaryDYe2JTGZ1PX/WDjVIfvKwnELWdw4IStcEiYPmISe/n+Lf/vw+AjWl77fb3/N/NZ9/7zlr6BoOgGj2I5RwCP9Snwgv3JAg0sCdtmcBdhlPBxaT8ohaWGvdnX19MbCo9v1Wu8M9HDSg5RK18hAXpCwBnxXSFeuaf31fh69bVXrr59KYQwBCgEKG3+HQvn/M3QkoouLF3MUuxScvKVz1eFXUyOzZG7umq/+mvXsAWrG3Q6xBBsvJmlw4bjxXbRStw4XI9B/HIzkKEO8iP7b/Ik3bkgjImzZ1GsfY3URoe2NwMbL8XKOm3+kv9udJzg5Tg7f+y5R0mYSetmXZG/dM6BgRVXl0upuJGeEz97aiLqyGqSZBX11980rVoTGBddA+R9323n7gbChJVI/w3d6V1HRdz4XU2pSa7KFOYLCgIJAPjaxkpCXBmXNI9LRcu0vfWDOcRANxFw4n1ub27AGJUXvU38ximpiVN4x6/vkiWJ67t4X9duC6qxwHvwwB8c6bZ29DmVbo0U8+/vV3PgjQwk/kfim4l4Pm8cYyJaC7iOUFHQpULOHnCIli7icDXlDYJsT4764blVLfOex4460hGp2KTx1p2ZBJtyQCM1C8/kGi6UhOAiOAIu1XatNXhcljhI3pXJdeAjddR5969GtEDS0SrFeAawjgWykgH2avYctRqVWK9vB3gRkBEgGrpViZH1IFsgpjBwNxUBFyGBJVV7SJDL5SAZOqQYo/2MVZrFmQSkxKCNOX+NgiNRV0QGj7RQ0GE4SJrNbqAUztfmhN45ILUkqGV6E0MVjpvym8qOxrU1tP+ThDEKT1PhQBKnpQopCYcTT2g1flm3NQT3B3YvJ3e7XaxEM+VaUPGAH1XrFQMR0gAonIalYhVzZx6GsDxz2nBidOD7k55ipb/oFdhf4U/v5PV/ECZeNE2buti6BaKaf+SFptt4eQIBg/ruXuBUN34LZcfYWGf6+nWFPqQgWN84JzlRyJq4YADvjXZnqZ09q1RsPl7k9H1yxWruJCQ6VOvgOO+AhLGMXq3lSvg9ewzP4yd5U6VC1cmBid5kr5lI1HxPHXDFb7RtuyU5XLOMYhvEMyeAdEHF273+cpZfkLcSDaXCWPa9mAJ7wQVfM4+nvn0CpBEbhpphMgfHBKbD+c82bw7oq7Wpu35jsuMxCDbnHM8WbIjLFbFTJLCD1VcRLseKlOcabKmd8EG5JdTLZVCZX1Vm19XwiJg1UZZqvLlXGus+ETFc556pKGgpBrziLz1RZukuGxPJdXQDmeOHGe8eUEMlxxEAkQtsMG4LoHbbkczLsCOOzE+BRcDiQRLXohJKq9RMDciFOecaHDZG0DlvascOORMZVAN+HAylX/F9CqVd/Yo1cqubLoBcq0YT4ySC3/bRQKxLD6JOntZ/5YUlbdxryjZ5l7D3QQyw1q/gGuKW7WaCNVmN6tQOFShIt2Qx2l5DZbbkxbRn2WI6gOQRX1+V6UltSRJ75hUvCFB83jDXn7LwLKr5ZW9VHzvhUKqvdIhnTInAG/MezlqBbcs0vkZteqi5Zfl4X8Qlkn9ghu8aWEit4mdbUjUtyOFd5tpeFhA6Y/n9zAJlUKFKQKdGiTZdAIlOoNDqDyWJzeHyBWCKVyRWD6aHWaHUIw/UNDI2MTUzNzC0s7RAiQowEKTIykKMgX7fKKqpq6hqaWto6ugQiiUyh0ugMJovN4fL4AqFILJHK5AqlSq3R6hCG6xsYGhmbmJqZW1haWdtoS/T5n1JGJ6LVGXb/N8luK2UltZknHfsQi8Ynz5YwnE9SgGZYfZ6doBhO8EkK0Ixez15QDCcoQDP6PAfGcALQDKvPcyQejKAkBVh9nhMjKIaDYgM=";
+    // =========================================================================
+    // 4.0 STREAM MODE
+    // =========================================================================
 // --- MatrixGrid.js ---
 class MatrixGrid {
     constructor(config) {
         this.config = config;
-
         // Grid dimensions
         this.cols = 0;
         this.rows = 0;
-
         // Grid storage and state tracking
         this.activeIndices = new Set(); // Tracks active (non-empty) cells
         this.chars = null;
@@ -1117,12 +944,10 @@ class MatrixGrid {
         this.ages = null;
         this.brightness = null;
         this.rotatorProg = null;
-
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
     }
-
     /**
      * Resizes the grid based on new width and height, reallocating arrays only if dimensions change.
      * @param {number} width - The new width of the grid area.
@@ -1132,12 +957,10 @@ class MatrixGrid {
         const d = this.config.derived;
         const newCols = Math.max(1, Math.floor(width / d.cellWidth));
         const newRows = Math.max(1, Math.floor(height / d.cellHeight));
-
         if (newCols !== this.cols || newRows !== this.rows) {
             this._resizeGrid(newCols, newRows);
         }
     }
-
     /**
      * Gets the 1D array index from 2D coordinates (x, y).
      * @param {number} x - The column index.
@@ -1150,7 +973,6 @@ class MatrixGrid {
         }
         return y * this.cols + x;
     }
-
     /**
      * Sets a character at the specified grid index.
      * @param {number} idx - The 1D index of the cell.
@@ -1161,7 +983,6 @@ class MatrixGrid {
             this.chars[idx] = charStr.charCodeAt(0);
         }
     }
-
     /**
      * Gets the character from the specified grid index.
      * @param {number} idx - The 1D index of the cell.
@@ -1172,7 +993,6 @@ class MatrixGrid {
         if (!this.chars || idx < 0 || idx >= this.chars.length) return '';
         return String.fromCharCode(this.chars[idx]);
     }
-
     /**
      * Reinitializes all grid arrays and dimensions.
      * @private
@@ -1181,7 +1001,6 @@ class MatrixGrid {
      */
     _resizeGrid(newCols, newRows) {
         const totalCells = newCols * newRows;
-
         // Reinitialize arrays with new size
         this.chars = new Uint16Array(totalCells);
         this.types = new Uint8Array(totalCells);
@@ -1190,436 +1009,31 @@ class MatrixGrid {
         this.ages = new Int32Array(totalCells);
         this.brightness = new Float32Array(totalCells);
         this.rotatorProg = new Uint8Array(totalCells);
-
         // Clear auxiliary storage
         this.complexStyles.clear();
         this.nextChars.clear();
         this.activeIndices.clear();
-
         // Update grid dimensions
         this.cols = newCols;
         this.rows = newRows;
     }
 }
-
-
 // --- FontData.js ---
-
-const DEFAULT_FONT_DATA ="data:application/octet-stream;base64,d09GMgABAAAAABNAAA0AAAAANtwAABLpAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP0ZGVE0cGlwGYACEGhEICtQov1oLgXoAATYCJAODbgQgBYRYB4YaG60qsyLYOAAgyntGVE3mIP5PyROZeUF/NWSvBIIzjOrpE5K4Q9hxhAMNj8M88ibjVcuOzYJvE99g40+GE5HPiEgqEl5d1mptQ5dHw0IhPkKSWfgH5bD3k1TE2J6sTfKoCfak6WY4P/Db/D9XsK6xomzGbBxSBiaRUqk994wE+yMuKtRFldUL/55sU1f9IsrAbd2w1hYiYo1/r4javbrXu6/inaWgk7eXp6XDJAgge5GazX8u0wTMVrBTKXB3W5mnFoacSfyGNUwNo3AK9a40wCUTeplrEcTaluswkxds2lS5qgQPxLLDvKzFYaqODWNFrkTG8Z/G3H/b0t0kqWNmJ4hIM42sNBKtQNrdQuR/10qbf0BqcghleVuvBjrzmiOeA1QtZ0qYTf6fV1lpAdWyL6JSBPKU2la4SllXf0K7wvO13574dtgT0Uz1kqiVu4hGW2g08apeOpXQyfZLDt/WGEZm1Nad8vig27aIV8ULU5eU0YEtgK7Ol4jTmwHeB2wsi+l1ixwAAcKBTv4YQgkwXMTsQUgh0OGZkHku4aJMOEIlR6jmCLU3RGiCA8EBkiY3AdZFaAMBYHaaB8D61R30lTqFqL5JkAbdthlBgeq/9qXvp9nQAKzFNrcVA9mF+KE/PYGj+H69W1h+nkE5ZLCEN+H10UgijSyu3LUkljjkhIt6jTXd+77r1+q/3gOQTTR0UuBx+Qh3Pu6Uq4a627O+6MfqP+4u+Pfgn/mn/rF/5B/6gSe/K932tLsdbcHjVZC4qHkQygHD6UAqQO1m9sISRDAQQiiD2BwuMCzC8PUTRghFWp0egBlGUCDIAoAMYDp7K7iAwBsFBRMSShhieKvduXHIdR/UqwOkPMt2XM8PwihO0iwvyqpu2o4YB4A6gz8aT6az+QLin95o2knwngqq5+ARxLnHIXwWELOAw8kI7gJAUQoClBci1N8MABQgfxbsujQHNXP1bS5Ib4YziHJQQKjV0WVRkYPKaaux23aWR/pNuNW4+VL5nW9eT89X5Su8aYi5fIlhxmHNwyy35UTRI3m5PJK6By/A3tyCMv5HXqcWL7elxymLItN2cZrZbEQurCo1IXzZ7eY5t/zpskxAofpzMTQzZhlzl+/uDsvOxqGNvUh0YySJgm6RNxrlAtqPArFna5Hp5Iy30bRucj16UuM8EliDMTs64DDOWtNIDBg/bTSDD93Akf1d/EnufemXdisrf7A1LCP+ZvoFL1edjkMa2bD1lOXVZxIIocT4C97G20ln8cPSXlPzv9nprHDXWBCelM/mDuNb36Q8TkA4VSBErqgjqu6vfypyABgGuvh4RFJdXNYrVP8y+uFPBV+sOcvpHfs6CBbUnksbpr37F8abGGmrHgDPWtIvm5SRJv+UayViwdJ1o+mXNZ2qPMUor+8Ehp6Ld6Y2hxLaCnfZiPibAj8H+Fat/IEIzVeGf09HRsDFro668/H9qxjKxb4eggWlL/s0Bh7Sj8RfIgwhOd1ytWVaZxiWXzPKB38SC/qcYykBBPxdkAVvg1BJmSNi/U19QwVaWmJ5/wVgaOgr9vVsliIZYkFvd+AKJ7a+wgvfmr8D7O4sMj0f3Z7PyLw3XR76NVVwRnrb3Vl/IXFgo2Jz/b3II50L4GgBjvmeXu7rn09ACrgbB/191NuzeKfh6TqtrUW1om0Lnwy2+yef1LYKmwiJ2x2HZdDqkKMiZrxXaC7LODLQJ72w7LSeNu5XvfPTXNr7iFGuyD+hAkkJSYf/Yd7bVqw5C8FImElUhSxMHR6PovsNfVO/0xjThkyp5/UEglm6LjClznyjv9D1HD8pXYQlyFnePZVdBpRWNRYbvIhzv2Nyl53/btUFSFSiAtTNspMDlCevTwd5mvGB/xaCSt4YI48GkVEVdxqoOVMrqPC34IOkjQ1ePdFra2795HUWvMw9DY75eJz+rOLFiB4fNtL2wdyCjW+tlkwxcSE5wN3OIhVoF4IKkEgnx961mY5By82g8Wbpl+bK8f10VLeVw466hCmV+Rl7n443hWXi81G/b1caY3jfWhWBDKzH3Yhux9Mbu13HsLAlD9TCy8AH1Tx1QM3c08wNGUbRbtAGaE8o8SZh0Hf0SjYEDTxEjyzKrVROmWA06LA8X9c6dCt8/kKWWKhSyV6r7R5FpoCJ0h1zhMGDlKsKMSk7CXkY5Z/sAqR2Ps69Iv7Gdoam5dHgwYaLNe3BPf5yRk/XpLzXtgzd9RLsBQGvkmHNjpGa2dJFTX8vOJ1ceiXxe/0Fa4HIqEDKBJh8J6yMv5//rnc/k9ADPiTYj8pJmxjJlsw8MlIAefJ2+V/OAfdbd9OJwG6IRZzjpKVfMuBx85SIp/idiU4m0X0hb/BNk/JRGzLVoMjqauJpBrL0bGNaMCf6RKv4uZIv8Xpk5stAX/k/cTn1azVttS82K7yXvPcoRvW9v7eZfF3CfwgsCNjF4kAUvqeqZ6qQeL97qn6q/gJQYuIyYE1ln+zg5s7+C+r2sTjspFWQ8Zn5ZXn8uUavbGKJtXiVK7oIA4LdARxo6fsgjd7qUomFsA4zanIuE8y6LqMDYYYWA6FhLmxrsVBUo0kEbUJ4cZKjIgOVTRwf42CMZIzRLko2pMSgYAgKSL0M1qcbSjjynUZawujHkDMvUhhYGYBVC4rawepSY8EQy+44VMYvhGlsA6iqUWu8YHSvmYGCVxl4ODOLAinNAyKBf3o1rU2nsa30/GdGMISyl0ae9nUKYae8x6wT3A7DyI0G2Dq5rToTTGkEDR1TnFbAU/9aoK63QdKGGMce3AIi8Vd0V3bnRQsPLDxQKGO7c1Mg1yo8sPBMuNlo3XLZdnmLTxV++bmda4U9I6MTo0DacUAJxSUKVHWcrIRvQQ3x/5OPZ+oBKRtjL4sFaaKxP3uxcwh9l9g/7mDxxXe+2oLF4LsvsWDVTyrfU+fVJwogok6b+HWHNscnN1hb8CZzz9faOOL94AwRv7HiK6hYrc4I5n4X4IkOG7fl+4836XSsTOXXzaubGrv6g+JoghkyWJN+S58HZtXLdXoOL5ErcOpaOzQTmfCtd7ZR03qPvWE+OYTuDOgY53yRCanHzaZzfu8qYwGxlBWXeeyENqTyEJJ4CP77WA+tuWA4BN8/09tfBgqinLpT3wgCI52W/HzvbEN+6zi7lP5DSKyTHvIDNIpAtpWMesxu2oGUJkvjGRr9RFZzRjzngdK8RlGZ6Gi50iLSkdPWhhsST+4e/tjx7NfxCbZUUszix02wJNISqRSY+sU6xHioruQBq9RP4adgjnSPzC6elbOZv5xVwiwGBn9fos7vM3WP8jdTl1iw39VkQzGeaNKiGKEqkc/gM/kZPQqGgMHnJ6qjeVvmop5YdOnK+dyv2zeClcFVMxhuv7Kq438Kyw3DvLNUpXMENo4gvSoe45of9hMsCwDpUnojaqE0ZVngBEs9LCHJqQBThaqay4va10Tobb1++b+TJZEWCywnU8ok8uH7V7uvds3EjEA9RiPR/FfF+seSYNe66JpouO5GLu7gLRpplR2728A85B0QrM7SFuxTS1Tig4SDmIRTCQcXhV2irNRbXDC/eEEtJj4tOK2qpABbQDcbLGC4eJgNUvrZM7UgwbyjwRaXkIIsqKpTEkX4RS2zhCSLPBK3F6qXk4ggEc93RzxMpraP3PhNBt/zMC8VGBjUlmGzXLTYLAKygxK8xmJ0tBjslbaKi0D8KeBSbh6yNnC/tyLSerBq8UzvQ17LmsQik7LJUE0vIM6OtAdX25u/sZi3GhYN13IygsS+OZnUeVBArUmwuU+gHj4th1M8SjWhufDP8g4fjGwun+L7xh1dDXXuSC00wUjHNt/aIG2QtsyqClGTa3yfFhJa13Iq3LhLRNTVNSE1K2sgvRhB7tL44XzaXQT5iiEsFTKg/xtjZ8vso7MvON5cXtPPEWEpZFGzOFQU9sdDxrHDjGMQPxPXBlJZm6zo0gr6CghrNvTouxcbuzldtQjm/ctSeUBHE+Ss1X1qyx08JTDxjZkUC+UUEs2LOaJ24XRRZVTZTQ0dPBelA/yihDo+1Al81/4ioG9wOdePWOVWRWJOQraPEhUwMAsxZewVUaWb7OXZsGr6iu2bzF2Z3yFWcnaIJVlUvKp0zzfXNnxLriF/S58UENubt4FktCribGrykgjNbAWMLlq5TSqbJ82QLtaJcHycMGkMLY/j1n+GF3+oXAV2X4L3yaBzs7Ain/bo3fB+rqxWdmnJpXFw2t3bvyxGGavcYFTM4Hmz55s+mbtAF8wnC4r2jw8tgUF/WTrSJEvzWum1dmMtd1d09V4CpvoeHWyWWTth1nnHm4erSoLqyUw3rOgcZd2SgqxqcubAnMIk+4Jq+zu9ZDuwl/rCHE+Hh8+BV1D8BIRCxz7zrvgF9U9xEjQkvsR/k09GRIA1kOotw9n9NASxgLKeIsAKsTzieh8NLrDKf46v+rx1R9qlO3jIfctHNzvy7p7l6/nGKyILogYqZ/52IeJIN23fBMyhFeWkP3f/mXtWqzMYi+cVUwygAM4sJFFPkQZzZenSTdMl//yveLn7Jbx7BnqaAOG5iNzbZznWHimbQ1FRtFsiGRKsBBOAFaryDYe2JTGZ1PX/WDjVIfvKwnELWdw4IStcEiYPmISe/n+Lf/vw+AjWl77fb3/N/NZ9/7zlr6BoOgGj2I5RwCP9Snwgv3JAg0sCdtmcBdhlPBxaT8ohaWGvdnX19MbCo9v1Wu8M9HDSg5RK18hAXpCwBnxXSFeuaf31fh69bVXrr59KYQwBCgEKG3+HQvn/M3QkoouLF3MUuxScvKVz1eFXUyOzZG7umq/+mvXsAWrG3Q6xBBsvJmlw4bjxXbRStw4XI9B/HIzkKEO8iP7b/Ik3bkgjImzZ1GsfY3URoe2NwMbL8XKOm3+kv9udJzg5Tg7f+y5R0mYSetmXZG/dM6BgRVXl0upuJGeEz97aiLqyGqSZBX11980rVoTGBddA+R9323n7gbChJVI/w3d6V1HRdz4XU2pSa7KFOYLCgIJAPjaxkpCXBmXNI9LRcu0vfWDOcRANxFw4n1ub27AGJUXvU38ximpiVN4x6/vkiWJ67t4X9duC6qxwHvwwB8c6bZ29DmVbo0U8+/vV3PgjQwk/kfim4l4Pm8cYyJaC7iOUFHQpULOHnCIli7icDXlDYJsT4764blVLfOex4460hGp2KTx1p2ZBJtyQCM1C8/kGi6UhOAiOAIu1XatNXhcljhI3pXJdeAjddR5969GtEDS0SrFeAawjgWykgH2avYctRqVWK9vB3gRkBEgGrpViZH1IFsgpjBwNxUBFyGBJVV7SJDL5SAZOqQYo/2MVZrFmQSkxKCNOX+NgiNRV0QGj7RQ0GE4SJrNbqAUztfmhN45ILUkqGV6E0MVjpvym8qOxrU1tP+ThDEKT1PhQBKnpQopCYcTT2g1flm3NQT3B3YvJ3e7XaxEM+VaUPGAH1XrFQMR0gAonIalYhVzZx6GsDxz2nBidOD7k55ipb/oFdhf4U/v5PV/ECZeNE2buti6BaKaf+SFptt4eQIBg/ruXuBUN34LZcfYWGf6+nWFPqQgWN84JzlRyJq4YADvjXZnqZ09q1RsPl7k9H1yxWruJCQ6VOvgOO+AhLGMXq3lSvg9ewzP4yd5U6VC1cmBid5kr5lI1HxPHXDFb7RtuyU5XLOMYhvEMyeAdEHF273+cpZfkLcSDaXCWPa9mAJ7wQVfM4+nvn0CpBEbhpphMgfHBKbD+c82bw7oq7Wpu35jsuMxCDbnHM8WbIjLFbFTJLCD1VcRLseKlOcabKmd8EG5JdTLZVCZX1Vm19XwiJg1UZZqvLlXGus+ETFc556pKGgpBrziLz1RZukuGxPJdXQDmeOHGe8eUEMlxxEAkQtsMG4LoHbbkczLsCOOzE+BRcDiQRLXohJKq9RMDciFOecaHDZG0DlvascOORMZVAN+HAylX/F9CqVd/Yo1cqubLoBcq0YT4ySC3/bRQKxLD6JOntZ/5YUlbdxryjZ5l7D3QQyw1q/gGuKW7WaCNVmN6tQOFShIt2Qx2l5DZbbkxbRn2WI6gOQRX1+V6UltSRJ75hUvCFB83jDXn7LwLKr5ZW9VHzvhUKqvdIhnTInAG/MezlqBbcs0vkZteqi5Zfl4X8Qlkn9ghu8aWEit4mdbUjUtyOFd5tpeFhA6Y/n9zAJlUKFKQKdGiTZdAIlOoNDqDyWJzeHyBWCKVyRWD6aHWaHUIw/UNDI2MTUzNzC0s7RAiQowEKTIykKMgX7fKKqpq6hqaWto6ugQiiUyh0ugMJovN4fL4AqFILJHK5AqlSq3R6hCG6xsYGhmbmJqZW1haWdtoS/T5n1JGJ6LVGXb/N8luK2UltZknHfsQi8Ynz5YwnE9SgGZYfZ6doBhO8EkK0Ixez15QDCcoQDP6PAfGcALQDKvPcyQejKAkBVh9nhMjKIaDYgM=";
-
-    // =========================================================================
-    // 4.0 STREAM MODE
-    // =========================================================================
-
-// --- StreamModes.js ---
-class StreamMode {
-    constructor(config) { this.config = config; }
-
-    spawn(stream) {
-        // Default implementation for spawning a stream
-    }
-
-    style(stream, frame, state) {
-        // Default implementation for style (no special effects)
-        return null;
-    }
-}
-
-class StandardMode extends StreamMode {
-    // Inherits default behavior with no specific changes
-    style(stream, frame, state) {
-        return null;
-    }
-}
-
-class StarPowerMode extends StreamMode {
-    spawn(stream) {
-        stream.baseHue = Utils.randomInt(0, 360);
-    }
-
-    style(stream, frame, state) {
-        const hue = (state.starPowerRainbowMode === 'char')
-            ? (frame + (stream.x * 10)) % 360 // Character-based hue
-            : stream.baseHue; // Fixed hue based on baseHue
-        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
-    }
-
-    _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
-    }
-}
-
-class RainbowMode extends StreamMode {
-    spawn(stream) {
-        stream.baseHue = Utils.randomInt(0, 360);
-    }
-
-    style(stream, frame, state) {
-        return this._createStyle(stream.baseHue, 100, state.rainbowStreamIntensity);
-    }
-
-    _createStyle(hue, saturation, lightness) {
-        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
-    }
-}
-
-    // =========================================================================
-    // 5.0 SIMULATION SYSTEM 
-    // =========================================================================
-
-// --- SimulationSystem.js ---
-class SimulationSystem {
-    constructor(grid, config) {
-        this.grid = grid;
-        this.config = config;
-        this.activeStreams = [];
-        this.lastStreamInColumn = new Array(grid.cols).fill(null);
-        this.modes = this._initializeModes(config);
-    }
-
-    _initializeModes(config) {
-        return {
-            'STANDARD': new StandardMode(config),
-            'STAR_POWER': new StarPowerMode(config),
-            'RAINBOW': new RainbowMode(config)
-        };
-    }
-
-    update(frame) {
-        if (this.lastStreamInColumn.length !== this.grid.cols) {
-            this._resetColumns();
-        }
-        this._manageStreams(frame);
-        this._updateCells(frame);
-    }
-
-    _resetColumns() {
-        this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
-        this.activeStreams = [];
-    }
-
-    _manageStreams(frame) {
-        const { state: s, derived: d } = this.config;
-        const period = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
-
-        if (frame % period === 0) {
-            this._spawnStreams(s, d);
-        }
-
-        if (frame % d.cycleDuration === 0) {
-            this._processActiveStreams(frame);
-        }
-    }
-
-    _spawnStreams(s, d) {
-        const columns = this._shuffleArray([...Array(this.grid.cols).keys()]);
-        let streamCount = s.streamSpawnCount;
-        let eraserCount = s.eraserSpawnCount;
-
-        for (const col of columns) {
-            if (streamCount <= 0 && eraserCount <= 0) break;
-
-            const hasContent = this._columnHasContent(col, Math.min(this.grid.rows, 40));
-            const lastStream = this.lastStreamInColumn[col];
-
-            if (hasContent && eraserCount > 0 && this._canSpawn(lastStream, s.minEraserGap)) {
-                this._spawnStreamAt(col, true);
-                eraserCount--;
-            } else if (!hasContent && streamCount > 0 && this._canSpawn(lastStream, s.minStreamGap)) {
-                this._spawnStreamAt(col, false);
-                streamCount--;
-            }
-        }
-    }
-
-    _shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-    }
-
-    _columnHasContent(col, maxRows) {
-        for (let y = 0; y < maxRows; y++) {
-            if (this.grid.decays[this.grid.getIndex(col, y)] > 0) return true;
-        }
-        return false;
-    }
-
-    _canSpawn(lastStream, minGap) {
-        return !lastStream || !lastStream.active || lastStream.y > minGap;
-    }
-
-    _processActiveStreams(frame) {
-        for (let i = this.activeStreams.length - 1; i >= 0; i--) {
-            const stream = this.activeStreams[i];
-            if (!stream.active) {
-                this.activeStreams.splice(i, 1);
-                continue;
-            }
-            if (stream.delay > 0) {
-                stream.delay--;
-                continue;
-            }
-
-            stream.age++;
-
-            if (stream.age >= stream.visibleLen) {
-                this._handleStreamCompletion(stream);
-                continue;
-            }
-
-            if (stream.y < stream.len) {
-                stream.y++;
-                this._writeHead(stream, frame);
-            }
-        }
-    }
-
-    _handleStreamCompletion(stream) {
-        stream.active = false;
-        if (!stream.isEraser) {
-            this._spawnStreamAt(stream.x, true);
-        }
-    }
-
-    _spawnStreamAt(x, forceEraser) {
-        const s = this.config.state;
-        const stream = this._initializeStream(x, forceEraser, s);
-
-        this.modes[stream.mode].spawn(stream);
-        this.activeStreams.push(stream);
-        this.lastStreamInColumn[x] = stream;
-    }
-
-    _initializeStream(x, forceEraser, s) {
-        const baseStream = {
-            x,
-            y: -1,
-            active: true,
-            delay: 0,
-            age: 0,
-            len: 0,
-            holes: new Set(),
-            decayY: -1,
-            decayStarted: false,
-            visibleLen: 0,
-            mode: 'STANDARD',
-            baseHue: 0,
-            isInverted: false,
-            isEraser: forceEraser
-        };
-
-        if (forceEraser) {
-            return this._initializeEraserStream(baseStream, s);
-        } else {
-            return this._initializeTracerStream(baseStream, s);
-        }
-    }
-
-    _initializeEraserStream(stream, s) {
-        stream.len = this.grid.rows + 5;
-        stream.visibleLen = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), this.grid.rows + 20);
-        return stream;
-    }
-
-    _initializeTracerStream(stream, s) {
-        const lifeFrames = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), 60);
-
-        stream.len = Utils.randomInt(4, this.grid.rows * 3);
-        stream.visibleLen = lifeFrames;
-        stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
-
-        for (let i = 0; i < stream.len; i++) {
-            if (Math.random() < s.holeRate) stream.holes.add(i);
-        }
-        stream.holes.delete(0);
-
-        if (s.starPowerEnabled && Math.random() < s.starPowerFreq / 100) {
-            stream.mode = 'STAR_POWER';
-        } else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) {
-            stream.mode = 'RAINBOW';
-        }
-
-        return stream;
-    }
-
-    _writeHead(stream, frame) {
-        const idx = this.grid.getIndex(stream.x, stream.y);
-        if (idx === -1) return;
-
-        if (stream.isEraser) {
-            this._handleEraserHead(idx);
-        } else {
-            this._handleTracerHead(stream, idx, frame);
-        }
-    }
-
-    _handleEraserHead(idx) {
-        if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
-            this.grid.ages[idx] = 0;
-            this.grid.decays[idx] = 2;
-        } else {
-            this._clearCell(idx);
-        }
-    }
-
-    _handleTracerHead(stream, idx, frame) {
-        const shouldWrite = stream.isInverted
-            ? stream.holes.has(stream.y)
-            : !stream.holes.has(stream.y);
-
-        if (shouldWrite) {
-            const { state: s, derived: d } = this.config;
-            const cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
-                ? CELL_TYPE.ROTATOR
-                : CELL_TYPE.TRACER;
-
-            this.grid.types[idx] = cellType;
-            this.grid.ages[idx] = 1;
-            this.grid.decays[idx] = 1;
-            this.grid.rotatorProg[idx] = 0;
-            this.grid.activeIndices.add(idx);
-
-            this.grid.setChar(idx, Utils.getRandomChar());
-            this.grid.brightness[idx] = s.variableBrightnessEnabled
-                ? Utils.randomFloat(d.varianceMin, 1.0)
-                : 1.0;
-
-            this.grid.alphas[idx] = this.grid.brightness[idx];
-            const style = this.modes[stream.mode].style(stream, frame, s);
-            if (style) {
-                this.grid.complexStyles.set(idx, style);
-            } else {
-                this.grid.complexStyles.delete(idx);
-            }
-        } else {
-            this._clearCell(idx);
-        }
-    }
-
-    _clearCell(idx) {
-        this.grid.types[idx] = CELL_TYPE.EMPTY;
-        this.grid.ages[idx] = 0;
-        this.grid.decays[idx] = 0;
-        this.grid.alphas[idx] = 0;
-
-        this.grid.complexStyles.delete(idx);
-        this.grid.nextChars.delete(idx);
-        this.grid.activeIndices.delete(idx); // Improves performance
-    }
-
-    _updateCells(frame) {
-        const { state: s, derived: d } = this.config;
-
-        for (const idx of this.grid.activeIndices) {
-            this._updateCell(idx, frame, s, d);
-        }
-    }
-
-    _updateCell(idx, frame, s, d) {
-        const decay = this.grid.decays[idx];
-        if (decay === 0) return;
-
-        let age = this.grid.ages[idx];
-        if (age > 0) {
-            age = this._incrementAge(age, d.maxState);
-            this.grid.ages[idx] = age;
-        }
-
-        if (s.rotatorEnabled && this.grid.types[idx] === CELL_TYPE.ROTATOR) {
-            this._handleRotator(idx, frame, s, d);
-        }
-
-        if (decay >= 2) {
-            this.grid.decays[idx]++;
-            const newDecay = this.grid.decays[idx];
-            if (this._shouldDecay(idx, newDecay, s.decayFadeDurationFrames)) {
-                this._clearCell(idx);
-                return;
-            }
-            this.grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
-        } else {
-            this.grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
-        }
-    }
-
-    _incrementAge(age, maxState) {
-        return age < maxState ? age + 1 : 0;
-    }
-
-    _handleRotator(idx, frame, s, d) {
-        const prog = this.grid.rotatorProg[idx];
-
-        if (prog > 0) {
-            this._progressRotator(idx, prog, s.rotatorCrossfadeFrames);
-        } else if (this.grid.decays[idx] === 1) {
-            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames);
-        }
-    }
-
-    _progressRotator(idx, prog, crossfadeFrames) {
-        if (prog >= crossfadeFrames) {
-            const nextChar = this.grid.nextChars.get(idx);
-            if (nextChar) {
-                this.grid.setChar(idx, nextChar);
-            }
-            this.grid.rotatorProg[idx] = 0;
-        } else {
-            this.grid.rotatorProg[idx] = prog + 1;
-        }
-    }
-
-    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
-        if (frame % cycleFrames === 0) {
-            if (crossfadeFrames <= 2) {
-                this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
-            } else {
-                this.grid.rotatorProg[idx] = 1;
-                this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
-            }
-        }
-    }
-
-    _shouldDecay(idx, decay, fadeDurationFrames) {
-        return decay > fadeDurationFrames + 2;
-    }
-
-    _calculateAlpha(idx, age, decay, fadeDurationFrames) {
-        if (age > 0) {
-            return 1.0;
-        } else if (decay === 1) {
-            return 0.95 * this.grid.brightness[idx];
-        } else if (decay >= 2) {
-            const ratio = (decay - 2) / fadeDurationFrames;
-            return 0.95 * (1 - ratio) * this.grid.brightness[idx];
-        }
-        return 0;
-    }
-}
-
-    // =========================================================================
-    // 6.0 EFFECT REGISTRY
-    // =========================================================================
-
 // --- EffectRegistry.js ---
 class EffectRegistry {
-            constructor(g, c) { this.grid = g; this.config = c; this.effects = []; }
+            constructor(grid, config) { this.grid = grid; this.config = config; this.effects = []; }
             register(effect) { this.effects.push(effect); }
             trigger(name) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(); return false; }
             update() { this.effects.forEach(e => e.update()); }
             getOverride(i) { for(const fx of this.effects) { const o = fx.getOverride(i); if(o) return o; } return null; }
             hasActiveEffects() { return this.effects.some(e => e.active); }
         }
-
         class AbstractEffect {
             constructor(g, c) { this.g = g; this.c = c; this.name = "Base"; }
             trigger() { return false; }
             update() {}
             getOverride(i) { return null; }
         }
-
 // --- ClearPulseEffect.js ---
 class ClearPulseEffect extends AbstractEffect {
     constructor(g, c) {
@@ -1632,24 +1046,19 @@ class ClearPulseEffect extends AbstractEffect {
         this.autoTimer = c.state.clearPulseFrequencySeconds * 60;
         this.renderData = null;
     }
-
     trigger() {
         if (this.active) return false;
-        
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
         const d = this.c.derived;
-
         // Snapshot colors and fill chars to avoid per-frame calculations
         this.snap = { 
             fillChars: new Uint16Array(total),
             colors: new Uint32Array(total)
         };
-
         for (let i = 0; i < total; i++) {
             // Snapshot Fill Char
             this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
-            
             // Snapshot Color (Simulating the logic that was previously in getOverride)
             let rgb;
             const style = this.g.complexStyles.get(i);
@@ -1660,7 +1069,6 @@ class ClearPulseEffect extends AbstractEffect {
             }
             this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b);
         }
-
         let ox, oy;
         if (s.clearPulseRandomPosition) {
             ox = Utils.randomInt(this.g.cols * 0.2, this.g.cols * 0.8);
@@ -1675,14 +1083,12 @@ class ClearPulseEffect extends AbstractEffect {
             oy = Math.floor(this.g.rows / 2);
         }
         this.origin = { x: ox, y: oy };
-
         this.active = true;
         this.radius = s.clearPulseInstantStart ? s.clearPulseWidth * 2 : 0;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
         this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * 60);
         return true;
     }
-
     update() {
         const s = this.c.state;
         if (!this.active && s.clearPulseEnabled && this.autoTimer-- <= 0) {
@@ -1690,26 +1096,21 @@ class ClearPulseEffect extends AbstractEffect {
             this.autoTimer = s.clearPulseFrequencySeconds * 60;
         }
         if (!this.active) { this.renderData = null; return; }
-
         this.radius += this.speed;
         const d = this.c.derived;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-
         if (this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
-
         // --- Optimization Pre-calc ---
         const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX);
         const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
         const width = s.clearPulseWidth * 2;
         const innerEdge = this.radius - width;
-
         let ratio = 1;
         if (!s.clearPulseCircular) {
             const canvasW = this.g.cols * d.cellWidth * s.stretchX;
             const canvasH = this.g.rows * d.cellHeight * s.stretchY;
             ratio = (canvasH > 0) ? (canvasW / canvasH) : 1;
         }
-
         let minX, maxX, minY, maxY;
         if (s.clearPulseCircular) {
             minX = ox - this.radius; maxX = ox + this.radius;
@@ -1719,7 +1120,6 @@ class ClearPulseEffect extends AbstractEffect {
             const rY = this.radius / ratio;
             minY = oy - rY; maxY = oy + rY;
         }
-
         this.renderData = {
             ox, oy,
             radius: this.radius,
@@ -1731,29 +1131,24 @@ class ClearPulseEffect extends AbstractEffect {
             minX, maxX, minY, maxY
         };
     }
-
     getOverride(i) {
         if (!this.active || !this.snap || !this.renderData) return null;
-        
         const s = this.c.state;
         const d = this.c.derived;
         const rd = this.renderData;
-
         const x = i % this.g.cols; 
         const y = Math.floor(i / this.g.cols);
         const cx = Math.floor(x * d.cellWidth * s.stretchX);
         const cy = Math.floor(y * d.cellHeight * s.stretchY);
-
         // 1. Outer AABB (Optimization)
         if (cx < rd.minX || cx > rd.maxX || cy < rd.minY || cy > rd.maxY) return null;
-
         // 2. Inner Hole Check (Optimization)
         if (rd.innerEdge > 0) {
             if (s.clearPulseCircular) {
                 if (cx > rd.ox - rd.innerEdge && cx < rd.ox + rd.innerEdge &&
                     cy > rd.oy - rd.innerEdge && cy < rd.oy + rd.innerEdge) {
                     const dx = cx - rd.ox; const dy = cy - rd.oy;
-                    if ((dx * dx + dy * dy) < rd.innerEdgeSq) return null; // Definitely inside hole
+                    if ((dx * dx + dy * dy) < rd.innerEdgeSq) return null;
                 }
             } else {
                 const rY = rd.innerEdge / rd.ratio;
@@ -1763,7 +1158,6 @@ class ClearPulseEffect extends AbstractEffect {
                 }
             }
         }
-
         // 3. Distance Calculation
         let dist;
         if (s.clearPulseCircular) {
@@ -1774,17 +1168,12 @@ class ClearPulseEffect extends AbstractEffect {
             const dy = Math.abs(cy - rd.oy);
             dist = Math.max(dx, dy * rd.ratio);
         }
-
         // 4. Wave Bounds Check
         if (dist < rd.innerEdge || dist > rd.radius) return null;
-
-
         // Check Live Alpha to determine if cell is empty
         const alpha = this.g.alphas[i];
         const isGap = (alpha <= 0.01);
-
         if (s.clearPulsePreserveSpaces && isGap) return null;
-
         let char;
         if (isGap) {
             // Fill the gap (Reveal effect) using snapshot
@@ -1793,29 +1182,23 @@ class ClearPulseEffect extends AbstractEffect {
             // Use LIVE character (Flow continues)
             char = this.g.getChar(i);
         }
-
         // Color Calculation
         const tRgb = d.tracerRgb;
         const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
-        
         let finalColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`; 
-        
         if (s.clearPulseBlend) { 
             // Use snapshot color which is pre-calculated for all cells (Stream or Style)
             const baseInt = this.snap.colors[i];
             const bR = (baseInt >> 16) & 0xFF;
             const bG = (baseInt >> 8) & 0xFF;
             const bB = baseInt & 0xFF;
-            
             const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
             const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
             const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
             finalColor = `rgb(${mR},${mG},${mB})`;
         }
-
         const useSolid = isGap; 
         const useBlend = !isGap && s.clearPulseBlend;
-
         return { 
             char, 
             color: finalColor, 
@@ -1828,7 +1211,6 @@ class ClearPulseEffect extends AbstractEffect {
         };
     }
 }
-
 // --- DejaVuEffect.js ---
 class DejaVuEffect extends AbstractEffect {
             constructor(g, c) { 
@@ -1851,27 +1233,23 @@ class DejaVuEffect extends AbstractEffect {
                 if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
                 if(!this.active) return;
                 if(this.timer-- <= 0) { this.active = false; this.bars = []; this.map = null; return; }
-                
                 this.map.fill(0);
-                
                 // Generate new bars
-                if(Math.random() < s.dejaVuIntensity) { 
+                if(Math.random() < s.dejaVuIntensity) {
                     const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); 
                     const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
                     this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
                 }
-                
                 // Update bars and populate row map
                 for(let i=this.bars.length-1; i>=0; i--) {
                     const b = this.bars[i]; b.age++;
-                    if(b.age > b.maxAge) { 
+                    if(b.age > b.maxAge) {
                         this.bars.splice(i, 1); 
                     } else { 
-                        const limit = Math.min(this.g.rows, b.y + b.h); 
+                        const limit = Math.min(this.g.rows, b.y + b.h);
                         for(let r=b.y; r < limit; r++) this.map[r] = 1; 
                     }
                 }
-                
                 // Apply glitches to active rows (Mutation logic)
                 for (const b of this.bars) {
                     const limit = Math.min(this.g.rows, b.y + b.h);
@@ -1891,21 +1269,17 @@ class DejaVuEffect extends AbstractEffect {
                     }
                 }
             }
-            
             getOverride(i) {
                 if(!this.active || !this.map) return null;
-                
+                // Optimization: Map lookup is O(1) array access.
                 const y = Math.floor(i / this.g.cols);
-                
                 // Fast rejection
                 if(this.map[y] === 0) return null;
-
                 const s = this.c.state; 
                 // Fix: Preserve existing alpha for active cells to maintain trail gradients
                 const baseAlpha = this.g.alphas[i];
                 const alpha = baseAlpha < 0.1 ? s.dejaVuHoleBrightness : baseAlpha; 
                 if(alpha < 0.01) return null;
-                
                 return { 
                     char: this.g.getChar(i), 
                     color: this.c.derived.tracerColorStr, 
@@ -1915,7 +1289,6 @@ class DejaVuEffect extends AbstractEffect {
                 };
             }
         }
-
 // --- FirewallEffect.js ---
 class FirewallEffect extends AbstractEffect {
     constructor(g, c) {
@@ -1933,24 +1306,20 @@ class FirewallEffect extends AbstractEffect {
         this.shiftInterval = 2; // Shift every 2 frames during reversing
         this._firewallRandomColor = null; // Store the random color for a given trigger
     } // Added missing closing brace
-
     trigger() {
         if (this.active) return false;
-        
         // 1. Pick Random Column
         this.column = Utils.randomInt(1, this.g.cols - 2); 
         this.reverseTimer = this.c.state.firewallReverseDurationFrames; 
         this.eraseTimer = this.c.state.firewallEraseDurationFrames + this.cleanupFrames; // Add buffer
         this.active = true;
         this.state = 'REVERSING';
-
         // 2. Snapshot the existing code
         this.snapChars = new Uint16Array(this.g.rows);
         for (let y = 0; y < this.g.rows; y++) {
             const idx = this.g.getIndex(this.column, y);
             this.snapChars[y] = this.g.chars[idx];
         }
-
         // Generate random color once per trigger if enabled
         if (this.c.state.firewallRandomColorEnabled) {
             const randomHue = Utils.randomInt(0, 359);
@@ -1958,20 +1327,16 @@ class FirewallEffect extends AbstractEffect {
         } else {
             this._firewallRandomColor = null; // Clear if not using random color
         }
-        
         return true;
     }
-
     update() {
         const s = this.c.state;
-
         // Auto-trigger logic
         if (!this.active && s.firewallEnabled && this.autoTimer-- <= 0) { 
             this.trigger(); 
             this.autoTimer = s.firewallFrequencySeconds * 60; 
         }
         if (!this.active) { return; }
-
         if (this.state === 'REVERSING') {
             if (this.reverseTimer-- <= 0) {
                 this.state = 'ERASING';
@@ -1984,7 +1349,6 @@ class FirewallEffect extends AbstractEffect {
             }
         } else if (this.state === 'ERASING') {
             this.eraseTimer--;
-            
             // If we are in the last two frames (cleanup buffer), ensure the column is empty
             if (this.eraseTimer <= this.cleanupFrames) {
                 // Deep clean the column so it is totally empty
@@ -1998,14 +1362,12 @@ class FirewallEffect extends AbstractEffect {
                     this.g.complexStyles.delete(idx);
                 }
             }
-
             if (this.eraseTimer <= 0) {
                 this.active = false;
                 this.snapChars = null;
             }
         }
     }
-
     _shiftColumnCharsUpwards() {
         if (!this.snapChars) return;
         const topChar = this.snapChars[0];
@@ -2014,28 +1376,21 @@ class FirewallEffect extends AbstractEffect {
         }
         this.snapChars[this.g.rows - 1] = topChar;
     }
-
     getOverride(i) {
         if (!this.active || this.snapChars === null) return null;
-
         const x = i % this.g.cols; 
         if (x !== this.column) return null; 
-        
         const y = Math.floor(i / this.g.cols);
         const s = this.c.state;
         const d = this.c.derived;
-
         const originalChar = String.fromCharCode(this.snapChars[y]);
-
         // Fix for residual flash: If timer is in cleanup phase, return a transparent block.
         if (this.state === 'ERASING' && this.eraseTimer <= this.cleanupFrames) {
              return { char: '', color: '#000000', alpha: 0.0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
         }
-
         // --- PHASE 1: REVERSE FLOW ---
         if (this.state === 'REVERSING') {
             const charCode = this.snapChars[y];
-            
             return {
                 char: String.fromCharCode(charCode),
                 color: d.streamColorStr, // Use stream color
@@ -2046,17 +1401,13 @@ class FirewallEffect extends AbstractEffect {
                 blend: false
             };
         } 
-        
         // --- PHASE 2: ERASE & FADE ---
         else if (this.state === 'ERASING') {
             const maxT = s.firewallEraseDurationFrames - this.cleanupFrames; // Base duration for fade
             const progress = 1.0 - (this.eraseTimer / maxT);
-
             // Calculate Alpha for the Fade
             const alpha = Math.max(0, 1.0 - progress);
-            
             if (alpha <= 0.01) return null;
-
             let finalRgb;
             if (s.firewallRandomColorEnabled) {
                 finalRgb = this._firewallRandomColor;
@@ -2064,10 +1415,8 @@ class FirewallEffect extends AbstractEffect {
                 // Use the configured firewall color
                 finalRgb = Utils.hexToRgb(s.firewallColor);
             }
-            
             // Create RGBA string so the BLOCK fades
             const rgbaColor = `rgba(${finalRgb.r}, ${finalRgb.g}, ${finalRgb.b}, ${alpha})`;
-
             return {
                 char: originalChar,
                 color: rgbaColor, 
@@ -2079,11 +1428,9 @@ class FirewallEffect extends AbstractEffect {
                 blend: false
             };
         }
-
         return null;
     }
 }
-
 // --- MiniPulseEffect.js ---
 class MiniPulseEffect extends AbstractEffect {
             constructor(g, c) {
@@ -2092,48 +1439,38 @@ class MiniPulseEffect extends AbstractEffect {
                 this.renderPulses = [];
             }
             trigger() { if(this.active) return false; this.active = true; this.sessionTimer = this.c.state.miniPulseDurationSeconds * 60; this.pulses = []; return true; }
-            
             update() {
                 const s = this.c.state;
                 const d = this.c.derived; // Needed for pre-calc
-
                 if (!this.active && s.miniPulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.miniPulseFrequencySeconds * 60; }
-                
                 if (this.active) {
                     this.sessionTimer--;
                     if (Math.random() < s.miniPulseSpawnChance) { this.pulses.push({ x: Utils.randomInt(0, this.g.cols), y: Utils.randomInt(0, this.g.rows), r: 0, maxR: s.miniPulseSize, speed: s.miniPulseSpeed }); }
                     if (this.sessionTimer <= 0 && this.pulses.length === 0) this.active = false;
                 }
-                
                 // Clear previous render cache
                 this.renderPulses = [];
-
                 for (let i = this.pulses.length - 1; i >= 0; i--) { 
                     const p = this.pulses[i]; 
                     p.r += p.speed; 
-                    
                     if (p.r > p.maxR + 100) {
                         this.pulses.splice(i, 1);
                         continue;
                     }
-
                     // --- OPTIMIZATION START ---
                     // Pre-calculate pixel coordinates (Center of the cell) for this frame
                     const ox = (p.x * d.cellWidth * s.stretchX) + (d.cellWidth * s.stretchX * 0.5);
                     const oy = (p.y * d.cellHeight * s.stretchY) + (d.cellHeight * s.stretchY * 0.5);
-                    
                     // Bounding Box (AABB) for fast rejection
                     // p.r is pixel radius (based on s.miniPulseSize which is pixels)
                     const minX = ox - p.r;
                     const maxX = ox + p.r;
                     const minY = oy - p.r;
                     const maxY = oy + p.r;
-                    
                     // Radius squared for fast distance check
                     const rSq = p.r * p.r;
                     const innerEdge = Math.max(0, p.r - s.miniPulseThickness);
                     const innerEdgeSq = innerEdge * innerEdge;
-
                     this.renderPulses.push({
                         ox, oy,
                         minX, maxX, minY, maxY,
@@ -2145,32 +1482,25 @@ class MiniPulseEffect extends AbstractEffect {
                     });
                 }
             }
-
             getOverride(i) {
                 if (this.renderPulses.length === 0) return null;
                 const s = this.c.state; const d = this.c.derived;
-                
-                // Pixel coordinates of the current cell (Center) 
+                // Pixel coordinates of the current cell (Center)
                 const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
                 const cx = (x * d.cellWidth * s.stretchX) + (d.cellWidth * s.stretchX * 0.5); 
-                const cy = (y * d.cellHeight * s.stretchY) + (d.cellHeight * s.stretchY * 0.5); 
-                
+                const cy = (y * d.cellHeight * s.stretchY) + (d.cellHeight * s.stretchY * 0.5);
                 // Iterate backwards through pre-calculated render objects
                 for (let k = this.renderPulses.length - 1; k >= 0; k--) {
                     const p = this.renderPulses[k];
-                    
                     // 1. AABB Check (Fast Rejection)
                     if (cx < p.minX || cx > p.maxX || cy < p.minY || cy > p.maxY) continue;
-
                     // 2. Precise Distance Check
                     let dist;
                     let distSq;
-
                     if (s.pulseCircular !== false) { // Default to true if undefined
                         const dx = cx - p.ox;
                         const dy = cy - p.oy;
                         distSq = (dx * dx) + (dy * dy);
-                        
                         // Check against squared radii
                         if (distSq <= p.rSq && distSq >= p.innerEdgeSq) {
                             dist = Math.sqrt(distSq); // Only calc sqrt if hit, for fading logic
@@ -2182,35 +1512,27 @@ class MiniPulseEffect extends AbstractEffect {
                         dist = Math.max(Math.abs(cx - p.ox), Math.abs(cy - p.oy));
                         if (dist > p.r || dist < p.innerEdge) continue;
                     }
-                    
                     // Hit! Calculate fade
                     let lifeFade = 1.0;
                     if(p.r > p.maxR) lifeFade = Math.max(0, 1.0 - ((p.r - p.maxR) / 100));
-                    
                     const combinedAlpha = lifeFade; 
                     if (combinedAlpha <= 0.01) continue;
-
                     let char = this.g.getChar(i);
                     // Use CELL_TYPE.EMPTY for robust gap detection
-                    // Fallback to alpha check only if type is not reliable (though it should be) 
+                    // Fallback to alpha check only if type is not reliable (though it should be)
                     let isGap = (this.g.types[i] === CELL_TYPE.EMPTY); 
-
                     if (isGap) {
                         if (s.miniPulsePreserveSpaces) return null;
-                        
                         // Optimization: Utils.CHARS is static, access is fast.
                         // Modulo math is fast.
                         const glitchIndex = (i + Math.floor(p.r)) % Utils.CHARS.length; 
                         char = Utils.CHARS[glitchIndex]; 
                     }
-                    
                     // Matches ClearPulse logic for "solid" pops in gaps
                     const useSolid = isGap;
                     const useBlend = !isGap;
-                    
                     // Ensure background fades with the effect
                     const bgAlpha = useSolid ? combinedAlpha : 0;
-                    
                     return { 
                         char: char, 
                         color: d.tracerColorStr, 
@@ -2219,13 +1541,12 @@ class MiniPulseEffect extends AbstractEffect {
                         size: s.tracerSizeIncrease, 
                         solid: useSolid, 
                         blend: useBlend,
-                        bgColor: `rgba(0,0,0,${bgAlpha})` 
+                        bgColor: `rgba(0,0,0,${bgAlpha})`
                     };
                 }
                 return null;
             }
         }
-
 // --- PulseEffect.js ---
 class PulseEffect extends AbstractEffect {
             constructor(g, c) { 
@@ -2233,7 +1554,6 @@ class PulseEffect extends AbstractEffect {
                 this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
                 this.snap = null; this.autoTimer = c.state.pulseFrequencySeconds * 60;
                 this.renderData = null; // Cache for update-calc
-                
                 // Reusable object to prevent GC thrashing during render loop
                 this._retObj = { 
                     char: '', color: '', alpha: 0, glow: 0, size: 0, solid: false, blend: false, bgColor: '' 
@@ -2248,7 +1568,6 @@ class PulseEffect extends AbstractEffect {
                     let rgb = d.streamRgb; 
                     let isTracer = false; 
                     const style = this.g.complexStyles.get(i);
-                    
                     // 1. Determine Color
                     if(style) {
                         rgb = Utils.hslToRgb(style.h, style.s, style.l);
@@ -2258,15 +1577,8 @@ class PulseEffect extends AbstractEffect {
                          // Actually, relying on 'isTracer' below to override the color for the snapshot is better?
                          // No, 'snap.colors' should hold the VISUAL color.
                          // If it's a tracer without style, it should be TracerColor.
-                         // But let's Override 'rgb' if it is a tracer and NOT Rainbow mode?
-                         // How to distinguish Rainbow vs Standard style?
-                         // Rainbow has 'cycle:false' usually but so does Standard.
-                         // Standard style color is Green. Tracer is White.
-                         // If we capture Green into snapshot, 'Ignore Tracers' will show Green.
-                         // We want White.
-                         rgb = d.tracerRgb; 
+                         // But let's stick to the flow:
                     }
-
                     // 2. Identify Tracer State (Independent of Style)
                     const type = this.g.types[i]; 
                     const age = this.g.ages[i];
@@ -2276,7 +1588,7 @@ class PulseEffect extends AbstractEffect {
                              isTracer = true;
                              // If it IS a tracer, we generally want the snapshot color to be the Tracer Color
                              // UNLESS the style dictates a specific color (like Rainbow).
-                             // However, StandardMode style returns GREEN.
+                             // However, StandardMode style returns GREEN. 
                              // Real visual tracer is WHITE.
                              // So we must Override 'rgb' if it is a tracer and NOT Rainbow mode?
                              // How to distinguish Rainbow vs Standard style?
@@ -2287,13 +1599,11 @@ class PulseEffect extends AbstractEffect {
                              rgb = d.tracerRgb; 
                         } 
                     }
-
                     // Store packed color for all cells
                     this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); 
                     this.snap.tracers[i] = isTracer ? 1 : 0; 
                     this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
                 }
-                
                 let ox, oy;
                 if (s.pulseRandomPosition) {
                     ox = Utils.randomInt(this.g.cols*0.2, this.g.cols*0.8);
@@ -2308,46 +1618,38 @@ class PulseEffect extends AbstractEffect {
                     oy = Math.floor(this.g.rows/2);
                 }
                 this.origin = {x: ox, y: oy};
-
                 this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
                 return true; 
             }
-            
             update() {
                 const s = this.c.state;
                 if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
                 if(!this.active) { this.renderData = null; return; }
-                
                 const d = this.c.derived;
-                
                 if(this.state === 'WAITING') { 
                     if(--this.timer <= 0) { this.state = 'EXPANDING'; this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; }
-                } else { 
-                    this.radius += this.speed; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY); 
+                } else {
+                    this.radius += this.speed; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                     if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
                 }
-
                 // --- Optimization Pre-calc ---
                 const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX); 
                 const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
                 const width = s.pulseWidth * 2; 
                 const innerEdge = this.radius - width;
-                
                 let ratio = 1;
                 if (!s.pulseCircular) {
                     const canvasW = this.g.cols * d.cellWidth * s.stretchX;
                     const canvasH = this.g.rows * d.cellHeight * s.stretchY;
                     ratio = (canvasH > 0) ? (canvasW / canvasH) : 1;
                 }
-
                 // AABB for the outer radius
                 // For circular: standard bounding box.
                 // For rect: radius applies to the MAX dimension.
                 // Rect dist = max(dx, dy * ratio).
                 // So max dx = radius. max dy = radius / ratio.
-                
                 let minX, maxX, minY, maxY;
                 if (s.pulseCircular) {
                     minX = ox - this.radius; maxX = ox + this.radius;
@@ -2357,7 +1659,6 @@ class PulseEffect extends AbstractEffect {
                     const rY = this.radius / ratio;
                     minY = oy - rY; maxY = oy + rY;
                 }
-
                 this.renderData = {
                     ox, oy,
                     radius: this.radius,
@@ -2369,24 +1670,18 @@ class PulseEffect extends AbstractEffect {
                     minX, maxX, minY, maxY
                 };
             }
-
             getOverride(i) {
-                if(!this.active || !this.snap || !this.renderData) return null;
-                
+                if(!this.active || !this.snap || !this.renderData) return null;            
                 const s = this.c.state; const d = this.c.derived;
-                
                 // Use renderData for fast rejection IF expanding
                 const rd = this.renderData;
                 let dist = 0;
-                
                 if (this.state === 'WAITING') {
-
                 } else {
                     // EXPANDING
                     const x = i % this.g.cols; const y = Math.floor(i / this.g.cols);
                     const cx = Math.floor(x * d.cellWidth * s.stretchX); 
                     const cy = Math.floor(y * d.cellHeight * s.stretchY);
-
                     // AABB Check                    
                     if (rd.innerEdge > 0) {
                         // Check if definitely inside the hole
@@ -2408,7 +1703,6 @@ class PulseEffect extends AbstractEffect {
                             }
                         }
                     }
-
                     // Calculate Dist for wave edge
                     if (s.pulseCircular) {
                         const dx = cx - rd.ox; const dy = cy - rd.oy;
@@ -2418,19 +1712,15 @@ class PulseEffect extends AbstractEffect {
                         const dy = Math.abs(cy - rd.oy);
                         dist = Math.max(dx, dy * rd.ratio);
                     }
-                    
                     if (dist < rd.innerEdge) return null;
                 }
-                
                 const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
                 const tRgb = d.tracerRgb; const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
                 let baseColorStr = null; let isGap = false;
                 if (snAlpha <= 0.01) { isGap = true; if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i]; }
                 const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
-                
                 // Common Gap Return
                 const gapReturn = { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
-
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(baseColorStr === null) { const rgb = Utils.unpackRgb(this.snap.colors[i]); baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`; }
                     // FIX: If ignoring tracers, return them with their ORIGINAL snapshot alpha/color, do not dim or force white.
@@ -2438,129 +1728,59 @@ class PulseEffect extends AbstractEffect {
                     if (isGap) return gapReturn;
                     return { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
                 }
-                
                 if (s.pulsePreserveSpaces && isGap) return gapReturn;
-                
                                                 const rel = Math.max(0, Math.min(1, (this.radius - dist) / (s.pulseWidth * 2)));
-                
-                                                
-                
                                                 let actualCharAlpha = 1.0;
-                
                                                 let actualBgAlpha = 1.0;
-                
                                                 let actualSolid = true; 
-                
-                                                let actualBlend = false; // Default: Don't blend (draws opaque over grid) 
-                
+                                                let actualBlend = false; // Default: Don't blend (draws opaque over grid)
                                                 let actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
-                
-                                
-                
                                                 // Calculate where the inner edge of the fade zone begins
-                
                                                 // Fade out over approximately 1 character cell width at the inner boundary
-                
                                                 const fadePixelWidth = d.cellWidth; // One character cell width for fade
-                
                                                 const innerBoundaryDist = rd.innerEdge; // Exact inner edge of the main wave
-                
                                                 const fadeStartDist = innerBoundaryDist + fadePixelWidth; // Distance where fade begins
-                
-                                
-                
                                                 if (dist < fadeStartDist && dist > innerBoundaryDist) {
-                
                                                     // We are in the fade-out zone at the inner edge
-                
                                                     const fadeProgress = (dist - innerBoundaryDist) / fadePixelWidth; // 0 at innerBoundaryDist, 1 at fadeStartDist
-                
-                                                    
-                
                                                     // FIX: Fade IN the snapshot from 0 (inner edge) to 1 (wave body).
-                
                                                     // Previously reversed, causing a cut.
-                
                                                     actualCharAlpha = fadeProgress;
-                
                                                     actualBgAlpha = fadeProgress; 
-                
-                                                    
-                
                                                     actualSolid = true;             // Draw the background rect (which will be semi-transparent)
-                
                                                     actualBlend = true;             // ENABLE BLEND: Draw standard grid underneath so we crossfade
-                
-                                                    
-                
                                                     actualGlow *= actualCharAlpha;  
-                
                                                 } else if (dist <= innerBoundaryDist) {
-                
                                                     // Past the inner edge, no override.
-                
                                                     return null;
-                
                                                 }
-                
-                                                
-                
                                                 // Existing color blending
-                
                                                 let finalColor = targetColor;
-                
                                                 if (s.pulseBlend) {
-                
                                                     const baseInt = this.snap.colors[i]; 
-                
                                                     const bR = (baseInt >> 16) & 0xFF; 
-                
                                                     const bG = (baseInt >> 8) & 0xFF; 
-                
                                                     const bB = baseInt & 0xFF;
-                
-                                                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
-                
-                                                    const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
-                
+                                                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel); 
+                                                    const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); 
                                                     const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
-                
                                                     finalColor = `rgb(${mR},${mG},${mB})`;
-                
                                                 }
-                
-                                                
-                
                                                 // Final return object
-                
                                                 actualCharAlpha = Math.max(0, actualCharAlpha);
-                
                                                 actualBgAlpha = Math.max(0, actualBgAlpha);
-                
-                                
-                
                                                 return { 
-                
                                                     char, 
-                
                                                     color: finalColor, 
-                
                                                     alpha: actualCharAlpha, 
-                
                                                     glow: actualGlow, 
-                
                                                     size: s.tracerSizeIncrease, 
-                
                                                     solid: actualSolid, 
-                
                                                     blend: actualBlend,
-                
                                                     bgColor: `rgba(0,0,0,${actualBgAlpha})` 
-                
                                                 };
             }
         }
-
 // --- SupermanEffect.js ---
 class SupermanEffect extends AbstractEffect {
             constructor(g, c) { 
@@ -2572,7 +1792,6 @@ class SupermanEffect extends AbstractEffect {
                 this.timer = 0;
                 this.spawnX = 0;
             }
-
             trigger() { 
                 if(this.active) return false; 
                 this.active = true; 
@@ -2581,18 +1800,15 @@ class SupermanEffect extends AbstractEffect {
                 this.spawnX = 0;
                 this.afterimages.clear();
                 this._generateBolt();
-                return true;
+                return true; 
             }
-
             update() {
                 const s = this.c.state;
-                
                 // Update afterimages (fade out)
                 if (this.afterimages.size > 0) {
-                    // Fade speed: higher = slower. Default ~20. 
-                    // 20 -> 0.05 decay.
+                    // Fade speed: higher = slower. Default ~20.
+                    // 20 -> 0.05 decay. 
                     const decay = 1.0 / Math.max(1, s.supermanFadeSpeed || 20); 
-                    
                     for (const [index, alpha] of this.afterimages) {
                         const newAlpha = alpha - decay;
                         if (newAlpha <= 0.01) {
@@ -2602,30 +1818,24 @@ class SupermanEffect extends AbstractEffect {
                         }
                     }
                 }
-
                 if(!this.active && this.afterimages.size === 0) {
                      return;
                 }
-
                 if (this.active) {
                     this.timer--;
-                    
                     // Spawning logic
                     // Speed 40 ~ crosses screen in roughly 0.5-1s depending on refresh rate.
                     // Factor: Speed 40 -> 0.04 * cols per frame. 
                     // If cols=100, 4 cells/frame. 25 frames total.
                     const speedVal = s.supermanSpawnSpeed || 40;
                     const speedFactor = Math.max(1, speedVal) / 1000; 
-                    this.spawnX += (this.g.cols * speedFactor); 
-                    
+                    this.spawnX += (this.g.cols * speedFactor);
                     if (this.spawnX > this.g.cols) this.spawnX = this.g.cols;
-
                     if (this.timer <= 0) {
                         this.active = false;
                         this.lightningPath.clear();
                         return;
                     }
-
                     this.flickerTimer++;
                     if (this.flickerTimer >= s.supermanFlickerRate) {
                         this._generateBolt();
@@ -2635,32 +1845,24 @@ class SupermanEffect extends AbstractEffect {
                     }
                 }
             }
-
             _generateBolt() {
                 this.lightningPath.clear();
                 const s = this.c.state;
                 const startY = Math.floor(this.g.rows / 2);
                 let cy = startY;
-                
                 const limitX = Math.floor(this.spawnX);
-
                 for (let x = 0; x < this.g.cols; x++) {
                     if (x > limitX) break;
-
                     // Jitter / Width logic
                     const variance = Math.max(1, s.supermanWidth); 
                     const noise = Utils.randomInt(-variance, variance);
-                    
                     // Gentle center pull to keep it on screen but allow jitter
                     const distFromCenter = (this.g.rows / 2) - cy;
                     cy += noise + (distFromCenter * 0.05); 
-
                     if (cy < 0) cy = 0;
                     if (cy >= this.g.rows) cy = this.g.rows - 1;
-
                     const thickness = s.supermanBoltThickness; 
                     const halfThick = Math.floor(thickness / 2);
-
                     for (let dy = -halfThick; dy <= halfThick; dy++) {
                         const thickY = Math.round(cy) + dy;
                         if (thickY >= 0 && thickY < this.g.rows) {
@@ -2671,24 +1873,19 @@ class SupermanEffect extends AbstractEffect {
                         }
                     }
                 }
-                
                 this._refreshAfterimages();
             }
-
             _refreshAfterimages() {
                 for (const idx of this.lightningPath) {
                     this.afterimages.set(idx, 1.0);
                 }
             }
-
             getOverride(i) {
                 if (this.afterimages.has(i)) {
                     const alphaChar = this.g.alphas[i];
                     if (alphaChar <= 0.05) return null;
-
                     const effectAlpha = this.afterimages.get(i);
                     const s = this.c.state;
-
                     return {
                         char: this.g.getChar(i),
                         color: s.supermanIncludeColors ? '#ffffffff' : '#b9e4b8ff', 
@@ -2702,123 +1899,9 @@ class SupermanEffect extends AbstractEffect {
                 return null;
             }
         }
-
-// --- GlyphAtlas.js ---
-class GlyphAtlas {
-    constructor(config) {
-        this.config = config;
-        this.canvas = document.createElement('canvas');
-        this.ctx = this.canvas.getContext('2d', { alpha: true });
-        
-        // Map character codes to their x/y coordinates in the atlas
-        this.charMap = new Map();
-        
-        // Atlas dimensions and cell size
-        this.cellSize = 0;
-        this.atlasWidth = 0;
-        this.atlasHeight = 0;
-        
-        // State tracking for updates
-        this.currentFont = '';
-        this.currentColor = '';
-        this.needsUpdate = true;
-
-        // Pre-calculated half sizes for centering
-        this.halfCell = 0;
-    }
-
-    /**
-     * Initializes or updates the atlas if configuration has changed.
-     */
-    update() {
-        const s = this.config.state;
-        const d = this.config.derived;
-
-        // Check if update is needed (font, color, or size change)
-        // We use the MAX font size needed (including tracer size increase)
-        const maxSize = s.fontSize + s.tracerSizeIncrease;
-        const fontBase = `${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
-        const primaryColor = d.streamColorStr;
-
-        if (this.currentFont === fontBase && 
-            this.currentColor === primaryColor && 
-            !this.needsUpdate) {
-            return;
-        }
-
-        this.currentFont = fontBase;
-        this.currentColor = primaryColor;
-        this.needsUpdate = false;
-
-        // Calculate cell dimensions (add padding for glow/blur)
-        // Padding needs to account for the largest blur we might apply
-        const padding = Math.max(s.tracerGlow, 10) * 2;
-        this.cellSize = Math.ceil(maxSize + padding);
-        this.halfCell = this.cellSize / 2;
-
-        // Calculate atlas dimensions
-        const charList = Utils.CHARS;
-        const cols = Math.ceil(Math.sqrt(charList.length));
-        const rows = Math.ceil(charList.length / cols);
-
-        this.atlasWidth = cols * this.cellSize;
-        this.atlasHeight = rows * this.cellSize;
-
-        // Resize canvas
-        this.canvas.width = this.atlasWidth;
-        this.canvas.height = this.atlasHeight;
-
-        // Clear and set up context
-        this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
-        this.ctx.font = fontBase;
-        this.ctx.textBaseline = 'middle';
-        this.ctx.textAlign = 'center';
-        
-        // Draw Characters
-        // We draw TWO sets: 
-        // 1. The "Green" (Stream) set
-        // 2. The "White" (Tracer) set? 
-        // Actually, simpler approach: Draw WHITE characters. 
-        // Then use `globalCompositeOperation` to tint them?
-        // No, tinting at runtime is slow.
-        // We should stick to the PRIMARY stream color for the main atlas. 
-        // Tracers (White) can be drawn with standard fillText or a secondary white atlas.
-        // For now, let's optimize the BULK of the rendering: the Green Stream Characters.
-
-        this.ctx.fillStyle = primaryColor;
-
-        this.charMap.clear();
-
-        for (let i = 0; i < charList.length; i++) {
-            const char = charList[i];
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            
-            const x = col * this.cellSize + this.halfCell;
-            const y = row * this.cellSize + this.halfCell;
-
-            this.ctx.fillText(char, x, y);
-
-            // Store the source rectangle for this character
-            this.charMap.set(char, {
-                x: col * this.cellSize,
-                y: row * this.cellSize,
-                w: this.cellSize,
-                h: this.cellSize
-            });
-        }
-    }
-
-    /**
-     * Returns the source coordinates for a character.
-     * @param {string} char 
-     * @returns {Object|null} Source rect {x,y,w,h} or null
-     */
-    get(char) {
-        return this.charMap.get(char);
-    }
-}
-
+    // =========================================================================
+    // 7.0 CANVAS RENDERER
+    // =========================================================================
 // --- CanvasRenderer.js ---
 class CanvasRenderer {
     constructor(canvasId, grid, config, effects) {
@@ -2826,42 +1909,33 @@ class CanvasRenderer {
         this.ctx = this.cvs.getContext('2d', { alpha: false });
         this.bloomCvs = document.getElementById('bloomCanvas');
         this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
-
         this.grid = grid;
         this.config = config;
         this.effects = effects;
-
         // Initialize Glyph Atlas
         // Assuming GlyphAtlas class is available globally or imported
         if (typeof GlyphAtlas !== 'undefined') {
             this.glyphAtlas = new GlyphAtlas(config);
         }
-
         this.w = 0;
         this.h = 0;
     }
-
     resize() {
         const scale = this.config.state.resolution;
         this.w = window.innerWidth;
         this.h = window.innerHeight;
-
         this._resizeCanvas(this.cvs, this.w, this.h, scale);
-        
         // Bloom canvas is 1/4 size for performance and glow effect
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
-
         this.updateSmoothing();
     }
-
     _resizeCanvas(canvas, width, height, scale) {
         canvas.width = width * scale;
         canvas.height = height * scale;
         canvas.style.width = `${width}px`;
         canvas.style.height = `${height}px`;
     }
-
     /**
      * Updates canvas smoothing filters for blur effects.
      * Ensures visual fidelity when smoothing is enabled in settings.
@@ -2870,7 +1944,6 @@ class CanvasRenderer {
         const smoothing = this.config.state.smoothingEnabled ? this.config.state.smoothingAmount : 0;
         this.cvs.style.filter = `blur(${smoothing}px)`;
     }
-
     /**
      * Calculates the alpha and phase of the tracer based on its age and active state.
      * Optimized logic with early returns and simplified operations.
@@ -2879,15 +1952,12 @@ class CanvasRenderer {
         const age = this.grid.ages[index];
         const decay = this.grid.decays[index];
         if (age <= 0 || decay >= 2) return { alpha: 0, phase: 'none' };
-
         const type = this.grid.types[index];
         if (type !== CELL_TYPE.TRACER && type !== CELL_TYPE.ROTATOR) return { alpha: 0, phase: 'none' };
-
         const activeTime = age - 1;
         const attack = state.tracerAttackFrames;
         const hold = state.tracerHoldFrames;
         const release = state.tracerReleaseFrames;
-
         if (activeTime < attack) return { alpha: (attack > 0) ? (activeTime / attack) : 1.0, phase: 'attack' };
         else if (activeTime < attack + hold) return { alpha: 1.0, phase: 'hold' };
         else if (activeTime < attack + hold + release) {
@@ -2896,50 +1966,40 @@ class CanvasRenderer {
         }
         return { alpha: 0, phase: 'none' };
     }
-
     render(frame) {
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
-
         // Update Glyph Atlas if enabled
         if (s.enableGlyphAtlas && this.glyphAtlas) {
             this.glyphAtlas.update();
         }
-
         this._resetContext(this.ctx, s, scale);
         if (bloomEnabled) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
-
         this._applyMirrorEffect(this.ctx, s, scale);
         if (bloomEnabled) {
             this.bloomCtx.save();
             this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY);
             this._applyMirrorEffect(this.bloomCtx, s, scale);
         }
-
         this._drawGrid(d, s, frame, bloomEnabled);
-
         if (bloomEnabled) this._applyBloom(s, scale);
     }
-
     _resetContext(ctx, s, scale) {
         ctx.save();
         ctx.scale(scale * s.stretchX, scale * s.stretchY);
         ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`;
         ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
     }
-
     _applyMirrorEffect(ctx, s, scale) {
         if (s.mirrorEnabled) {
             ctx.scale(-1, 1);
             ctx.translate(-(this.w / s.stretchX), 0);
         }
     }
-
     _applyBloom(s, scale) {
         // Safety check: Ensure bloom canvas has dimensions to avoid InvalidStateError
         if (this.bloomCvs.width === 0 || this.bloomCvs.height === 0) return;
-
         this.bloomCtx.restore();
         this.ctx.save();
         this.ctx.globalCompositeOperation = 'lighter';
@@ -2948,36 +2008,27 @@ class CanvasRenderer {
         this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale);
         this.ctx.restore();
     }
-
     _drawGrid(d, s, frame, bloomEnabled) {
         const fontBase = d.fontBaseStr;
-        
         // Only set font if NOT using atlas for everything
         // Or if we need it for fallbacks/tracers
         this.ctx.font = fontBase;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
-        
         if (bloomEnabled) {
             this.bloomCtx.font = fontBase;
             this.bloomCtx.textBaseline = 'middle';
             this.bloomCtx.textAlign = 'center';
         }
-
         const defaultColor = d.streamColorStr;
         let lastColor = defaultColor;
         this._setFillStyle(defaultColor, bloomEnabled); 
-
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
-        
         const useActiveSet = !this.effects.hasActiveEffects();
-        
         // Decide drawing mode once per frame
         const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
-
         const total = useActiveSet ? 0 : this.grid.cols * this.grid.rows;
-        
         if (useActiveSet) {
             for (const i of this.grid.activeIndices) {
                 this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
@@ -2987,67 +2038,54 @@ class CanvasRenderer {
                 this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
             }
         }
-
         this._drawTracers(d, s, frame, bloomEnabled, xOff, yOff);
         this.ctx.restore();
     }
-
     _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas) {
             // Reset context shadow to prevent pollution from previous overrides
             this.ctx.shadowBlur = 0;
             this.ctx.shadowColor = 'transparent';
-
             const override = this.effects.getOverride(i);
             if (override && !override.blend) {
                 this._drawOverride(i, override, d, s, bloomEnabled);
                 return;
             }
-
             let gridAlpha = this.grid.alphas[i];
             if (gridAlpha <= 0.01) return;
-
             const tState = this._getTracerState(i, s);
             if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
             if (gridAlpha <= 0.01) return;
-
             const x = i % this.grid.cols;
             const y = Math.floor(i / this.grid.cols);
             const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-
             let color = defaultColor;
             const style = this.grid.complexStyles.get(i);
             if (style) {
                 color = this._getCellColor(style, frame);
             }
-
             // Check if we can use Atlas for this specific cell
             // We use atlas if: 
             // 1. Atlas is enabled globally
             // 2. Cell color matches the primary stream color (Atlas currently mono-color)
             // OR we can accept that rainbow cells use the fallback
             const canUseAtlas = useAtlas && (color === defaultColor);
-
             if (!canUseAtlas && color !== lastColor) {
                 this._setFillStyle(color, bloomEnabled);
             }
-
             if (canUseAtlas) {
                  this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled);
             } else {
                  this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
             }
-
             if (override && override.blend) {
                 this._drawOverride(i, override, d, s, bloomEnabled);
             }
     }
-
     _setFillStyle(color, bloomEnabled) {
         this.ctx.fillStyle = color;
         if (bloomEnabled) this.bloomCtx.fillStyle = color;
     }
-
     _getCellColor(style, frame) {
         if (style.glitter && Math.random() < 0.02) return '#ffffff';
         let h = style.h;
@@ -3055,20 +2093,16 @@ class CanvasRenderer {
         const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
         return Utils.createRGBString(rgb);
     }
-
     _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
         const sprite = this.glyphAtlas.get(char);
-
         if (!sprite) return; // Should not happen
-
         // NOTE: Rotator crossfade in Atlas mode is simplified (no crossfade)
         // or we can implement it by drawing two sprites?
         // For strict performance, let's skip crossfade in Atlas mode OR just do simple swap
-        // If user wants high quality crossfade, they disable Atlas.
+        // If user wants high quality crossfade, they disable Atlas. 
         // OR we do a simple alpha blend if rotProg > 0
-        
         // Check Rotator
         const rotProg = this.grid.rotatorProg[i];
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
@@ -3076,7 +2110,6 @@ class CanvasRenderer {
              const p = rotProg / s.rotatorCrossfadeFrames;
              const next = this.grid.nextChars.get(i);
              const nextSprite = next ? this.glyphAtlas.get(next) : null;
-
              // Outgoing
              this.ctx.globalAlpha = alpha * (1 - p);
              this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
@@ -3084,19 +2117,17 @@ class CanvasRenderer {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
                  this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
-
              // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, sprite.w, sprite.h);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, sprite.w, sprite.h);
+                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
         }
-
         // Standard Draw / Dissolve
         let scale = 1.0;
         if (s.dissolveEnabled && decay >= 2) {
@@ -3106,7 +2137,6 @@ class CanvasRenderer {
              const minRatio = s.dissolveMinSize / s.fontSize;
              scale = 1.0 - (prog * (1.0 - minRatio));
              scale = Math.max(0.1, scale); // Clamp
-
              if (s.deteriorationEnabled) {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
@@ -3116,24 +2146,19 @@ class CanvasRenderer {
                  this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
-
         this.ctx.globalAlpha = alpha;
         this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-        
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
             this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
-
     _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontBase) {
         const decay = this.grid.decays[i];
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
-
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
             const p = rotProg / s.rotatorCrossfadeFrames;
-            
             // Draw outgoing character
             this.ctx.globalAlpha = alpha * (1 - p);
             this.ctx.fillText(char, px, py);
@@ -3141,7 +2166,6 @@ class CanvasRenderer {
                 this.bloomCtx.globalAlpha = alpha * (1 - p);
                 this.bloomCtx.fillText(char, px, py);
             }
-
             // Draw incoming character
             const next = this.grid.nextChars.get(i);
             if (next) {
@@ -3157,14 +2181,12 @@ class CanvasRenderer {
             const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
             const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
             this.ctx.font = font;
-            
             if (s.deteriorationEnabled) {
                 const off = s.deteriorationStrength * prog;
                 this.ctx.globalAlpha = alpha * 0.4 * prog;
                 this.ctx.fillText(char, px, py - off);
                 this.ctx.fillText(char, px, py + off);
             }
-            
             this.ctx.globalAlpha = alpha;
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
@@ -3181,7 +2203,6 @@ class CanvasRenderer {
             }
         }
     }
-
     _drawTracers(d, s, frame, bloomEnabled, xOff, yOff) {
         const tStr = d.tracerColorStr;
         this.ctx.shadowBlur = s.tracerGlow;
@@ -3189,7 +2210,6 @@ class CanvasRenderer {
         const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
         this.ctx.font = tFont;
         if (bloomEnabled) this.bloomCtx.font = tFont;
-
         for (const i of this.grid.activeIndices) {
             if (this.effects.getOverride(i)) continue;
             const tState = this._getTracerState(i, s);
@@ -3199,7 +2219,6 @@ class CanvasRenderer {
                 const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
                 const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
                 const style = this.grid.complexStyles.get(i);
-                
                 let cStr = tStr;
                 if (style && style.isEffect) {
                     let h = style.h;
@@ -3207,11 +2226,9 @@ class CanvasRenderer {
                     const tc = Utils.hslToRgb(h | 0, 100, 90);
                     cStr = Utils.createRGBString(tc);
                 }
-
                 this.ctx.fillStyle = cStr;
                 this.ctx.shadowColor = cStr;
                 if (bloomEnabled) this.bloomCtx.fillStyle = cStr;
-
                 this.ctx.globalAlpha = tState.alpha;
                 this.ctx.fillText(this.grid.getChar(i), px, py);
                 if (bloomEnabled) {
@@ -3221,7 +2238,6 @@ class CanvasRenderer {
             }
         }
     }
-
     _drawOverride(i, o, d, s, bloom) {
         const x = i % this.grid.cols;
         const y = Math.floor(i / this.grid.cols);
@@ -3229,7 +2245,6 @@ class CanvasRenderer {
         const cy = (y * d.cellHeight) + s.fontOffsetY;
         const px = cx + (d.cellWidth * 0.5);
         const py = cy + (d.cellHeight * 0.5);
-
         if (o.solid) {
             const bg = o.bgColor || '#000000';
             this.ctx.fillStyle = bg;
@@ -3237,7 +2252,6 @@ class CanvasRenderer {
             const h = Math.ceil(d.cellHeight) + 1;
             this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
         }
-
         if (o.char && o.alpha > 0.01) {
             this.ctx.fillStyle = o.color;
             this.ctx.shadowColor = o.color;
@@ -3258,12 +2272,434 @@ class CanvasRenderer {
         }
     }
 }
-
-
     // =========================================================================
     // 8.0 FONT MANAGER
     // =========================================================================
-
+// --- GlyphAtlas.js ---
+class GlyphAtlas {
+    constructor(config) {
+        this.config = config;
+        this.canvas = document.createElement('canvas');
+        this.ctx = this.canvas.getContext('2d', { alpha: true });
+        // Map character codes to their x/y coordinates in the atlas
+        this.charMap = new Map();
+        // Atlas dimensions and cell size
+        this.cellSize = 0;
+        this.atlasWidth = 0;
+        this.atlasHeight = 0;
+        // State tracking for updates
+        this.currentFont = '';
+        this.currentColor = '';
+        this.needsUpdate = true;
+        // Pre-calculated half sizes for centering
+        this.halfCell = 0;
+    }
+    /**
+     * Initializes or updates the atlas if configuration has changed.
+     */
+    update() {
+        const s = this.config.state;
+        const d = this.config.derived;
+        // Check if update is needed (font, color, or size change)
+        // We use the MAX font size needed (including tracer size increase)
+        const maxSize = s.fontSize + s.tracerSizeIncrease;
+        const style = s.italicEnabled ? 'italic ' : '';
+        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
+        const primaryColor = d.streamColorStr;
+        if (this.currentFont === fontBase && 
+            this.currentColor === primaryColor && 
+            !this.needsUpdate) {
+            return;
+        }
+        this.currentFont = fontBase;
+        this.currentColor = primaryColor;
+        this.needsUpdate = false;
+        // Calculate cell dimensions (add padding for glow/blur)
+        // Padding needs to account for the largest blur we might apply
+        const padding = Math.max(s.tracerGlow, 10) * 2;
+        this.cellSize = Math.ceil(maxSize + padding);
+        this.halfCell = this.cellSize / 2;
+        // Calculate atlas dimensions
+        const charList = Utils.CHARS;
+        const cols = Math.ceil(Math.sqrt(charList.length));
+        const rows = Math.ceil(charList.length / cols);
+        this.atlasWidth = cols * this.cellSize;
+        this.atlasHeight = rows * this.cellSize;
+        // Resize canvas
+        this.canvas.width = this.atlasWidth;
+        this.canvas.height = this.atlasHeight;
+        // Clear and set up context
+        this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
+        this.ctx.font = fontBase;
+        this.ctx.textBaseline = 'middle';
+        this.ctx.textAlign = 'center';
+        // Draw Characters
+        // We draw TWO sets: 
+        // 1. The "Green" (Stream) set
+        // 2. The "White" (Tracer) set? 
+        // Actually, simpler approach: Draw WHITE characters. 
+        // Then use `globalCompositeOperation` to tint them?
+        // No, tinting at runtime is slow.
+        // We should stick to the PRIMARY stream color for the main atlas.
+        // Tracers (White) can be drawn with standard fillText or a secondary white atlas.
+        // For now, let's optimize the BULK of the rendering: the Green Stream Characters.
+        this.ctx.fillStyle = primaryColor;
+        this.charMap.clear();
+        for (let i = 0; i < charList.length; i++) {
+            const char = charList[i];
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const x = col * this.cellSize + this.halfCell;
+            const y = row * this.cellSize + this.halfCell;
+            this.ctx.fillText(char, x, y);
+            // Store the source rectangle for this character
+            this.charMap.set(char, {
+                x: col * this.cellSize,
+                y: row * this.cellSize,
+                w: this.cellSize,
+                h: this.cellSize
+            });
+        }
+    }
+    /**
+     * Returns the source coordinates for a character.
+     * @param {string} char 
+     * @returns {Object|null} Source rect {x,y,w,h} or null
+     */
+    get(char) {
+        return this.charMap.get(char);
+    }
+}
+// --- SimulationSystem.js ---
+class SimulationSystem {
+    constructor(grid, config) {
+        this.grid = grid;
+        this.config = config;
+        this.activeStreams = [];
+        this.lastStreamInColumn = new Array(grid.cols).fill(null);
+        this.modes = this._initializeModes(config);
+    }
+    _initializeModes(config) {
+        return {
+            'STANDARD': new StandardMode(config),
+            'STAR_POWER': new StarPowerMode(config),
+            'RAINBOW': new RainbowMode(config)
+        };
+    }
+    update(frame) {
+        if (this.lastStreamInColumn.length !== this.grid.cols) {
+            this._resetColumns();
+        }
+        this._manageStreams(frame);
+        this._updateCells(frame);
+    }
+    _resetColumns() {
+        this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
+        this.activeStreams = [];
+    }
+    _manageStreams(frame) {
+        const { state: s, derived: d } = this.config;
+        const period = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
+        if (frame % period === 0) {
+            this._spawnStreams(s, d);
+        }
+        if (frame % d.cycleDuration === 0) {
+            this._processActiveStreams(frame);
+        }
+    }
+    _spawnStreams(s, d) {
+        const columns = this._shuffleArray([...Array(this.grid.cols).keys()]);
+        let streamCount = s.streamSpawnCount;
+        let eraserCount = s.eraserSpawnCount;
+        for (const col of columns) {
+            if (streamCount <= 0 && eraserCount <= 0) break;
+            const hasContent = this._columnHasContent(col, Math.min(this.grid.rows, 40));
+            const lastStream = this.lastStreamInColumn[col];
+            if (hasContent && eraserCount > 0 && this._canSpawn(lastStream, s.minEraserGap)) {
+                this._spawnStreamAt(col, true);
+                eraserCount--;
+            } else if (!hasContent && streamCount > 0 && this._canSpawn(lastStream, s.minStreamGap)) {
+                this._spawnStreamAt(col, false);
+                streamCount--;
+            }
+        }
+    }
+    _shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+    _columnHasContent(col, maxRows) {
+        for (let y = 0; y < maxRows; y++) {
+            if (this.grid.decays[this.grid.getIndex(col, y)] > 0) return true;
+        }
+        return false;
+    }
+    _canSpawn(lastStream, minGap) {
+        return !lastStream || !lastStream.active || lastStream.y > minGap;
+    }
+    _processActiveStreams(frame) {
+        for (let i = this.activeStreams.length - 1; i >= 0; i--) {
+            const stream = this.activeStreams[i];
+            if (!stream.active) {
+                this.activeStreams.splice(i, 1);
+                continue;
+            }
+            if (stream.delay > 0) {
+                stream.delay--;
+                continue;
+            }
+            stream.age++;
+            if (stream.age >= stream.visibleLen) {
+                this._handleStreamCompletion(stream);
+                continue;
+            }
+            if (stream.y < stream.len) {
+                stream.y++;
+                this._writeHead(stream, frame);
+            }
+        }
+    }
+    _handleStreamCompletion(stream) {
+        stream.active = false;
+        if (!stream.isEraser) {
+            this._spawnStreamAt(stream.x, true);
+        }
+    }
+    _spawnStreamAt(x, forceEraser) {
+        const s = this.config.state;
+        const stream = this._initializeStream(x, forceEraser, s);
+        this.modes[stream.mode].spawn(stream);
+        this.activeStreams.push(stream);
+        this.lastStreamInColumn[x] = stream;
+    }
+    _initializeStream(x, forceEraser, s) {
+        const baseStream = {
+            x,
+            y: -1,
+            active: true,
+            delay: 0,
+            age: 0,
+            len: 0,
+            holes: new Set(),
+            decayY: -1,
+            decayStarted: false,
+            visibleLen: 0,
+            mode: 'STANDARD',
+            baseHue: 0,
+            isInverted: false,
+            isEraser: forceEraser
+        };
+        if (forceEraser) {
+            return this._initializeEraserStream(baseStream, s);
+        } else {
+            return this._initializeTracerStream(baseStream, s);
+        }
+    }
+    _initializeEraserStream(stream, s) {
+        stream.len = this.grid.rows + 5;
+        stream.visibleLen = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), this.grid.rows + 20);
+        return stream;
+    }
+    _initializeTracerStream(stream, s) {
+        const lifeFrames = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), 60);
+        stream.len = Utils.randomInt(4, this.grid.rows * 3);
+        stream.visibleLen = lifeFrames;
+        stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
+        for (let i = 0; i < stream.len; i++) {
+            if (Math.random() < s.holeRate) stream.holes.add(i);
+        }
+        stream.holes.delete(0);
+        if (s.starPowerEnabled && Math.random() < s.starPowerFreq / 100) {
+            stream.mode = 'STAR_POWER';
+        } else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) {
+            stream.mode = 'RAINBOW';
+        }
+        return stream;
+    }
+    _writeHead(stream, frame) {
+        const idx = this.grid.getIndex(stream.x, stream.y);
+        if (idx === -1) return;
+        if (stream.isEraser) {
+            this._handleEraserHead(idx);
+        } else {
+            this._handleTracerHead(stream, idx, frame);
+        }
+    }
+    _handleEraserHead(idx) {
+        if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
+            this.grid.ages[idx] = 0;
+            this.grid.decays[idx] = 2;
+        } else {
+            this._clearCell(idx);
+        }
+    }
+    _handleTracerHead(stream, idx, frame) {
+        const shouldWrite = stream.isInverted
+            ? stream.holes.has(stream.y)
+            : !stream.holes.has(stream.y);
+        if (shouldWrite) {
+            const { state: s, derived: d } = this.config;
+            const cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
+                ? CELL_TYPE.ROTATOR
+                : CELL_TYPE.TRACER;
+            this.grid.types[idx] = cellType;
+            this.grid.ages[idx] = 1;
+            this.grid.decays[idx] = 1;
+            this.grid.rotatorProg[idx] = 0;
+            this.grid.activeIndices.add(idx);
+            this.grid.setChar(idx, Utils.getRandomChar());
+            this.grid.brightness[idx] = s.variableBrightnessEnabled
+                ? Utils.randomFloat(d.varianceMin, 1.0)
+                : 1.0;
+            this.grid.alphas[idx] = this.grid.brightness[idx];
+            const style = this.modes[stream.mode].style(stream, frame, s);
+            if (style) {
+                this.grid.complexStyles.set(idx, style);
+            } else {
+                this.grid.complexStyles.delete(idx);
+            }
+        } else {
+            this._clearCell(idx);
+        }
+    }
+    _clearCell(idx) {
+        this.grid.types[idx] = CELL_TYPE.EMPTY;
+        this.grid.ages[idx] = 0;
+        this.grid.decays[idx] = 0;
+        this.grid.alphas[idx] = 0;
+        this.grid.complexStyles.delete(idx);
+        this.grid.nextChars.delete(idx);
+        this.grid.activeIndices.delete(idx); // Improves performance
+    }
+    _updateCells(frame) {
+        const { state: s, derived: d } = this.config;
+        for (const idx of this.grid.activeIndices) {
+            this._updateCell(idx, frame, s, d);
+        }
+    }
+    _updateCell(idx, frame, s, d) {
+        const decay = this.grid.decays[idx];
+        if (decay === 0) return;
+        let age = this.grid.ages[idx];
+        if (age > 0) {
+            age = this._incrementAge(age, d.maxState);
+            this.grid.ages[idx] = age;
+        }
+        if (s.rotatorEnabled && this.grid.types[idx] === CELL_TYPE.ROTATOR) {
+            this._handleRotator(idx, frame, s, d);
+        }
+        if (decay >= 2) {
+            this.grid.decays[idx]++;
+            const newDecay = this.grid.decays[idx];
+            if (this._shouldDecay(idx, newDecay, s.decayFadeDurationFrames)) {
+                this._clearCell(idx);
+                return;
+            }
+            this.grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
+        } else {
+            this.grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
+        }
+    }
+    _incrementAge(age, maxState) {
+        return age < maxState ? age + 1 : 0;
+    }
+    _handleRotator(idx, frame, s, d) {
+        const prog = this.grid.rotatorProg[idx];
+        if (prog > 0) {
+            this._progressRotator(idx, prog, s.rotatorCrossfadeFrames);
+        } else if (this.grid.decays[idx] === 1) {
+            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames);
+        }
+    }
+    _progressRotator(idx, prog, crossfadeFrames) {
+        if (prog >= crossfadeFrames) {
+            const nextChar = this.grid.nextChars.get(idx);
+            if (nextChar) {
+                this.grid.setChar(idx, nextChar);
+            }
+            this.grid.rotatorProg[idx] = 0;
+        } else {
+            this.grid.rotatorProg[idx] = prog + 1;
+        }
+    }
+    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
+        if (frame % cycleFrames === 0) {
+            if (crossfadeFrames <= 2) {
+                this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+            } else {
+                this.grid.rotatorProg[idx] = 1;
+                this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+            }
+        }
+    }
+    _shouldDecay(idx, decay, fadeDurationFrames) {
+        return decay > fadeDurationFrames + 2;
+    }
+    _calculateAlpha(idx, age, decay, fadeDurationFrames) {
+        if (age > 0) {
+            return 1.0;
+        } else if (decay === 1) {
+            return 0.95 * this.grid.brightness[idx];
+        } else if (decay >= 2) {
+            const ratio = (decay - 2) / fadeDurationFrames;
+            return 0.95 * (1 - ratio) * this.grid.brightness[idx];
+        }
+        return 0;
+    }
+}
+    // =========================================================================
+    // 6.0 EFFECT REGISTRY
+    // =========================================================================
+// --- StreamModes.js ---
+class StreamMode {
+    constructor(config) {
+        this.config = config;
+    }
+    spawn(stream) {
+        // Default implementation for spawning a stream
+    }
+    style(stream, frame, state) {
+        // Default implementation for style (no special effects)
+        return null;
+    }
+}
+class StandardMode extends StreamMode {
+    // Inherits default behavior with no specific changes
+    style(stream, frame, state) {
+        return null;
+    }
+}
+class StarPowerMode extends StreamMode {
+    spawn(stream) {
+        stream.baseHue = Utils.randomInt(0, 360);
+    }
+    style(stream, frame, state) {
+        const hue = (state.starPowerRainbowMode === 'char')
+            ? (frame + (stream.x * 10)) % 360 // Character-based hue
+            : stream.baseHue; // Fixed hue based on baseHue
+        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
+    }
+    _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
+        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
+    }
+}
+class RainbowMode extends StreamMode {
+    spawn(stream) {
+        stream.baseHue = Utils.randomInt(0, 360);
+    }
+    style(stream, frame, state) {
+        return this._createStyle(stream.baseHue, 100, state.rainbowStreamIntensity);
+    }
+    _createStyle(hue, saturation, lightness) {
+        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
+    }
+}
+    // =========================================================================
+    // 5.0 SIMULATION SYSTEM 
+    // =========================================================================
 // --- FontManager.js ---
 class FontManager {
     constructor(config, notificationMgr) {
@@ -3276,7 +2712,6 @@ class FontManager {
         this.subscribers = [];
         this.embeddedFontName = 'MatrixEmbedded';
     }
-
     /**
      * Initialize the FontManager by injecting the embedded font and loading fonts from the database.
      */
@@ -3284,7 +2719,6 @@ class FontManager {
         if (DEFAULT_FONT_DATA && DEFAULT_FONT_DATA.length > 50) {
             await this.injectEmbeddedFont();
         }
-
         try {
             await this._openDB();
             await this._loadFontsFromDB();
@@ -3292,7 +2726,6 @@ class FontManager {
             console.warn('Font DB Error:', error);
         }
     }
-
     /**
      * Add a subscription callback to be notified on font changes.
      * @param {Function} callback - The callback function to execute on changes.
@@ -3300,7 +2733,6 @@ class FontManager {
     subscribe(callback) {
         this.subscribers.push(callback);
     }
-
     /**
      * Notify all subscribers about font changes.
      * Executes the callback functions passed via subscribe.
@@ -3308,14 +2740,12 @@ class FontManager {
     _notify() {
         this.subscribers.forEach(callback => callback(this.loadedFonts));
     }
-
     /**
      * Inject the embedded default Matrix font if it hasn't already been loaded.
      */
     async injectEmbeddedFont() {
         const isFontInjected = this.loadedFonts.some(f => f.name === this.embeddedFontName);
         if (isFontInjected) return;
-
         await this._injectCSS(this.embeddedFontName, DEFAULT_FONT_DATA, "format('woff2')");
         this.loadedFonts.push({
             name: this.embeddedFontName,
@@ -3323,7 +2753,6 @@ class FontManager {
             isEmbedded: true,
         });
     }
-
     /**
      * Inject a font into the document as a CSS @font-face rule.
      * @param {string} name - Font's name.
@@ -3333,7 +2762,6 @@ class FontManager {
     async _injectCSS(name, url, format) {
         const existingStyle = document.getElementById(`style-${name}`);
         if (existingStyle) existingStyle.remove();
-
         const style = document.createElement('style');
         style.id = `style-${name}`;
         style.textContent = `
@@ -3343,7 +2771,6 @@ class FontManager {
             }
         `;
         document.head.appendChild(style);
-
         // Wait for the font to be loaded
         try {
             await document.fonts.load(`1em '${name}'`);
@@ -3353,7 +2780,6 @@ class FontManager {
             return false; // Font failed to load
         }
     }
-
     /**
      * Open or create the IndexedDB for storing font data.
      * @returns {Promise} Resolves when the database connection is successful.
@@ -3361,23 +2787,19 @@ class FontManager {
     async _openDB() {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(this.dbName, 1);
-
             request.onupgradeneeded = event => {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'name' });
                 }
             };
-
             request.onsuccess = event => {
                 this.db = event.target.result;
                 resolve();
             };
-
             request.onerror = () => reject(request.error);
         });
     }
-
     /**
      * Load all fonts stored in the database into the application.
      * @returns {Promise} Resolves once fonts are loaded.
@@ -3385,31 +2807,24 @@ class FontManager {
     async _loadFontsFromDB() {
         return new Promise(resolve => {
             if (!this.db) return resolve();
-
             const transaction = this.db.transaction(this.storeName, 'readonly');
             const objectStore = transaction.objectStore(this.storeName);
-
             objectStore.getAll().onsuccess = async event => { // <-- Make this async
                 const storedFonts = event.target.result;
-
                 // Reset the font list, keeping only the embedded font.
                 this.loadedFonts = this.loadedFonts.filter(f => f.isEmbedded);
-
                 // Use Promise.all to await all font injections from DB
                 await Promise.all(storedFonts.map(async font => {
                     this.loadedFonts.push(font);
-
                     const type = font.mimeType || font.data.type;
                     const format = this._getFormatFromType(type);
                     await this._injectCSS(font.name, URL.createObjectURL(font.data), format);
                 }));
-
                 this._notify();
                 resolve();
             };
         });
     }
-
     /**
      * Determine the CSS format string for a given MIME type.
      * @param {string} mimeType - The MIME type of the font file.
@@ -3421,46 +2836,37 @@ class FontManager {
         if (mimeType.includes('opentype') || mimeType.includes('otf')) return "format('opentype')";
         return "format('truetype')";
     }
-
     /**
      * Import a custom font into the database and inject it as a CSS @font-face.
      * @param {File} file - The font file to import.
      */
     importFont(file) {
         const reader = new FileReader();
-
         reader.onload = event => {
             const blob = new Blob([event.target.result], { type: file.type });
-            const fontName = `CustomFont_${Date.now()}`; // Unique font name. 
+            const fontName = `CustomFont_${Date.now()}`; // Unique font name.
             const record = {
                 name: fontName,
                 display: file.name,
                 data: blob,
                 mimeType: file.type,
             };
-
             const transaction = this.db.transaction(this.storeName, 'readwrite');
             const objectStore = transaction.objectStore(this.storeName);
-
             objectStore.put(record).onsuccess = () => {
                 const format = this._getFormatFromType(file.type);
                 this._injectCSS(fontName, URL.createObjectURL(blob), format);
-
                 this.loadedFonts.push(record);
                 this.config.set('fontFamily', fontName);
                 this._notify();
-
                 this.notifications.show(`Imported: ${file.name}`, 'success');
             };
-
             transaction.onerror = () => {
                 this.notifications.show('Database Write Failed', 'error');
             };
         };
-
         reader.readAsArrayBuffer(file);
     }
-
     /**
      * Delete a font by its ID from the database and the DOM.
      * @param {string} id - The ID of the font to delete.
@@ -3470,21 +2876,17 @@ class FontManager {
         return new Promise(resolve => {
             const transaction = this.db.transaction(this.storeName, 'readwrite');
             const objectStore = transaction.objectStore(this.storeName);
-
             objectStore.delete(id).onsuccess = () => {
                 document.getElementById(`style-${id}`)?.remove();
                 this.loadedFonts = this.loadedFonts.filter(font => font.name !== id);
-
                 if (this.config.state.fontFamily === id) {
                     this.config.set('fontFamily', this.config.defaults.fontFamily);
                 }
-
                 this._notify();
                 resolve();
             };
         });
     }
-
     /**
      * Clear all fonts from the database and only keep embedded fonts.
      * @returns {Promise} Resolves once all fonts are deleted.
@@ -3493,27 +2895,91 @@ class FontManager {
         return new Promise(resolve => {
             const transaction = this.db.transaction(this.storeName, 'readwrite');
             const objectStore = transaction.objectStore(this.storeName);
-
             objectStore.clear().onsuccess = () => {
                 // Remove all non-embedded fonts.
                 this.loadedFonts
                     .filter(font => !font.isEmbedded)
                     .forEach(font => document.getElementById(`style-${font.name}`)?.remove());
-
                 // Keep only embedded fonts.
                 this.loadedFonts = this.loadedFonts.filter(font => font.isEmbedded);
-
                 this._notify();
                 resolve();
             };
         });
     }
 }
-
     // =========================================================================
     // 9.0 UI MANAGER
     // =========================================================================
-
+// --- NotificationManager.js ---
+class NotificationManager {
+    constructor() {
+        this.container = document.getElementById('toast-container') || this._createContainer();
+    }
+    /**
+     * Creates and initializes the toast container if it doesn't exist.
+     * @returns {HTMLElement} The toast container DOM element.
+     */
+    _createContainer() {
+        const container = document.createElement('div');
+        container.id = 'toast-container';
+        container.setAttribute('aria-live', 'polite'); // Accessibility: Announce updates to screen readers.
+        container.setAttribute('role', 'status'); // Accessibility: Define the type of content the container holds.
+        document.body.appendChild(container);
+        return container;
+    }
+    /**
+     * Displays a notification with the specified message and type.
+     * @param {string} message - The message to display in the notification.
+     * @param {string} [type='info'] - The type of the notification ('info', 'success', 'error', etc.).
+     * @param {number} [duration=3000] - The duration (in milliseconds) for the notification to be visible.
+     */
+    show(message, type = 'info', duration = 3000) {
+        // Create the notification element.
+        const toast = this._createToast(message, type);
+        // Ensure the container is attached.
+        if (!document.body.contains(this.container)) {
+            document.body.appendChild(this.container);
+        }
+        // Add the notification to the container and apply the "visible" class for animation.
+        this.container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('visible'));
+        // Set timers for hiding and removing the notification.
+        this._scheduleToastRemoval(toast, duration);
+    }
+    /**
+     * Creates an individual toast element.
+     * @private
+     * @param {string} message - The message to display.
+     * @param {string} type - The type of the notification.
+     * @returns {HTMLElement} The toast DOM element.
+     */
+    _createToast(message, type) {
+        const toast = document.createElement('div');
+        toast.className = `toast-msg toast-${type}`;
+        toast.textContent = message;
+        toast.setAttribute('role', 'alert'); // Accessibility: Specify that this is an alert message.
+        return toast;
+    }
+    /**
+     * Schedules the removal of the notification after the specified duration.
+     * Handles smooth animation states before removing the DOM element.
+     * @private
+     * @param {HTMLElement} toast - The toast element to remove.
+     * @param {number} duration - How long the toast remains visible.
+     */
+    _scheduleToastRemoval(toast, duration) {
+        setTimeout(() => {
+            // Trigger fade-out animation by removing the "visible" class.
+            toast.classList.remove('visible');
+            // Remove the toast element from the DOM after the animation completes.
+            setTimeout(() => toast.remove(), 300); // Matches CSS animation transition time.
+        }, duration);
+    }
+}
+    // =========================================================================
+    // 2.0 CONFIGURATION MANAGER 
+    // =========================================================================
 // --- UIManager.js ---
 class UIManager {
     constructor(c, effects, fonts, notificationMgr) {
@@ -3526,15 +2992,12 @@ class UIManager {
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
         this.defs = this._generateDefinitions();
-
         // Event subscriptions
         this.c.subscribe((key, state) => this.refresh(key));
         this.fonts.subscribe(() => this.refresh('fontFamily'));
-
         // Initialization
         this.init();
     }
-
     /**
      * Establish initial DOM structure using expected selectors and IDs.
      * @private
@@ -3549,7 +3012,6 @@ class UIManager {
             track: null, // Initialized later in init
         };
     }
-
     /**
      * Create the tooltip element and attach to the DOM.
      * @private
@@ -3560,7 +3022,6 @@ class UIManager {
         document.body.appendChild(tooltip);
         return tooltip;
     }
-
     /**
      * Generate all UI component definitions for settings dynamically.
      * This method orchestrates the gathering of definitions from category-specific methods.
@@ -3572,21 +3033,16 @@ class UIManager {
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
             { cat: 'Global', id: 'streamColor', type: 'color', label: 'Code Color' },
             ...this._generateGlobalSettings(),
-
             // APPEARANCE TAB
             ...this._generateAppearanceSettings(),
-
             // BEHAVIOR TAB
             ...this._generateBehaviorSettings(),
-
             // FX TAB
             ...this._generateFXSettings(),
-
             // SYSTEM TAB
             ...this._generateSystemTab()
         ];
     }
-
     /**
      * Generates definitions for the 'Global' settings category.
      * @private
@@ -3598,7 +3054,6 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
             { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
-        
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
             { cat: 'Global', id: 'enableGlyphAtlas', type: 'checkbox', label: 'Performance pre-render' },
@@ -3606,7 +3061,6 @@ class UIManager {
             { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
         ];
     }
-
     /**
      * Generates definitions for the 'Appearance' settings category.
      * @private
@@ -3621,7 +3075,6 @@ class UIManager {
             { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
             { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
-        
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
             { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Allows for brightness variance when characters are written' },
             { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
@@ -3629,14 +3082,12 @@ class UIManager {
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
-        
             { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
             { cat: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
             { cat: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
             { cat: 'Appearance', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
             { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
-        
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
             { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
             { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
@@ -3646,7 +3097,6 @@ class UIManager {
             { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
         ];
     }
-
     /**
      * Generates definitions for the 'Behavior' settings category.
      * @private
@@ -3663,14 +3113,12 @@ class UIManager {
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
-        
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Tracers that only write occassional characters" },
             { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
-        
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
             { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
@@ -3680,7 +3128,6 @@ class UIManager {
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
         ];
     }
-
     /**
      * Generates definitions for the 'FX' settings category.
      * @private
@@ -3689,7 +3136,6 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'FX', type: 'header', label: 'Movie FX' }, // Using header for main section
-
             { cat: 'FX', type: 'accordion_header', label: 'Pulse' },
             { cat: 'FX', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'FX', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
@@ -3705,7 +3151,6 @@ class UIManager {
             { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'pulseEnabled' },
             { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: "Start at a full square" },
             { cat: 'FX', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
-            
             { cat: 'FX', type: 'accordion_header', label: 'Clear Pulse' },
             { cat: 'FX', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
             { cat: 'FX', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
@@ -3719,7 +3164,6 @@ class UIManager {
             { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'clearPulseEnabled' },
             { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled', description: "Start at a full square" },
             { cat: 'FX', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'clearPulseEnabled' },
-
             { cat: 'FX', type: 'accordion_header', label: 'Pulse Storm' },
             { cat: 'FX', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
             { cat: 'FX', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
@@ -3732,7 +3176,6 @@ class UIManager {
             { cat: 'FX', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
             { cat: 'FX', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'FX', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-        
             { cat: 'FX', type: 'accordion_header', label: 'Deja Vu' },
             { cat: 'FX', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
             { cat: 'FX', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
@@ -3747,7 +3190,6 @@ class UIManager {
             { cat: 'FX', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
             { cat: 'FX', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
-            
             { cat: 'FX', type: 'accordion_header', label: 'Superman' },
             { cat: 'FX', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
             { cat: 'FX', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
@@ -3762,9 +3204,7 @@ class UIManager {
             { cat: 'FX', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
             { cat: 'FX', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
             { cat: 'FX', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
-
             { cat: 'FX', type: 'header', label: 'Special FX' }, // Header for Special FX
-
             { cat: 'FX', type: 'accordion_header', label: 'Star Power' },
             { cat: 'FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
             { cat: 'FX', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
@@ -3776,12 +3216,10 @@ class UIManager {
             { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
             { cat: 'FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
-            
             { cat: 'FX', type: 'accordion_header', label: 'Rainbow Streams' },
             { cat: 'FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
             { cat: 'FX', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
-        
             { cat: 'FX', type: 'accordion_header', label: 'Firewall Anomaly' }, 
             { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-info' },
             { cat: 'FX', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall FX' },
@@ -3793,7 +3231,6 @@ class UIManager {
             { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
         ];
     }
-
     /**
      * Generates definitions for the 'System' settings category.
      * @private
@@ -3807,17 +3244,14 @@ class UIManager {
             { cat: 'System', type: 'slot', idx: 2 },
             { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
-        
             { cat: 'System', type: 'accordion_header', label: 'Maintenance' },
             { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
             { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
             // CAUTION separator - will be handled in renderControl
             { cat: 'System', type: 'header', label: 'CAUTION ZONE' }, // Use header for visual separation and text
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
-        
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
-
             { cat: 'System', type: 'accordion_header', label: 'FAQ' },
             { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.' },
             { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.' },
@@ -3826,30 +3260,23 @@ class UIManager {
             { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' }
         ];
     }
-
     /**
      * Initialize the events, tabs, and UI components.
      */
     init() {
         // Toggle button for the settings panel
         this.dom.toggle.onclick = () => this.togglePanel();
-
         // Create and populate tabs and content containers
         this._setupTabs();
-
         // Update footer version
         document.getElementById('globalStatus').textContent = `Matrix Code v${APP_VERSION}`;
-
         // Initialize File Input Handlers
         this._setupFileHandlers();
-
         // Handle tab dragging and horizontal scrolling
         this._setupTabScroll();
-
         // Refresh UI
         this.refresh('ALL');
     }
-
     /**
      * Toggles the settings panel visibility.
      */
@@ -3858,7 +3285,6 @@ class UIManager {
         this.dom.panel.setAttribute('aria-hidden', !isOpen);
         this.dom.toggle.setAttribute('aria-expanded', isOpen);
     }
-
     /**
      * Sets up the tabs and their corresponding content containers.
      * Creates category tabs and assigns content containers to each.
@@ -3868,25 +3294,20 @@ class UIManager {
         this.dom.track = document.createElement('div'); // Initialize track here
         this.dom.track.id = 'tabTrack';
         this.dom.tabs.appendChild(this.dom.track);
-
         const categories = [...new Set(this.defs.map(def => def.cat))];
         const tabContentContainers = {}; // Mapping of category -> content container div
-
         // Create tabs and attach event handlers
         categories.forEach((category, index) => {
             const tabButton = this._createTabButton(category, index === 0);
             this.dom.track.appendChild(tabButton);
-
             // Create corresponding content container for the tab
             const contentContainer = this._createTabContentContainer(category, index === 0);
             this.dom.content.appendChild(contentContainer);
             tabContentContainers[category] = contentContainer;
         });
-
         // Populate tab content
         this._populateTabContent(tabContentContainers);
     }
-
     /**
      * Creates a tab button element for a category.
      * @private
@@ -3901,7 +3322,6 @@ class UIManager {
         button.onclick = () => this._handleTabClick(category, button);
         return button;
     }
-
     /**
      * Handles when a tab is clicked and activates the corresponding tab content.
      * @private
@@ -3914,16 +3334,13 @@ class UIManager {
             this.scrollState.dragDistance = 0; // Reset for next interaction
             return; 
         }
-
         // Deactivate all tabs and their content
         this.dom.tabs.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         this.dom.content.querySelectorAll('.tab-content-group').forEach(content => content.classList.remove('active'));
-
         // Activate selected tab and content
         button.classList.add('active');
         document.getElementById(`tab-content-${category}`).classList.add('active');
     }
-
     /**
      * Creates a tab content container for a given category.
      * @private
@@ -3937,7 +3354,6 @@ class UIManager {
         container.id = `tab-content-${category}`;
         return container;
     }
-
     /**
      * Populates tabs with content, including accordions and controls.
      * @private
@@ -3946,17 +3362,14 @@ class UIManager {
     _populateTabContent(tabContentContainers) {
         let currentAccordionBody = null;
         let lastCat = null;
-
         this.defs.forEach(def => {
             const container = tabContentContainers[def.cat];
             if (!container) return;
-
             // Reset accordion context when switching tabs/categories
             if (def.cat !== lastCat) {
                 currentAccordionBody = null;
                 lastCat = def.cat;
             }
-
             // Handle Accordion Headers (Start new accordion)
             if (def.type === 'accordion_header') {
                 currentAccordionBody = this._createAccordion(container, def.label);
@@ -3978,7 +3391,6 @@ class UIManager {
                 if (el) container.appendChild(el);
                 return;
             }
-
             // Handle Controls
             if (currentAccordionBody) {
                 // Special handling for CAUTION ZONE inside an accordion
@@ -3999,7 +3411,6 @@ class UIManager {
                 if (controlElement) container.appendChild(controlElement);
             }
         });
-        
         // Post-process: Insert Factory Reset into the created Caution Zone
         const factoryResetDef = this.defs.find(d => d.action === 'reset' && d.caution);
         if (factoryResetDef) {
@@ -4010,7 +3421,6 @@ class UIManager {
             }
         }
     }
-
     /**
      * Creates an accordion section with a header and a container for controls.
      * @private
@@ -4021,7 +3431,6 @@ class UIManager {
     _createAccordion(tabContentGroup, label) {
         const accordionItem = document.createElement('div');
         accordionItem.className = 'accordion-item';
-
         const header = document.createElement('div');
         header.className = 'accordion-header';
         header.innerHTML = `
@@ -4032,16 +3441,12 @@ class UIManager {
                 </svg>
             </span>
         `;
-
         const body = document.createElement('div');
         body.className = 'accordion-content';
-
         header.onclick = () => this._toggleAccordion(header, body, tabContentGroup);
-
         accordionItem.appendChild(header);
         accordionItem.appendChild(body);
         tabContentGroup.appendChild(accordionItem);
-
         // Default open logic: Open if it is the FIRST accordion in this tab
         const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
         if (accordionsInTab.length === 1) { // Only open the very first accordion created
@@ -4049,10 +3454,8 @@ class UIManager {
             header.classList.add('active');
             header.querySelector('.accordion-icon').classList.add('rotated');
         }
-
         return body;
     }
-
     /**
      * Toggles the visibility of an accordion section and manages sibling accordions.
      * @private
@@ -4062,14 +3465,12 @@ class UIManager {
      */
     _toggleAccordion(header, body, group) {
         const isOpen = body.classList.contains('open');
-
         // Close other accordions in the group
         group.querySelectorAll('.accordion-content').forEach(siblingBody => {
             siblingBody.classList.remove('open');
             siblingBody.previousElementSibling?.classList.remove('active');
             siblingBody.previousElementSibling?.querySelector('.accordion-icon')?.classList.remove('rotated');
         });
-
         // Toggle the current accordion
         if (isOpen) {
             body.classList.remove('open');
@@ -4081,7 +3482,6 @@ class UIManager {
             header.querySelector('.accordion-icon')?.classList.add('rotated');
         }
     }
-
     /**
      * Setup input handlers for font and config import.
      * @private
@@ -4090,7 +3490,6 @@ class UIManager {
         document.getElementById('importFile').onchange = e => this._handleConfigImport(e);
         document.getElementById('importFontFile').onchange = e => this._handleFontImport(e);
     }
-
     /**
      * Handles the import of a JSON configuration file.
      * @private
@@ -4099,7 +3498,6 @@ class UIManager {
     _handleConfigImport(event) {
         const file = event.target.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = ev => {
             try {
@@ -4118,7 +3516,6 @@ class UIManager {
         };
         reader.readAsText(file);
     }
-
     /**
      * Handles the import of a custom font file.
      * @private
@@ -4129,7 +3526,6 @@ class UIManager {
         if (file) this.fonts.importFont(file);
         event.target.value = ''; // Reset input value
     }
-
     /**
      * Set up drag and scroll functionality for tabs.
      * @private
@@ -4140,11 +3536,9 @@ class UIManager {
         tabs.addEventListener('mouseleave', () => this._stopDrag());
         tabs.addEventListener('mouseup', () => this._stopDrag());
         tabs.addEventListener('mousemove', e => this._doDrag(e));
-
         // Ensure overflow handling matches standard behavior for wheel support
         tabs.style.overflowX = 'auto'; 
         tabs.style.overscrollBehaviorX = 'contain';
-
         // Converts vertical mouse wheel scrolling into horizontal scrolling for the tabs
         tabs.addEventListener('wheel', (e) => {
             if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
@@ -4157,7 +3551,6 @@ class UIManager {
             }
         }, { passive: false });
     }
-
     /**
      * Initiates the drag operation for tab scrolling.
      * @private
@@ -4172,7 +3565,6 @@ class UIManager {
         this.ignoreNextClick = false; // Reset flag
         this.dom.tabs.style.cursor = 'grabbing';
     }
-
     /**
      * Stops the drag operation for tab scrolling.
      * @private
@@ -4183,7 +3575,6 @@ class UIManager {
         // Reset dragDistance here to avoid blocking a subsequent immediate click after a very short drag
         this.scrollState.dragDistance = 0; 
     }
-
     /**
      * Handles the drag movement for tab scrolling.
      * @private
@@ -4191,7 +3582,6 @@ class UIManager {
      */
     _doDrag(e) {
         if (!this.scrollState.isDown) return;
-
         e.preventDefault(); // Prevent text highlighting during drag
         const x = e.pageX - this.dom.tabs.offsetLeft;
         const walk = (x - this.scrollState.startX) * 1.5; // Multiplier for faster scrolling
@@ -4199,8 +3589,6 @@ class UIManager {
         this.scrollState.dragDistance = Math.abs(x - this.scrollState.startX); // Update based on actual movement
         if (this.scrollState.dragDistance > 3) this.ignoreNextClick = true; // Set flag if dragged enough to be considered a drag
     }
-
-
     /**
      * Retrieves the list of available fonts, including embedded and custom fonts.
      * @private
@@ -4213,7 +3601,6 @@ class UIManager {
             ...this.fonts.loadedFonts.map(f => ({label:f.display, value:f.name, custom:true}))
         ];
     }
-    
     /**
      * Updates the UI list of custom fonts (used in the font manager section).
      * @param {HTMLElement} el - The DOM element to populate with the font list.
@@ -4232,7 +3619,6 @@ class UIManager {
             el.appendChild(div);
         });
     }
-
     /**
      * Displays a tooltip with a given text near a target element.
      * @param {string} text - The text to display in the tooltip.
@@ -4245,15 +3631,12 @@ class UIManager {
         const tipRect = this.dom.tooltip.getBoundingClientRect();
         let top = rect.top + (rect.height / 2) - (tipRect.height / 2);
         let left = rect.left - tipRect.width - 12; // Default to left of target
-        
         // Adjust position if it goes off-screen
         if (top < 10) top = 10;
         if (left < 10) left = rect.right + 12; // Move to right if it's too far left
-        
         this.dom.tooltip.style.top = `${top}px`;
         this.dom.tooltip.style.left = `${left}px`;
     }
-
     /**
      * Hides the currently displayed tooltip.
      */
@@ -4262,7 +3645,6 @@ class UIManager {
         // Reset dragDistance here to avoid blocking a subsequent immediate click after a very short drag
         this.scrollState.dragDistance = 0; 
     }
-
     /**
      * Creates a styled label group for a UI control, optionally including an info icon with a tooltip.
      * @param {Object} def - The definition object for the UI control.
@@ -4274,7 +3656,6 @@ class UIManager {
         const text = document.createElement('span');
         text.textContent = def.label;
         group.appendChild(text);
-
         if (def.description) {
             const icon = document.createElement('span');
             icon.className = 'info-icon';
@@ -4298,7 +3679,6 @@ class UIManager {
         }
         return group;
     }
-
     /**
      * Dynamically renders a UI control element based on its definition.
      * @param {Object} def - The definition object for the control.
@@ -4318,11 +3698,9 @@ class UIManager {
         }
         if (def.type === 'about_content') {
             const div = document.createElement('div'); div.style.padding = '1rem'; div.style.textAlign = 'center'; div.style.color = '#86efac';
-            
             const logoChar = Utils.getRandomKatakanaChar();
             const initialColor = this.c.get('streamColor');
             const initialSvgDataUrl = Utils.generateGlyphSVG(logoChar, initialColor, 48, this.c.get('fontFamily'));
-
             div.innerHTML = `
                 <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
                     <img id="matrixLogo" src="${initialSvgDataUrl}" alt="Matrix Logo" style="height: 48px; width: 48px; margin-right: 10px;"/>
@@ -4351,8 +3729,9 @@ class UIManager {
             return container;
         }
         const row = document.createElement('div');
-        if (def.type === 'button') { const btn = document.createElement('button'); btn.className = `action-btn ${def.class||'btn-info'}`; btn.textContent = def.label; btn.id = `btn-${def.action}`; btn.name = def.action; btn.onclick = () => this.handleAction(def.action); row.appendChild(btn); }
-        else if (def.type === 'slot') {
+        if (def.type === 'button') {
+            const btn = document.createElement('button'); btn.className = `action-btn ${def.class||'btn-info'}`; btn.textContent = def.label; btn.id = `btn-${def.action}`; btn.name = def.action; btn.onclick = () => this.handleAction(def.action); row.appendChild(btn);
+        } else if (def.type === 'slot') {
             row.className = 'slot-container';
             const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[def.idx].name; inp.id = `slot-input-${def.idx}`; inp.name = `slot_name_${def.idx}`; inp.onchange = e => this.c.renameSlot(def.idx, e.target.value);
             inp.onfocus = e => e.target.value = '';
@@ -4369,56 +3748,47 @@ class UIManager {
             if(!def.hideValue && def.type === 'range') { const valDisp = document.createElement('span'); valDisp.id = `val-${def.id}`; hdr.appendChild(valDisp); } row.appendChild(hdr); } 
                 else { row.appendChild(labelGroup); }
             let inp;
-
             if(def.type === 'range') { 
                 inp = document.createElement('input'); 
                 inp.type = 'range'; 
                 inp.min=def.min; 
-                inp.max=def.max;
-                if(def.step) inp.step=def.step;
-                
+                inp.max=def.max; 
+                if(def.step) inp.step=def.step; 
                 let isTouching = false;
-
-                inp.value = def.invert ? (def.max+def.min)-this.c.get(def.id) : this.c.get(def.id);
-                            
-                
+                inp.value = def.invert ? (def.max+def.min)-this.c.get(def.id) : this.c.get(def.id);                            
                 inp.oninput = e => { 
                     if (isTouching) return; // Block native updates during touch interaction
                     const v = parseFloat(e.target.value); 
-                    const actual = def.invert ? (def.max+def.min)-v : v; 
+                    let actual = def.invert ? (def.max+def.min)-v : v; 
+                    // Sanitize to max 1 decimal place for state
+                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
                     this.c.set(def.id, actual); 
                     const disp = document.getElementById(`val-${def.id}`); 
                     if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
-                };
-
+                }; 
                 let startX = 0;
                 let startY = 0;
                 let startValue = 0;
                 let isHorizontalDrag = false;
-
                 inp.addEventListener('touchstart', e => {
                     isTouching = true;
                     startX = e.touches[0].clientX;
                     startY = e.touches[0].clientY;
                     startValue = parseFloat(e.target.value);
                     isHorizontalDrag = false;
-                    
                     // Prevent "jump to tap" visually
                     requestAnimationFrame(() => {
                         inp.value = startValue;
                     });
                 }, { passive: false });
-
                 inp.addEventListener('touchmove', e => {
                     const x = e.touches[0].clientX;
                     const y = e.touches[0].clientY;
                     const dx = x - startX;
                     const dy = y - startY;
-
                     if (!isHorizontalDrag && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 5) {
                         isHorizontalDrag = true;
                     }
-
                     if (isHorizontalDrag) {
                         e.preventDefault(); 
                         const rect = inp.getBoundingClientRect();
@@ -4433,25 +3803,22 @@ class UIManager {
                         }
                         if (newVal < min) newVal = min;
                         if (newVal > max) newVal = max;
-
                         inp.value = newVal;
-                        
-                        const actual = def.invert ? (max+min)-newVal : newVal; 
+                        let actual = def.invert ? (max+min)-newVal : newVal; 
+                        // Sanitize
+                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
                         this.c.set(def.id, actual); 
-                        
                         const disp = document.getElementById(`val-${def.id}`); 
                         if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
                     }
                 }, { passive: false });
-                
                 inp.addEventListener('touchend', () => {
                     isTouching = false;
                     isHorizontalDrag = false;
                 });
             }
-
             else if(def.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(def.id); inp.id = `in-${def.id}`; inp.name = def.id; inp.oninput = e => this.c.set(def.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`; return row; }
-            else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; } 
+            else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
             row.appendChild(inp);
             if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
@@ -4459,7 +3826,6 @@ class UIManager {
         }
         return row;
     }
-
     /**
      * Handles UI actions triggered by buttons or other interactive elements.
      * @param {string} action - The action identifier.
@@ -4478,7 +3844,6 @@ class UIManager {
         if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); 
         }
     }
-
     /**
      * Refreshes the UI to reflect current configuration settings.
      * @param {string} key - The specific configuration key to refresh, or 'ALL' to refresh all controls.
@@ -4563,8 +3928,14 @@ class UIManager {
                         else if(def.type === 'range') { 
                             inp.value = def.invert ? (def.max+def.min)-val : val; 
                             const disp = document.getElementById(`val-${key}`); 
-                            if(disp) disp.textContent = def.transform ? def.transform(val) : val + (def.unit || ''); 
-                        } else { 
+                            if(disp) {
+                                let displayVal = val;
+                                if (!def.transform && typeof val === 'number') {
+                                    displayVal = parseFloat(val.toFixed(1));
+                                }
+                                disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
+                            }
+                        } else {
                             inp.value = val;
                         }
                     } 
@@ -4590,18 +3961,15 @@ class UIManager {
         } catch(e) { console.warn("UI Refresh Error:", e); }
     }
 }
-
     // =========================================================================
     // 10.0 MATRIX KERNEL
     // =========================================================================
-
 // --- MatrixKernel.js ---
 class MatrixKernel {
     constructor() {
         // Initialize core components
         this._initializeManagers();
         this._initializeEffects();
-        
         // Frame handling and rendering variables
         this.frame = 0;
         this.lastTime = 0;
@@ -4610,20 +3978,16 @@ class MatrixKernel {
         this._effectTimers = {}; // Initialize map for effect timers
         this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
         this._setupResizeListener();
-
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
     }
-
     async initAsync() {
         // Asynchronous initialization steps
         await this._initializeRendererAndUI();
-
         // Perform the initial resize setup and start the loop
         this._resize();
         requestAnimationFrame((time) => this._loop(time));
     }
-
     /**
      * Initializes core managers (Notification, Config, Grid, Simulation, EffectRegistry).
      * @private
@@ -4635,7 +3999,6 @@ class MatrixKernel {
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
     }
-
     /**
      * Registers all active visual effects with the EffectRegistry.
      * @private
@@ -4651,7 +4014,6 @@ class MatrixKernel {
         ];
         effects.forEach((EffectClass) => this.effectRegistry.register(new EffectClass(this.grid, this.config)));
     }
-
     /**
      * Initializes the CanvasRenderer, FontManager, and UIManager.
      * @private
@@ -4660,11 +4022,9 @@ class MatrixKernel {
         this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
-
         // Initialize font manager and await its completion
         await this.fontMgr.init();
     }
-
     /**
      * Sets up a debounced window resize listener.
      * @private
@@ -4676,7 +4036,6 @@ class MatrixKernel {
             resizeTimer = setTimeout(() => this._resize(), 100); // Debounce resize events
         });
     }
-
     /**
      * Sets up subscriptions to configuration changes that trigger UI or rendering updates.
      * @private
@@ -4689,23 +4048,19 @@ class MatrixKernel {
             'fontSize',
             'horizontalSpacingFactor'
         ]);
-
         const smoothingTriggers = new Set([
             'smoothingEnabled',
             'smoothingAmount'
         ]);
-
         this.config.subscribe((key) => {
             // Resize the canvas and grid on resolution-related changes
             if (resizeTriggers.has(key) || key === 'ALL') {
                 this._resize();
             }
-
             // Update renderer when smoothing settings change
             if (smoothingTriggers.has(key)) {
                 this.renderer.updateSmoothing();
             }
-
             const autoEffects = [
                 { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
                 { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
@@ -4714,7 +4069,6 @@ class MatrixKernel {
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
                 { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
             ];
-
             autoEffects.forEach(effect => {
                 if ((key === effect.enabledKey && this.config.state[effect.enabledKey]) || key === 'ALL') {
                     const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
@@ -4727,7 +4081,6 @@ class MatrixKernel {
             });
         });
     }
-
     /**
      * Resizes the grid and renderer dimensions based on current window size and configuration.
      * @private
@@ -4739,7 +4092,6 @@ class MatrixKernel {
             window.innerHeight / this.config.state.stretchY
         );
     }
-
     /**
      * The main animation loop, handling updates and rendering.
      * Uses a fixed timestep for consistent simulation speed.
@@ -4750,17 +4102,14 @@ class MatrixKernel {
         if (!this.lastTime) this.lastTime = time;
         const delta = time - this.lastTime;
         this.lastTime = time;
-
         this.accumulator += delta;
         while (this.accumulator >= this.timestep) {
             this._updateFrame();
             this.accumulator -= this.timestep;
         }
-
         this.renderer.render(this.frame);
         requestAnimationFrame((nextTime) => this._loop(nextTime));
     }
-
     /**
      * Updates the simulation logic for a single frame.
      * @private
@@ -4769,7 +4118,6 @@ class MatrixKernel {
         this.frame++;
         this.effectRegistry.update();
         this.simulation.update(this.frame);
-
         const autoEffects = [
             { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
             { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
@@ -4778,7 +4126,6 @@ class MatrixKernel {
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
             { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
         ];
-
         autoEffects.forEach(effect => {
             if (this.config.state[effect.enabledKey]) {
                 if (!this._effectTimers[effect.effectName]) {
@@ -4787,9 +4134,7 @@ class MatrixKernel {
                     const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
                     this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
                 }
-
                 this._effectTimers[effect.effectName]--;
-
                 if (this._effectTimers[effect.effectName] <= 0) {
                     this.effectRegistry.trigger(effect.effectName);
                     // Reset timer with randomization
@@ -4806,12 +4151,15 @@ class MatrixKernel {
         });
     }
 }
-
 // Initialize the MatrixKernel on DOMContentLoaded
 window.addEventListener('DOMContentLoaded', async () => {
     const kernel = new MatrixKernel();
     await kernel.initAsync();
 });
+</script>
+    <script>
+        // Auto-initialize if not already done by the classes
+        // (MatrixKernel initializes itself on DOMContentLoaded)
     </script>
 </body>
 </html>
