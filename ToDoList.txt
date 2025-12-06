@@ -5,6 +5,7 @@ Multiple Font Sets, let the user input their own character string in the Charact
 
 ToDo: 
 Fix bug: Pre-render prevents italics from working but not bold
+Fix bug: Sliders don't truncate certain values to the whole number
 Implement Crashing Effect
 Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse blast resets the code to normal)
 Implement Presets
