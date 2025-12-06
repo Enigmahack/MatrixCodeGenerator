@@ -868,7 +868,10 @@ class UIManager {
                 inp.oninput = e => { 
                     if (isTouching) return; // Block native updates during touch interaction
                     const v = parseFloat(e.target.value); 
-                    const actual = def.invert ? (def.max+def.min)-v : v; 
+                    let actual = def.invert ? (def.max+def.min)-v : v; 
+                    // Sanitize to max 1 decimal place for state
+                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+
                     this.c.set(def.id, actual); 
                     const disp = document.getElementById(`val-${def.id}`); 
                     if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
@@ -919,7 +922,10 @@ class UIManager {
 
                         inp.value = newVal;
                         
-                        const actual = def.invert ? (max+min)-newVal : newVal; 
+                        let actual = def.invert ? (max+min)-newVal : newVal; 
+                        // Sanitize
+                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+
                         this.c.set(def.id, actual); 
                         
                         const disp = document.getElementById(`val-${def.id}`); 
@@ -1046,7 +1052,13 @@ class UIManager {
                         else if(def.type === 'range') { 
                             inp.value = def.invert ? (def.max+def.min)-val : val; 
                             const disp = document.getElementById(`val-${key}`); 
-                            if(disp) disp.textContent = def.transform ? def.transform(val) : val + (def.unit || ''); 
+                            if(disp) {
+                                let displayVal = val;
+                                if (!def.transform && typeof val === 'number') {
+                                    displayVal = parseFloat(val.toFixed(1));
+                                }
+                                disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
+                            }
                         } else {
                             inp.value = val;
                         }
