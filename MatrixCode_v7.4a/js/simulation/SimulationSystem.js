@@ -6,6 +6,7 @@ class SimulationSystem {
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
+        this._lastOverlapDensity = null;
     }
 
     _initializeModes(config) {
@@ -26,38 +27,39 @@ class SimulationSystem {
     }
 
     _manageOverlapGrid(frame) {
-        if (!this.config.state.overlapEnabled) return;
+        if (!this.config.state.overlapEnabled) {
+            // Reset initialization state when disabled
+            if (this.overlapInitialized) {
+                this.overlapInitialized = false;
+                // Clear all overlap chars when disabled
+                for(let i=0; i<this.grid.overlapChars.length; i++) {
+                    this.grid.overlapChars[i] = 0;
+                }
+            }
+            return;
+        }
         
-        // Initialize if empty
-        if (!this.overlapInitialized) {
+        // Check if we need to reinitialize (density changed or first time)
+        const currentDensity = this.config.state.overlapDensity;
+        if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             for(let i=0; i<this.grid.overlapChars.length; i++) {
-                if (Math.random() < this.config.state.overlapDensity) {
+                if (Math.random() < currentDensity) {
                     this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
                 } else {
                     this.grid.overlapChars[i] = 0; // Empty
                 }
             }
             this.overlapInitialized = true;
+            this._lastOverlapDensity = currentDensity;
             this.grid.noiseDirty = true;
         }
 
-        // Slowly churn the noise
-        // Note: User requested Shimmer to be optional. 
-        // Wait, user requested "choosing overlap color should cause a refresh".
-        // This means we need to redraw the noise layer when color changes.
-        // The CanvasRenderer checks `noiseDirty`.
-        // Changing color doesn't change characters, so Simulation doesn't care.
-        // But CanvasRenderer needs to redraw.
-        // So `ConfigurationManager` or `UIManager` should set `noiseDirty`?
-        // Or `CanvasRenderer` should check if `overlapColor` changed.
-        // I will handle color change in Renderer (by checking state vs last state).
-        // Simulation only handles character churn.
-        
+        // Slowly churn the noise if shimmer is enabled
         if (this.config.state.overlapShimmer) {
              const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
              for(let k=0; k<updates; k++) {
                 const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
-                if (Math.random() < this.config.state.overlapDensity) {
+                if (Math.random() < currentDensity) {
                     this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
                 } else {
                     this.grid.overlapChars[idx] = 0;
@@ -70,6 +72,8 @@ class SimulationSystem {
     _resetColumns() {
         this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
         this.activeStreams = [];
+        // Reset overlap initialization when grid resizes
+        this.overlapInitialized = false;
     }
 
     _manageStreams(frame) {

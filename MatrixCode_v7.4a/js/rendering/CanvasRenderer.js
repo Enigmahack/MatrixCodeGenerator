@@ -8,6 +8,10 @@ class CanvasRenderer {
         // Off-screen buffer for overlap composition
         this.bufferCvs = document.createElement('canvas');
         this.bufferCtx = this.bufferCvs.getContext('2d', { alpha: true });
+
+        // Scratch canvas for temporary operations
+        this.scratchCvs = document.createElement('canvas');
+        this.scratchCtx = this.scratchCvs.getContext('2d', { alpha: true });
         
         // Unified Render State Arrays
         this.frameAlphas = null;
@@ -33,19 +37,25 @@ class CanvasRenderer {
         this.w = window.innerWidth;
         this.h = window.innerHeight;
 
+        // 1. Main Display Canvas
         this._resizeCanvas(this.cvs, this.w, this.h, scale);
-        
-        // Bloom canvas is 1/4 size for performance and glow effect
+
+        // 2. Bloom Canvas (1/4 size)
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
-        
-        // Buffer canvas (1:1 scale for pixel accuracy)
+
+        // 3. Buffer Canvas (Layer A - Stream Shapes)
         this._resizeCanvas(this.bufferCvs, this.w, this.h, scale);
+        // Apply global scale so drawing coordinates match main canvas
         this.bufferCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
-        
+
+        // 4. Scratch Canvas (Layer B - Overlap Shapes) -> NOW FULL SCREEN
+        this._resizeCanvas(this.scratchCvs, this.w, this.h, scale);
+        // Apply global scale so drawing coordinates match main canvas
+        this.scratchCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+
         // Allocate Frame Buffers
         if (!this.grid.chars) return;
-        
         const size = this.grid.chars.length;
         this.frameAlphas = new Float32Array(size);
         this.frameChars = new Uint16Array(size);
@@ -128,87 +138,137 @@ class CanvasRenderer {
     }
 
     _drawOverlap(d, s, frame, bloomEnabled, scale) {
-        const ctx = this.bufferCtx;
-        const cvs = this.bufferCvs;
+        // --- SETUP ---
+        const ctxA = this.bufferCtx; // Layer A (Stream Shapes)
+        const cvsA = this.bufferCvs;
+        const ctxB = this.scratchCtx; // Layer B (Overlap Shapes)
+        const cvsB = this.scratchCvs;
+
+        // Clear both layers
+        // Note: Using the logical dimensions divided by stretch for clearRect because contexts are scaled
+        const clearW = this.w / s.stretchX; 
+        const clearH = this.h / s.stretchY;
         
-        // 1. Clear Buffer
-        ctx.clearRect(0, 0, cvs.width, cvs.height);
-        
-        // Save state
-        ctx.save();
-        
-        // 2. Draw Mask (Active Grid)
+        ctxA.clearRect(0, 0, clearW, clearH);
+        ctxB.clearRect(0, 0, clearW, clearH);
+
+        // Constants
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
-        const overlapYOffset = d.paletteColorsStr.length * this.glyphAtlas.blockHeight;
+        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
         
-        // Unified Dynamic Pass
+        // Prepare Font for Standard Mode (fallback)
+        // We use a white fill for masks regardless of the final color
+        if (!useAtlas) {
+            ctxA.fillStyle = '#FFFFFF';
+            ctxB.fillStyle = '#FFFFFF';
+            ctxA.textBaseline = 'middle';
+            ctxA.textAlign = 'center';
+            ctxB.textBaseline = 'middle';
+            ctxB.textAlign = 'center';
+        }
+
+        // --- PASS 1: DRAW SHAPES ---
+        // We loop ONCE and draw to both layers appropriately.
+        // This builds the two "islands" of shapes without them interacting yet.
+        
         for (const i of this.grid.activeIndices) {
-            // Filter 1: Decouple from Effects (Superman, etc)
+            // 1. Filter Logic
             const style = this.grid.complexStyles.get(i);
             if (style && style.isEffect) continue;
+
+            const overlapTarget = s.overlapTarget || 'stream';
+            if (overlapTarget === 'stream') {
+                const cellType = this.grid.types[i];
+                if (cellType !== CELL_TYPE.TRACER && cellType !== CELL_TYPE.ROTATOR) continue;
+            }
 
             let gridAlpha = this.grid.alphas[i];
-            let maskChar = this.grid.getChar(i);
-
-            // Sync with Tracer Logic
             const tState = this._getTracerState(i, s);
             if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
-            
-            // Sync with Effect Overrides (Pulse Pause)
             const override = this.effects.getOverride(i);
-            if (override) {
-                if (typeof override.alpha === 'number') gridAlpha = override.alpha;
-                if (override.char) maskChar = override.char;
-            }
-
+            if (override && typeof override.alpha === 'number') gridAlpha = override.alpha;
+            
             if (gridAlpha <= 0.05) continue;
-            
-            const x = i % this.grid.cols;
-            const y = Math.floor(i / this.grid.cols);
-            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-            
-            const sprite = this.glyphAtlas.get(maskChar);
-            
-            if (sprite) {
-                ctx.globalAlpha = gridAlpha;
-                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
-            }
-        }
-        
-        // 3. Composite Operation: "source-in"
-        ctx.globalCompositeOperation = 'source-in';
-        ctx.globalAlpha = 1.0; 
-        
-        // 4. Draw Imposition Layer (Dynamic)
-        for (const i of this.grid.activeIndices) {
-            // Same filters for efficiency
-            const style = this.grid.complexStyles.get(i);
-            if (style && style.isEffect) continue;
 
             const code = this.grid.overlapChars[i];
             if (code === 0) continue;
 
+            // 2. Geometry
             const x = i % this.grid.cols;
             const y = Math.floor(i / this.grid.cols);
             const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-            
-            const char = String.fromCharCode(code);
-            const sprite = this.glyphAtlas.get(char);
-            
-            if (sprite) {
-                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + overlapYOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+
+            let streamChar = this.grid.getChar(i);
+            if (override && override.char) streamChar = override.char;
+            const overlapChar = String.fromCharCode(code);
+
+            // 3. Draw to Layer A (Stream Base)
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(streamChar);
+                if (sprite) {
+                    // Draw raw shape (white/base sprite)
+                    ctxA.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                    );
+                }
+            } else {
+                // Standard Font Draw
+                // Note: If you want dissolve effects in overlap, replicate the font sizing logic here.
+                // For performance, we stick to the base font size for the mask.
+                ctxA.font = d.fontBaseStr; 
+                ctxA.fillText(streamChar, px, py);
+            }
+
+            // 4. Draw to Layer B (Overlap Mask)
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(overlapChar);
+                if (sprite) {
+                    ctxB.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                    );
+                }
+            } else {
+                ctxB.font = d.fontBaseStr;
+                ctxB.fillText(overlapChar, px, py);
             }
         }
+
+        // --- PASS 2: COMPOSITE (The Magic) ---
+        // Currently:
+        // Layer A has all the stream characters.
+        // Layer B has all the overlap characters.
         
-        ctx.restore(); // Restore composite mode
+        // 1. Reset Transforms for Full-Screen Composition
+        // We want to operate on the raw pixels of the buffers now.
+        ctxA.save();
+        ctxA.setTransform(1, 0, 0, 1, 0, 0); 
         
-        // 5. Draw Buffer to Main Screen
+        // 2. INTERSECTION: Draw Layer B onto Layer A
+        // source-in: Keep pixels from B that overlap pixels in A.
+        // Result: Layer A now contains the INTERSECTION shapes (Stream AND Overlap).
+        ctxA.globalCompositeOperation = 'source-in';
+        ctxA.drawImage(cvsB, 0, 0);
+
+        // 3. COLORIZE: Draw the User's Color onto the Shapes
+        // source-in: Fill the existing shapes in A with the solid color.
+        ctxA.globalCompositeOperation = 'source-in';
+        ctxA.fillStyle = s.overlapColor;
+        // Use the raw canvas dimensions for the fill
+        ctxA.fillRect(0, 0, cvsA.width, cvsA.height);
+
+        ctxA.restore(); // Restore context for next frame's drawing
+
+        // --- PASS 3: FINAL DRAW ---
+        // Draw the fully composited Layer A onto the Main Screen
         this.ctx.save();
-        this.ctx.setTransform(1, 0, 0, 1, 0, 0); 
-        this.ctx.drawImage(cvs, 0, 0);
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.globalCompositeOperation = 'source-over';
+        this.ctx.globalAlpha = 1.0;
+        this.ctx.drawImage(cvsA, 0, 0);
         this.ctx.restore();
     }
 

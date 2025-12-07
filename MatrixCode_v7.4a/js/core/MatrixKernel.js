@@ -12,6 +12,11 @@ class MatrixKernel {
         this._effectTimers = {}; // Initialize map for effect timers
         this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
         this._setupResizeListener();
+        
+        // FPS tracking variables
+        this.lastFrameTime = 0; // Tracks time of the previous frame
+        this.fpsHistory = []; // Used for simple FPS smoothing
+        this.fpsDisplayElement = null; // Holds reference to the HTML element
 
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
@@ -24,6 +29,7 @@ class MatrixKernel {
         // Perform the initial resize setup and start the loop
         this._resize();
         requestAnimationFrame((time) => this._loop(time));
+        this.fpsDisplayElement = document.getElementById('fps-counter');
     }
 
     /**
@@ -149,6 +155,33 @@ class MatrixKernel {
      * @param {DOMHighResTimeStamp} time - The current time provided by requestAnimationFrame.
      */
     _loop(time) {
+    // 1. Calculate Delta and FPS
+    const now = performance.now();
+    const deltaFPS = now - this.lastFrameTime;
+    this.lastFrameTime = now;
+
+    if (deltaFPS > 0 && this.config.state.showFpsCounter) {
+        const fps = 1000 / deltaFPS;
+        
+        // Simple 30-frame smoothing
+        this.fpsHistory.push(fps);
+        if (this.fpsHistory.length > 30) {
+            this.fpsHistory.shift();
+        }
+        const smoothedFps = this.fpsHistory.reduce((a, b) => a + b) / this.fpsHistory.length;
+
+            // 2. Update Display
+            if (this.fpsDisplayElement) {
+                this.fpsDisplayElement.textContent = `FPS: ${Math.round(smoothedFps)}`;
+                this.fpsDisplayElement.style.display = 'block';
+            }
+        } else if (this.fpsDisplayElement) {
+            // Hide the counter if the setting is disabled
+            this.fpsDisplayElement.style.display = 'none';
+        }
+
+
+        // Start main rendering loop
         if (!this.lastTime) this.lastTime = time;
         const delta = time - this.lastTime;
         this.lastTime = time;
@@ -213,4 +246,6 @@ class MatrixKernel {
 window.addEventListener('DOMContentLoaded', async () => {
     const kernel = new MatrixKernel();
     await kernel.initAsync();
+    this.lastFrameTime = performance.now(); // Set initial time
+    // this.run();
 });

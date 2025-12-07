@@ -36,6 +36,7 @@ class ConfigurationManager {
             enableGlyphAtlas: true,
             smoothingEnabled: true,
             smoothingAmount: 0.5,
+            showFpsCounter: false,
 
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
@@ -50,6 +51,7 @@ class ConfigurationManager {
             overlapColor: "#FFD700",
             overlapDensity: 0.5,
             overlapTarget: "stream",
+            overlapShimmer: false,
             
             dissolveEnabled: true,
             dissolveMinSize: 18,

@@ -4,6 +4,19 @@ class CanvasRenderer {
         this.ctx = this.cvs.getContext('2d', { alpha: false });
         this.bloomCvs = document.getElementById('bloomCanvas');
         this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
+        
+        // Off-screen buffer for overlap composition
+        this.bufferCvs = document.createElement('canvas');
+        this.bufferCtx = this.bufferCvs.getContext('2d', { alpha: true });
+
+        // Scratch canvas for temporary operations
+        this.scratchCvs = document.createElement('canvas');
+        this.scratchCtx = this.scratchCvs.getContext('2d', { alpha: true });
+        
+        // Unified Render State Arrays
+        this.frameAlphas = null;
+        this.frameChars = null;
+        this.frameFlags = null; // Bit 0: Active, Bit 1: Overlap Allowed
 
         this.grid = grid;
         this.config = config;
@@ -24,11 +37,29 @@ class CanvasRenderer {
         this.w = window.innerWidth;
         this.h = window.innerHeight;
 
+        // 1. Main Display Canvas
         this._resizeCanvas(this.cvs, this.w, this.h, scale);
-        
-        // Bloom canvas is 1/4 size for performance and glow effect
+
+        // 2. Bloom Canvas (1/4 size)
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
+
+        // 3. Buffer Canvas (Layer A - Stream Shapes)
+        this._resizeCanvas(this.bufferCvs, this.w, this.h, scale);
+        // Apply global scale so drawing coordinates match main canvas
+        this.bufferCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+
+        // 4. Scratch Canvas (Layer B - Overlap Shapes) -> NOW FULL SCREEN
+        this._resizeCanvas(this.scratchCvs, this.w, this.h, scale);
+        // Apply global scale so drawing coordinates match main canvas
+        this.scratchCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+
+        // Allocate Frame Buffers
+        if (!this.grid.chars) return;
+        const size = this.grid.chars.length;
+        this.frameAlphas = new Float32Array(size);
+        this.frameChars = new Uint16Array(size);
+        this.frameFlags = new Uint8Array(size);
 
         this.updateSmoothing();
     }
@@ -76,6 +107,8 @@ class CanvasRenderer {
     }
 
     render(frame) {
+        if (!this.frameAlphas) return;
+
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
@@ -96,8 +129,147 @@ class CanvasRenderer {
         }
 
         this._drawGrid(d, s, frame, bloomEnabled);
+        
+        if (s.overlapEnabled) {
+            this._drawOverlap(d, s, frame, bloomEnabled, scale);
+        }
 
         if (bloomEnabled) this._applyBloom(s, scale);
+    }
+
+    _drawOverlap(d, s, frame, bloomEnabled, scale) {
+        // --- SETUP ---
+        const ctxA = this.bufferCtx; // Layer A (Stream Shapes)
+        const cvsA = this.bufferCvs;
+        const ctxB = this.scratchCtx; // Layer B (Overlap Shapes)
+        const cvsB = this.scratchCvs;
+
+        // Clear both layers
+        // Note: Using the logical dimensions divided by stretch for clearRect because contexts are scaled
+        const clearW = this.w / s.stretchX; 
+        const clearH = this.h / s.stretchY;
+        
+        ctxA.clearRect(0, 0, clearW, clearH);
+        ctxB.clearRect(0, 0, clearW, clearH);
+
+        // Constants
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
+        
+        // Prepare Font for Standard Mode (fallback)
+        // We use a white fill for masks regardless of the final color
+        if (!useAtlas) {
+            ctxA.fillStyle = '#FFFFFF';
+            ctxB.fillStyle = '#FFFFFF';
+            ctxA.textBaseline = 'middle';
+            ctxA.textAlign = 'center';
+            ctxB.textBaseline = 'middle';
+            ctxB.textAlign = 'center';
+        }
+
+        // --- PASS 1: DRAW SHAPES ---
+        // We loop ONCE and draw to both layers appropriately.
+        // This builds the two "islands" of shapes without them interacting yet.
+        
+        for (const i of this.grid.activeIndices) {
+            // 1. Filter Logic
+            const style = this.grid.complexStyles.get(i);
+            if (style && style.isEffect) continue;
+
+            const overlapTarget = s.overlapTarget || 'stream';
+            if (overlapTarget === 'stream') {
+                const cellType = this.grid.types[i];
+                if (cellType !== CELL_TYPE.TRACER && cellType !== CELL_TYPE.ROTATOR) continue;
+            }
+
+            let gridAlpha = this.grid.alphas[i];
+            const tState = this._getTracerState(i, s);
+            if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
+            const override = this.effects.getOverride(i);
+            if (override && typeof override.alpha === 'number') gridAlpha = override.alpha;
+            
+            if (gridAlpha <= 0.05) continue;
+
+            const code = this.grid.overlapChars[i];
+            if (code === 0) continue;
+
+            // 2. Geometry
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
+            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+
+            let streamChar = this.grid.getChar(i);
+            if (override && override.char) streamChar = override.char;
+            const overlapChar = String.fromCharCode(code);
+
+            // 3. Draw to Layer A (Stream Base)
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(streamChar);
+                if (sprite) {
+                    // Draw raw shape (white/base sprite)
+                    ctxA.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                    );
+                }
+            } else {
+                // Standard Font Draw
+                // Note: If you want dissolve effects in overlap, replicate the font sizing logic here.
+                // For performance, we stick to the base font size for the mask.
+                ctxA.font = d.fontBaseStr; 
+                ctxA.fillText(streamChar, px, py);
+            }
+
+            // 4. Draw to Layer B (Overlap Mask)
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(overlapChar);
+                if (sprite) {
+                    ctxB.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                    );
+                }
+            } else {
+                ctxB.font = d.fontBaseStr;
+                ctxB.fillText(overlapChar, px, py);
+            }
+        }
+
+        // --- PASS 2: COMPOSITE (The Magic) ---
+        // Currently:
+        // Layer A has all the stream characters.
+        // Layer B has all the overlap characters.
+        
+        // 1. Reset Transforms for Full-Screen Composition
+        // We want to operate on the raw pixels of the buffers now.
+        ctxA.save();
+        ctxA.setTransform(1, 0, 0, 1, 0, 0); 
+        
+        // 2. INTERSECTION: Draw Layer B onto Layer A
+        // source-in: Keep pixels from B that overlap pixels in A.
+        // Result: Layer A now contains the INTERSECTION shapes (Stream AND Overlap).
+        ctxA.globalCompositeOperation = 'source-in';
+        ctxA.drawImage(cvsB, 0, 0);
+
+        // 3. COLORIZE: Draw the User's Color onto the Shapes
+        // source-in: Fill the existing shapes in A with the solid color.
+        ctxA.globalCompositeOperation = 'source-in';
+        ctxA.fillStyle = s.overlapColor;
+        // Use the raw canvas dimensions for the fill
+        ctxA.fillRect(0, 0, cvsA.width, cvsA.height);
+
+        ctxA.restore(); // Restore context for next frame's drawing
+
+        // --- PASS 3: FINAL DRAW ---
+        // Draw the fully composited Layer A onto the Main Screen
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.globalCompositeOperation = 'source-over';
+        this.ctx.globalAlpha = 1.0;
+        this.ctx.drawImage(cvsA, 0, 0);
+        this.ctx.restore();
     }
 
     _resetContext(ctx, s, scale) {
@@ -194,24 +366,30 @@ class CanvasRenderer {
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
 
             let color = defaultColor;
+            let pIdx = this.grid.paletteIndices[i];
+            
+            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
+            if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
+            
+            const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
+
             const style = this.grid.complexStyles.get(i);
             if (style) {
                 color = this._getCellColor(style, frame);
+            } else {
+                color = paletteColor;
             }
 
             // Check if we can use Atlas for this specific cell
-            // We use atlas if: 
-            // 1. Atlas is enabled globally
-            // 2. Cell color matches the primary stream color (Atlas currently mono-color)
-            // OR we can accept that rainbow cells use the fallback
-            const canUseAtlas = useAtlas && (color === defaultColor);
+            const canUseAtlas = useAtlas && (color === paletteColor);
 
             if (!canUseAtlas && color !== lastColor) {
                 this._setFillStyle(color, bloomEnabled);
+                lastColor = color;
             }
 
             if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled);
+                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
             } else {
                  this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
             }
@@ -234,10 +412,11 @@ class CanvasRenderer {
         return Utils.createRGBString(rgb);
     }
 
-    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled) {
+    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
         const sprite = this.glyphAtlas.get(char);
+        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
 
         if (!sprite) return; // Should not happen
 
@@ -257,19 +436,19 @@ class CanvasRenderer {
 
              // Outgoing
              this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
 
              // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
@@ -289,18 +468,18 @@ class CanvasRenderer {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
                  // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
                  // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
 
         this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
 
