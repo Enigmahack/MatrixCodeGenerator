@@ -1948,41 +1948,53 @@ class SupermanEffect extends AbstractEffect {
     // =========================================================================
 // --- CanvasRenderer.js ---
 class CanvasRenderer {
-    constructor(canvasId, grid, config, effects) {
+    constructor(canvasId, grid, config, effects, simulation) {
         this.cvs = document.getElementById(canvasId);
         this.ctx = this.cvs.getContext('2d', { alpha: false });
         this.bloomCvs = document.getElementById('bloomCanvas');
         this.bloomCtx = this.bloomCvs.getContext('2d', { alpha: true });
-        // Off-screen buffer for overlap composition
+        
+        // Main Buffer for Composition
         this.bufferCvs = document.createElement('canvas');
         this.bufferCtx = this.bufferCvs.getContext('2d', { alpha: true });
-        // Unified Render State Arrays
+
+        // [NEW] Cached Imposition Layer (Stores the static background noise)
+        this.overlapCache = document.createElement('canvas');
+        this.overlapCtx = this.overlapCache.getContext('2d', { alpha: true });
+
         this.frameAlphas = null;
         this.frameChars = null;
-        this.frameFlags = null; // Bit 0: Active, Bit 1: Overlap Allowed
+        this.frameFlags = null; 
         this.grid = grid;
         this.config = config;
         this.effects = effects;
-        // Initialize Glyph Atlas
-        // Assuming GlyphAtlas class is available globally or imported
+        this.simulation = simulation;
+        
         if (typeof GlyphAtlas !== 'undefined') {
             this.glyphAtlas = new GlyphAtlas(config);
         }
+        this.renderData = []; // New array to store pre-calculated render properties per cell
+        this.colorCache = new Map(); // Cache for color strings
+        this.fontCache = new Map(); // Cache for font strings
         this.w = 0;
         this.h = 0;
     }
+
     resize() {
         const scale = this.config.state.resolution;
         this.w = window.innerWidth;
         this.h = window.innerHeight;
         this._resizeCanvas(this.cvs, this.w, this.h, scale);
-        // Bloom canvas is 1/4 size for performance and glow effect
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
-        // Buffer canvas (1:1 scale for pixel accuracy)
+        
         this._resizeCanvas(this.bufferCvs, this.w, this.h, scale);
         this.bufferCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
-        // Allocate Frame Buffers
+        
+        // [NEW] Resize Cache
+        this._resizeCanvas(this.overlapCache, this.w, this.h, scale);
+        this.overlapCtx.scale(scale * this.config.state.stretchX, scale * this.config.state.stretchY);
+
         if (!this.grid.chars) return;
         const size = this.grid.chars.length;
         this.frameAlphas = new Float32Array(size);
@@ -1990,24 +2002,19 @@ class CanvasRenderer {
         this.frameFlags = new Uint8Array(size);
         this.updateSmoothing();
     }
+
     _resizeCanvas(canvas, width, height, scale) {
         canvas.width = width * scale;
         canvas.height = height * scale;
         canvas.style.width = `${width}px`;
         canvas.style.height = `${height}px`;
     }
-    /**
-     * Updates canvas smoothing filters for blur effects.
-     * Ensures visual fidelity when smoothing is enabled in settings.
-     */
+
     updateSmoothing() {
         const smoothing = this.config.state.smoothingEnabled ? this.config.state.smoothingAmount : 0;
         this.cvs.style.filter = `blur(${smoothing}px)`;
     }
-    /**
-     * Calculates the alpha and phase of the tracer based on its age and active state.
-     * Optimized logic with early returns and simplified operations.
-     */
+
     _getTracerState(index, state) {
         const age = this.grid.ages[index];
         const decay = this.grid.decays[index];
@@ -2026,384 +2033,492 @@ class CanvasRenderer {
         }
         return { alpha: 0, phase: 'none' };
     }
+
     render(frame) {
         if (!this.frameAlphas) return;
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
-        // Update Glyph Atlas if enabled
+
         if (s.enableGlyphAtlas && this.glyphAtlas) {
             this.glyphAtlas.update();
         }
+
         this._resetContext(this.ctx, s, scale);
         if (bloomEnabled) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
+        
         this._applyMirrorEffect(this.ctx, s, scale);
         if (bloomEnabled) {
             this.bloomCtx.save();
             this.bloomCtx.scale(scale * s.stretchX, scale * s.stretchY);
             this._applyMirrorEffect(this.bloomCtx, s, scale);
         }
+
+        this._prepareFrameRenderData(frame);
         this._drawGrid(d, s, frame, bloomEnabled);
+
         if (s.overlapEnabled) {
-            this._drawOverlap(d, s, frame, bloomEnabled, scale);
+            // [NEW] Logic: Only rebuild cache if simulation says it's dirty
+            // or if the canvas was just resized (checked by width)
+            // We use 'simulation.cacheDirty' flag we added earlier.
+            if (this.effects.grid.noiseDirty || this.simulation.cacheDirty) { 
+                this._updateOverlapCache(d, s);
+                if (this.simulation) this.simulation.cacheDirty = false;
+                this.effects.grid.noiseDirty = false;
+            }
+            this._drawOverlap(d, s);
         }
+
         if (bloomEnabled) this._applyBloom(s, scale);
     }
-    _drawOverlap(d, s, frame, bloomEnabled, scale) {
-        const ctx = this.bufferCtx;
-        const cvs = this.bufferCvs;
-        // 1. Clear Buffer
+
+    // [NEW] Draws all static noise characters to the cache canvas ONCE
+    _updateOverlapCache(d, s) {
+        const ctx = this.overlapCtx;
+        const cvs = this.overlapCache;
         ctx.clearRect(0, 0, cvs.width, cvs.height);
-        // Save state
-        ctx.save();
-        // 2. Draw Mask (Active Grid)
+        
+        const cellW = d.cellWidth;
+        const cellH = d.cellHeight;
+        const halfW = cellW * 0.5;
+        const halfH = cellH * 0.5;
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
+        
+        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
         const overlapYOffset = d.paletteColorsStr.length * this.glyphAtlas.blockHeight;
-        // Unified Dynamic Pass
-        for (const i of this.grid.activeIndices) {
-            // Filter 1: Decouple from Effects (Superman, etc)
-            const style = this.grid.complexStyles.get(i);
-            if (style && style.isEffect) continue;
-            let gridAlpha = this.grid.alphas[i];
-            let maskChar = this.grid.getChar(i);
-            // Sync with Tracer Logic
-            const tState = this._getTracerState(i, s);
-            if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
-            // Sync with Effect Overrides (Pulse Pause)
-            const override = this.effects.getOverride(i);
-            if (override) {
-                if (typeof override.alpha === 'number') gridAlpha = override.alpha;
-                if (override.char) maskChar = override.char;
-            }
-            if (gridAlpha <= 0.05) continue;
-            const x = i % this.grid.cols;
-            const y = Math.floor(i / this.grid.cols);
-            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-            const sprite = this.glyphAtlas.get(maskChar);
-            if (sprite) {
-                ctx.globalAlpha = gridAlpha;
-                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
-            }
-        }
-        // 3. Composite Operation: "source-in"
-        ctx.globalCompositeOperation = 'source-in';
-        ctx.globalAlpha = 1.0; 
-        // 4. Draw Imposition Layer (Dynamic)
-        for (const i of this.grid.activeIndices) {
-            // Same filters for efficiency
-            const style = this.grid.complexStyles.get(i);
-            if (style && style.isEffect) continue;
+
+        ctx.font = d.fontBaseStr;
+        ctx.fillStyle = s.overlapColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Iterate entire grid
+        const total = this.grid.cols * this.grid.rows;
+        for (let i = 0; i < total; i++) {
             const code = this.grid.overlapChars[i];
             if (code === 0) continue;
+            
             const x = i % this.grid.cols;
             const y = Math.floor(i / this.grid.cols);
-            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+            const px = (x * cellW + halfW) + xOff;
+            const py = (y * cellH + halfH) + yOff;
             const char = String.fromCharCode(code);
-            const sprite = this.glyphAtlas.get(char);
-            if (sprite) {
-                ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + overlapYOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(char);
+                if (sprite) {
+                    ctx.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y + overlapYOffset, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                }
+            } else {
+                ctx.fillText(char, px, py);
             }
         }
-        ctx.restore(); // Restore composite mode
-        // 5. Draw Buffer to Main Screen
+    }
+
+    _prepareFrameRenderData(frame) {
+        const { state: s, derived: d } = this.config;
+        const totalCells = this.grid.cols * this.grid.rows;
+
+        this.renderData.length = 0; 
+        
+        const cellW = d.cellWidth;
+        const cellH = d.cellHeight;
+        const halfW = cellW * 0.5;
+        const halfH = cellH * 0.5;
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+
+        const fontBase = d.fontBaseStr;
+        const defaultColor = d.streamColorStr;
+
+        // Clear caches at the start of each frame if not needed for long-term (or implement LRU)
+        // For simplicity now, we'll clear per frame, assuming most dynamic values change
+        this.colorCache.clear();
+        this.fontCache.clear();
+
+
+        for (let i = 0; i < totalCells; i++) {
+            const renderItem = {
+                skip: true, 
+                char: '', x: 0, y: 0, px: 0, py: 0,
+                color: defaultColor, alpha: 0, font: fontBase,
+                isTracer: false, glow: 0, size: 1, solid: false, blend: false,
+                drawType: 'none', 
+                sprite: null, 
+                yOffset: 0, 
+            };
+
+            const gridAlpha = this.grid.alphas[i];
+            const charCode = this.grid.chars[i];
+            const char = String.fromCharCode(charCode);
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * cellW + halfW) + xOff;
+            const py = (y * cellH + halfH) + yOff;
+
+            renderItem.x = x;
+            renderItem.y = y;
+            renderItem.px = px;
+            renderItem.py = py;
+            renderItem.char = char;
+
+            const override = this.effects.getOverride(i);
+
+            if (override && !override.blend) {
+                renderItem.skip = false;
+                renderItem.drawType = 'override';
+                Object.assign(renderItem, override); 
+            } else {
+                let effectiveAlpha = gridAlpha;
+                const tState = this._getTracerState(i, s);
+
+                if (effectiveAlpha <= 0.01 || tState.phase === 'attack' || tState.phase === 'hold') {
+                    renderItem.skip = true;
+                } else {
+                    renderItem.skip = false;
+                    renderItem.alpha = effectiveAlpha;
+
+                    let currentColor = defaultColor;
+                    const pIdx = this.grid.paletteIndices[i];
+                    const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
+
+                    const style = this.grid.complexStyles.get(i);
+                    if (style) {
+                        const colorKey = `style_${style.h}_${style.s}_${style.l}_${style.cycle}_${style.speed}_${frame}`;
+                        if (this.colorCache.has(colorKey)) {
+                            currentColor = this.colorCache.get(colorKey);
+                        } else {
+                            currentColor = this._getCellColor(style, frame);
+                            this.colorCache.set(colorKey, currentColor);
+                        }
+                    } else {
+                        currentColor = paletteColor;
+                    }
+                    renderItem.color = currentColor;
+
+                    const canUseAtlas = s.enableGlyphAtlas && !!this.glyphAtlas && (currentColor === paletteColor);
+                    if (canUseAtlas) {
+                        renderItem.drawType = 'atlas';
+                        renderItem.sprite = this.glyphAtlas.get(char);
+                        renderItem.yOffset = pIdx * this.glyphAtlas.blockHeight;
+                    } else {
+                        renderItem.drawType = 'fillText';
+                    }
+
+                    const decay = this.grid.decays[i];
+                    if (s.dissolveEnabled && decay >= 2) {
+                        const prog = (decay - 2) / s.decayFadeDurationFrames;
+                        const minRatio = s.dissolveMinSize / s.fontSize;
+                        const scale = Math.max(0.1, 1.0 - (prog * (1.0 - minRatio)));
+                        
+                        renderItem.size = scale; 
+
+                        if (s.deteriorationEnabled) {
+                             renderItem.deterioration = { prog, off: s.deteriorationStrength * prog };
+                        }
+                        
+                        if (renderItem.drawType === 'fillText') {
+                            const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
+                            const fontKey = `${s.italicEnabled ? 'italic' : ''}_${s.fontWeight}_${size}px_${s.fontFamily}`;
+                            if (this.fontCache.has(fontKey)) {
+                                renderItem.font = this.fontCache.get(fontKey);
+                            } else {
+                                const fontStr = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
+                                this.fontCache.set(fontKey, fontStr);
+                                renderItem.font = fontStr;
+                            }
+                        }
+                    }
+
+                    const rotProg = this.grid.rotatorProg[i];
+                    if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
+                        renderItem.rotator = {
+                            prog: rotProg / s.rotatorCrossfadeFrames,
+                            nextChar: this.grid.nextChars.get(i),
+                        };
+                    }
+                }
+            }
+            
+            if (override && override.blend) {
+                renderItem.blendOverride = override; 
+                renderItem.skip = false; 
+            }
+
+            if (tState.alpha > 0.01) {
+                renderItem.isTracer = true;
+                renderItem.tracerAlpha = tState.alpha;
+                renderItem.glow = s.tracerGlow;
+                
+                let tracerColor = d.tracerColorStr;
+                const style = this.grid.complexStyles.get(i);
+                if (style && style.isEffect) {
+                    const tracerColorKey = `tracer_style_${style.h}_${style.s}_${style.l}_${style.cycle}_${style.speed}_${frame}`;
+                    if (this.colorCache.has(tracerColorKey)) {
+                        tracerColor = this.colorCache.get(tracerColorKey);
+                    } else {
+                        let h = style.h;
+                        if (style.cycle) h = (h + (frame * style.speed)) % 360;
+                        const tc = Utils.hslToRgb(h | 0, 100, 90);
+                        tracerColor = Utils.createRGBString(tc);
+                        this.colorCache.set(tracerColorKey, tracerColor);
+                    }
+                }
+                renderItem.tracerColor = tracerColor;
+            }
+
+            this.renderData.push(renderItem);
+        }
+    }
+
+    // [OPTIMIZED] Uses the cache + Source-In composition
+    _drawOverlap(d, s) {
+        const ctx = this.bufferCtx;
+        const cvs = this.bufferCvs;
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+        // --- PASS 1: DRAW THE MASK (Active Streams) ---
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // [FIX] Add shadowBlur to make the mask characters glow.
+        // This makes them "fatter" so they intersect better with thin imposition chars.
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'white';
+        ctx.fillStyle = 'white'; 
+
+        const cellW = d.cellWidth;
+        const cellH = d.cellHeight;
+        const halfW = cellW * 0.5;
+        const halfH = cellH * 0.5;
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
+
+        for (const i of this.grid.activeIndices) {
+            const tState = this._getTracerState(i, s);
+            // Only draw if fully active
+            if (tState.phase === 'attack' || tState.phase === 'hold') continue;
+            
+            let gridAlpha = this.grid.alphas[i];
+            if (gridAlpha <= 0.1) continue;
+
+            const x = i % this.grid.cols;
+            const y = Math.floor(i / this.grid.cols);
+            const px = (x * cellW + halfW) + xOff;
+            const py = (y * cellH + halfH) + yOff;
+            const maskChar = this.grid.getChar(i);
+
+            ctx.globalAlpha = gridAlpha;
+            
+            if (useAtlas) {
+                const sprite = this.glyphAtlas.get(maskChar);
+                if (sprite) {
+                     // Draw mask sprite
+                     ctx.drawImage(this.glyphAtlas.canvas, 
+                        sprite.x, sprite.y, sprite.w, sprite.h, 
+                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                }
+            } else {
+                 ctx.font = d.fontBaseStr;
+                 ctx.textAlign = 'center';
+                 ctx.textBaseline = 'middle';
+                 ctx.fillText(maskChar, px, py);
+            }
+        }
+
+        // --- PASS 2: COMPOSITE THE CACHE ---
+        // Draw the cached background layer ONLY where we just drew the mask.
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.globalAlpha = 1.0;
+        ctx.shadowBlur = 0; // Turn off shadow for the blit
+        
+        // Blit the entire cache in one go
+        ctx.drawImage(this.overlapCache, 0, 0);
+        
+        ctx.restore();
+
+        // --- FINAL DRAW TO SCREEN ---
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0); 
         this.ctx.drawImage(cvs, 0, 0);
         this.ctx.restore();
     }
+
     _resetContext(ctx, s, scale) {
         ctx.save();
         ctx.scale(scale * s.stretchX, scale * s.stretchY);
         ctx.fillStyle = `rgba(0,0,0,${s.clearAlpha})`;
         ctx.fillRect(0, 0, this.w / s.stretchX, this.h / s.stretchY);
     }
-    _applyMirrorEffect(ctx, s, scale) {
-        if (s.mirrorEnabled) {
-            ctx.scale(-1, 1);
-            ctx.translate(-(this.w / s.stretchX), 0);
-        }
-    }
-    _applyBloom(s, scale) {
-        // Safety check: Ensure bloom canvas has dimensions to avoid InvalidStateError
-        if (this.bloomCvs.width === 0 || this.bloomCvs.height === 0) return;
-        this.bloomCtx.restore();
-        this.ctx.save();
-        this.ctx.globalCompositeOperation = 'lighter';
-        this.ctx.filter = `blur(${s.bloomStrength * 4}px)`;
-        this.ctx.globalAlpha = s.bloomOpacity;
-        this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale);
-        this.ctx.restore();
-    }
+    _applyMirrorEffect(ctx, s, scale) { if (s.mirrorEnabled) { ctx.scale(-1, 1); ctx.translate(-(this.w / s.stretchX), 0); } }
+    _applyBloom(s, scale) { if (this.bloomCvs.width === 0 || this.bloomCvs.height === 0) return; this.bloomCtx.restore(); this.ctx.save(); this.ctx.globalCompositeOperation = 'lighter'; this.ctx.filter = `blur(${s.bloomStrength * 4}px)`; this.ctx.globalAlpha = s.bloomOpacity; this.ctx.drawImage(this.bloomCvs, 0, 0, this.w * scale, this.h * scale); this.ctx.restore(); }
     _drawGrid(d, s, frame, bloomEnabled) {
         const fontBase = d.fontBaseStr;
-        // Only set font if NOT using atlas for everything
-        // Or if we need it for fallbacks/tracers
-        this.ctx.font = fontBase;
-        this.ctx.textBaseline = 'middle';
-        this.ctx.textAlign = 'center';
-        if (bloomEnabled) {
-            this.bloomCtx.font = fontBase;
-            this.bloomCtx.textBaseline = 'middle';
-            this.bloomCtx.textAlign = 'center';
+        
+        // Use a single loop to draw all characters from the pre-calculated renderData
+        for (const item of this.renderData) {
+            if (item.skip) continue;
+
+            const ctx = this.ctx;
+            const bloomCtx = this.bloomCtx;
+            
+            // Set common drawing properties
+            ctx.globalAlpha = item.alpha;
+            ctx.fillStyle = item.color;
+            ctx.font = item.font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowBlur = item.glow;
+            ctx.shadowColor = item.color; // Assuming glow color is same as fill color for now
+
+            if (bloomEnabled) {
+                bloomCtx.globalAlpha = item.alpha;
+                bloomCtx.fillStyle = item.color;
+                bloomCtx.font = item.font;
+                bloomCtx.textAlign = 'center';
+                bloomCtx.textBaseline = 'middle';
+                bloomCtx.shadowBlur = item.glow; // Apply glow to bloom canvas too
+                bloomCtx.shadowColor = item.color;
+            }
+
+            // Handle different draw types
+            switch (item.drawType) {
+                case 'atlas':
+                    if (item.sprite) {
+                        const sprite = item.sprite;
+                        const scale = item.size; // For dissolve effect
+                        ctx.drawImage(this.glyphAtlas.canvas,
+                            sprite.x, sprite.y + item.yOffset, sprite.w, sprite.h,
+                            item.px - (sprite.w * scale) / 2, item.py - (sprite.h * scale) / 2,
+                            sprite.w * scale, sprite.h * scale);
+                        if (bloomEnabled) {
+                            bloomCtx.drawImage(this.glyphAtlas.canvas,
+                                sprite.x, sprite.y + item.yOffset, sprite.w, sprite.h,
+                                item.px - (sprite.w * scale) / 2, item.py - (sprite.h * scale) / 2,
+                                sprite.w * scale, sprite.h * scale);
+                        }
+                        // Handle deterioration for atlas (multiple draws)
+                        if (item.deterioration) {
+                            const off = item.deterioration.off;
+                            ctx.globalAlpha = item.alpha * 0.4 * item.deterioration.prog;
+                            ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + item.yOffset, sprite.w, sprite.h, item.px - (sprite.w*scale)/2, (item.py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                            ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + item.yOffset, sprite.w, sprite.h, item.px - (sprite.w*scale)/2, (item.py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                        }
+                    }
+                    break;
+                case 'fillText':
+                    ctx.fillText(item.char, item.px, item.py);
+                    if (bloomEnabled) {
+                        bloomCtx.fillText(item.char, item.px, item.py);
+                    }
+                    // Handle deterioration for fillText (multiple draws)
+                    if (item.deterioration) {
+                        const off = item.deterioration.off;
+                        ctx.globalAlpha = item.alpha * 0.4 * item.deterioration.prog;
+                        ctx.fillText(item.char, item.px, item.py - off);
+                        ctx.fillText(item.char, item.px, item.py + off);
+                    }
+                    break;
+                case 'override':
+                    // This handles non-blending overrides that fully replace the cell
+                    // Properties like solid, char, color, alpha, font, glow are already set from item
+                    if (item.solid) {
+                        ctx.fillStyle = item.bgColor || '#000000';
+                        const w = Math.ceil(d.cellWidth) + 1;
+                        const h = Math.ceil(d.cellHeight) + 1;
+                        ctx.fillRect(Math.floor(item.px - (d.cellWidth/2)), Math.floor(item.py - (d.cellHeight/2)), w, h);
+                    }
+                    if (item.char && item.alpha > 0.01) {
+                         ctx.fillText(item.char, item.px, item.py);
+                         if (bloomEnabled) {
+                             bloomCtx.fillText(item.char, item.px, item.py);
+                         }
+                    }
+                    break;
+            }
+
+            // Handle rotator crossfade (always fillText for nextChar)
+            if (item.rotator) {
+                const p = item.rotator.prog;
+                const nextChar = item.rotator.nextChar;
+                if (nextChar) {
+                    ctx.globalAlpha = item.alpha * p;
+                    ctx.fillText(nextChar, item.px, item.py);
+                    if (bloomEnabled) {
+                        bloomCtx.globalAlpha = item.alpha * p;
+                        bloomCtx.fillText(nextChar, item.px, item.py);
+                    }
+                }
+            }
+
+            // Handle blending overrides (drawn on top of the base cell)
+            if (item.blendOverride) {
+                const o = item.blendOverride;
+                ctx.globalAlpha = o.alpha;
+                ctx.fillStyle = o.color;
+                ctx.shadowBlur = o.glow || 0;
+                ctx.shadowColor = o.color;
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                ctx.font = font;
+
+                if (o.char && o.alpha > 0.01) {
+                    ctx.fillText(o.char, item.px, item.py);
+                    if (bloomEnabled) {
+                        bloomCtx.globalAlpha = o.alpha;
+                        bloomCtx.fillStyle = o.color; // Ensure bloom uses override color
+                        bloomCtx.font = font;
+                        bloomCtx.fillText(o.char, item.px, item.py);
+                    }
+                }
+            }
+
+            // Handle tracers (always drawn last, potentially on top)
+            if (item.isTracer && item.tracerAlpha > 0.01) {
+                ctx.globalAlpha = item.tracerAlpha;
+                ctx.fillStyle = item.tracerColor;
+                ctx.shadowBlur = item.glow;
+                ctx.shadowColor = item.tracerColor;
+                const tracerFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
+                ctx.font = tracerFont;
+
+                ctx.fillText(item.char, item.px, item.py);
+                if (bloomEnabled) {
+                    bloomCtx.globalAlpha = item.tracerAlpha;
+                    bloomCtx.fillStyle = item.tracerColor; // Ensure bloom uses tracer color
+                    bloomCtx.font = tracerFont;
+                    bloomCtx.fillText(item.char, item.px, item.py);
+                }
+            }
         }
-        const defaultColor = d.streamColorStr;
-        let lastColor = defaultColor;
-        this._setFillStyle(defaultColor, bloomEnabled); 
-        const xOff = s.fontOffsetX;
-        const yOff = s.fontOffsetY;
-        const useActiveSet = !this.effects.hasActiveEffects();
-        // Decide drawing mode once per frame
-        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
-        const total = useActiveSet ? 0 : this.grid.cols * this.grid.rows;
-        if (useActiveSet) {
-            for (const i of this.grid.activeIndices) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
-            }
-        } else {
-            for (let i = 0; i < total; i++) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
-            }
-        }
-        this._drawTracers(d, s, frame, bloomEnabled, xOff, yOff);
-        this.ctx.restore();
+        ctx.restore();
+        if (bloomEnabled) bloomCtx.restore(); // Restore bloom context if it was saved
     }
-    _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas) {
-            // Reset context shadow to prevent pollution from previous overrides
-            this.ctx.shadowBlur = 0;
-            this.ctx.shadowColor = 'transparent';
-            const override = this.effects.getOverride(i);
-            if (override && !override.blend) {
-                this._drawOverride(i, override, d, s, bloomEnabled);
-                return;
-            }
-            let gridAlpha = this.grid.alphas[i];
-            if (gridAlpha <= 0.01) return;
-            const tState = this._getTracerState(i, s);
-            if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
-            if (gridAlpha <= 0.01) return;
-            const x = i % this.grid.cols;
-            const y = Math.floor(i / this.grid.cols);
-            const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-            const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-            let color = defaultColor;
-            let pIdx = this.grid.paletteIndices[i];
-            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
-            if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
-            const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
-            const style = this.grid.complexStyles.get(i);
-            if (style) {
-                color = this._getCellColor(style, frame);
-            } else {
-                color = paletteColor;
-            }
-            // Check if we can use Atlas for this specific cell
-            const canUseAtlas = useAtlas && (color === paletteColor);
-            if (!canUseAtlas && color !== lastColor) {
-                this._setFillStyle(color, bloomEnabled);
-                lastColor = color;
-            }
-            if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
-            } else {
-                 this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
-            }
-            if (override && override.blend) {
-                this._drawOverride(i, override, d, s, bloomEnabled);
-            }
-    }
-    _setFillStyle(color, bloomEnabled) {
-        this.ctx.fillStyle = color;
-        if (bloomEnabled) this.bloomCtx.fillStyle = color;
-    }
-    _getCellColor(style, frame) {
-        if (style.glitter && Math.random() < 0.02) return '#ffffff';
-        let h = style.h;
-        if (style.cycle) h = (h + (frame * style.speed)) % 360;
-        const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
-        return Utils.createRGBString(rgb);
-    }
+
+    _setFillStyle(color, bloomEnabled) { this.ctx.fillStyle = color; if (bloomEnabled) this.bloomCtx.fillStyle = color; }
+    _getCellColor(style, frame) { if (style.glitter && Math.random() < 0.02) return '#ffffff'; let h = style.h; if (style.cycle) h = (h + (frame * style.speed)) % 360; const rgb = Utils.hslToRgb(h | 0, style.s, style.l); return Utils.createRGBString(rgb); }
     _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
-        const decay = this.grid.decays[i];
-        const char = this.grid.getChar(i);
-        const sprite = this.glyphAtlas.get(char);
-        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
-        if (!sprite) return; // Should not happen
-        // NOTE: Rotator crossfade in Atlas mode is simplified (no crossfade)
-        // or we can implement it by drawing two sprites?
-        // For strict performance, let's skip crossfade in Atlas mode OR just do simple swap
-        // If user wants high quality crossfade, they disable Atlas. 
-        // OR we do a simple alpha blend if rotProg > 0
-        // Check Rotator
+        const decay = this.grid.decays[i]; const char = this.grid.getChar(i); const sprite = this.glyphAtlas.get(char); const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight; if (!sprite) return;
         const rotProg = this.grid.rotatorProg[i];
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
-             // Crossfade
-             const p = rotProg / s.rotatorCrossfadeFrames;
-             const next = this.grid.nextChars.get(i);
-             const nextSprite = next ? this.glyphAtlas.get(next) : null;
-             // Outgoing
-             this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
-             if(bloomEnabled) {
-                 this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
-             }
-             // Incoming
-             if (nextSprite) {
-                 this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
-                 if(bloomEnabled) {
-                     this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
-                 }
-             }
-             return;
+             const p = rotProg / s.rotatorCrossfadeFrames; const next = this.grid.nextChars.get(i); const nextSprite = next ? this.glyphAtlas.get(next) : null;
+             this.ctx.globalAlpha = alpha * (1 - p); this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             if(bloomEnabled) { this.bloomCtx.globalAlpha = alpha * (1 - p); this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h); }
+             if (nextSprite) { this.ctx.globalAlpha = alpha * p; this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h); if(bloomEnabled) { this.bloomCtx.globalAlpha = alpha * p; this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h); } } return;
         }
-        // Standard Draw / Dissolve
-        let scale = 1.0;
-        if (s.dissolveEnabled && decay >= 2) {
-             const prog = (decay - 2) / s.decayFadeDurationFrames;
-             // simulate font size shrink by scaling image
-             // Min size ratio
-             const minRatio = s.dissolveMinSize / s.fontSize;
-             scale = 1.0 - (prog * (1.0 - minRatio));
-             scale = Math.max(0.1, scale); // Clamp
-             if (s.deteriorationEnabled) {
-                 const off = s.deteriorationStrength * prog;
-                 this.ctx.globalAlpha = alpha * 0.4 * prog;
-                 // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-                 // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-             }
-        }
-        this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-        if (bloomEnabled) {
-            this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-        }
+        let scale = 1.0; if (s.dissolveEnabled && decay >= 2) { const prog = (decay - 2) / s.decayFadeDurationFrames; const minRatio = s.dissolveMinSize / s.fontSize; scale = 1.0 - (prog * (1.0 - minRatio)); scale = Math.max(0.1, scale); if (s.deteriorationEnabled) { const off = s.deteriorationStrength * prog; this.ctx.globalAlpha = alpha * 0.4 * prog; this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale); this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale); } }
+        this.ctx.globalAlpha = alpha; this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        if (bloomEnabled) { this.bloomCtx.globalAlpha = alpha; this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale); }
     }
     _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontBase) {
-        const decay = this.grid.decays[i];
-        const rotProg = this.grid.rotatorProg[i];
-        const char = this.grid.getChar(i);
-        if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
-            const p = rotProg / s.rotatorCrossfadeFrames;
-            // Draw outgoing character
-            this.ctx.globalAlpha = alpha * (1 - p);
-            this.ctx.fillText(char, px, py);
-            if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha * (1 - p);
-                this.bloomCtx.fillText(char, px, py);
-            }
-            // Draw incoming character
-            const next = this.grid.nextChars.get(i);
-            if (next) {
-                this.ctx.globalAlpha = alpha * p;
-                this.ctx.fillText(next, px, py);
-                if (bloomEnabled) {
-                    this.bloomCtx.globalAlpha = alpha * p;
-                    this.bloomCtx.fillText(next, px, py);
-                }
-            }
-        } else if (s.dissolveEnabled && decay >= 2) {
-            const prog = (decay - 2) / s.decayFadeDurationFrames;
-            const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
-            this.ctx.font = font;
-            if (s.deteriorationEnabled) {
-                const off = s.deteriorationStrength * prog;
-                this.ctx.globalAlpha = alpha * 0.4 * prog;
-                this.ctx.fillText(char, px, py - off);
-                this.ctx.fillText(char, px, py + off);
-            }
-            this.ctx.globalAlpha = alpha;
-            this.ctx.fillText(char, px, py);
-            if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha;
-                this.bloomCtx.fillText(char, px, py);
-            }
-            this.ctx.font = fontBase;
-        } else {
-            this.ctx.globalAlpha = alpha;
-            this.ctx.fillText(char, px, py);
-            if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha;
-                this.bloomCtx.fillText(char, px, py);
-            }
-        }
+        const decay = this.grid.decays[i]; const rotProg = this.grid.rotatorProg[i]; const char = this.grid.getChar(i);
+        if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) { const p = rotProg / s.rotatorCrossfadeFrames; this.ctx.globalAlpha = alpha * (1 - p); this.ctx.fillText(char, px, py); if (bloomEnabled) { this.bloomCtx.globalAlpha = alpha * (1 - p); this.bloomCtx.fillText(char, px, py); } const next = this.grid.nextChars.get(i); if (next) { this.ctx.globalAlpha = alpha * p; this.ctx.fillText(next, px, py); if (bloomEnabled) { this.bloomCtx.globalAlpha = alpha * p; this.bloomCtx.fillText(next, px, py); } } } else if (s.dissolveEnabled && decay >= 2) { const prog = (decay - 2) / s.decayFadeDurationFrames; const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog)); const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`; this.ctx.font = font; if (s.deteriorationEnabled) { const off = s.deteriorationStrength * prog; this.ctx.globalAlpha = alpha * 0.4 * prog; this.ctx.fillText(char, px, py - off); this.ctx.fillText(char, px, py + off); } this.ctx.globalAlpha = alpha; this.ctx.fillText(char, px, py); if (bloomEnabled) { this.bloomCtx.globalAlpha = alpha; this.bloomCtx.fillText(char, px, py); } this.ctx.font = fontBase; } else { this.ctx.globalAlpha = alpha; this.ctx.fillText(char, px, py); if (bloomEnabled) { this.bloomCtx.globalAlpha = alpha; this.bloomCtx.fillText(char, px, py); } }
     }
-    _drawTracers(d, s, frame, bloomEnabled, xOff, yOff) {
-        const tStr = d.tracerColorStr;
-        this.ctx.shadowBlur = s.tracerGlow;
-        this.ctx.shadowColor = tStr;
-        const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
-        this.ctx.font = tFont;
-        if (bloomEnabled) this.bloomCtx.font = tFont;
-        for (const i of this.grid.activeIndices) {
-            if (this.effects.getOverride(i)) continue;
-            const tState = this._getTracerState(i, s);
-            if (tState.alpha > 0.01) {
-                const x = i % this.grid.cols;
-                const y = Math.floor(i / this.grid.cols);
-                const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
-                const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-                const style = this.grid.complexStyles.get(i);
-                let cStr = tStr;
-                if (style && style.isEffect) {
-                    let h = style.h;
-                    if (style.cycle) h = (h + (frame * style.speed)) % 360;
-                    const tc = Utils.hslToRgb(h | 0, 100, 90);
-                    cStr = Utils.createRGBString(tc);
-                }
-                this.ctx.fillStyle = cStr;
-                this.ctx.shadowColor = cStr;
-                if (bloomEnabled) this.bloomCtx.fillStyle = cStr;
-                this.ctx.globalAlpha = tState.alpha;
-                this.ctx.fillText(this.grid.getChar(i), px, py);
-                if (bloomEnabled) {
-                    this.bloomCtx.globalAlpha = tState.alpha;
-                    this.bloomCtx.fillText(this.grid.getChar(i), px, py);
-                }
-            }
-        }
-    }
-    _drawOverride(i, o, d, s, bloom) {
-        const x = i % this.grid.cols;
-        const y = Math.floor(i / this.grid.cols);
-        const cx = (x * d.cellWidth) + s.fontOffsetX;
-        const cy = (y * d.cellHeight) + s.fontOffsetY;
-        const px = cx + (d.cellWidth * 0.5);
-        const py = cy + (d.cellHeight * 0.5);
-        if (o.solid) {
-            const bg = o.bgColor || '#000000';
-            this.ctx.fillStyle = bg;
-            const w = Math.ceil(d.cellWidth) + 1;
-            const h = Math.ceil(d.cellHeight) + 1;
-            this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
-        }
-        if (o.char && o.alpha > 0.01) {
-            this.ctx.fillStyle = o.color;
-            this.ctx.shadowColor = o.color;
-            this.ctx.shadowBlur = o.glow || 0;
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-            this.ctx.font = font;
-            this.ctx.globalAlpha = o.alpha;
-            this.ctx.fillText(o.char, px, py);
-            if (bloom) {
-                this.bloomCtx.save();
-                this.bloomCtx.fillStyle = o.color;
-                this.bloomCtx.font = font;
-                this.bloomCtx.globalAlpha = o.alpha;
-                this.bloomCtx.fillText(o.char, px, py);
-                this.bloomCtx.restore();
-            }
-            this.ctx.font = d.fontBaseStr;
-        }
-    }
+
+
 }
     // =========================================================================
     // 8.0 FONT MANAGER
@@ -2511,48 +2626,36 @@ class SimulationSystem {
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
+        
+        // [NEW] Track if cache needs rebuilding
         this.overlapInitialized = false;
+        this.cacheDirty = true; 
     }
-    _initializeModes(config) {
-        return {
-            'STANDARD': new StandardMode(config),
-            'STAR_POWER': new StarPowerMode(config),
-            'RAINBOW': new RainbowMode(config)
-        };
+
+    resetOverlap() {
+        this.overlapInitialized = false;
+        this.cacheDirty = true;
+        // Force grid to re-evaluate noise on next update
+        if (this.grid) this.grid.noiseDirty = true;
     }
-    update(frame) {
-        if (this.lastStreamInColumn.length !== this.grid.cols) {
-            this._resetColumns();
-        }
-        this._manageStreams(frame);
-        this._manageOverlapGrid(frame);
-        this._updateCells(frame);
-    }
+
     _manageOverlapGrid(frame) {
         if (!this.config.state.overlapEnabled) return;
-        // Initialize if empty
+
+        // Initialize if empty (First Run)
         if (!this.overlapInitialized) {
             for(let i=0; i<this.grid.overlapChars.length; i++) {
                 if (Math.random() < this.config.state.overlapDensity) {
                     this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
                 } else {
-                    this.grid.overlapChars[i] = 0; // Empty
+                    this.grid.overlapChars[i] = 0;
                 }
             }
             this.overlapInitialized = true;
-            this.grid.noiseDirty = true;
+            this.cacheDirty = true; // [NEW] Signal renderer to rebuild cache
         }
-        // Slowly churn the noise
-        // Note: User requested Shimmer to be optional. 
-        // Wait, user requested "choosing overlap color should cause a refresh".
-        // This means we need to redraw the noise layer when color changes.
-        // The CanvasRenderer checks `noiseDirty`.
-        // Changing color doesn't change characters, so Simulation doesn't care.
-        // But CanvasRenderer needs to redraw.
-        // So `ConfigurationManager` or `UIManager` should set `noiseDirty`?
-        // Or `CanvasRenderer` should check if `overlapColor` changed.
-        // I will handle color change in Renderer (by checking state vs last state).
-        // Simulation only handles character churn.
+
+        // Shimmer Effect
         if (this.config.state.overlapShimmer) {
              const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
              for(let k=0; k<updates; k++) {
@@ -2563,9 +2666,27 @@ class SimulationSystem {
                     this.grid.overlapChars[idx] = 0;
                 }
             }
-            this.grid.noiseDirty = true;
+            this.cacheDirty = true; // [NEW] Signal renderer to update cache
         }
     }
+
+    _initializeModes(config) {
+        return {
+            'STANDARD': new StandardMode(config),
+            'STAR_POWER': new StarPowerMode(config),
+            'RAINBOW': new RainbowMode(config)
+        };
+    }
+
+    update(frame) {
+        if (this.lastStreamInColumn.length !== this.grid.cols) {
+            this._resetColumns();
+        }
+        this._manageStreams(frame);
+        this._manageOverlapGrid(frame);
+        this._updateCells(frame);
+    }
+    
     _resetColumns() {
         this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
         this.activeStreams = [];
@@ -4295,7 +4416,7 @@ class MatrixKernel {
      * @private
      */
     async _initializeRendererAndUI() {
-        this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry, this.simulation);
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
         // Initialize font manager and await its completion
@@ -4366,6 +4487,7 @@ class MatrixKernel {
             window.innerWidth / this.config.state.stretchX,
             window.innerHeight / this.config.state.stretchY
         );
+        this.simulation.resetOverlap();
         this.renderer.resize();
     }
     /**
