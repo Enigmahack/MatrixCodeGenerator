@@ -2165,6 +2165,8 @@ class CanvasRenderer {
             renderItem.py = py;
             renderItem.char = char;
 
+            const tState = this._getTracerState(i, s); // Defined here, accessible everywhere
+
             const override = this.effects.getOverride(i);
 
             if (override && !override.blend) {
@@ -2173,7 +2175,6 @@ class CanvasRenderer {
                 Object.assign(renderItem, override); 
             } else {
                 let effectiveAlpha = gridAlpha;
-                const tState = this._getTracerState(i, s);
 
                 if (effectiveAlpha <= 0.01 || tState.phase === 'attack' || tState.phase === 'hold') {
                     renderItem.skip = true;
