@@ -1,6 +1,11 @@
 Check out the live demo here: 
 https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.5.html
 
+**Note: 
+The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
+https://github.com/Rezmason/matrix
+
+
 
 #
 💻 Matrix Digital Rain Simulation v7.5
