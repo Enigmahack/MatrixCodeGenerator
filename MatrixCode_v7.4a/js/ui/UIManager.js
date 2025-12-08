@@ -1,10 +1,11 @@
 class UIManager {
-    constructor(c, effects, fonts, notificationMgr) {
+    constructor(c, effects, fonts, notificationMgr, charSelector) {
         // Core dependencies and state
         this.c = c;
         this.effects = effects; // Renamed from this.eff for clarity, consistency
         this.fonts = fonts;
         this.notifications = notificationMgr;
+        this.charSelector = charSelector;
         this.dom = this._initializeDOM();
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
@@ -101,6 +102,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Details' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
+            { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
             { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
@@ -114,7 +116,7 @@ class UIManager {
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
             
-            { cat: 'Appearance', type: 'accordion_header', label: 'Imposition Layer' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Overlay' },
             { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap' },
             { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled' },
             { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled' },
@@ -148,13 +150,13 @@ class UIManager {
             { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
-            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
+            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
@@ -806,10 +808,22 @@ class UIManager {
             const cInput = document.createElement('input');
             cInput.type = 'color';
             cInput.value = color;
+            
+            // Optimisation: Update state directly on input to allow dragging without re-render
             cInput.oninput = e => {
                 const newP = [...this.c.get(def.id)];
                 newP[idx] = e.target.value;
-                this.c.set(def.id, newP);
+                this.c.state[def.id] = newP; // Direct state mutation
+                // Optional: Notify renderer directly if needed for live preview, 
+                // but standard loop picks up state changes next frame.
+                // We do NOT call this.c.set() here to avoid UI refresh.
+            };
+
+            // Commit change on release
+            cInput.onchange = e => {
+                const newP = [...this.c.get(def.id)];
+                newP[idx] = e.target.value;
+                this.c.set(def.id, newP); // Triggers save and refresh
             };
             
             item.appendChild(cInput);
@@ -1001,7 +1015,23 @@ class UIManager {
                 });
             }
 
-            else if(def.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(def.id); inp.id = `in-${def.id}`; inp.name = def.id; inp.oninput = e => this.c.set(def.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`; return row; }
+            else if(def.type === 'color') { 
+                const w = document.createElement('div'); 
+                w.className = 'color-wrapper'; 
+                inp = document.createElement('input'); 
+                inp.type = 'color'; 
+                inp.value = this.c.get(def.id); 
+                inp.id = `in-${def.id}`; 
+                inp.name = def.id; 
+                
+                inp.oninput = e => { this.c.state[def.id] = e.target.value; }; // Live update state
+                inp.onchange = e => { this.c.set(def.id, e.target.value); }; // Commit and refresh
+                
+                w.appendChild(inp); row.appendChild(w); 
+                if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
+                if(def.id) row.id = `row-${def.id}`; 
+                return row; 
+            }
             
             else if(def.type === 'color_list') {
                 const wrapper = document.createElement('div');
@@ -1033,6 +1063,7 @@ class UIManager {
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
+        if(action === 'manageCharacters') this.charSelector.show();
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }

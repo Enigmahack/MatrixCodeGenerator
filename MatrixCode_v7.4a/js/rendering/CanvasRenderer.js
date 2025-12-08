@@ -22,11 +22,9 @@ class CanvasRenderer {
         this.config = config;
         this.effects = effects;
 
-        // Initialize Glyph Atlas
-        // Assuming GlyphAtlas class is available globally or imported
-        if (typeof GlyphAtlas !== 'undefined') {
-            this.glyphAtlas = new GlyphAtlas(config);
-        }
+        // Initialize Glyph Atlases Map
+        // Maps Font Name -> GlyphAtlas instance
+        this.glyphAtlases = new Map();
 
         this.w = 0;
         this.h = 0;
@@ -106,6 +104,34 @@ class CanvasRenderer {
         return { alpha: 0, phase: 'none' };
     }
 
+    _updateAtlases(s, d) {
+        if (!s.enableGlyphAtlas || typeof GlyphAtlas === 'undefined') return;
+
+        const activeFonts = d.activeFonts || [];
+        const activeNames = new Set(activeFonts.map(f => f.name));
+
+        // Update or Create Atlases
+        for (const font of activeFonts) {
+            let atlas = this.glyphAtlases.get(font.name);
+            if (!atlas) {
+                atlas = new GlyphAtlas(this.config, font.name, font.chars);
+                this.glyphAtlases.set(font.name, atlas);
+            } else {
+                // Update existing atlas properties in case chars changed
+                atlas.fontName = font.name;
+                atlas.customChars = font.chars;
+            }
+            atlas.update();
+        }
+
+        // Prune unused atlases
+        for (const [name, atlas] of this.glyphAtlases) {
+            if (!activeNames.has(name)) {
+                this.glyphAtlases.delete(name);
+            }
+        }
+    }
+
     render(frame) {
         if (!this.frameAlphas) return;
 
@@ -113,10 +139,8 @@ class CanvasRenderer {
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
 
-        // Update Glyph Atlas if enabled
-        if (s.enableGlyphAtlas && this.glyphAtlas) {
-            this.glyphAtlas.update();
-        }
+        // Update Glyph Atlases
+        this._updateAtlases(s, d);
 
         this._resetContext(this.ctx, s, scale);
         if (bloomEnabled) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
@@ -145,7 +169,6 @@ class CanvasRenderer {
         const cvsB = this.scratchCvs;
 
         // Clear both layers
-        // Note: Using the logical dimensions divided by stretch for clearRect because contexts are scaled
         const clearW = this.w / s.stretchX; 
         const clearH = this.h / s.stretchY;
         
@@ -155,10 +178,8 @@ class CanvasRenderer {
         // Constants
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
-        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
+        const useAtlas = s.enableGlyphAtlas;
         
-        // Prepare Font for Standard Mode (fallback)
-        // We use a white fill for masks regardless of the final color
         if (!useAtlas) {
             ctxA.fillStyle = '#FFFFFF';
             ctxB.fillStyle = '#FFFFFF';
@@ -169,9 +190,8 @@ class CanvasRenderer {
         }
 
         // --- PASS 1: DRAW SHAPES ---
-        // We loop ONCE and draw to both layers appropriately.
-        // This builds the two "islands" of shapes without them interacting yet.
-        
+        const activeFonts = d.activeFonts;
+
         for (const i of this.grid.activeIndices) {
             // 1. Filter Logic
             const style = this.grid.complexStyles.get(i);
@@ -204,11 +224,24 @@ class CanvasRenderer {
             if (override && override.char) streamChar = override.char;
             const overlapChar = String.fromCharCode(code);
 
+            // Determine font resources
+            let atlas = null;
+            let fontName = s.fontFamily;
+            
+            if (useAtlas) {
+                const fontIndex = this.grid.getFont(i);
+                const fontData = activeFonts[fontIndex] || activeFonts[0];
+                atlas = this.glyphAtlases.get(fontData.name);
+            } else {
+                const fontIndex = this.grid.getFont(i);
+                const fontData = activeFonts[fontIndex] || activeFonts[0];
+                fontName = fontData.name;
+            }
+
             // Calculate Effects (Dissolve/Size)
             const decay = this.grid.decays[i];
             let drawScale = 1.0;
             
-            // Replicate dissolve logic from _drawCellCharAtlas/_drawCellChar
             if (s.dissolveEnabled && decay >= 2) {
                  const prog = (decay - 2) / s.decayFadeDurationFrames;
                  const minRatio = s.dissolveMinSize / s.fontSize;
@@ -216,75 +249,56 @@ class CanvasRenderer {
                  drawScale = Math.max(0.1, drawScale);
             }
 
-            // Apply Alpha to the mask layers
-            ctxA.globalAlpha = 1.0; // Mask shape should be solid to capture full intersection
-            ctxB.globalAlpha = gridAlpha; // Overlap content carries the fade
+            ctxA.globalAlpha = 1.0; 
+            ctxB.globalAlpha = gridAlpha; 
 
             // 3. Draw to Layer A (Stream Base)
-            if (useAtlas) {
-                const sprite = this.glyphAtlas.get(streamChar);
+            if (useAtlas && atlas) {
+                const sprite = atlas.get(streamChar);
                 if (sprite) {
-                    ctxA.drawImage(this.glyphAtlas.canvas, 
+                    ctxA.drawImage(atlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
                         px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
                         sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                // Standard Font Draw with Scaling
                 const fontSize = Math.max(1, s.fontSize * drawScale);
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
                 ctxA.font = font;
                 ctxA.fillText(streamChar, px, py);
             }
 
             // 4. Draw to Layer B (Overlap Mask)
-            if (useAtlas) {
-                const sprite = this.glyphAtlas.get(overlapChar);
+            if (useAtlas && atlas) {
+                const sprite = atlas.get(overlapChar);
                 if (sprite) {
-                    ctxB.drawImage(this.glyphAtlas.canvas, 
+                    ctxB.drawImage(atlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
                         px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
                         sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                // Standard Font Draw with Scaling
                 const fontSize = Math.max(1, s.fontSize * drawScale);
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
                 ctxB.font = font;
                 ctxB.fillText(overlapChar, px, py);
             }
         }
 
-        // --- PASS 2: COMPOSITE (The Magic) ---
-        // Currently:
-        // Layer A has all the stream characters.
-        // Layer B has all the overlap characters.
-        
-        // 1. Reset Transforms for Full-Screen Composition
-        // We want to operate on the raw pixels of the buffers now.
+        // --- PASS 2: COMPOSITE ---
         ctxA.save();
         ctxA.setTransform(1, 0, 0, 1, 0, 0); 
-        
-        // 2. INTERSECTION: Draw Layer B onto Layer A
-        // source-in: Keep pixels from B that overlap pixels in A.
-        // Result: Layer A now contains the INTERSECTION shapes (Stream AND Overlap).
         ctxA.globalCompositeOperation = 'source-in';
-        ctxA.globalAlpha = 1.0; // Reset alpha for composition
+        ctxA.globalAlpha = 1.0; 
         ctxA.drawImage(cvsB, 0, 0);
-
-        // 3. COLORIZE: Draw the User's Color onto the Shapes
-        // source-in: Fill the existing shapes in A with the solid color.
         ctxA.globalCompositeOperation = 'source-in';
         ctxA.fillStyle = s.overlapColor;
-        // Use the raw canvas dimensions for the fill
         ctxA.fillRect(0, 0, cvsA.width, cvsA.height);
-
-        ctxA.restore(); // Restore context for next frame's drawing
+        ctxA.restore(); 
 
         // --- PASS 3: FINAL DRAW ---
-        // Draw the fully composited Layer A onto the Main Screen
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.globalCompositeOperation = 'source-over';
@@ -308,7 +322,6 @@ class CanvasRenderer {
     }
 
     _applyBloom(s, scale) {
-        // Safety check: Ensure bloom canvas has dimensions to avoid InvalidStateError
         if (this.bloomCvs.width === 0 || this.bloomCvs.height === 0) return;
 
         this.bloomCtx.restore();
@@ -324,7 +337,6 @@ class CanvasRenderer {
         const fontBase = d.fontBaseStr;
         
         // Only set font if NOT using atlas for everything
-        // Or if we need it for fallbacks/tracers
         this.ctx.font = fontBase;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
@@ -345,17 +357,19 @@ class CanvasRenderer {
         const useActiveSet = !this.effects.hasActiveEffects();
         
         // Decide drawing mode once per frame
-        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
+        const useAtlas = s.enableGlyphAtlas;
 
         const total = useActiveSet ? 0 : this.grid.cols * this.grid.rows;
         
+        const activeFonts = d.activeFonts;
+
         if (useActiveSet) {
             for (const i of this.grid.activeIndices) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
+                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts);
             }
         } else {
             for (let i = 0; i < total; i++) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
+                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts);
             }
         }
 
@@ -363,8 +377,7 @@ class CanvasRenderer {
         this.ctx.restore();
     }
 
-    _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas) {
-            // Reset context shadow to prevent pollution from previous overrides
+    _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts) {
             this.ctx.shadowBlur = 0;
             this.ctx.shadowColor = 'transparent';
 
@@ -388,10 +401,7 @@ class CanvasRenderer {
 
             let color = defaultColor;
             let pIdx = this.grid.paletteIndices[i];
-            
-            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
             if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
-            
             const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
 
             const style = this.grid.complexStyles.get(i);
@@ -401,7 +411,6 @@ class CanvasRenderer {
                 color = paletteColor;
             }
 
-            // Check if we can use Atlas for this specific cell
             const canUseAtlas = useAtlas && (color === paletteColor);
 
             if (!canUseAtlas && color !== lastColor) {
@@ -409,10 +418,21 @@ class CanvasRenderer {
                 lastColor = color;
             }
 
+            // Resolve Font
+            const fontIdx = this.grid.getFont(i);
+            const fontData = activeFonts[fontIdx] || activeFonts[0];
+            const currentFontName = fontData.name;
+
             if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
+                 const atlas = this.glyphAtlases.get(currentFontName);
+                 if (atlas) {
+                     this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx, atlas);
+                 } else {
+                     // Fallback if atlas missing
+                     this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
+                 }
             } else {
-                 this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
+                 this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
             }
 
             if (override && override.blend) {
@@ -433,86 +453,76 @@ class CanvasRenderer {
         return Utils.createRGBString(rgb);
     }
 
-    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
+    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx, atlas) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
-        const sprite = this.glyphAtlas.get(char);
-        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
+        const sprite = atlas.get(char);
+        const yOffset = (pIdx || 0) * atlas.blockHeight;
 
-        if (!sprite) return; // Should not happen
+        if (!sprite) return; 
 
-        // NOTE: Rotator crossfade in Atlas mode is simplified (no crossfade)
-        // or we can implement it by drawing two sprites?
-        // For strict performance, let's skip crossfade in Atlas mode OR just do simple swap
-        // If user wants high quality crossfade, they disable Atlas. 
-        // OR we do a simple alpha blend if rotProg > 0
-        
-        // Check Rotator
         const rotProg = this.grid.rotatorProg[i];
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
-             // Crossfade
              const p = rotProg / s.rotatorCrossfadeFrames;
              const next = this.grid.nextChars.get(i);
-             const nextSprite = next ? this.glyphAtlas.get(next) : null;
+             const nextSprite = next ? atlas.get(next) : null;
 
-             // Outgoing
              this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                 this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
 
-             // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                 this.ctx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                     this.bloomCtx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
         }
 
-        // Standard Draw / Dissolve
         let scale = 1.0;
         if (s.dissolveEnabled && decay >= 2) {
              const prog = (decay - 2) / s.decayFadeDurationFrames;
-             // simulate font size shrink by scaling image
-             // Min size ratio
              const minRatio = s.dissolveMinSize / s.fontSize;
              scale = 1.0 - (prog * (1.0 - minRatio));
-             scale = Math.max(0.1, scale); // Clamp
+             scale = Math.max(0.1, scale); 
 
              if (s.deteriorationEnabled) {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
-                 // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-                 // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
 
         this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
 
-    _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontBase) {
+    _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontName) {
         const decay = this.grid.decays[i];
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
+        
+        // Use fontName passed in
+        const fontSize = s.fontSize; // Could vary with dissolve
+        const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
+        this.ctx.font = fontBase;
+        if(bloomEnabled) this.bloomCtx.font = fontBase;
 
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
             const p = rotProg / s.rotatorCrossfadeFrames;
             
-            // Draw outgoing character
             this.ctx.globalAlpha = alpha * (1 - p);
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
@@ -520,7 +530,6 @@ class CanvasRenderer {
                 this.bloomCtx.fillText(char, px, py);
             }
 
-            // Draw incoming character
             const next = this.grid.nextChars.get(i);
             if (next) {
                 this.ctx.globalAlpha = alpha * p;
@@ -533,7 +542,7 @@ class CanvasRenderer {
         } else if (s.dissolveEnabled && decay >= 2) {
             const prog = (decay - 2) / s.decayFadeDurationFrames;
             const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
+            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${fontName}`;
             this.ctx.font = font;
             
             if (s.deteriorationEnabled) {
@@ -549,7 +558,7 @@ class CanvasRenderer {
                 this.bloomCtx.globalAlpha = alpha;
                 this.bloomCtx.fillText(char, px, py);
             }
-            this.ctx.font = fontBase;
+            // Don't need to reset font here, it's set at start of function
         } else {
             this.ctx.globalAlpha = alpha;
             this.ctx.fillText(char, px, py);
@@ -564,9 +573,17 @@ class CanvasRenderer {
         const tStr = d.tracerColorStr;
         this.ctx.shadowBlur = s.tracerGlow;
         this.ctx.shadowColor = tStr;
-        const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
-        this.ctx.font = tFont;
-        if (bloomEnabled) this.bloomCtx.font = tFont;
+        // Tracers always use base font or specific if we want...
+        // For simplicity, let's use the font of the cell? 
+        // But tracers are drawn in a batch.
+        // To support multi-font tracers, we need to check the grid font.
+        // But performance... 
+        // Compromise: Tracers use the default font family or the first active one.
+        // Or we iterate and switch fonts.
+        
+        // Let's loop and check fonts.
+        
+        const activeFonts = d.activeFonts;
 
         for (const i of this.grid.activeIndices) {
             if (this.effects.getOverride(i)) continue;
@@ -576,8 +593,18 @@ class CanvasRenderer {
                 const y = Math.floor(i / this.grid.cols);
                 const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
                 const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
-                const style = this.grid.complexStyles.get(i);
                 
+                // Font Setup
+                const fontIdx = this.grid.getFont(i);
+                const fontData = activeFonts[fontIdx] || activeFonts[0];
+                const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${fontData.name}`;
+                
+                if (this.ctx.font !== tFont) {
+                    this.ctx.font = tFont;
+                    if (bloomEnabled) this.bloomCtx.font = tFont;
+                }
+
+                const style = this.grid.complexStyles.get(i);
                 let cStr = tStr;
                 if (style && style.isEffect) {
                     let h = style.h;
@@ -632,12 +659,7 @@ class CanvasRenderer {
                 this.bloomCtx.fillText(o.char, px, py);
                 this.bloomCtx.restore();
             }
-            this.ctx.font = d.fontBaseStr;
+            // Restore base font?? Not strictly needed as next draw call will set it.
         }
     }
 }
-
-
-    // =========================================================================
-    // 8.0 FONT MANAGER
-    // =========================================================================

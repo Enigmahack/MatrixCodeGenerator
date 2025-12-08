@@ -67,7 +67,8 @@ class MatrixKernel {
     async _initializeRendererAndUI() {
         this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
         this.fontMgr = new FontManager(this.config, this.notifications);
-        this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
+        this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
+        this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
 
         // Initialize font manager and await its completion
         await this.fontMgr.init();

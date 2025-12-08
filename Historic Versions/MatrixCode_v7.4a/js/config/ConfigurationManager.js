@@ -158,6 +158,15 @@ class ConfigurationManager {
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
 
+            // --- FONT SETTINGS ---
+            fontSettings: {
+                "MatrixEmbedded": {
+                    active: true,
+                    useCustomChars: false,
+                    customCharacters: ""
+                }
+            },
+
             // Properties not directly exposed in UI but used in defaults.json or internally
             deteriorationType: "ghost",
             tracerSizeIncrease: 1,
@@ -369,6 +378,23 @@ class ConfigurationManager {
             tracerColorStr: Utils.createRGBString(Utils.hexToRgb(s.tracerColor)),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };
+
+        // Active Fonts Logic
+        const fontSettings = s.fontSettings || {};
+        const activeFonts = [];
+        for (const [name, conf] of Object.entries(fontSettings)) {
+            if (conf.active) {
+                let chars = Utils.CHARS;
+                if (conf.useCustomChars && conf.customCharacters) {
+                    const clean = conf.customCharacters.replace(/\s+/g, '');
+                    if (clean.length > 0) chars = clean;
+                }
+                activeFonts.push({ name, chars });
+            }
+        }
+        if (activeFonts.length === 0) activeFonts.push({ name: 'MatrixEmbedded', chars: Utils.CHARS });
+        
+        this.derived.activeFonts = activeFonts;
     }
 }
 

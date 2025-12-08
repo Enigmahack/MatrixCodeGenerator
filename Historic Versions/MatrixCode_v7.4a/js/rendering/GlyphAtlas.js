@@ -1,6 +1,9 @@
 class GlyphAtlas {
-    constructor(config) {
+    constructor(config, fontName = null, customChars = null) {
         this.config = config;
+        this.fontName = fontName;
+        this.customChars = customChars;
+
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { alpha: true });
         
@@ -29,13 +32,18 @@ class GlyphAtlas {
         const s = this.config.state;
         const d = this.config.derived;
 
+        // Determine font and chars to use
+        const fontFamily = this.fontName || s.fontFamily;
+        const charList = this.customChars || Utils.CHARS;
+
         // Check if update is needed (font, color, or size change)
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
-        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
+        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
         const paletteStr = d.paletteColorsStr.join(',');
-        // Include overlap color in dependency check
-        const fullConfigStr = paletteStr + '|' + s.overlapColor;
+        
+        // Include overlap color and charList length/content in dependency check
+        const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
 
         if (this.currentFont === fontBase && 
             this.currentPalette === fullConfigStr && 
@@ -53,7 +61,6 @@ class GlyphAtlas {
         this.halfCell = this.cellSize / 2;
 
         // Calculate atlas dimensions
-        const charList = Utils.CHARS;
         const cols = Math.ceil(Math.sqrt(charList.length));
         const rows = Math.ceil(charList.length / cols);
 

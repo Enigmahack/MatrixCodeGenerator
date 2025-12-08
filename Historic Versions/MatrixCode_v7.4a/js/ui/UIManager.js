@@ -1,10 +1,11 @@
 class UIManager {
-    constructor(c, effects, fonts, notificationMgr) {
+    constructor(c, effects, fonts, notificationMgr, charSelector) {
         // Core dependencies and state
         this.c = c;
         this.effects = effects; // Renamed from this.eff for clarity, consistency
         this.fonts = fonts;
         this.notifications = notificationMgr;
+        this.charSelector = charSelector;
         this.dom = this._initializeDOM();
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
@@ -101,6 +102,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Details' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
+            { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
             { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
@@ -1033,6 +1035,7 @@ class UIManager {
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
+        if(action === 'manageCharacters') this.charSelector.show();
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }

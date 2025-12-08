@@ -35,6 +35,23 @@ class FontManager {
     }
 
     /**
+     * Ensures that a font has a corresponding entry in the global configuration settings.
+     * @param {string} fontName - The name of the font.
+     */
+    _ensureFontConfig(fontName) {
+        const settings = { ...this.config.get('fontSettings') };
+        if (!settings[fontName]) {
+            // Default settings for new fonts
+            settings[fontName] = {
+                active: false, 
+                useCustomChars: false,
+                customCharacters: ""
+            };
+            this.config.set('fontSettings', settings);
+        }
+    }
+
+    /**
      * Notify all subscribers about font changes.
      * Executes the callback functions passed via subscribe.
      */
@@ -55,6 +72,17 @@ class FontManager {
             display: 'The Matrix Custom Code',
             isEmbedded: true,
         });
+        
+        // Ensure default font is active and configured
+        const settings = { ...this.config.get('fontSettings') };
+        if (!settings[this.embeddedFontName]) {
+            settings[this.embeddedFontName] = {
+                active: true,
+                useCustomChars: false,
+                customCharacters: ""
+            };
+            this.config.set('fontSettings', settings);
+        }
     }
 
     /**
@@ -131,6 +159,7 @@ class FontManager {
                 // Use Promise.all to await all font injections from DB
                 await Promise.all(storedFonts.map(async font => {
                     this.loadedFonts.push(font);
+                    this._ensureFontConfig(font.name); // Ensure config exists
 
                     const type = font.mimeType || font.data.type;
                     const format = this._getFormatFromType(type);
@@ -162,9 +191,19 @@ class FontManager {
     importFont(file) {
         const reader = new FileReader();
 
-        reader.onload = event => {
-            const blob = new Blob([event.target.result], { type: file.type });
-            const fontName = `CustomFont_${Date.now()}`; // Unique font name.
+        reader.onload = async event => {
+            const arrayBuffer = event.target.result;
+            const blob = new Blob([arrayBuffer], { type: file.type });
+            
+            let fontName;
+            try {
+                const hash = await Utils.computeSHA256(arrayBuffer);
+                fontName = `CustomFont_${hash.substring(0, 16)}`;
+            } catch (e) {
+                console.warn("Hashing failed, falling back to timestamp", e);
+                fontName = `CustomFont_${Date.now()}`;
+            }
+
             const record = {
                 name: fontName,
                 display: file.name,
@@ -180,6 +219,14 @@ class FontManager {
                 this._injectCSS(fontName, URL.createObjectURL(blob), format);
 
                 this.loadedFonts.push(record);
+                
+                // Ensure config and activate the new font
+                this._ensureFontConfig(fontName);
+                // Optionally auto-activate imported font?
+                // const settings = { ...this.config.get('fontSettings') };
+                // settings[fontName].active = true;
+                // this.config.set('fontSettings', settings);
+                
                 this.config.set('fontFamily', fontName);
                 this._notify();
 
@@ -207,6 +254,13 @@ class FontManager {
             objectStore.delete(id).onsuccess = () => {
                 document.getElementById(`style-${id}`)?.remove();
                 this.loadedFonts = this.loadedFonts.filter(font => font.name !== id);
+
+                // Deactivate in config to prevent rendering issues
+                const settings = { ...this.config.get('fontSettings') };
+                if (settings[id]) {
+                    settings[id].active = false;
+                    this.config.set('fontSettings', settings);
+                }
 
                 if (this.config.state.fontFamily === id) {
                     this.config.set('fontFamily', this.config.defaults.fontFamily);

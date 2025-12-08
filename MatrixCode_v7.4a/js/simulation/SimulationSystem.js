@@ -7,6 +7,7 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
+        this._activeFontList = []; // Cache for active fonts - though removed in logic, keeping property to avoid breakage if accessed elsewhere (unlikely)
     }
 
     _initializeModes(config) {
@@ -31,6 +32,10 @@ class SimulationSystem {
         }
     }
 
+    _refreshActiveFonts() {
+        // Deprecated but kept for safety if called externally - essentially no-op as logic moved to config derived
+    }
+
     _manageOverlapGrid(frame) {
         if (!this.config.state.overlapEnabled) {
             // Reset initialization state when disabled
@@ -44,12 +49,36 @@ class SimulationSystem {
             return;
         }
         
-        // Check if we need to reinitialize (density changed or first time)
+        const activeFonts = this.config.derived.activeFonts;
+        const numFonts = activeFonts.length;
         const currentDensity = this.config.state.overlapDensity;
+
+        // Helper to get random char for a cell
+        const setOverlapChar = (i) => {
+            let fIdx;
+            if (this.grid.types[i] === CELL_TYPE.EMPTY) {
+                // If empty, we can choose any active font
+                fIdx = Math.floor(Math.random() * numFonts);
+                this.grid.setFont(i, fIdx);
+            } else {
+                // If occupied, MUST use the existing font to match the stream/renderer
+                fIdx = this.grid.getFont(i);
+            }
+            
+            const fontData = activeFonts[fIdx] || activeFonts[0];
+            const chars = fontData.chars;
+            if (chars && chars.length > 0) {
+                this.grid.overlapChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+            } else {
+                this.grid.overlapChars[i] = 32; // Space if empty
+            }
+        };
+
+        // Check if we need to reinitialize (density changed or first time)
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             for(let i=0; i<this.grid.overlapChars.length; i++) {
                 if (Math.random() < currentDensity) {
-                    this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
+                    setOverlapChar(i);
                 } else {
                     this.grid.overlapChars[i] = 0; // Empty
                 }
@@ -69,7 +98,7 @@ class SimulationSystem {
                 if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) continue;
 
                 if (Math.random() < currentDensity) {
-                    this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+                    setOverlapChar(idx);
                 } else {
                     this.grid.overlapChars[idx] = 0;
                 }
@@ -192,6 +221,10 @@ class SimulationSystem {
     }
 
     _initializeStream(x, forceEraser, s) {
+        // Pick a font for this stream
+        const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
+        const fontIdx = Math.floor(Math.random() * activeFonts.length);
+        
         const baseStream = {
             x,
             y: -1,
@@ -207,7 +240,8 @@ class SimulationSystem {
             baseHue: 0,
             isInverted: false,
             isEraser: forceEraser,
-            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1))
+            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
+            fontIndex: fontIdx // Store font index
         };
 
         if (forceEraser) {
@@ -280,6 +314,9 @@ class SimulationSystem {
             this.grid.decays[idx] = 1;
             this.grid.rotatorProg[idx] = 0;
             
+            // Set font
+            this.grid.setFont(idx, stream.fontIndex);
+            
             if (Math.random() < s.paletteBias) {
                 this.grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
             } else {
@@ -288,9 +325,16 @@ class SimulationSystem {
             
             this.grid.activeIndices.add(idx);
 
-            this.grid.setChar(idx, Utils.getRandomChar());
-            if (s.overlapEnabled) {
-                this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+            // Get char from active font set
+            const activeFonts = this.config.derived.activeFonts;
+            const fontData = activeFonts[stream.fontIndex] || activeFonts[0];
+            const charSet = fontData.chars;
+            const char = charSet[Math.floor(Math.random() * charSet.length)];
+            this.grid.setChar(idx, char);
+
+            if (s.overlapEnabled && Math.random() < s.overlapDensity) {
+                // Use same charset for overlap to match font
+                this.grid.overlapChars[idx] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
             }
             
             this.grid.brightness[idx] = s.variableBrightnessEnabled
@@ -394,20 +438,39 @@ class SimulationSystem {
 
     _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
         if (frame % cycleFrames === 0) {
+            // Get correct font charset
+            const fontIdx = this.grid.getFont(idx);
+            const activeFonts = this.config.derived.activeFonts;
+            const fontData = activeFonts[fontIdx] || activeFonts[0];
+            const charSet = fontData.chars;
+            
             if (crossfadeFrames <= 2) {
-                this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                this.grid.setChar(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
-                    this.grid.overlapChars[idx] = Utils.getUniqueChar(String.fromCharCode(this.grid.overlapChars[idx])).charCodeAt(0);
+                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
+                    this.grid.overlapChars[idx] = this._getUniqueChar(currentOverlap, charSet).charCodeAt(0);
                 }
             } else {
                 this.grid.rotatorProg[idx] = 1;
-                this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                this.grid.nextChars.set(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
                     const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
-                    this.grid.nextOverlapChars.set(idx, Utils.getUniqueChar(currentOverlap).charCodeAt(0));
+                    this.grid.nextOverlapChars.set(idx, this._getUniqueChar(currentOverlap, charSet).charCodeAt(0));
                 }
             }
         }
+    }
+    
+    _getUniqueChar(exclude, charSet) {
+        if (!charSet) charSet = Utils.CHARS;
+        if (charSet.length <= 1) return charSet[0];
+        let char;
+        let attempts = 0;
+        do {
+            char = charSet[Math.floor(Math.random() * charSet.length)];
+            attempts++;
+        } while (char === exclude && attempts < 10);
+        return char;
     }
 
     _shouldDecay(idx, decay, fadeDurationFrames) {
@@ -426,7 +489,3 @@ class SimulationSystem {
         return 0;
     }
 }
-
-    // =========================================================================
-    // 6.0 EFFECT REGISTRY
-    // =========================================================================

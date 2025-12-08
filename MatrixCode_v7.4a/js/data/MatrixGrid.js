@@ -73,6 +73,27 @@ class MatrixGrid {
     }
 
     /**
+     * Sets the font index at the specified grid index.
+     * @param {number} idx - The 1D index of the cell.
+     * @param {number} fontIndex - The index of the font to use.
+     */
+    setFont(idx, fontIndex) {
+        if (this.fontIndices && idx >= 0 && idx < this.fontIndices.length) {
+            this.fontIndices[idx] = fontIndex;
+        }
+    }
+
+    /**
+     * Gets the font index from the specified grid index.
+     * @param {number} idx - The 1D index of the cell.
+     * @returns {number} The font index at the index.
+     */
+    getFont(idx) {
+        if (!this.fontIndices || idx < 0 || idx >= this.fontIndices.length) return 0;
+        return this.fontIndices[idx];
+    }
+
+    /**
      * Reinitializes all grid arrays and dimensions.
      * @private
      * @param {number} newCols - The new number of columns.
@@ -92,6 +113,9 @@ class MatrixGrid {
 
         // Color Palette Index (0-2)
         this.paletteIndices = new Uint8Array(totalCells);
+
+        // Font Index (0-255) for multi-font support
+        this.fontIndices = new Uint8Array(totalCells);
         
         // Imposition Layer (Overlap)
         this.overlapChars = new Uint16Array(totalCells);

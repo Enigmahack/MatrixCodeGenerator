@@ -41,17 +41,32 @@ class DejaVuEffect extends AbstractEffect {
                 }
                 
                 // Apply glitches to active rows (Mutation logic)
+                // Optimization: Use cached active fonts list
+                const activeFonts = this.c.derived.activeFonts;
+                
                 for (const b of this.bars) {
                     const limit = Math.min(this.g.rows, b.y + b.h);
+                    const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05)); // Reduced density for perf
+
                     for(let y=b.y; y < limit; y++) {
-                        const glitchCount = Math.floor(this.g.cols * 0.1);
                         for(let k=0; k<glitchCount; k++) {
-                            const x = Utils.randomInt(0, this.g.cols);
-                            const i = this.g.getIndex(x, y);
+                            const x = Utils.randomInt(0, this.g.cols - 1);
+                            const i = y * this.g.cols + x; // Direct index calculation
+                            
                             // Apply glitch
                             this.g.rotatorProg[i] = 0; 
-                            const c = Utils.getRandomChar(); 
-                            this.g.setChar(i, c);
+                            
+                            // Pick from active fonts
+                            const fontData = activeFonts[Utils.randomInt(0, activeFonts.length - 1)];
+                            const char = fontData.chars[Utils.randomInt(0, fontData.chars.length - 1)];
+                            
+                            this.g.setChar(i, char);
+                            // We don't strictly need to setFont here as we want the glitch to look like a raw data error, 
+                            // but setting it ensures the char renders correctly if using a custom font.
+                            // However, MatrixGrid doesn't easily support setting font by object ref, we need index.
+                            // Finding index of `fontData` in `activeFonts`...
+                            // Optimization: just pick random index first.
+                            
                             if(s.dejaVuRandomizeColors) {
                                 this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
                             }

@@ -400,6 +400,114 @@
         @media (max-width: 600px) {
             #settingsPanel { width: 100%; max-width: 100%; border-left: none; }
         }
+/* --- MODAL UI --- */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    backdrop-filter: blur(5px);
+}
+.modal-overlay.visible { opacity: 1; pointer-events: auto; }
+.modal-content {
+    background: var(--panel-bg); border: 1px solid var(--accent);
+    box-shadow: 0 0 30px rgba(0,0,0,0.8);
+    width: 90%; max-width: 600px;
+    border-radius: 8px;
+    display: flex; flex-direction: column;
+    max-height: 90vh;
+}
+.modal-header {
+    padding: 1rem; border-bottom: 1px solid var(--panel-border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(90deg, rgba(34,197,94,0.1) 0%, transparent 100%);
+}
+.modal-title { font-size: 1.1rem; color: #fff; text-transform: uppercase; letter-spacing: 2px; margin: 0; }
+.modal-close { cursor: pointer; color: var(--text-muted); font-size: 1.5rem; line-height: 1; }
+.modal-close:hover { color: var(--danger); }
+.modal-body { padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.5rem; }
+.modal-footer {
+    padding: 1rem; border-top: 1px solid var(--panel-border);
+    display: flex; justify-content: flex-end; gap: 1rem;
+}
+textarea.char-input {
+    width: 100%; height: 100px; background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1); color: var(--text-main);
+    padding: 0.5rem; font-family: monospace; font-size: 1rem;
+    resize: vertical;
+}
+textarea.char-input:focus { outline: none; border-color: var(--accent); }
+.modal-label { display: block; margin-bottom: 0.5rem; color: #fff; font-size: 0.9rem; font-weight: bold; }
+.modal-desc { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+/* --- CHARACTER SELECTOR REFINEMENTS --- */
+/* Fix label colors */
+.checkbox-row span {
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+/* Character Grid */
+.char-grid-container {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    padding: 10px;
+    max-height: 250px;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+.char-grid-item {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 20px;
+    color: var(--text-muted);
+    user-select: none;
+    transition: all 0.2s;
+}
+.char-grid-item:hover {
+    border-color: var(--accent);
+    background: rgba(34, 197, 94, 0.2);
+    color: #fff;
+}
+.char-grid-item.selected {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+.char-grid-item.empty {
+    opacity: 0.3;
+    pointer-events: none;
+    background: #000;
+}
+.char-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.scan-status {
+    font-size: 0.8rem;
+    color: var(--warn);
+    margin-top: 5px;
+    min-height: 1.2em;
+}
+/* Reduce size of tooltip/info icons */
+.info-icon {
+    width: 16px;
+    height: 16px;
+    font-size: 11px;
+    margin-left: 6px;
+    margin-right: 6px;
+}
 </style>
     <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E">
 </head>
@@ -568,7 +676,7 @@ const Utils = {
         return Utils.CHARS[index];
     },
     /**
-     * Returns a random character from the CHARS list, excluding the provided character.
+     * Generates a random character from the CHARS list, excluding the provided character.
      * @param {string} exclude - The character to exclude from the random selection.
      * @returns {string|null} A unique random character, or null if no other characters are available.
      */
@@ -580,6 +688,20 @@ const Utils = {
         } while (char === exclude);
         return char;
     },
+    /**
+     * Computes the SHA-256 hash of an ArrayBuffer.
+     * @param {ArrayBuffer} buffer - The input buffer.
+     * @returns {Promise<string>} The hex string of the hash.
+     */
+    computeSHA256: async (buffer) => {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    },
+    /**
+     * Downloads a JSON object as a file.
+     * @param {Object} data - The JSON object to download.
     /**
      * Downloads a JSON object as a file.
      * @param {Object} data - The JSON object to download.
@@ -782,6 +904,14 @@ class ConfigurationManager {
             firewallColor: "#00ff00",
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
+            // --- FONT SETTINGS ---
+            fontSettings: {
+                "MatrixEmbedded": {
+                    active: true,
+                    useCustomChars: false,
+                    customCharacters: ""
+                }
+            },
             // Properties not directly exposed in UI but used in defaults.json or internally
             deteriorationType: "ghost",
             tracerSizeIncrease: 1,
@@ -973,6 +1103,21 @@ class ConfigurationManager {
             tracerColorStr: Utils.createRGBString(Utils.hexToRgb(s.tracerColor)),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };
+        // Active Fonts Logic
+        const fontSettings = s.fontSettings || {};
+        const activeFonts = [];
+        for (const [name, conf] of Object.entries(fontSettings)) {
+            if (conf.active) {
+                let chars = Utils.CHARS;
+                if (conf.useCustomChars && conf.customCharacters) {
+                    const clean = conf.customCharacters.replace(/\s+/g, '');
+                    if (clean.length > 0) chars = clean;
+                }
+                activeFonts.push({ name, chars });
+            }
+        }
+        if (activeFonts.length === 0) activeFonts.push({ name: 'MatrixEmbedded', chars: Utils.CHARS });
+        this.derived.activeFonts = activeFonts;
     }
 }
     // =========================================================================
@@ -1050,6 +1195,25 @@ class MatrixGrid {
         return String.fromCharCode(this.chars[idx]);
     }
     /**
+     * Sets the font index at the specified grid index.
+     * @param {number} idx - The 1D index of the cell.
+     * @param {number} fontIndex - The index of the font to use.
+     */
+    setFont(idx, fontIndex) {
+        if (this.fontIndices && idx >= 0 && idx < this.fontIndices.length) {
+            this.fontIndices[idx] = fontIndex;
+        }
+    }
+    /**
+     * Gets the font index from the specified grid index.
+     * @param {number} idx - The 1D index of the cell.
+     * @returns {number} The font index at the index.
+     */
+    getFont(idx) {
+        if (!this.fontIndices || idx < 0 || idx >= this.fontIndices.length) return 0;
+        return this.fontIndices[idx];
+    }
+    /**
      * Reinitializes all grid arrays and dimensions.
      * @private
      * @param {number} newCols - The new number of columns.
@@ -1067,6 +1231,8 @@ class MatrixGrid {
         this.rotatorProg = new Float32Array(totalCells);
         // Color Palette Index (0-2)
         this.paletteIndices = new Uint8Array(totalCells);
+        // Font Index (0-255) for multi-font support
+        this.fontIndices = new Uint8Array(totalCells);
         // Imposition Layer (Overlap)
         this.overlapChars = new Uint16Array(totalCells);
         // Cell Locks (for pausing simulation under effects)
@@ -1314,17 +1480,26 @@ class DejaVuEffect extends AbstractEffect {
                     }
                 }
                 // Apply glitches to active rows (Mutation logic)
+                // Optimization: Use cached active fonts list
+                const activeFonts = this.c.derived.activeFonts;
                 for (const b of this.bars) {
                     const limit = Math.min(this.g.rows, b.y + b.h);
+                    const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05)); // Reduced density for perf
                     for(let y=b.y; y < limit; y++) {
-                        const glitchCount = Math.floor(this.g.cols * 0.1);
                         for(let k=0; k<glitchCount; k++) {
-                            const x = Utils.randomInt(0, this.g.cols);
-                            const i = this.g.getIndex(x, y);
+                            const x = Utils.randomInt(0, this.g.cols - 1);
+                            const i = y * this.g.cols + x; // Direct index calculation
                             // Apply glitch
                             this.g.rotatorProg[i] = 0; 
-                            const c = Utils.getRandomChar(); 
-                            this.g.setChar(i, c);
+                            // Pick from active fonts
+                            const fontData = activeFonts[Utils.randomInt(0, activeFonts.length - 1)];
+                            const char = fontData.chars[Utils.randomInt(0, fontData.chars.length - 1)];
+                            this.g.setChar(i, char);
+                            // We don't strictly need to setFont here as we want the glitch to look like a raw data error, 
+                            // but setting it ensures the char renders correctly if using a custom font.
+                            // However, MatrixGrid doesn't easily support setting font by object ref, we need index.
+                            // Finding index of `fontData` in `activeFonts`...
+                            // Optimization: just pick random index first.
                             if(s.dejaVuRandomizeColors) {
                                 this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
                             }
@@ -2058,11 +2233,9 @@ class CanvasRenderer {
         this.grid = grid;
         this.config = config;
         this.effects = effects;
-        // Initialize Glyph Atlas
-        // Assuming GlyphAtlas class is available globally or imported
-        if (typeof GlyphAtlas !== 'undefined') {
-            this.glyphAtlas = new GlyphAtlas(config);
-        }
+        // Initialize Glyph Atlases Map
+        // Maps Font Name -> GlyphAtlas instance
+        this.glyphAtlases = new Map();
         this.w = 0;
         this.h = 0;
     }
@@ -2127,15 +2300,37 @@ class CanvasRenderer {
         }
         return { alpha: 0, phase: 'none' };
     }
+    _updateAtlases(s, d) {
+        if (!s.enableGlyphAtlas || typeof GlyphAtlas === 'undefined') return;
+        const activeFonts = d.activeFonts || [];
+        const activeNames = new Set(activeFonts.map(f => f.name));
+        // Update or Create Atlases
+        for (const font of activeFonts) {
+            let atlas = this.glyphAtlases.get(font.name);
+            if (!atlas) {
+                atlas = new GlyphAtlas(this.config, font.name, font.chars);
+                this.glyphAtlases.set(font.name, atlas);
+            } else {
+                // Update existing atlas properties in case chars changed
+                atlas.fontName = font.name;
+                atlas.customChars = font.chars;
+            }
+            atlas.update();
+        }
+        // Prune unused atlases
+        for (const [name, atlas] of this.glyphAtlases) {
+            if (!activeNames.has(name)) {
+                this.glyphAtlases.delete(name);
+            }
+        }
+    }
     render(frame) {
         if (!this.frameAlphas) return;
         const { state: s, derived: d } = this.config;
         const scale = s.resolution;
         const bloomEnabled = s.enableBloom;
-        // Update Glyph Atlas if enabled
-        if (s.enableGlyphAtlas && this.glyphAtlas) {
-            this.glyphAtlas.update();
-        }
+        // Update Glyph Atlases
+        this._updateAtlases(s, d);
         this._resetContext(this.ctx, s, scale);
         if (bloomEnabled) this.bloomCtx.clearRect(0, 0, this.w * scale, this.h * scale);
         this._applyMirrorEffect(this.ctx, s, scale);
@@ -2157,7 +2352,6 @@ class CanvasRenderer {
         const ctxB = this.scratchCtx; // Layer B (Overlap Shapes)
         const cvsB = this.scratchCvs;
         // Clear both layers
-        // Note: Using the logical dimensions divided by stretch for clearRect because contexts are scaled
         const clearW = this.w / s.stretchX; 
         const clearH = this.h / s.stretchY;
         ctxA.clearRect(0, 0, clearW, clearH);
@@ -2165,9 +2359,7 @@ class CanvasRenderer {
         // Constants
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
-        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
-        // Prepare Font for Standard Mode (fallback)
-        // We use a white fill for masks regardless of the final color
+        const useAtlas = s.enableGlyphAtlas;
         if (!useAtlas) {
             ctxA.fillStyle = '#FFFFFF';
             ctxB.fillStyle = '#FFFFFF';
@@ -2177,8 +2369,7 @@ class CanvasRenderer {
             ctxB.textAlign = 'center';
         }
         // --- PASS 1: DRAW SHAPES ---
-        // We loop ONCE and draw to both layers appropriately.
-        // This builds the two "islands" of shapes without them interacting yet.
+        const activeFonts = d.activeFonts;
         for (const i of this.grid.activeIndices) {
             // 1. Filter Logic
             const style = this.grid.complexStyles.get(i);
@@ -2204,77 +2395,73 @@ class CanvasRenderer {
             let streamChar = this.grid.getChar(i);
             if (override && override.char) streamChar = override.char;
             const overlapChar = String.fromCharCode(code);
+            // Determine font resources
+            let atlas = null;
+            let fontName = s.fontFamily;
+            if (useAtlas) {
+                const fontIndex = this.grid.getFont(i);
+                const fontData = activeFonts[fontIndex] || activeFonts[0];
+                atlas = this.glyphAtlases.get(fontData.name);
+            } else {
+                const fontIndex = this.grid.getFont(i);
+                const fontData = activeFonts[fontIndex] || activeFonts[0];
+                fontName = fontData.name;
+            }
             // Calculate Effects (Dissolve/Size)
             const decay = this.grid.decays[i];
             let drawScale = 1.0;
-            // Replicate dissolve logic from _drawCellCharAtlas/_drawCellChar
             if (s.dissolveEnabled && decay >= 2) {
                  const prog = (decay - 2) / s.decayFadeDurationFrames;
                  const minRatio = s.dissolveMinSize / s.fontSize;
                  drawScale = 1.0 - (prog * (1.0 - minRatio));
                  drawScale = Math.max(0.1, drawScale);
             }
-            // Apply Alpha to the mask layers
-            ctxA.globalAlpha = 1.0; // Mask shape should be solid to capture full intersection
-            ctxB.globalAlpha = gridAlpha; // Overlap content carries the fade
+            ctxA.globalAlpha = 1.0; 
+            ctxB.globalAlpha = gridAlpha; 
             // 3. Draw to Layer A (Stream Base)
-            if (useAtlas) {
-                const sprite = this.glyphAtlas.get(streamChar);
+            if (useAtlas && atlas) {
+                const sprite = atlas.get(streamChar);
                 if (sprite) {
-                    ctxA.drawImage(this.glyphAtlas.canvas, 
+                    ctxA.drawImage(atlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
                         px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
                         sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                // Standard Font Draw with Scaling
                 const fontSize = Math.max(1, s.fontSize * drawScale);
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
                 ctxA.font = font;
                 ctxA.fillText(streamChar, px, py);
             }
             // 4. Draw to Layer B (Overlap Mask)
-            if (useAtlas) {
-                const sprite = this.glyphAtlas.get(overlapChar);
+            if (useAtlas && atlas) {
+                const sprite = atlas.get(overlapChar);
                 if (sprite) {
-                    ctxB.drawImage(this.glyphAtlas.canvas, 
+                    ctxB.drawImage(atlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
                         px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
                         sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                // Standard Font Draw with Scaling
                 const fontSize = Math.max(1, s.fontSize * drawScale);
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
                 ctxB.font = font;
                 ctxB.fillText(overlapChar, px, py);
             }
         }
-        // --- PASS 2: COMPOSITE (The Magic) ---
-        // Currently:
-        // Layer A has all the stream characters.
-        // Layer B has all the overlap characters.
-        // 1. Reset Transforms for Full-Screen Composition
-        // We want to operate on the raw pixels of the buffers now.
+        // --- PASS 2: COMPOSITE ---
         ctxA.save();
         ctxA.setTransform(1, 0, 0, 1, 0, 0); 
-        // 2. INTERSECTION: Draw Layer B onto Layer A
-        // source-in: Keep pixels from B that overlap pixels in A.
-        // Result: Layer A now contains the INTERSECTION shapes (Stream AND Overlap).
         ctxA.globalCompositeOperation = 'source-in';
-        ctxA.globalAlpha = 1.0; // Reset alpha for composition
+        ctxA.globalAlpha = 1.0; 
         ctxA.drawImage(cvsB, 0, 0);
-        // 3. COLORIZE: Draw the User's Color onto the Shapes
-        // source-in: Fill the existing shapes in A with the solid color.
         ctxA.globalCompositeOperation = 'source-in';
         ctxA.fillStyle = s.overlapColor;
-        // Use the raw canvas dimensions for the fill
         ctxA.fillRect(0, 0, cvsA.width, cvsA.height);
-        ctxA.restore(); // Restore context for next frame's drawing
+        ctxA.restore(); 
         // --- PASS 3: FINAL DRAW ---
-        // Draw the fully composited Layer A onto the Main Screen
         this.ctx.save();
         this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.globalCompositeOperation = 'source-over';
@@ -2295,7 +2482,6 @@ class CanvasRenderer {
         }
     }
     _applyBloom(s, scale) {
-        // Safety check: Ensure bloom canvas has dimensions to avoid InvalidStateError
         if (this.bloomCvs.width === 0 || this.bloomCvs.height === 0) return;
         this.bloomCtx.restore();
         this.ctx.save();
@@ -2308,7 +2494,6 @@ class CanvasRenderer {
     _drawGrid(d, s, frame, bloomEnabled) {
         const fontBase = d.fontBaseStr;
         // Only set font if NOT using atlas for everything
-        // Or if we need it for fallbacks/tracers
         this.ctx.font = fontBase;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
@@ -2324,22 +2509,22 @@ class CanvasRenderer {
         const yOff = s.fontOffsetY;
         const useActiveSet = !this.effects.hasActiveEffects();
         // Decide drawing mode once per frame
-        const useAtlas = s.enableGlyphAtlas && !!this.glyphAtlas;
+        const useAtlas = s.enableGlyphAtlas;
         const total = useActiveSet ? 0 : this.grid.cols * this.grid.rows;
+        const activeFonts = d.activeFonts;
         if (useActiveSet) {
             for (const i of this.grid.activeIndices) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
+                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts);
             }
         } else {
             for (let i = 0; i < total; i++) {
-                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas);
+                this._processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts);
             }
         }
         this._drawTracers(d, s, frame, bloomEnabled, xOff, yOff);
         this.ctx.restore();
     }
-    _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas) {
-            // Reset context shadow to prevent pollution from previous overrides
+    _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts) {
             this.ctx.shadowBlur = 0;
             this.ctx.shadowColor = 'transparent';
             const override = this.effects.getOverride(i);
@@ -2358,7 +2543,6 @@ class CanvasRenderer {
             const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
             let color = defaultColor;
             let pIdx = this.grid.paletteIndices[i];
-            // Safety: If palette index is out of bounds (removed color), fallback to 0 (default)
             if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
             const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
             const style = this.grid.complexStyles.get(i);
@@ -2367,16 +2551,25 @@ class CanvasRenderer {
             } else {
                 color = paletteColor;
             }
-            // Check if we can use Atlas for this specific cell
             const canUseAtlas = useAtlas && (color === paletteColor);
             if (!canUseAtlas && color !== lastColor) {
                 this._setFillStyle(color, bloomEnabled);
                 lastColor = color;
             }
+            // Resolve Font
+            const fontIdx = this.grid.getFont(i);
+            const fontData = activeFonts[fontIdx] || activeFonts[0];
+            const currentFontName = fontData.name;
             if (canUseAtlas) {
-                 this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx);
+                 const atlas = this.glyphAtlases.get(currentFontName);
+                 if (atlas) {
+                     this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx, atlas);
+                 } else {
+                     // Fallback if atlas missing
+                     this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
+                 }
             } else {
-                 this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, fontBase);
+                 this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
             }
             if (override && override.blend) {
                 this._drawOverride(i, override, d, s, bloomEnabled);
@@ -2393,81 +2586,70 @@ class CanvasRenderer {
         const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
         return Utils.createRGBString(rgb);
     }
-    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx) {
+    _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx, atlas) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
-        const sprite = this.glyphAtlas.get(char);
-        const yOffset = (pIdx || 0) * this.glyphAtlas.blockHeight;
-        if (!sprite) return; // Should not happen
-        // NOTE: Rotator crossfade in Atlas mode is simplified (no crossfade)
-        // or we can implement it by drawing two sprites?
-        // For strict performance, let's skip crossfade in Atlas mode OR just do simple swap
-        // If user wants high quality crossfade, they disable Atlas. 
-        // OR we do a simple alpha blend if rotProg > 0
-        // Check Rotator
+        const sprite = atlas.get(char);
+        const yOffset = (pIdx || 0) * atlas.blockHeight;
+        if (!sprite) return; 
         const rotProg = this.grid.rotatorProg[i];
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
-             // Crossfade
              const p = rotProg / s.rotatorCrossfadeFrames;
              const next = this.grid.nextChars.get(i);
-             const nextSprite = next ? this.glyphAtlas.get(next) : null;
-             // Outgoing
+             const nextSprite = next ? atlas.get(next) : null;
              this.ctx.globalAlpha = alpha * (1 - p);
-             this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+             this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
                  this.bloomCtx.globalAlpha = alpha * (1 - p);
-                 this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
+                 this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
-             // Incoming
              if (nextSprite) {
                  this.ctx.globalAlpha = alpha * p;
-                 this.ctx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                 this.ctx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
                      this.bloomCtx.globalAlpha = alpha * p;
-                     this.bloomCtx.drawImage(this.glyphAtlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
+                     this.bloomCtx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
              return;
         }
-        // Standard Draw / Dissolve
         let scale = 1.0;
         if (s.dissolveEnabled && decay >= 2) {
              const prog = (decay - 2) / s.decayFadeDurationFrames;
-             // simulate font size shrink by scaling image
-             // Min size ratio
              const minRatio = s.dissolveMinSize / s.fontSize;
              scale = 1.0 - (prog * (1.0 - minRatio));
-             scale = Math.max(0.1, scale); // Clamp
+             scale = Math.max(0.1, scale); 
              if (s.deteriorationEnabled) {
                  const off = s.deteriorationStrength * prog;
                  this.ctx.globalAlpha = alpha * 0.4 * prog;
-                 // Ghost 1
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-                 // Ghost 2
-                 this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+                 this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
         this.ctx.globalAlpha = alpha;
-        this.ctx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+        this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         if (bloomEnabled) {
             this.bloomCtx.globalAlpha = alpha;
-            this.bloomCtx.drawImage(this.glyphAtlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
     }
-    _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontBase) {
+    _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontName) {
         const decay = this.grid.decays[i];
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
+        // Use fontName passed in
+        const fontSize = s.fontSize; // Could vary with dissolve
+        const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
+        this.ctx.font = fontBase;
+        if(bloomEnabled) this.bloomCtx.font = fontBase;
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
             const p = rotProg / s.rotatorCrossfadeFrames;
-            // Draw outgoing character
             this.ctx.globalAlpha = alpha * (1 - p);
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
                 this.bloomCtx.globalAlpha = alpha * (1 - p);
                 this.bloomCtx.fillText(char, px, py);
             }
-            // Draw incoming character
             const next = this.grid.nextChars.get(i);
             if (next) {
                 this.ctx.globalAlpha = alpha * p;
@@ -2480,7 +2662,7 @@ class CanvasRenderer {
         } else if (s.dissolveEnabled && decay >= 2) {
             const prog = (decay - 2) / s.decayFadeDurationFrames;
             const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${s.fontFamily}`;
+            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${fontName}`;
             this.ctx.font = font;
             if (s.deteriorationEnabled) {
                 const off = s.deteriorationStrength * prog;
@@ -2494,7 +2676,7 @@ class CanvasRenderer {
                 this.bloomCtx.globalAlpha = alpha;
                 this.bloomCtx.fillText(char, px, py);
             }
-            this.ctx.font = fontBase;
+            // Don't need to reset font here, it's set at start of function
         } else {
             this.ctx.globalAlpha = alpha;
             this.ctx.fillText(char, px, py);
@@ -2508,9 +2690,15 @@ class CanvasRenderer {
         const tStr = d.tracerColorStr;
         this.ctx.shadowBlur = s.tracerGlow;
         this.ctx.shadowColor = tStr;
-        const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${s.fontFamily}`;
-        this.ctx.font = tFont;
-        if (bloomEnabled) this.bloomCtx.font = tFont;
+        // Tracers always use base font or specific if we want...
+        // For simplicity, let's use the font of the cell? 
+        // But tracers are drawn in a batch.
+        // To support multi-font tracers, we need to check the grid font.
+        // But performance... 
+        // Compromise: Tracers use the default font family or the first active one.
+        // Or we iterate and switch fonts.
+        // Let's loop and check fonts.
+        const activeFonts = d.activeFonts;
         for (const i of this.grid.activeIndices) {
             if (this.effects.getOverride(i)) continue;
             const tState = this._getTracerState(i, s);
@@ -2519,6 +2707,14 @@ class CanvasRenderer {
                 const y = Math.floor(i / this.grid.cols);
                 const px = (x * d.cellWidth + d.cellWidth * 0.5) + xOff;
                 const py = (y * d.cellHeight + d.cellHeight * 0.5) + yOff;
+                // Font Setup
+                const fontIdx = this.grid.getFont(i);
+                const fontData = activeFonts[fontIdx] || activeFonts[0];
+                const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${fontData.name}`;
+                if (this.ctx.font !== tFont) {
+                    this.ctx.font = tFont;
+                    if (bloomEnabled) this.bloomCtx.font = tFont;
+                }
                 const style = this.grid.complexStyles.get(i);
                 let cStr = tStr;
                 if (style && style.isEffect) {
@@ -2569,17 +2765,16 @@ class CanvasRenderer {
                 this.bloomCtx.fillText(o.char, px, py);
                 this.bloomCtx.restore();
             }
-            this.ctx.font = d.fontBaseStr;
+            // Restore base font?? Not strictly needed as next draw call will set it.
         }
     }
 }
-    // =========================================================================
-    // 8.0 FONT MANAGER
-    // =========================================================================
 // --- GlyphAtlas.js ---
 class GlyphAtlas {
-    constructor(config) {
+    constructor(config, fontName = null, customChars = null) {
         this.config = config;
+        this.fontName = fontName;
+        this.customChars = customChars;
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { alpha: true });
         // Map character codes to their x/y coordinates in the atlas
@@ -2602,13 +2797,16 @@ class GlyphAtlas {
     update() {
         const s = this.config.state;
         const d = this.config.derived;
+        // Determine font and chars to use
+        const fontFamily = this.fontName || s.fontFamily;
+        const charList = this.customChars || Utils.CHARS;
         // Check if update is needed (font, color, or size change)
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
-        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
+        const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
         const paletteStr = d.paletteColorsStr.join(',');
-        // Include overlap color in dependency check
-        const fullConfigStr = paletteStr + '|' + s.overlapColor;
+        // Include overlap color and charList length/content in dependency check
+        const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
         if (this.currentFont === fontBase && 
             this.currentPalette === fullConfigStr && 
             !this.needsUpdate) {
@@ -2622,7 +2820,6 @@ class GlyphAtlas {
         this.cellSize = Math.ceil(maxSize + padding);
         this.halfCell = this.cellSize / 2;
         // Calculate atlas dimensions
-        const charList = Utils.CHARS;
         const cols = Math.ceil(Math.sqrt(charList.length));
         const rows = Math.ceil(charList.length / cols);
         this.atlasWidth = cols * this.cellSize;
@@ -2681,6 +2878,7 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
+        this._activeFontList = []; // Cache for active fonts - though removed in logic, keeping property to avoid breakage if accessed elsewhere (unlikely)
     }
     _initializeModes(config) {
         return {
@@ -2701,6 +2899,9 @@ class SimulationSystem {
             this.grid.cellLocks.fill(0);
         }
     }
+    _refreshActiveFonts() {
+        // Deprecated but kept for safety if called externally - essentially no-op as logic moved to config derived
+    }
     _manageOverlapGrid(frame) {
         if (!this.config.state.overlapEnabled) {
             // Reset initialization state when disabled
@@ -2713,12 +2914,33 @@ class SimulationSystem {
             }
             return;
         }
-        // Check if we need to reinitialize (density changed or first time)
+        const activeFonts = this.config.derived.activeFonts;
+        const numFonts = activeFonts.length;
         const currentDensity = this.config.state.overlapDensity;
+        // Helper to get random char for a cell
+        const setOverlapChar = (i) => {
+            let fIdx;
+            if (this.grid.types[i] === CELL_TYPE.EMPTY) {
+                // If empty, we can choose any active font
+                fIdx = Math.floor(Math.random() * numFonts);
+                this.grid.setFont(i, fIdx);
+            } else {
+                // If occupied, MUST use the existing font to match the stream/renderer
+                fIdx = this.grid.getFont(i);
+            }
+            const fontData = activeFonts[fIdx] || activeFonts[0];
+            const chars = fontData.chars;
+            if (chars && chars.length > 0) {
+                this.grid.overlapChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+            } else {
+                this.grid.overlapChars[i] = 32; // Space if empty
+            }
+        };
+        // Check if we need to reinitialize (density changed or first time)
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             for(let i=0; i<this.grid.overlapChars.length; i++) {
                 if (Math.random() < currentDensity) {
-                    this.grid.overlapChars[i] = Utils.getRandomChar().charCodeAt(0);
+                    setOverlapChar(i);
                 } else {
                     this.grid.overlapChars[i] = 0; // Empty
                 }
@@ -2735,7 +2957,7 @@ class SimulationSystem {
                 // Check lock (Pulse Effect Pause)
                 if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) continue;
                 if (Math.random() < currentDensity) {
-                    this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+                    setOverlapChar(idx);
                 } else {
                     this.grid.overlapChars[idx] = 0;
                 }
@@ -2836,6 +3058,9 @@ class SimulationSystem {
         this.lastStreamInColumn[x] = stream;
     }
     _initializeStream(x, forceEraser, s) {
+        // Pick a font for this stream
+        const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
+        const fontIdx = Math.floor(Math.random() * activeFonts.length);
         const baseStream = {
             x,
             y: -1,
@@ -2851,7 +3076,8 @@ class SimulationSystem {
             baseHue: 0,
             isInverted: false,
             isEraser: forceEraser,
-            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1))
+            pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
+            fontIndex: fontIdx // Store font index
         };
         if (forceEraser) {
             return this._initializeEraserStream(baseStream, s);
@@ -2910,15 +3136,23 @@ class SimulationSystem {
             this.grid.ages[idx] = 1;
             this.grid.decays[idx] = 1;
             this.grid.rotatorProg[idx] = 0;
+            // Set font
+            this.grid.setFont(idx, stream.fontIndex);
             if (Math.random() < s.paletteBias) {
                 this.grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
             } else {
                 this.grid.paletteIndices[idx] = stream.pIdx;
             }
             this.grid.activeIndices.add(idx);
-            this.grid.setChar(idx, Utils.getRandomChar());
-            if (s.overlapEnabled) {
-                this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
+            // Get char from active font set
+            const activeFonts = this.config.derived.activeFonts;
+            const fontData = activeFonts[stream.fontIndex] || activeFonts[0];
+            const charSet = fontData.chars;
+            const char = charSet[Math.floor(Math.random() * charSet.length)];
+            this.grid.setChar(idx, char);
+            if (s.overlapEnabled && Math.random() < s.overlapDensity) {
+                // Use same charset for overlap to match font
+                this.grid.overlapChars[idx] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
             }
             this.grid.brightness[idx] = s.variableBrightnessEnabled
                 ? Utils.randomFloat(d.varianceMin, 1.0)
@@ -3006,20 +3240,37 @@ class SimulationSystem {
     }
     _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
         if (frame % cycleFrames === 0) {
+            // Get correct font charset
+            const fontIdx = this.grid.getFont(idx);
+            const activeFonts = this.config.derived.activeFonts;
+            const fontData = activeFonts[fontIdx] || activeFonts[0];
+            const charSet = fontData.chars;
             if (crossfadeFrames <= 2) {
-                this.grid.setChar(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                this.grid.setChar(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
-                    this.grid.overlapChars[idx] = Utils.getUniqueChar(String.fromCharCode(this.grid.overlapChars[idx])).charCodeAt(0);
+                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
+                    this.grid.overlapChars[idx] = this._getUniqueChar(currentOverlap, charSet).charCodeAt(0);
                 }
             } else {
                 this.grid.rotatorProg[idx] = 1;
-                this.grid.nextChars.set(idx, Utils.getUniqueChar(this.grid.getChar(idx)));
+                this.grid.nextChars.set(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
                     const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
-                    this.grid.nextOverlapChars.set(idx, Utils.getUniqueChar(currentOverlap).charCodeAt(0));
+                    this.grid.nextOverlapChars.set(idx, this._getUniqueChar(currentOverlap, charSet).charCodeAt(0));
                 }
             }
         }
+    }
+    _getUniqueChar(exclude, charSet) {
+        if (!charSet) charSet = Utils.CHARS;
+        if (charSet.length <= 1) return charSet[0];
+        let char;
+        let attempts = 0;
+        do {
+            char = charSet[Math.floor(Math.random() * charSet.length)];
+            attempts++;
+        } while (char === exclude && attempts < 10);
+        return char;
     }
     _shouldDecay(idx, decay, fadeDurationFrames) {
         return decay > fadeDurationFrames + 2;
@@ -3036,9 +3287,6 @@ class SimulationSystem {
         return 0;
     }
 }
-    // =========================================================================
-    // 6.0 EFFECT REGISTRY
-    // =========================================================================
 // --- StreamModes.js ---
 class StreamMode {
     constructor(config) {
@@ -3086,6 +3334,293 @@ class RainbowMode extends StreamMode {
     // =========================================================================
     // 5.0 SIMULATION SYSTEM 
     // =========================================================================
+// --- CharacterSelectorModal.js ---
+class CharacterSelectorModal {
+    constructor(config, fontManager, notificationMgr) {
+        this.config = config;
+        this.fonts = fontManager;
+        this.notifications = notificationMgr;
+        this.dom = null;
+        this.currentFont = null;
+        // Canvas for glyph detection
+        this.scanCanvas = document.createElement('canvas');
+        this.scanCanvas.width = 20;
+        this.scanCanvas.height = 20;
+        this.scanCtx = this.scanCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    show() {
+        if (!this.dom) {
+            this._createDOM();
+        }
+        this._refreshFontList();
+        const currentFamily = this.config.get('fontFamily');
+        const isKnown = this.fonts.loadedFonts.some(f => f.name === currentFamily) || currentFamily === 'MatrixEmbedded';
+        this.currentFont = isKnown ? currentFamily : 'MatrixEmbedded';
+        if (this.dom.fontSelect.querySelector(`option[value="${this.currentFont}"]`)) {
+            this.dom.fontSelect.value = this.currentFont;
+        } else {
+             this.currentFont = 'MatrixEmbedded';
+             this.dom.fontSelect.value = 'MatrixEmbedded';
+        }
+        this._loadFontSettings(this.currentFont);
+        this.dom.overlay.classList.add('visible');
+    }
+    hide() {
+        if (this.dom) {
+            this.dom.overlay.classList.remove('visible');
+        }
+    }
+    _createDOM() {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        // Header
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        header.innerHTML = '<h3 class="modal-title">Manage Characters</h3><div class="modal-close">×</div>';
+        header.querySelector('.modal-close').onclick = () => this.hide();
+        // Body
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        // 1. Font Selector
+        const fontRow = document.createElement('div');
+        fontRow.innerHTML = '<label class="modal-label">Select Font to Edit</label>';
+        this.fontSelect = document.createElement('select');
+        this.fontSelect.onchange = (e) => this._loadFontSettings(e.target.value);
+        fontRow.appendChild(this.fontSelect);
+        body.appendChild(fontRow);
+        // 2. Active Toggle
+        const activeRow = document.createElement('div');
+        activeRow.className = 'checkbox-row';
+        activeRow.innerHTML = '<span>Include in Rain</span><input type="checkbox" id="fontActiveToggle">';
+        activeRow.querySelector('input').onchange = (e) => this._updateSetting('active', e.target.checked);
+        this.activeToggle = activeRow.querySelector('input');
+        body.appendChild(activeRow);
+        // 3. Custom Chars Toggle
+        const customToggleRow = document.createElement('div');
+        customToggleRow.className = 'checkbox-row';
+        customToggleRow.innerHTML = '<span>Use Custom Characters</span><input type="checkbox" id="fontCustomToggle">';
+        customToggleRow.querySelector('input').onchange = (e) => {
+            this._updateSetting('useCustomChars', e.target.checked);
+            this._toggleInputs(e.target.checked);
+        };
+        this.customToggle = customToggleRow.querySelector('input');
+        body.appendChild(customToggleRow);
+        // 4. Use All Characters Toggle
+        const useAllRow = document.createElement('div');
+        useAllRow.className = 'checkbox-row';
+        useAllRow.innerHTML = '<span>Auto-Detect All Characters</span><input type="checkbox" id="fontUseAllToggle">';
+        useAllRow.querySelector('input').onchange = (e) => {
+            this._updateSetting('useAllChars', e.target.checked);
+            this._handleUseAll(e.target.checked);
+        };
+        this.useAllToggle = useAllRow.querySelector('input');
+        body.appendChild(useAllRow);
+        this.scanStatus = document.createElement('div');
+        this.scanStatus.className = 'scan-status';
+        body.appendChild(this.scanStatus);
+        // 5. Visual Picker
+        const pickerGroup = document.createElement('div');
+        pickerGroup.innerHTML = '<label class="modal-label">Visual Selector</label><div class="modal-desc">Click characters to add/remove them. Empty boxes are unsupported by this font.</div>';
+        this.charGrid = document.createElement('div');
+        this.charGrid.className = 'char-grid-container';
+        pickerGroup.appendChild(this.charGrid);
+        body.appendChild(pickerGroup);
+        // 6. Manual Input (Fallback)
+        const inputGroup = document.createElement('div');
+        inputGroup.innerHTML = '<label class="modal-label">Manual Input</label>';
+        this.charInput = document.createElement('textarea');
+        this.charInput.className = 'char-input';
+        this.charInput.placeholder = 'Or paste characters here...';
+        this.charInput.oninput = (e) => {
+            this._updateSetting('customCharacters', e.target.value);
+            this._updateGridSelection();
+        };
+        inputGroup.appendChild(this.charInput);
+        body.appendChild(inputGroup);
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 'modal-footer';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'action-btn btn-info';
+        saveBtn.textContent = 'Done';
+        saveBtn.style.width = 'auto';
+        saveBtn.onclick = () => this.hide();
+        footer.appendChild(saveBtn);
+        content.append(header, body, footer);
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+        this.dom = { overlay, fontSelect: this.fontSelect };
+    }
+    _refreshFontList() {
+        this.fontSelect.innerHTML = '';
+        const fonts = [
+            { name: 'MatrixEmbedded', display: 'Matrix Custom Code (Default)' },
+            ...this.fonts.loadedFonts.filter(f => !f.isEmbedded)
+        ];
+        fonts.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.name;
+            opt.textContent = f.display || f.name;
+            this.fontSelect.appendChild(opt);
+        });
+    }
+    _loadFontSettings(fontName) {
+        this.currentFont = fontName;
+        const allSettings = this.config.get('fontSettings') || {};
+        if (!allSettings[fontName]) {
+             allSettings[fontName] = { active: false, useCustomChars: false, useAllChars: false, customCharacters: "" };
+        }
+        const settings = allSettings[fontName];
+        this.activeToggle.checked = settings.active;
+        this.customToggle.checked = settings.useCustomChars;
+        this.useAllToggle.checked = settings.useAllChars;
+        this.charInput.value = settings.customCharacters || "";
+        this._toggleInputs(settings.useCustomChars);
+        // If Use All is checked, run the scan logic visually but don't overwrite if not needed
+        // Ideally we only run scan if useAllChars is TRUE.
+        if (settings.useCustomChars) {
+            if (settings.useAllChars) {
+                this._handleUseAll(true); // Will re-scan and disable inputs
+            } else {
+                this._renderGrid(); // Just render grid for manual selection
+            }
+        }
+    }
+    _toggleInputs(enabled) {
+        const opacity = enabled ? 1 : 0.5;
+        this.useAllToggle.disabled = !enabled;
+        this.useAllToggle.parentElement.style.opacity = opacity;
+        // If "Use All" is checked, specific inputs are disabled regardless of "Use Custom"
+        const allChecked = this.useAllToggle.checked;
+        const manualEnabled = enabled && !allChecked;
+        this.charInput.disabled = !manualEnabled;
+        this.charInput.style.opacity = manualEnabled ? 1 : 0.5;
+        this.charGrid.style.opacity = manualEnabled ? 1 : 0.5;
+        this.charGrid.style.pointerEvents = manualEnabled ? 'auto' : 'none';
+        if (enabled && !allChecked) {
+            this._renderGrid();
+        }
+    }
+    async _handleUseAll(checked) {
+        if (!checked) {
+            this._toggleInputs(true); // Re-enable manual inputs
+            this.scanStatus.textContent = '';
+            return;
+        }
+        this.charInput.disabled = true;
+        this.charInput.style.opacity = 0.5;
+        this.charGrid.style.opacity = 0.5;
+        this.charGrid.style.pointerEvents = 'none';
+        this.scanStatus.textContent = 'Scanning font for all valid glyphs...';
+        // Yield to UI render
+        await new Promise(r => setTimeout(r, 50));
+        const validChars = this._scanForChars(this.currentFont);
+        this.charInput.value = validChars;
+        this._updateSetting('customCharacters', validChars);
+        this.scanStatus.textContent = `Scan complete. Found ${validChars.length} characters.`;
+        this._renderGrid(); // Visual confirmation
+    }
+    _scanForChars(fontName) {
+        const ranges = [
+            [33, 126], // Basic Latin
+            [161, 255], // Latin-1
+            [1024, 1279], // Cyrillic
+            [913, 969], // Greek
+            [5792, 5887], // Runic
+            [12353, 12447], // Hiragana
+            [12448, 12543], // Katakana
+            [65377, 65439] // Halfwidth Katakana
+        ];
+        let valid = "";
+        // Get "tofu" or empty signature
+        const emptySig = this._getCharSignature(fontName, '\uFFFF');
+        const spaceSig = this._getCharSignature(fontName, ' ');
+        for (const [start, end] of ranges) {
+            for (let i = start; i <= end; i++) {
+                const char = String.fromCharCode(i);
+                const sig = this._getCharSignature(fontName, char);
+                // If distinct from empty/tofu, it's valid
+                if (sig && sig !== emptySig && sig !== spaceSig) {
+                    valid += char;
+                }
+            }
+        }
+        return valid;
+    }
+    _getCharSignature(fontName, char) {
+        this.scanCtx.clearRect(0, 0, 20, 20);
+        this.scanCtx.font = `16px "${fontName}"`;
+        this.scanCtx.textBaseline = 'middle';
+        this.scanCtx.textAlign = 'center';
+        this.scanCtx.fillStyle = '#fff';
+        this.scanCtx.fillText(char, 10, 10);
+        // Get pixel data hash-ish
+        const data = this.scanCtx.getImageData(5, 5, 10, 10).data; // Sample center 10x10
+        let sum = 0;
+        for(let i=3; i<data.length; i+=4) { // check alpha only
+            sum += data[i];
+        }
+        return sum; // simple sum signature
+    }
+    _renderGrid() {
+        this.charGrid.innerHTML = '';
+        // Define grid ranges (subset of scan ranges for visual sanity)
+        const ranges = [
+            [33, 126], // ASCII
+            [12448, 12543] // Katakana
+        ];
+        const currentSet = new Set(this.charInput.value.split(''));
+        const emptySig = this._getCharSignature(this.currentFont, '\uFFFF');
+        for (const [start, end] of ranges) {
+            for (let i = start; i <= end; i++) {
+                const char = String.fromCharCode(i);
+                const sig = this._getCharSignature(this.currentFont, char);
+                // If valid glyph
+                if (sig && sig !== emptySig) {
+                    const el = document.createElement('div');
+                    el.className = 'char-grid-item';
+                    el.textContent = char;
+                    el.style.fontFamily = this.currentFont;
+                    if (currentSet.has(char)) el.classList.add('selected');
+                    el.onclick = () => {
+                        if (this.useAllToggle.checked) return; // Locked
+                        this._toggleChar(char);
+                        el.classList.toggle('selected');
+                    };
+                    this.charGrid.appendChild(el);
+                }
+            }
+        }
+    }
+    _toggleChar(char) {
+        let val = this.charInput.value;
+        if (val.includes(char)) {
+            val = val.replace(char, '');
+        } else {
+            val += char;
+        }
+        this.charInput.value = val;
+        this._updateSetting('customCharacters', val);
+    }
+    _updateGridSelection() {
+        const currentSet = new Set(this.charInput.value.split(''));
+        Array.from(this.charGrid.children).forEach(el => {
+            if (currentSet.has(el.textContent)) el.classList.add('selected');
+            else el.classList.remove('selected');
+        });
+    }
+    _updateSetting(key, value) {
+        if (!this.currentFont) return;
+        const allSettings = { ...this.config.get('fontSettings') };
+        if (!allSettings[this.currentFont]) {
+            allSettings[this.currentFont] = {};
+        }
+        allSettings[this.currentFont][key] = value;
+        this.config.set('fontSettings', allSettings);
+    }
+}
 // --- FontManager.js ---
 class FontManager {
     constructor(config, notificationMgr) {
@@ -3120,6 +3655,22 @@ class FontManager {
         this.subscribers.push(callback);
     }
     /**
+     * Ensures that a font has a corresponding entry in the global configuration settings.
+     * @param {string} fontName - The name of the font.
+     */
+    _ensureFontConfig(fontName) {
+        const settings = { ...this.config.get('fontSettings') };
+        if (!settings[fontName]) {
+            // Default settings for new fonts
+            settings[fontName] = {
+                active: false, 
+                useCustomChars: false,
+                customCharacters: ""
+            };
+            this.config.set('fontSettings', settings);
+        }
+    }
+    /**
      * Notify all subscribers about font changes.
      * Executes the callback functions passed via subscribe.
      */
@@ -3138,6 +3689,16 @@ class FontManager {
             display: 'The Matrix Custom Code',
             isEmbedded: true,
         });
+        // Ensure default font is active and configured
+        const settings = { ...this.config.get('fontSettings') };
+        if (!settings[this.embeddedFontName]) {
+            settings[this.embeddedFontName] = {
+                active: true,
+                useCustomChars: false,
+                customCharacters: ""
+            };
+            this.config.set('fontSettings', settings);
+        }
     }
     /**
      * Inject a font into the document as a CSS @font-face rule.
@@ -3202,6 +3763,7 @@ class FontManager {
                 // Use Promise.all to await all font injections from DB
                 await Promise.all(storedFonts.map(async font => {
                     this.loadedFonts.push(font);
+                    this._ensureFontConfig(font.name); // Ensure config exists
                     const type = font.mimeType || font.data.type;
                     const format = this._getFormatFromType(type);
                     await this._injectCSS(font.name, URL.createObjectURL(font.data), format);
@@ -3228,9 +3790,17 @@ class FontManager {
      */
     importFont(file) {
         const reader = new FileReader();
-        reader.onload = event => {
-            const blob = new Blob([event.target.result], { type: file.type });
-            const fontName = `CustomFont_${Date.now()}`; // Unique font name.
+        reader.onload = async event => {
+            const arrayBuffer = event.target.result;
+            const blob = new Blob([arrayBuffer], { type: file.type });
+            let fontName;
+            try {
+                const hash = await Utils.computeSHA256(arrayBuffer);
+                fontName = `CustomFont_${hash.substring(0, 16)}`;
+            } catch (e) {
+                console.warn("Hashing failed, falling back to timestamp", e);
+                fontName = `CustomFont_${Date.now()}`;
+            }
             const record = {
                 name: fontName,
                 display: file.name,
@@ -3243,6 +3813,12 @@ class FontManager {
                 const format = this._getFormatFromType(file.type);
                 this._injectCSS(fontName, URL.createObjectURL(blob), format);
                 this.loadedFonts.push(record);
+                // Ensure config and activate the new font
+                this._ensureFontConfig(fontName);
+                // Optionally auto-activate imported font?
+                // const settings = { ...this.config.get('fontSettings') };
+                // settings[fontName].active = true;
+                // this.config.set('fontSettings', settings);
                 this.config.set('fontFamily', fontName);
                 this._notify();
                 this.notifications.show(`Imported: ${file.name}`, 'success');
@@ -3265,6 +3841,12 @@ class FontManager {
             objectStore.delete(id).onsuccess = () => {
                 document.getElementById(`style-${id}`)?.remove();
                 this.loadedFonts = this.loadedFonts.filter(font => font.name !== id);
+                // Deactivate in config to prevent rendering issues
+                const settings = { ...this.config.get('fontSettings') };
+                if (settings[id]) {
+                    settings[id].active = false;
+                    this.config.set('fontSettings', settings);
+                }
                 if (this.config.state.fontFamily === id) {
                     this.config.set('fontFamily', this.config.defaults.fontFamily);
                 }
@@ -3368,12 +3950,13 @@ class NotificationManager {
     // =========================================================================
 // --- UIManager.js ---
 class UIManager {
-    constructor(c, effects, fonts, notificationMgr) {
+    constructor(c, effects, fonts, notificationMgr, charSelector) {
         // Core dependencies and state
         this.c = c;
         this.effects = effects; // Renamed from this.eff for clarity, consistency
         this.fonts = fonts;
         this.notifications = notificationMgr;
+        this.charSelector = charSelector;
         this.dom = this._initializeDOM();
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
@@ -3458,6 +4041,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Details' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
+            { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
             { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
@@ -3469,7 +4053,7 @@ class UIManager {
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
-            { cat: 'Appearance', type: 'accordion_header', label: 'Imposition Layer' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Overlay' },
             { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap' },
             { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled' },
             { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled' },
@@ -3500,12 +4084,12 @@ class UIManager {
             { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
-            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
+            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
@@ -4086,10 +4670,20 @@ class UIManager {
             const cInput = document.createElement('input');
             cInput.type = 'color';
             cInput.value = color;
+            // Optimisation: Update state directly on input to allow dragging without re-render
             cInput.oninput = e => {
                 const newP = [...this.c.get(def.id)];
                 newP[idx] = e.target.value;
-                this.c.set(def.id, newP);
+                this.c.state[def.id] = newP; // Direct state mutation
+                // Optional: Notify renderer directly if needed for live preview, 
+                // but standard loop picks up state changes next frame.
+                // We do NOT call this.c.set() here to avoid UI refresh.
+            };
+            // Commit change on release
+            cInput.onchange = e => {
+                const newP = [...this.c.get(def.id)];
+                newP[idx] = e.target.value;
+                this.c.set(def.id, newP); // Triggers save and refresh
             };
             item.appendChild(cInput);
             if (palette.length > 1 && idx > 0) {
@@ -4257,7 +4851,21 @@ class UIManager {
                     isHorizontalDrag = false;
                 });
             }
-            else if(def.type === 'color') { const w = document.createElement('div'); w.className = 'color-wrapper'; inp = document.createElement('input'); inp.type = 'color'; inp.value = this.c.get(def.id); inp.id = `in-${def.id}`; inp.name = def.id; inp.oninput = e => this.c.set(def.id, e.target.value); w.appendChild(inp); row.appendChild(w); if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`; return row; }
+            else if(def.type === 'color') { 
+                const w = document.createElement('div'); 
+                w.className = 'color-wrapper'; 
+                inp = document.createElement('input'); 
+                inp.type = 'color'; 
+                inp.value = this.c.get(def.id); 
+                inp.id = `in-${def.id}`; 
+                inp.name = def.id; 
+                inp.oninput = e => { this.c.state[def.id] = e.target.value; }; // Live update state
+                inp.onchange = e => { this.c.set(def.id, e.target.value); }; // Commit and refresh
+                w.appendChild(inp); row.appendChild(w); 
+                if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
+                if(def.id) row.id = `row-${def.id}`; 
+                return row; 
+            }
             else if(def.type === 'color_list') {
                 const wrapper = document.createElement('div');
                 wrapper.className = 'color-list-wrapper';
@@ -4286,6 +4894,7 @@ class UIManager {
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
+        if(action === 'manageCharacters') this.charSelector.show();
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
@@ -4492,7 +5101,8 @@ class MatrixKernel {
     async _initializeRendererAndUI() {
         this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
         this.fontMgr = new FontManager(this.config, this.notifications);
-        this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications);
+        this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
+        this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
         // Initialize font manager and await its completion
         await this.fontMgr.init();
     }

@@ -147,7 +147,7 @@ const Utils = {
     },
 
     /**
-     * Returns a random character from the CHARS list, excluding the provided character.
+     * Generates a random character from the CHARS list, excluding the provided character.
      * @param {string} exclude - The character to exclude from the random selection.
      * @returns {string|null} A unique random character, or null if no other characters are available.
      */
@@ -159,6 +159,22 @@ const Utils = {
         } while (char === exclude);
         return char;
     },
+
+    /**
+     * Computes the SHA-256 hash of an ArrayBuffer.
+     * @param {ArrayBuffer} buffer - The input buffer.
+     * @returns {Promise<string>} The hex string of the hash.
+     */
+    computeSHA256: async (buffer) => {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    },
+
+    /**
+     * Downloads a JSON object as a file.
+     * @param {Object} data - The JSON object to download.
 
     /**
      * Downloads a JSON object as a file.
