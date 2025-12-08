@@ -1,5 +1,4 @@
 ToDo: 
-Multi-color code: Have a + button with a circle, the new circle is another color picker. Max of 3 colors. There should also be a minus button above the 2nd and 3rd circle. 
 Multiple Font Sets, let the user input their own character string in the Character Details as a text input, and it should persist between reloads. Also have a button that says "Reset to Default" below the Character Details text input. 
 
 

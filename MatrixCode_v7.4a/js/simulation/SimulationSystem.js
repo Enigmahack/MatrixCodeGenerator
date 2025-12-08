@@ -24,6 +24,11 @@ class SimulationSystem {
         this._manageStreams(frame);
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
+        
+        // Clear locks for the next frame (locks are set during rendering)
+        if (this.grid.cellLocks) {
+            this.grid.cellLocks.fill(0);
+        }
     }
 
     _manageOverlapGrid(frame) {
@@ -59,6 +64,10 @@ class SimulationSystem {
              const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
              for(let k=0; k<updates; k++) {
                 const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
+                
+                // Check lock (Pulse Effect Pause)
+                if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) continue;
+
                 if (Math.random() < currentDensity) {
                     this.grid.overlapChars[idx] = Utils.getRandomChar().charCodeAt(0);
                 } else {
@@ -100,6 +109,10 @@ class SimulationSystem {
             const hasContent = this._columnHasContent(col, Math.min(this.grid.rows, 40));
             const lastStream = this.lastStreamInColumn[col];
 
+            // Check if spawn point (top of column) is locked
+            const spawnIdx = this.grid.getIndex(col, 0);
+            if (spawnIdx !== -1 && this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
+
             if (hasContent && eraserCount > 0 && this._canSpawn(lastStream, s.minEraserGap)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
@@ -136,6 +149,13 @@ class SimulationSystem {
                 this.activeStreams.splice(i, 1);
                 continue;
             }
+
+            // Check if stream is currently frozen by an effect
+            const headIdx = this.grid.getIndex(stream.x, Math.max(0, stream.y));
+            if (headIdx !== -1 && this.grid.cellLocks && this.grid.cellLocks[headIdx] === 1) {
+                continue;
+            }
+
             if (stream.delay > 0) {
                 stream.delay--;
                 continue;
@@ -310,6 +330,9 @@ class SimulationSystem {
     }
 
     _updateCell(idx, frame, s, d) {
+        // Check if cell is locked by an effect (e.g. Pulse)
+        if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) return;
+
         const decay = this.grid.decays[idx];
         if (decay === 0) return;
 

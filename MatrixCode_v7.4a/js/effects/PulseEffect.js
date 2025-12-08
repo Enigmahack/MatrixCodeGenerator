@@ -133,6 +133,80 @@ class PulseEffect extends AbstractEffect {
                     ratio,
                     minX, maxX, minY, maxY
                 };
+
+                // --- Global Simulation Locking ---
+                // Freeze the simulation for any cell that is waiting or outside the pulse
+                if (this.g.cellLocks) {
+                    if (this.state === 'WAITING') {
+                         this.g.cellLocks.fill(1);
+                    } else if (this.state === 'EXPANDING') {
+                        // 1. Lock everything by default (frozen background)
+                        this.g.cellLocks.fill(1);
+
+                        // 2. Unlock cells inside the expanding pulse
+                        // Convert pixel AABB to Grid Coordinates
+                        const cW = d.cellWidth * s.stretchX;
+                        const cH = d.cellHeight * s.stretchY;
+                        
+                        // Bounds clamped to grid
+                        const startCol = Math.max(0, Math.floor(minX / cW));
+                        const endCol = Math.min(this.g.cols, Math.ceil(maxX / cW));
+                        const startRow = Math.max(0, Math.floor(minY / cH));
+                        const endRow = Math.min(this.g.rows, Math.ceil(maxY / cH));
+
+                        const ox = this.renderData.ox;
+                        const oy = this.renderData.oy;
+                        const radius = this.radius;
+                        const radiusSq = this.renderData.radiusSq;
+                        const innerEdge = this.renderData.innerEdge;
+                        const ratio = this.renderData.ratio;
+
+                        for (let y = startRow; y < endRow; y++) {
+                            const cy = Math.floor(y * cH);
+                            // Optimization: Check row bounds against Y-range of pulse first? 
+                            // AABB handles it mostly.
+
+                            for (let x = startCol; x < endCol; x++) {
+                                const cx = Math.floor(x * cW);
+                                
+                                // Exact Check: Is this cell inside the pulse radius?
+                                let dist = 0;
+                                if (s.pulseCircular) {
+                                    const dx = cx - ox; 
+                                    const dy = cy - oy;
+                                    // Optimization: Check squared distance first
+                                    const dSq = dx*dx + dy*dy;
+                                    if (dSq > radiusSq) continue; // Outside outer radius (keep locked)
+                                    
+                                    // Wait, logic inversion:
+                                    // If dist < radius, it is INSIDE the wave or the hole.
+                                    // If inside the hole (dist < innerEdge), it is effectively 'passed' and should be normal grid again?
+                                    // NO. The hole reveals the original grid, so simulation should RESUME (unlocked).
+                                    // The wave itself replaces the grid (visual override). Simulation *could* run underneath, but locked is safer?
+                                    // Actually, if we want to "pause" the background, we pause it until the wave PASSES.
+                                    // Once the wave passes (dist < innerEdge), the cell is back to normal simulation?
+                                    // "The imposition layer needs to pause completely." -> Implies while faded out.
+                                    // Faded out = Waiting OR Outside Radius.
+                                    // Inside Radius = Wave (Override) + Hole (Normal).
+                                    // So anything where dist < radius is UNLOCKED.
+                                    
+                                    // Using sqrt for precise check against innerEdge/Radius logic consistency
+                                    dist = Math.sqrt(dSq);
+                                } else {
+                                    const dx = Math.abs(cx - ox);
+                                    const dy = Math.abs(cy - oy);
+                                    dist = Math.max(dx, dy * ratio);
+                                }
+
+                                if (dist <= radius) {
+                                    // Inside the wave or the hole -> Simulation Active
+                                    const idx = y * this.g.cols + x;
+                                    this.g.cellLocks[idx] = 0;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             getOverride(i) {
@@ -195,132 +269,83 @@ class PulseEffect extends AbstractEffect {
                 // Common Gap Return
                 const gapReturn = { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
 
+                let result = null;
+
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(baseColorStr === null) { const rgb = Utils.unpackRgb(this.snap.colors[i]); baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`; }
                     // FIX: If ignoring tracers, return them with their ORIGINAL snapshot alpha/color, do not dim or force white.
-                    if(isTracer && s.pulseIgnoreTracers) return { char, color: baseColorStr, alpha: snAlpha, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
-                    if (isGap) return gapReturn;
-                    return { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                    if(isTracer && s.pulseIgnoreTracers) {
+                         result = { char, color: baseColorStr, alpha: snAlpha, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
+                    } else if (isGap) {
+                         result = gapReturn;
+                    } else {
+                         result = { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                    }
+                } else {
+                    if (s.pulsePreserveSpaces && isGap) {
+                         result = gapReturn;
+                    } else {
+                        const rel = Math.max(0, Math.min(1, (this.radius - dist) / (s.pulseWidth * 2)));
+                        
+                        let actualCharAlpha = 1.0;
+                        let actualBgAlpha = 1.0;
+                        let actualSolid = true; 
+                        let actualBlend = false; // Default: Don't blend (draws opaque over grid)
+                        let actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
+        
+                        // Calculate where the inner edge of the fade zone begins
+                        // Fade out over approximately 1 character cell width at the inner boundary
+                        const fadePixelWidth = d.cellWidth; // One character cell width for fade
+                        const innerBoundaryDist = rd.innerEdge; // Exact inner edge of the main wave
+                        const fadeStartDist = innerBoundaryDist + fadePixelWidth; // Distance where fade begins
+        
+                        if (dist < fadeStartDist && dist > innerBoundaryDist) {
+                            // We are in the fade-out zone at the inner edge
+                            const fadeProgress = (dist - innerBoundaryDist) / fadePixelWidth; // 0 at innerBoundaryDist, 1 at fadeStartDist
+                            
+                            // FIX: Fade IN the snapshot from 0 (inner edge) to 1 (wave body).
+                            actualCharAlpha = fadeProgress;
+                            actualBgAlpha = fadeProgress; 
+                            
+                            actualSolid = true;             // Draw the background rect (which will be semi-transparent)
+                            actualBlend = true;             // ENABLE BLEND: Draw standard grid underneath so we crossfade
+                            
+                            actualGlow *= actualCharAlpha;  
+                        } else if (dist <= innerBoundaryDist) {
+                            // Past the inner edge, no override.
+                            return null;
+                        }
+                        
+                        // Existing color blending
+                        let finalColor = targetColor;
+                        if (s.pulseBlend) {
+                            const baseInt = this.snap.colors[i]; 
+                            const bR = (baseInt >> 16) & 0xFF; 
+                            const bG = (baseInt >> 8) & 0xFF; 
+                            const bB = baseInt & 0xFF;
+                            const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel); 
+                            const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); 
+                            const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
+                            finalColor = `rgb(${mR},${mG},${mB})`;
+                        }
+                        
+                        // Final return object
+                        actualCharAlpha = Math.max(0, actualCharAlpha);
+                        actualBgAlpha = Math.max(0, actualBgAlpha);
+        
+                        result = { 
+                            char, 
+                            color: finalColor, 
+                            alpha: actualCharAlpha, 
+                            glow: actualGlow, 
+                            size: s.tracerSizeIncrease, 
+                            solid: actualSolid, 
+                            blend: actualBlend,
+                            bgColor: `rgba(0,0,0,${actualBgAlpha})` 
+                        };
+                    }
                 }
                 
-                if (s.pulsePreserveSpaces && isGap) return gapReturn;
-                
-                                                const rel = Math.max(0, Math.min(1, (this.radius - dist) / (s.pulseWidth * 2)));
-                
-                                                
-                
-                                                let actualCharAlpha = 1.0;
-                
-                                                let actualBgAlpha = 1.0;
-                
-                                                let actualSolid = true; 
-                
-                                                let actualBlend = false; // Default: Don't blend (draws opaque over grid)
-                
-                                                let actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
-                
-                                
-                
-                                                // Calculate where the inner edge of the fade zone begins
-                
-                                                // Fade out over approximately 1 character cell width at the inner boundary
-                
-                                                const fadePixelWidth = d.cellWidth; // One character cell width for fade
-                
-                                                const innerBoundaryDist = rd.innerEdge; // Exact inner edge of the main wave
-                
-                                                const fadeStartDist = innerBoundaryDist + fadePixelWidth; // Distance where fade begins
-                
-                                
-                
-                                                if (dist < fadeStartDist && dist > innerBoundaryDist) {
-                
-                                                    // We are in the fade-out zone at the inner edge
-                
-                                                    const fadeProgress = (dist - innerBoundaryDist) / fadePixelWidth; // 0 at innerBoundaryDist, 1 at fadeStartDist
-                
-                                                    
-                
-                                                    // FIX: Fade IN the snapshot from 0 (inner edge) to 1 (wave body).
-                
-                                                    // Previously reversed, causing a cut.
-                
-                                                    actualCharAlpha = fadeProgress;
-                
-                                                    actualBgAlpha = fadeProgress; 
-                
-                                                    
-                
-                                                    actualSolid = true;             // Draw the background rect (which will be semi-transparent)
-                
-                                                    actualBlend = true;             // ENABLE BLEND: Draw standard grid underneath so we crossfade
-                
-                                                    
-                
-                                                    actualGlow *= actualCharAlpha;  
-                
-                                                } else if (dist <= innerBoundaryDist) {
-                
-                                                    // Past the inner edge, no override.
-                
-                                                    return null;
-                
-                                                }
-                
-                                                
-                
-                                                // Existing color blending
-                
-                                                let finalColor = targetColor;
-                
-                                                if (s.pulseBlend) {
-                
-                                                    const baseInt = this.snap.colors[i]; 
-                
-                                                    const bR = (baseInt >> 16) & 0xFF; 
-                
-                                                    const bG = (baseInt >> 8) & 0xFF; 
-                
-                                                    const bB = baseInt & 0xFF;
-                
-                                                    const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel); 
-                
-                                                    const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); 
-                
-                                                    const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
-                
-                                                    finalColor = `rgb(${mR},${mG},${mB})`;
-                
-                                                }
-                
-                                                
-                
-                                                // Final return object
-                
-                                                actualCharAlpha = Math.max(0, actualCharAlpha);
-                
-                                                actualBgAlpha = Math.max(0, actualBgAlpha);
-                
-                                
-                
-                                                return { 
-                
-                                                    char, 
-                
-                                                    color: finalColor, 
-                
-                                                    alpha: actualCharAlpha, 
-                
-                                                    glow: actualGlow, 
-                
-                                                    size: s.tracerSizeIncrease, 
-                
-                                                    solid: actualSolid, 
-                
-                                                    blend: actualBlend,
-                
-                                                    bgColor: `rgba(0,0,0,${actualBgAlpha})` 
-                
-                                                };
+                return result;
             }
         }

@@ -204,21 +204,37 @@ class CanvasRenderer {
             if (override && override.char) streamChar = override.char;
             const overlapChar = String.fromCharCode(code);
 
+            // Calculate Effects (Dissolve/Size)
+            const decay = this.grid.decays[i];
+            let drawScale = 1.0;
+            
+            // Replicate dissolve logic from _drawCellCharAtlas/_drawCellChar
+            if (s.dissolveEnabled && decay >= 2) {
+                 const prog = (decay - 2) / s.decayFadeDurationFrames;
+                 const minRatio = s.dissolveMinSize / s.fontSize;
+                 drawScale = 1.0 - (prog * (1.0 - minRatio));
+                 drawScale = Math.max(0.1, drawScale);
+            }
+
+            // Apply Alpha to the mask layers
+            ctxA.globalAlpha = 1.0; // Mask shape should be solid to capture full intersection
+            ctxB.globalAlpha = gridAlpha; // Overlap content carries the fade
+
             // 3. Draw to Layer A (Stream Base)
             if (useAtlas) {
                 const sprite = this.glyphAtlas.get(streamChar);
                 if (sprite) {
-                    // Draw raw shape (white/base sprite)
                     ctxA.drawImage(this.glyphAtlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
-                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                        px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
+                        sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                // Standard Font Draw
-                // Note: If you want dissolve effects in overlap, replicate the font sizing logic here.
-                // For performance, we stick to the base font size for the mask.
-                ctxA.font = d.fontBaseStr; 
+                // Standard Font Draw with Scaling
+                const fontSize = Math.max(1, s.fontSize * drawScale);
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                ctxA.font = font;
                 ctxA.fillText(streamChar, px, py);
             }
 
@@ -228,11 +244,15 @@ class CanvasRenderer {
                 if (sprite) {
                     ctxB.drawImage(this.glyphAtlas.canvas, 
                         sprite.x, sprite.y, sprite.w, sprite.h, 
-                        px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h
+                        px - (sprite.w * drawScale)/2, py - (sprite.h * drawScale)/2, 
+                        sprite.w * drawScale, sprite.h * drawScale
                     );
                 }
             } else {
-                ctxB.font = d.fontBaseStr;
+                // Standard Font Draw with Scaling
+                const fontSize = Math.max(1, s.fontSize * drawScale);
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${fontSize}px ${s.fontFamily}`;
+                ctxB.font = font;
                 ctxB.fillText(overlapChar, px, py);
             }
         }
@@ -251,6 +271,7 @@ class CanvasRenderer {
         // source-in: Keep pixels from B that overlap pixels in A.
         // Result: Layer A now contains the INTERSECTION shapes (Stream AND Overlap).
         ctxA.globalCompositeOperation = 'source-in';
+        ctxA.globalAlpha = 1.0; // Reset alpha for composition
         ctxA.drawImage(cvsB, 0, 0);
 
         // 3. COLORIZE: Draw the User's Color onto the Shapes

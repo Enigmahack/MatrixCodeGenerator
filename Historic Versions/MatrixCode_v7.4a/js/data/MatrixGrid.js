@@ -95,6 +95,9 @@ class MatrixGrid {
         
         // Imposition Layer (Overlap)
         this.overlapChars = new Uint16Array(totalCells);
+        
+        // Cell Locks (for pausing simulation under effects)
+        this.cellLocks = new Uint8Array(totalCells);
 
         this.activeIndices = new Set();
         this.complexStyles = new Map();

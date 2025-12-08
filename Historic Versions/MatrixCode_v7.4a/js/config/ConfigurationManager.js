@@ -36,6 +36,7 @@ class ConfigurationManager {
             enableGlyphAtlas: true,
             smoothingEnabled: true,
             smoothingAmount: 0.5,
+            showFpsCounter: false,
 
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
