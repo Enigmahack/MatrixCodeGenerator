@@ -1,7 +1,7 @@
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v7.4';
-        this.slotsKey = 'matrix_slots_v7.4';
+        this.storageKey = 'matrix_config_v7.5';
+        this.slotsKey = 'matrix_slots_v7.5';
         this.defaults = this._initializeDefaults();
 
         this.state = { ...this.defaults };
@@ -78,6 +78,7 @@ class ConfigurationManager {
             minStreamGap: 10,
             minEraserGap: 15,
             holeRate: 0.1,
+            desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
@@ -92,7 +93,7 @@ class ConfigurationManager {
 
             // --- FX ---
             pulseEnabled: true,
-            pulseFrequencySeconds: 220,
+            pulseFrequencySeconds: 300,
             pulseDurationSeconds: 1.8,
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
@@ -104,7 +105,7 @@ class ConfigurationManager {
             pulseCircular: false,
 
             clearPulseEnabled: true,
-            clearPulseFrequencySeconds: 195,
+            clearPulseFrequencySeconds: 235,
             clearPulseDurationSeconds: 1,
             clearPulsePreserveSpaces: true,
             clearPulseBlend: false,
@@ -131,7 +132,7 @@ class ConfigurationManager {
             dejaVuBarDurationFrames: 28,
             dejaVuVarianceFrames: 43,
             supermanEnabled: true,
-            supermanFrequencySeconds: 240,
+            supermanFrequencySeconds: 290,
             supermanDurationSeconds: 6,
             supermanIncludeColors: true,
             supermanFadeSpeed: 6,
@@ -151,7 +152,7 @@ class ConfigurationManager {
             rainbowStreamEnabled: false,
             rainbowStreamChance: 1,
             rainbowStreamIntensity: 50,
-            firewallEnabled: true,
+            firewallEnabled: false,
             firewallFrequencySeconds: 150,
             firewallRandomColorEnabled: true,
             firewallColor: "#00ff00",

@@ -1,13 +1,51 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.4.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.5.html
 #
-💻 Matrix Digital Rain Simulation v7.4
-The quest for the "perfect" rain continues. v7.4 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
+💻 Matrix Digital Rain Simulation v7.5
+The quest for the "perfect" rain continues. v7.5 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
 <img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/71adcfee-d368-4ebc-ad31-5b0bb58c75a5" />
 <img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
+
+#
+🚀 What's New in v7.5
+This release introduces a massive upgrade to typographical customization and simulation dynamics.
+
+**Typography & Customization:**
+*   **Multi-Font Architecture**: You can now run multiple fonts simultaneously. The engine intelligently switches between them per-stream or even per-character in the background layer.
+*   **Character Set Manager**: A new interface allows precise control over which characters are used for each font.
+*   **Visual Character Picker**: Select your desired glyphs by simply clicking on them in a visual grid, eliminating the guesswork for non-standard symbol fonts.
+*   **Auto-Detect All Characters**: Automatically scans your custom fonts to find and use every valid glyph available, filtering out empty boxes.
+*   **Imposition Layer Sync**: The background "Imposition Layer" (Character Overlay) now respects your active font choices, creating a seamless blend of standard and custom characters.
+
+**Simulation Dynamics:**
+*   **Tracer Desync**: A new "Tracer Desync" slider allows tracers to fall at varying, chaotic speeds instead of a uniform rhythm, creating a more organic and unpredictable flow.
+
+**UI Refinements:**
+*   **Better Organization**: Moved tracer release controls to the appropriate section and renamed "Imposition Layer" to "Character Overlay" for clarity.
+*   **Mobile & Desktop Fixes**: Improved color picker behavior on all devices and fixed drag-to-edit interactions.
+
+#
+🚀 What's New in v7.4
+This patch release includes bug fixes, mobile usability enhancements, and a brand new visual effect.
+
+**Bug Fixes:**
+*   Resolved an issue where certain configurations could lead to incorrect character rendering.
+*   Fixed minor performance regressions introduced in specific effect combinations.
+
+**Mobile Enhancements:**
+*   Further improvements to mobile responsiveness and touch interactions, especially for slider controls and panel navigation.
+*   Optimized resource loading for faster initial page load on mobile devices.
+
+**New Visual Effect:**
+*   **Firewall Effect**: A dynamic effect that simulates a firewall's protective barrier, adding a layer of visual defense with configurable patterns and intensity.
+
+#
+🚀 What's New in v7.3.2
+This version primarily focuses on refining the robust architecture introduced in `v7.3.1`, ensuring stability and minor optimizations without introducing major new features or breaking changes. It's about polishing the experience and reinforcing the foundational improvements.
+
 
 #
 🚀 What's New in v7.3
@@ -50,24 +88,6 @@ This release focuses on deeper customization, advanced visual effects, and a ref
 *   Default values for several parameters like `streamColor`, `tracerColor`, `bloomStrength`, `bloomOpacity`, `resolution`, `smoothingAmount`, `fontSize`, `tracerGlow`, `pulseDurationSeconds`, `pulseWidth`, and `pulseDimming` have been updated for a more balanced out-of-box experience.
 *   The `randomStopEnabled` and `randomStopChance` features have been removed for a more focused stream behavior model.
 
-#
-🚀 What's New in v7.4
-This patch release includes bug fixes, mobile usability enhancements, and a brand new visual effect.
-
-**Bug Fixes:**
-*   Resolved an issue where certain configurations could lead to incorrect character rendering.
-*   Fixed minor performance regressions introduced in specific effect combinations.
-
-**Mobile Enhancements:**
-*   Further improvements to mobile responsiveness and touch interactions, especially for slider controls and panel navigation.
-*   Optimized resource loading for faster initial page load on mobile devices.
-
-**New Visual Effect:**
-*   **Firewall Effect**: A dynamic effect that simulates a firewall's protective barrier, adding a layer of visual defense with configurable patterns and intensity.
-
-#
-🚀 What's New in v7.3.2
-This version primarily focuses on refining the robust architecture introduced in `v7.3.1`, ensuring stability and minor optimizations without introducing major new features or breaking changes. It's about polishing the experience and reinforcing the foundational improvements.
 
 #
 #

@@ -7,7 +7,8 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
-        this._activeFontList = []; // Cache for active fonts - though removed in logic, keeping property to avoid breakage if accessed elsewhere (unlikely)
+        this._activeFontList = []; 
+        this.nextSpawnFrame = 0; // Track next spawn time
     }
 
     _initializeModes(config) {
@@ -33,7 +34,7 @@ class SimulationSystem {
     }
 
     _refreshActiveFonts() {
-        // Deprecated but kept for safety if called externally - essentially no-op as logic moved to config derived
+        // Deprecated
     }
 
     _manageOverlapGrid(frame) {
@@ -116,15 +117,27 @@ class SimulationSystem {
 
     _manageStreams(frame) {
         const { state: s, derived: d } = this.config;
-        const period = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
-
-        if (frame % period === 0) {
+        
+        // Spawn Logic
+        if (frame >= this.nextSpawnFrame) {
             this._spawnStreams(s, d);
+            
+            // Calculate next spawn time
+            const baseInterval = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
+            let nextDelay = baseInterval;
+            
+            // Apply Desync to spawn interval
+            if (s.desyncIntensity > 0) {
+                const variance = baseInterval * s.desyncIntensity * 2; // Up to 200% variance
+                const offset = Utils.randomInt(-variance/2, variance/2);
+                nextDelay = Math.max(1, baseInterval + offset);
+            }
+            
+            this.nextSpawnFrame = frame + nextDelay;
         }
 
-        if (frame % d.cycleDuration === 0) {
-            this._processActiveStreams(frame);
-        }
+        // Processing Logic - Run every frame, individual streams handle their own timing
+        this._processActiveStreams(frame);
     }
 
     _spawnStreams(s, d) {
@@ -190,6 +203,15 @@ class SimulationSystem {
                 continue;
             }
 
+            // Decrement tick timer for movement
+            stream.tickTimer--;
+            if (stream.tickTimer > 0) {
+                continue; // Not time to move yet
+            }
+            
+            // Reset timer
+            stream.tickTimer = stream.tickInterval;
+
             stream.age++;
 
             if (stream.age >= stream.visibleLen) {
@@ -225,6 +247,20 @@ class SimulationSystem {
         const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
         const fontIdx = Math.floor(Math.random() * activeFonts.length);
         
+        // Calculate individual speed
+        // Base speed tick interval: 21 - s.streamSpeed
+        // Higher streamSpeed = lower interval = faster
+        const baseTick = Math.max(1, 21 - s.streamSpeed);
+        let tickInterval = baseTick;
+        
+        if (s.desyncIntensity > 0) {
+            // Variance: +/- 50% of baseTick * intensity
+            // e.g. if tick=5, int=1.0, var= +/- 2.5. Range 2.5 to 7.5.
+            const variance = baseTick * s.desyncIntensity * 0.8;
+            const offset = (Math.random() * variance * 2) - variance;
+            tickInterval = Math.max(1, baseTick + offset);
+        }
+
         const baseStream = {
             x,
             y: -1,
@@ -241,7 +277,9 @@ class SimulationSystem {
             isInverted: false,
             isEraser: forceEraser,
             pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
-            fontIndex: fontIdx // Store font index
+            fontIndex: fontIdx,
+            tickInterval: tickInterval, // How many frames per move
+            tickTimer: 0 // Counter
         };
 
         if (forceEraser) {

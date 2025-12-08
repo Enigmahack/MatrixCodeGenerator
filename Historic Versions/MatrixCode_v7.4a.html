@@ -827,6 +827,7 @@ class ConfigurationManager {
             minStreamGap: 10,
             minEraserGap: 15,
             holeRate: 0.1,
+            desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
@@ -2878,7 +2879,8 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
-        this._activeFontList = []; // Cache for active fonts - though removed in logic, keeping property to avoid breakage if accessed elsewhere (unlikely)
+        this._activeFontList = []; 
+        this.nextSpawnFrame = 0; // Track next spawn time
     }
     _initializeModes(config) {
         return {
@@ -2900,7 +2902,7 @@ class SimulationSystem {
         }
     }
     _refreshActiveFonts() {
-        // Deprecated but kept for safety if called externally - essentially no-op as logic moved to config derived
+        // Deprecated
     }
     _manageOverlapGrid(frame) {
         if (!this.config.state.overlapEnabled) {
@@ -2973,13 +2975,22 @@ class SimulationSystem {
     }
     _manageStreams(frame) {
         const { state: s, derived: d } = this.config;
-        const period = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
-        if (frame % period === 0) {
+        // Spawn Logic
+        if (frame >= this.nextSpawnFrame) {
             this._spawnStreams(s, d);
+            // Calculate next spawn time
+            const baseInterval = Math.max(1, Math.floor(d.cycleDuration * s.releaseInterval));
+            let nextDelay = baseInterval;
+            // Apply Desync to spawn interval
+            if (s.desyncIntensity > 0) {
+                const variance = baseInterval * s.desyncIntensity * 2; // Up to 200% variance
+                const offset = Utils.randomInt(-variance/2, variance/2);
+                nextDelay = Math.max(1, baseInterval + offset);
+            }
+            this.nextSpawnFrame = frame + nextDelay;
         }
-        if (frame % d.cycleDuration === 0) {
-            this._processActiveStreams(frame);
-        }
+        // Processing Logic - Run every frame, individual streams handle their own timing
+        this._processActiveStreams(frame);
     }
     _spawnStreams(s, d) {
         const columns = this._shuffleArray([...Array(this.grid.cols).keys()]);
@@ -3033,6 +3044,13 @@ class SimulationSystem {
                 stream.delay--;
                 continue;
             }
+            // Decrement tick timer for movement
+            stream.tickTimer--;
+            if (stream.tickTimer > 0) {
+                continue; // Not time to move yet
+            }
+            // Reset timer
+            stream.tickTimer = stream.tickInterval;
             stream.age++;
             if (stream.age >= stream.visibleLen) {
                 this._handleStreamCompletion(stream);
@@ -3061,6 +3079,18 @@ class SimulationSystem {
         // Pick a font for this stream
         const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
         const fontIdx = Math.floor(Math.random() * activeFonts.length);
+        // Calculate individual speed
+        // Base speed tick interval: 21 - s.streamSpeed
+        // Higher streamSpeed = lower interval = faster
+        const baseTick = Math.max(1, 21 - s.streamSpeed);
+        let tickInterval = baseTick;
+        if (s.desyncIntensity > 0) {
+            // Variance: +/- 50% of baseTick * intensity
+            // e.g. if tick=5, int=1.0, var= +/- 2.5. Range 2.5 to 7.5.
+            const variance = baseTick * s.desyncIntensity * 0.8;
+            const offset = (Math.random() * variance * 2) - variance;
+            tickInterval = Math.max(1, baseTick + offset);
+        }
         const baseStream = {
             x,
             y: -1,
@@ -3077,7 +3107,9 @@ class SimulationSystem {
             isInverted: false,
             isEraser: forceEraser,
             pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
-            fontIndex: fontIdx // Store font index
+            fontIndex: fontIdx,
+            tickInterval: tickInterval, // How many frames per move
+            tickTimer: 0 // Counter
         };
         if (forceEraser) {
             return this._initializeEraserStream(baseStream, s);
@@ -4022,7 +4054,6 @@ class UIManager {
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
-            { cat: 'Global', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -4083,12 +4114,14 @@ class UIManager {
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
             { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
+            { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
+            { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
             { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },

@@ -1,8 +1,4 @@
 ToDo: 
-Multiple Font Sets, let the user input their own character string in the Character Details as a text input, and it should persist between reloads. Also have a button that says "Reset to Default" below the Character Details text input. 
-
-
-ToDo: 
 Implement Crashing Effect
 Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse blast resets the code to normal)
 Implement Presets
@@ -11,3 +7,4 @@ Implement a multi-monitor configuration?
 Implement a wrapper to EXE/DMG?
 Implement a Shader Plugin feature (custom shaders)
 Implement a "Trigger with X key" to accept user inputs to create code effects
+Implement a "Desync" tracer for speed variance on tracer streams so they can go different speeds. 
