@@ -1,10 +1,16 @@
 Check out the live demo here: 
 https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.5.html
 
+
 #
 💻 Matrix Digital Rain Simulation v7.5
-The quest for the "perfect" rain continues. v7.5 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate the analog signal decay seen in the original film.
 
+The quest for the "perfect" rain continues. v7.5 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate both the original trilogy as well as the new Matrix Resurrections.
+
+<img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/1df1a8dc-fc6f-400a-b446-ff088f793b41" />
+<img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/ec2910cf-44f5-4452-a422-57a372d0ec75" />
+<img width="3839" height="1916" alt="image" src="https://github.com/user-attachments/assets/4f7c9231-3d05-401b-84bd-93efc480ea11" />
+<img width="3839" height="1913" alt="image" src="https://github.com/user-attachments/assets/e5ca9886-f7f6-4f81-9c4b-efeb8348c671" />
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
 <img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/71adcfee-d368-4ebc-ad31-5b0bb58c75a5" />
