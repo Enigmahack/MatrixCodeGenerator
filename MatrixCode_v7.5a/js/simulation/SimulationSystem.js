@@ -4,6 +4,7 @@ class SimulationSystem {
         this.config = config;
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
+        this.lastEraserInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
@@ -110,6 +111,7 @@ class SimulationSystem {
 
     _resetColumns() {
         this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
+        this.lastEraserInColumn = new Array(this.grid.cols).fill(null);
         this.activeStreams = [];
         // Reset overlap initialization when grid resizes
         this.overlapInitialized = false;
@@ -148,37 +150,34 @@ class SimulationSystem {
         for (const col of columns) {
             if (streamCount <= 0 && eraserCount <= 0) break;
 
-            const lastStream = this.lastStreamInColumn[col];
-            const hasContent = this._columnHasContent(col, this.grid.rows);
+            const spawnIdx = this.grid.getIndex(col, 0);
+            let isTopBlocked = false;
             
-            // --- 1. Eraser Logic ---
-            // Independent check: Erasers only care about other Erasers for spacing
-            let eraserGapOk = true;
-            if (lastStream && lastStream.active && lastStream.streamType === 'ERASER') {
-                 eraserGapOk = lastStream.y > s.minEraserGap;
+            if (spawnIdx !== -1) {
+                // Global lock check (Effect freeze) - applies to everything
+                if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
+                
+                // Check if top is occupied by active content
+                if (this.grid.decays[spawnIdx] > 0) {
+                    isTopBlocked = true;
+                }
             }
 
-            if (eraserCount > 0 && hasContent && eraserGapOk) {
+            const lastStream = this.lastStreamInColumn[col];
+
+            // Erasers can spawn even if top is blocked (they clear content).
+            // Gap check prevents them from spawning on top of themselves.
+            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
-                continue; // Spawned an eraser, move to next column
-            }
-
-            // --- 2. Tracer Logic ---
-            // Independent check: Tracers only care about other Tracers for spacing
-            const spawnIdx = this.grid.getIndex(col, 0);
-            if (spawnIdx !== -1) {
-                if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue; // Locked by effect
-            }
-
-            let tracerGapOk = true;
-            if (lastStream && lastStream.active && lastStream.streamType !== 'ERASER') {
-                 tracerGapOk = lastStream.y > s.minStreamGap;
-            }
-
-            if (streamCount > 0 && tracerGapOk) {
+                continue; // Spawned eraser, move to next column
+            } 
+            
+            // Tracers CANNOT spawn if top is blocked (collision).
+            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
+                continue; // Spawned tracer, move to next column
             }
         }
     }
@@ -199,7 +198,24 @@ class SimulationSystem {
     }
 
     _canSpawn(lastStream, minGap) {
+        // Deprecated, use _canSpawnTracer
         return !lastStream || !lastStream.active || lastStream.y > minGap;
+    }
+
+    _canSpawnTracer(lastStream, minGap) {
+        // If no last stream, or it's finished, we can spawn
+        if (!lastStream || !lastStream.active) return true;
+        
+        // If last stream was an Eraser, we can spawn a tracer immediately behind it (it clears the path)
+        if (lastStream.isEraser) return true;
+
+        // Otherwise (last was Tracer), respect the gap
+        return lastStream.y > minGap;
+    }
+    
+    _canSpawnEraser(col, minGap) {
+        const lastEraser = this.lastEraserInColumn[col];
+        return !lastEraser || !lastEraser.active || lastEraser.y > minGap;
     }
 
     _processActiveStreams(frame) {
@@ -230,27 +246,28 @@ class SimulationSystem {
             // Reset timer
             stream.tickTimer = stream.tickInterval;
 
-            // Random Drop-off / Stop Logic
-            if (stream.streamType === 'ERASER') {
-                if (this.config.state.eraserStopChance > 0 && Math.random() < this.config.state.eraserStopChance) {
+            // Eraser Random Drop-off
+            if (stream.isEraser) {
+                if (this.config.state.eraserStopChance > 0 && Math.random() < (this.config.state.eraserStopChance / 100)) {
                     stream.active = false;
                     continue;
                 }
             } else {
-                // Tracer Drop-off
-                if (this.config.state.tracerDropOutChance > 0 && Math.random() < this.config.state.tracerDropOutChance) {
-                    stream.active = false;
-                    continue;
-                }
-
                 // Tracer Collision Detection
                 // Check the cell we are about to move into (y+1)
+                // Actually, we check if the *next* move would hit something.
+                // If stream.y is currently at Y, next write is Y+1.
                 const nextY = stream.y + 1;
                 if (nextY < this.grid.rows) {
                     const nextIdx = this.grid.getIndex(stream.x, nextY);
                     // If next cell is occupied (decay > 0)
                     if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                        // Collision! Stop stream.
+                        // We don't write to nextY, effectively stopping "on top" of the existing block.
                         stream.active = false;
+                        
+                        // Optional: Trigger a small splash or effect?
+                        // For now just stop.
                         continue; 
                     }
                 }
@@ -284,6 +301,9 @@ class SimulationSystem {
         this.modes[stream.mode].spawn(stream);
         this.activeStreams.push(stream);
         this.lastStreamInColumn[x] = stream;
+        if (forceEraser) {
+            this.lastEraserInColumn[x] = stream;
+        }
     }
 
     _initializeStream(x, forceEraser, s) {
@@ -292,10 +312,14 @@ class SimulationSystem {
         const fontIdx = Math.floor(Math.random() * activeFonts.length);
         
         // Calculate individual speed
+        // Base speed tick interval: 21 - s.streamSpeed
+        // Higher streamSpeed = lower interval = faster
         const baseTick = Math.max(1, 21 - s.streamSpeed);
         let tickInterval = baseTick;
         
         if (s.desyncIntensity > 0) {
+            // Variance: +/- 50% of baseTick * intensity
+            // e.g. if tick=5, int=1.0, var= +/- 2.5. Range 2.5 to 7.5.
             const variance = baseTick * s.desyncIntensity * 0.8;
             const offset = (Math.random() * variance * 2) - variance;
             tickInterval = Math.max(1, baseTick + offset);
@@ -307,45 +331,38 @@ class SimulationSystem {
             active: true,
             delay: 0,
             age: 0,
-            len: this.grid.rows + 20, // Infinite-ish length, controlled by drop-out
+            len: 0,
             holes: new Set(),
             decayY: -1,
             decayStarted: false,
             visibleLen: 0,
             mode: 'STANDARD',
             baseHue: 0,
-            streamType: 'NORMAL', // NORMAL, INVERTED, ERASER
+            isInverted: false,
+            isEraser: forceEraser,
             pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
             fontIndex: fontIdx,
-            tickInterval: tickInterval,
-            tickTimer: 0
+            tickInterval: tickInterval, // How many frames per move
+            tickTimer: 0 // Counter
         };
 
         if (forceEraser) {
-            baseStream.streamType = 'ERASER';
             return this._initializeEraserStream(baseStream, s);
         } else {
-            // Determine Tracer Type
-            if (s.invertedTracerEnabled && Math.random() < s.invertedTracerChance) {
-                baseStream.streamType = 'INVERTED';
-            } else {
-                baseStream.streamType = 'NORMAL';
-            }
             return this._initializeTracerStream(baseStream, s);
         }
     }
 
     _initializeEraserStream(stream, s) {
-        // Ensure eraser lives long enough to reach bottom given its speed
-        // Ignore TTL settings for erasers, they should be reliable cleaners
-        stream.visibleLen = (this.grid.rows + 20) * stream.tickInterval;
+        stream.len = this.grid.rows + 5;
+        stream.visibleLen = this.grid.rows + 20; // Default to run full screen length
         return stream;
     }
 
     _initializeTracerStream(stream, s) {
-        // Tracers use Time-To-Live (seconds)
-        const lifeFrames = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), 60);
-        stream.visibleLen = lifeFrames;
+        stream.len = Utils.randomInt(4, this.grid.rows * 3);
+        stream.visibleLen = this.grid.rows * 4; // Default to run full screen length
+        stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
 
         for (let i = 0; i < stream.len; i++) {
             if (Math.random() < s.holeRate) stream.holes.add(i);
@@ -365,7 +382,7 @@ class SimulationSystem {
         const idx = this.grid.getIndex(stream.x, stream.y);
         if (idx === -1) return;
 
-        if (stream.streamType === 'ERASER') {
+        if (stream.isEraser) {
             this._handleEraserHead(idx);
         } else {
             this._handleTracerHead(stream, idx, frame);
@@ -373,56 +390,31 @@ class SimulationSystem {
     }
 
     _handleEraserHead(idx) {
-        // Fix: If already decaying (decay >= 2), do NOT reset it.
-        // Only start decay if it's currently active (decay == 1) or holding.
-        const currentDecay = this.grid.decays[idx];
-        
-        if (currentDecay >= 2) {
-            // Already decaying, let it be. 
-            // (Optional: accelerate decay? For now, just ignore to prevent visual glitch)
-            return;
-        }
-
-        if (currentDecay > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
+        if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
-            this.grid.decays[idx] = 2; // Start decay
+            this.grid.decays[idx] = 2;
         } else {
             this._clearCell(idx);
         }
     }
 
     _handleTracerHead(stream, idx, frame) {
-        const isNormal = stream.streamType === 'NORMAL';
-        const hasHole = stream.holes.has(stream.y);
-        
-        // Logic:
-        // Normal: Write if NO hole.
-        // Inverted: Write if YES hole.
-        const shouldWrite = isNormal ? !hasHole : hasHole;
+        const shouldWrite = stream.isInverted
+            ? stream.holes.has(stream.y)
+            : !stream.holes.has(stream.y);
 
         if (shouldWrite) {
-            // Fix: Inverted Tracers shouldn't overwrite decaying code (prevents "flashing" glitch)
-            if (!isNormal && this.grid.decays[idx] >= 2) {
-                return;
-            }
-
             const { state: s, derived: d } = this.config;
-            
-            // Fix: Inverted Tracers should look like normal text, not big tracers
-            let cellType;
-            if (!isNormal) {
-                cellType = CELL_TYPE.TRAIL; // Render as standard text
-            } else {
-                cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
-                    ? CELL_TYPE.ROTATOR
-                    : CELL_TYPE.TRACER;
-            }
+            const cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
+                ? CELL_TYPE.ROTATOR
+                : CELL_TYPE.TRACER;
 
             this.grid.types[idx] = cellType;
             this.grid.ages[idx] = 1;
             this.grid.decays[idx] = 1;
             this.grid.rotatorProg[idx] = 0;
             
+            // Set font
             this.grid.setFont(idx, stream.fontIndex);
             
             if (Math.random() < s.paletteBias) {
@@ -433,6 +425,7 @@ class SimulationSystem {
             
             this.grid.activeIndices.add(idx);
 
+            // Get char from active font set
             const activeFonts = this.config.derived.activeFonts;
             const fontData = activeFonts[stream.fontIndex] || activeFonts[0];
             const charSet = fontData.chars;
@@ -440,6 +433,7 @@ class SimulationSystem {
             this.grid.setChar(idx, char);
 
             if (s.overlapEnabled && Math.random() < s.overlapDensity) {
+                // Use same charset for overlap to match font
                 this.grid.overlapChars[idx] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
             }
             
@@ -455,84 +449,8 @@ class SimulationSystem {
                 this.grid.complexStyles.delete(idx);
             }
         } else {
-            // It's a "hole" in the stream.
-            if (isNormal) {
-                 this._clearCell(idx);
-            } 
+            this._clearCell(idx);
         }
-    }
-
-    _processActiveStreams(frame) {
-        for (let i = this.activeStreams.length - 1; i >= 0; i--) {
-            const stream = this.activeStreams[i];
-            if (!stream.active) {
-                this.activeStreams.splice(i, 1);
-                continue;
-            }
-
-            // Check if stream is currently frozen by an effect
-            const headIdx = this.grid.getIndex(stream.x, Math.max(0, stream.y));
-            if (headIdx !== -1 && this.grid.cellLocks && this.grid.cellLocks[headIdx] === 1) {
-                continue;
-            }
-
-            if (stream.delay > 0) {
-                stream.delay--;
-                continue;
-            }
-
-            // Decrement tick timer for movement
-            stream.tickTimer--;
-            if (stream.tickTimer > 0) {
-                continue; // Not time to move yet
-            }
-            
-            // Reset timer
-            stream.tickTimer = stream.tickInterval;
-
-            // Random Drop-off / Stop Logic
-            if (stream.streamType === 'ERASER') {
-                if (this.config.state.eraserStopChance > 0 && Math.random() < this.config.state.eraserStopChance) {
-                    stream.active = false;
-                    continue;
-                }
-            } else {
-                // Tracer Drop-off
-                if (this.config.state.tracerDropOutChance > 0 && Math.random() < this.config.state.tracerDropOutChance) {
-                    stream.active = false;
-                    continue;
-                }
-
-                // Tracer Collision Detection
-                // Check the cell we are about to move into (y+1)
-                const nextY = stream.y + 1;
-                if (nextY < this.grid.rows) {
-                    const nextIdx = this.grid.getIndex(stream.x, nextY);
-                    // If next cell is occupied (decay > 0)
-                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
-                        stream.active = false;
-                        continue; 
-                    }
-                }
-            }
-
-            stream.age++;
-
-            if (stream.age >= stream.visibleLen) {
-                this._handleStreamCompletion(stream);
-                continue;
-            }
-
-            if (stream.y < stream.len) {
-                stream.y++;
-                this._writeHead(stream, frame);
-            }
-        }
-    }
-
-    _handleStreamCompletion(stream) {
-        stream.active = false;
-        // Auto-cleanup removed. Rely on central spawn logic.
     }
 
     _clearCell(idx) {

@@ -1,9 +1,0 @@
-# ------------------------------------
-# macOS/OS Specific Exclusions
-# ------------------------------------
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes

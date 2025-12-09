@@ -96,6 +96,9 @@ class MatrixKernel {
             // Ignore if typing in an input field or text area
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             
+            // Ignore if in key binding mode (Double check flag)
+            if (this.ui && this.ui.isKeyBindingActive) return;
+            
             // Ignore if modifier keys are pressed (unless we want to support them later)
             if (e.ctrlKey || e.altKey || e.metaKey) return;
 
@@ -279,7 +282,10 @@ class MatrixKernel {
 // Initialize the MatrixKernel on DOMContentLoaded
 window.addEventListener('DOMContentLoaded', async () => {
     const kernel = new MatrixKernel();
+    // Expose kernel and config globally for debugging/console access
+    window.matrix = kernel;
+    window.config = kernel.config;
+    
     await kernel.initAsync();
-    this.lastFrameTime = performance.now(); // Set initial time
-    // this.run();
+    kernel.lastFrameTime = performance.now(); // Set initial time
 });

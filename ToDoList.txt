@@ -1,10 +1,6 @@
 ToDo: 
 Implement Crashing Effect
 Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse blast resets the code to normal)
-Implement Presets
 Implement "Old Display" Effect
 Implement a multi-monitor configuration? 
 Implement a wrapper to EXE/DMG?
-Implement a Shader Plugin feature (custom shaders)
-Implement a "Trigger with X key" to accept user inputs to create code effects
-Implement a "Desync" tracer for speed variance on tracer streams so they can go different speeds. 

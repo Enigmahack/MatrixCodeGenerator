@@ -819,15 +819,14 @@ class ConfigurationManager {
             stretchX: 1,
             stretchY: 1.2,
             // --- BEHAVIOR ---
-            ttlMinSeconds: 1,
-            ttlMaxSeconds: 8,
             decayFadeDurationFrames: 13,
             streamSpawnCount: 5,
             eraserSpawnCount: 5,
             minStreamGap: 10,
-            minEraserGap: 15,
+            minEraserGap: 10,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
+            eraserStopChance: 5, // Chance for an eraser to stop mid-stream (0-25 integer)
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
@@ -840,6 +839,8 @@ class ConfigurationManager {
             rotatorCycleFactor: 11,
             rotatorCrossfadeFrames: 6,
             // --- FX ---
+            shaderEnabled: false,
+            customShader: null, // String content of GLSL shader
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
             pulseDurationSeconds: 1.8,
@@ -905,6 +906,17 @@ class ConfigurationManager {
             firewallColor: "#00ff00",
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
+            // --- INPUT BINDINGS ---
+            keyBindings: {
+                "Pulse": "q",
+                "ClearPulse": "w",
+                "MiniPulse": "e",
+                "DejaVu": "r",
+                "Superman": "t",
+                "Firewall": "y",
+                "ToggleUI": "h"
+            },
+            hideMenuIcon: false,
             // --- FONT SETTINGS ---
             fontSettings: {
                 "MatrixEmbedded": {
@@ -967,6 +979,14 @@ class ConfigurationManager {
                 if (!this.state.streamPalette) {
                     this.state.streamPalette = [this.state.streamColor];
                 }
+                // Migration: Convert eraserStopChance from float to integer if needed
+                if (this.state.eraserStopChance > 0 && this.state.eraserStopChance < 1) {
+                    this.state.eraserStopChance = Math.round(this.state.eraserStopChance * 100);
+                }
+                // Clamp to max 25
+                if (this.state.eraserStopChance > 25) {
+                    this.state.eraserStopChance = 25;
+                }
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -1012,7 +1032,7 @@ class ConfigurationManager {
      * Resets the application state to its default values.
      */
     reset() {
-        this.state = { ...this.defaults };
+        this.state = JSON.parse(JSON.stringify(this.defaults));
         this.updateDerivedValues();
         this.save();
         this.notify('ALL');
@@ -2237,8 +2257,21 @@ class CanvasRenderer {
         // Initialize Glyph Atlases Map
         // Maps Font Name -> GlyphAtlas instance
         this.glyphAtlases = new Map();
+        // Initialize Post Processor
+        if (typeof PostProcessor !== 'undefined') {
+            this.postProcessor = new PostProcessor(config);
+            this.postProcessor.canvas.id = 'shaderCanvas';
+            this.postProcessor.canvas.style.position = 'absolute';
+            this.postProcessor.canvas.style.top = '0';
+            this.postProcessor.canvas.style.left = '0';
+            this.postProcessor.canvas.style.zIndex = '2'; // Above 2D canvas
+            this.postProcessor.canvas.style.display = 'none'; // Hidden by default
+            // Insert after main canvas
+            this.cvs.parentNode.insertBefore(this.postProcessor.canvas, this.cvs.nextSibling);
+        }
         this.w = 0;
         this.h = 0;
+        this.lastShaderSource = null;
     }
     resize() {
         const scale = this.config.state.resolution;
@@ -2246,6 +2279,12 @@ class CanvasRenderer {
         this.h = window.innerHeight;
         // 1. Main Display Canvas
         this._resizeCanvas(this.cvs, this.w, this.h, scale);
+        // Resize Post Processor
+        if (this.postProcessor) {
+            this.postProcessor.resize(this.w * scale, this.h * scale);
+            this.postProcessor.canvas.style.width = `${this.w}px`;
+            this.postProcessor.canvas.style.height = `${this.h}px`;
+        }
         // 2. Bloom Canvas (1/4 size)
         this._resizeCanvas(this.bloomCvs, this.w, this.h, scale * 0.25);
         this.bloomCtx.scale(0.25, 0.25);
@@ -2345,6 +2384,29 @@ class CanvasRenderer {
             this._drawOverlap(d, s, frame, bloomEnabled, scale);
         }
         if (bloomEnabled) this._applyBloom(s, scale);
+        // --- Post Processing ---
+        if (this.postProcessor && s.shaderEnabled) {
+            // Check if shader source changed
+            const currentShader = s.customShader;
+            if (currentShader && currentShader !== this.lastShaderSource) {
+                this.postProcessor.compileShader(currentShader);
+                this.lastShaderSource = currentShader;
+            }
+            // Render to WebGL
+            // We pass the 2D canvas as the texture source
+            this.postProcessor.render(this.cvs, performance.now() / 1000);
+            // Show WebGL, Hide 2D
+            if (this.postProcessor.canvas.style.display === 'none') {
+                this.postProcessor.canvas.style.display = 'block';
+                this.cvs.style.opacity = '0'; // Hide visual but keep active
+            }
+        } else {
+            // Show 2D, Hide WebGL
+            if (this.postProcessor && this.postProcessor.canvas.style.display !== 'none') {
+                this.postProcessor.canvas.style.display = 'none';
+                this.cvs.style.opacity = '1';
+            }
+        }
     }
     _drawOverlap(d, s, frame, bloomEnabled, scale) {
         // --- SETUP ---
@@ -2869,6 +2931,119 @@ class GlyphAtlas {
         return this.charMap.get(char);
     }
 }
+// --- PostProcessor.js ---
+class PostProcessor {
+    constructor(config) {
+        this.config = config;
+        this.gl = null;
+        this.program = null;
+        this.canvas = document.createElement('canvas'); // Offscreen WebGL canvas
+        this.texture = null;
+        this.positionBuffer = null;
+        this.defaultFragmentShader = `
+            precision mediump float;
+            uniform sampler2D uTexture;
+            uniform vec2 uResolution;
+            uniform float uTime;
+            varying vec2 vTexCoord;
+            void main() {
+                gl_FragColor = texture2D(uTexture, vTexCoord);
+            }
+        `;
+        this.vertexShaderSource = `
+            attribute vec2 aPosition;
+            varying vec2 vTexCoord;
+            void main() {
+                // Map -1..1 to 0..1 for tex coords (flip Y if needed)
+                vTexCoord = (aPosition + 1.0) * 0.5;
+                vTexCoord.y = 1.0 - vTexCoord.y; 
+                gl_Position = vec4(aPosition, 0.0, 1.0);
+            }
+        `;
+        this._initWebGL();
+    }
+    _initWebGL() {
+        this.gl = this.canvas.getContext('webgl', { alpha: false, preserveDrawingBuffer: true });
+        if (!this.gl) {
+            console.warn("WebGL not supported for Post Processing");
+            return;
+        }
+        // Full screen quad
+        const vertices = new Float32Array([
+            -1, -1,
+             1, -1,
+            -1,  1,
+            -1,  1,
+             1, -1,
+             1,  1
+        ]);
+        this.positionBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        this.texture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.compileShader(this.config.get('customShader') || this.defaultFragmentShader);
+    }
+    compileShader(fragSource) {
+        if (!this.gl) return;
+        if (!fragSource) fragSource = this.defaultFragmentShader;
+        const createShader = (type, source) => {
+            const shader = this.gl.createShader(type);
+            this.gl.shaderSource(shader, source);
+            this.gl.compileShader(shader);
+            if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                console.warn(type === this.gl.VERTEX_SHADER ? 'Vertex Shader Error' : 'Fragment Shader Error', this.gl.getShaderInfoLog(shader));
+                this.gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        };
+        const vs = createShader(this.gl.VERTEX_SHADER, this.vertexShaderSource);
+        const fs = createShader(this.gl.FRAGMENT_SHADER, fragSource);
+        if (!vs || !fs) return; // Compilation failed
+        const prog = this.gl.createProgram();
+        this.gl.attachShader(prog, vs);
+        this.gl.attachShader(prog, fs);
+        this.gl.linkProgram(prog);
+        if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
+            console.warn("Program Link Error", this.gl.getProgramInfoLog(prog));
+            return;
+        }
+        this.program = prog;
+    }
+    resize(width, height) {
+        if (!this.gl) return;
+        this.canvas.width = width;
+        this.canvas.height = height;
+        this.gl.viewport(0, 0, width, height);
+    }
+    render(sourceCanvas, time) {
+        if (!this.gl || !this.program) return;
+        this.gl.useProgram(this.program);
+        // Bind Vertex Buffer
+        const posLoc = this.gl.getAttribLocation(this.program, 'aPosition');
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.enableVertexAttribArray(posLoc);
+        this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 0, 0);
+        // Update Texture
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
+        // Uniforms
+        const uTex = this.gl.getUniformLocation(this.program, 'uTexture');
+        this.gl.uniform1i(uTex, 0);
+        const uRes = this.gl.getUniformLocation(this.program, 'uResolution');
+        this.gl.uniform2f(uRes, this.canvas.width, this.canvas.height);
+        const uTime = this.gl.getUniformLocation(this.program, 'uTime');
+        this.gl.uniform1f(uTime, time);
+        // Draw
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+}
 // --- SimulationSystem.js ---
 class SimulationSystem {
     constructor(grid, config) {
@@ -2876,6 +3051,7 @@ class SimulationSystem {
         this.config = config;
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
+        this.lastEraserInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
@@ -2969,6 +3145,7 @@ class SimulationSystem {
     }
     _resetColumns() {
         this.lastStreamInColumn = new Array(this.grid.cols).fill(null);
+        this.lastEraserInColumn = new Array(this.grid.cols).fill(null);
         this.activeStreams = [];
         // Reset overlap initialization when grid resizes
         this.overlapInitialized = false;
@@ -2998,17 +3175,29 @@ class SimulationSystem {
         let eraserCount = s.eraserSpawnCount;
         for (const col of columns) {
             if (streamCount <= 0 && eraserCount <= 0) break;
-            const hasContent = this._columnHasContent(col, Math.min(this.grid.rows, 40));
-            const lastStream = this.lastStreamInColumn[col];
-            // Check if spawn point (top of column) is locked
             const spawnIdx = this.grid.getIndex(col, 0);
-            if (spawnIdx !== -1 && this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
-            if (hasContent && eraserCount > 0 && this._canSpawn(lastStream, s.minEraserGap)) {
+            let isTopBlocked = false;
+            if (spawnIdx !== -1) {
+                // Global lock check (Effect freeze) - applies to everything
+                if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
+                // Check if top is occupied by active content
+                if (this.grid.decays[spawnIdx] > 0) {
+                    isTopBlocked = true;
+                }
+            }
+            const lastStream = this.lastStreamInColumn[col];
+            // Erasers can spawn even if top is blocked (they clear content).
+            // Gap check prevents them from spawning on top of themselves.
+            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
-            } else if (!hasContent && streamCount > 0 && this._canSpawn(lastStream, s.minStreamGap)) {
+                continue; // Spawned eraser, move to next column
+            } 
+            // Tracers CANNOT spawn if top is blocked (collision).
+            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
+                continue; // Spawned tracer, move to next column
             }
         }
     }
@@ -3026,7 +3215,20 @@ class SimulationSystem {
         return false;
     }
     _canSpawn(lastStream, minGap) {
+        // Deprecated, use _canSpawnTracer
         return !lastStream || !lastStream.active || lastStream.y > minGap;
+    }
+    _canSpawnTracer(lastStream, minGap) {
+        // If no last stream, or it's finished, we can spawn
+        if (!lastStream || !lastStream.active) return true;
+        // If last stream was an Eraser, we can spawn a tracer immediately behind it (it clears the path)
+        if (lastStream.isEraser) return true;
+        // Otherwise (last was Tracer), respect the gap
+        return lastStream.y > minGap;
+    }
+    _canSpawnEraser(col, minGap) {
+        const lastEraser = this.lastEraserInColumn[col];
+        return !lastEraser || !lastEraser.active || lastEraser.y > minGap;
     }
     _processActiveStreams(frame) {
         for (let i = this.activeStreams.length - 1; i >= 0; i--) {
@@ -3051,6 +3253,31 @@ class SimulationSystem {
             }
             // Reset timer
             stream.tickTimer = stream.tickInterval;
+            // Eraser Random Drop-off
+            if (stream.isEraser) {
+                if (this.config.state.eraserStopChance > 0 && Math.random() < (this.config.state.eraserStopChance / 100)) {
+                    stream.active = false;
+                    continue;
+                }
+            } else {
+                // Tracer Collision Detection
+                // Check the cell we are about to move into (y+1)
+                // Actually, we check if the *next* move would hit something.
+                // If stream.y is currently at Y, next write is Y+1.
+                const nextY = stream.y + 1;
+                if (nextY < this.grid.rows) {
+                    const nextIdx = this.grid.getIndex(stream.x, nextY);
+                    // If next cell is occupied (decay > 0)
+                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                        // Collision! Stop stream.
+                        // We don't write to nextY, effectively stopping "on top" of the existing block.
+                        stream.active = false;
+                        // Optional: Trigger a small splash or effect?
+                        // For now just stop.
+                        continue; 
+                    }
+                }
+            }
             stream.age++;
             if (stream.age >= stream.visibleLen) {
                 this._handleStreamCompletion(stream);
@@ -3074,6 +3301,9 @@ class SimulationSystem {
         this.modes[stream.mode].spawn(stream);
         this.activeStreams.push(stream);
         this.lastStreamInColumn[x] = stream;
+        if (forceEraser) {
+            this.lastEraserInColumn[x] = stream;
+        }
     }
     _initializeStream(x, forceEraser, s) {
         // Pick a font for this stream
@@ -3119,13 +3349,12 @@ class SimulationSystem {
     }
     _initializeEraserStream(stream, s) {
         stream.len = this.grid.rows + 5;
-        stream.visibleLen = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), this.grid.rows + 20);
+        stream.visibleLen = this.grid.rows + 20; // Default to run full screen length
         return stream;
     }
     _initializeTracerStream(stream, s) {
-        const lifeFrames = Math.max(Math.floor(Utils.randomFloat(s.ttlMinSeconds, s.ttlMaxSeconds) * 60), 60);
         stream.len = Utils.randomInt(4, this.grid.rows * 3);
-        stream.visibleLen = lifeFrames;
+        stream.visibleLen = this.grid.rows * 4; // Default to run full screen length
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
         for (let i = 0; i < stream.len; i++) {
             if (Math.random() < s.holeRate) stream.holes.add(i);
@@ -3992,6 +4221,7 @@ class UIManager {
         this.dom = this._initializeDOM();
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
+        this.isKeyBindingActive = false; // Flag to suspend global key inputs
         this.defs = this._generateDefinitions();
         // Event subscriptions
         this.c.subscribe((key, state) => this.refresh(key));
@@ -4010,8 +4240,30 @@ class UIManager {
             tabs: document.getElementById('navTabs'),
             content: document.getElementById('contentArea'),
             tooltip: document.getElementById('ui-tooltip') || this._createTooltip(),
+            keyTrap: document.getElementById('ui-key-trap') || this._createKeyTrap(),
             track: null, // Initialized later in init
         };
+    }
+    /**
+     * Create invisible input trap for key binding.
+     * @private
+     */
+    _createKeyTrap() {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'ui-key-trap';
+        // Ensure element is rendered but invisible/unobtrusive
+        input.style.position = 'fixed';
+        input.style.top = '0';
+        input.style.left = '0';
+        input.style.width = '1px';
+        input.style.height = '1px';
+        input.style.opacity = '0';
+        input.style.pointerEvents = 'none';
+        input.style.zIndex = '-1';
+        input.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(input);
+        return input;
     }
     /**
      * Create the tooltip element and attach to the DOM.
@@ -4112,13 +4364,12 @@ class UIManager {
     _generateBehaviorSettings() {
         return [
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
-            { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
-            { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
+            { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 25, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
             { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
@@ -4238,6 +4489,11 @@ class UIManager {
             { cat: 'FX', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
             { cat: 'FX', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
             { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
+            { cat: 'FX', type: 'header', label: 'Post Processing' },
+            { cat: 'FX', type: 'accordion_header', label: 'Shader' },
+            { cat: 'FX', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
+            { cat: 'FX', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
+            { cat: 'FX', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2). Output to gl_FragColor.', dep: 'shaderEnabled' },
         ];
     }
     /**
@@ -4247,6 +4503,16 @@ class UIManager {
      */
     _generateSystemTab() {
         return [
+            { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
+            { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
+            { cat: 'System', type: 'keybinder', id: 'Pulse', label: 'Pulse' },
+            { cat: 'System', type: 'keybinder', id: 'ClearPulse', label: 'Clear Pulse' },
+            { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
+            { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
+            { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
+            { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
+            { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
+            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
             { cat: 'System', type: 'accordion_header', label: 'Config' },
             { cat: 'System', type: 'slot', idx: 0 },
             { cat: 'System', type: 'slot', idx: 1 },
@@ -4291,8 +4557,8 @@ class UIManager {
      */
     togglePanel() {
         const isOpen = this.dom.panel.classList.toggle('open');
-        this.dom.panel.setAttribute('aria-hidden', !isOpen);
-        this.dom.toggle.setAttribute('aria-expanded', isOpen);
+        this.dom.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+        this.dom.toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     }
     /**
      * Sets up the tabs and their corresponding content containers.
@@ -4498,6 +4764,30 @@ class UIManager {
     _setupFileHandlers() {
         document.getElementById('importFile').onchange = e => this._handleConfigImport(e);
         document.getElementById('importFontFile').onchange = e => this._handleFontImport(e);
+        // Add shader input
+        const shaderInput = document.createElement('input');
+        shaderInput.type = 'file';
+        shaderInput.id = 'importShaderFile';
+        shaderInput.accept = '.glsl,.frag,.txt';
+        shaderInput.style.display = 'none';
+        document.body.appendChild(shaderInput);
+        shaderInput.onchange = e => this._handleShaderImport(e);
+    }
+    /**
+     * Handles the import of a shader file.
+     * @private
+     */
+    _handleShaderImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const source = ev.target.result;
+            this.c.set('customShader', source);
+            this.notifications.show('Shader Imported', 'success');
+            event.target.value = '';
+        };
+        reader.readAsText(file);
     }
     /**
      * Handles the import of a JSON configuration file.
@@ -4655,6 +4945,21 @@ class UIManager {
         this.scrollState.dragDistance = 0; 
     }
     /**
+     * Updates the text/state of a specific keybinder button.
+     * @param {string} id - The ID of the keybinding action (e.g., 'Pulse').
+     */
+    updateKeyBinderVisuals(id) {
+        const btn = document.getElementById(`btn-key-${id}`);
+        if (!btn) return;
+        const def = this.defs.find(d => d.id === id);
+        if (!def) return;
+        const bindings = this.c.get('keyBindings') || {};
+        const rawKey = bindings[id] || 'None';
+        const displayKey = rawKey === ' ' ? 'SPACE' : rawKey.toUpperCase();
+        btn.textContent = `${def.label}: [ ${displayKey} ]`;
+        btn.className = 'action-btn btn-info'; // Reset class
+    }
+    /**
      * Creates a styled label group for a UI control, optionally including an info icon with a tooltip.
      * @param {Object} def - The definition object for the UI control.
      * @returns {HTMLElement} The created label group DOM element.
@@ -4708,9 +5013,7 @@ class UIManager {
                 const newP = [...this.c.get(def.id)];
                 newP[idx] = e.target.value;
                 this.c.state[def.id] = newP; // Direct state mutation
-                // Optional: Notify renderer directly if needed for live preview, 
-                // but standard loop picks up state changes next frame.
-                // We do NOT call this.c.set() here to avoid UI refresh.
+                this.c.updateDerivedValues(); // Force derived update for live preview
             };
             // Commit change on release
             cInput.onchange = e => {
@@ -4892,7 +5195,10 @@ class UIManager {
                 inp.value = this.c.get(def.id); 
                 inp.id = `in-${def.id}`; 
                 inp.name = def.id; 
-                inp.oninput = e => { this.c.state[def.id] = e.target.value; }; // Live update state
+                inp.oninput = e => { 
+                    this.c.state[def.id] = e.target.value; 
+                    this.c.updateDerivedValues(); // Force derived update for live preview
+                }; 
                 inp.onchange = e => { this.c.set(def.id, e.target.value); }; // Commit and refresh
                 w.appendChild(inp); row.appendChild(w); 
                 if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
@@ -4907,6 +5213,56 @@ class UIManager {
                 row.appendChild(wrapper);
                 if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
                 if(def.id) row.id = `row-${def.id}`;
+                return row;
+            }
+            else if(def.type === 'keybinder') {
+                const btn = document.createElement('button');
+                // Initial text setup
+                const rawKey = (this.c.get('keyBindings') || {})[def.id] || 'None';
+                const initialDisplay = rawKey === ' ' ? 'SPACE' : rawKey.toUpperCase();
+                btn.className = 'action-btn btn-info';
+                btn.id = `btn-key-${def.id}`;
+                btn.textContent = `${def.label}: [ ${initialDisplay} ]`;
+                btn.onclick = () => {
+                    this.isKeyBindingActive = true; 
+                    btn.textContent = `${def.label}: [ Press Key... ]`;
+                    btn.classList.remove('btn-info');
+                    btn.classList.add('btn-warn');
+                    // Focus trap to isolate input from global listeners
+                    this.dom.keyTrap.focus();
+                    const handler = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        let newKey = e.key;
+                        // Handle special keys
+                        if (newKey === 'Backspace' || newKey === 'Delete') {
+                            newKey = null;
+                        } else if (newKey.length === 1) {
+                            newKey = newKey.toLowerCase();
+                        }
+                        // Save config
+                        try {
+                            const bindings = { ...this.c.get('keyBindings') };
+                            if (newKey) {
+                                bindings[def.id] = newKey;
+                            } else {
+                                delete bindings[def.id];
+                            }
+                            this.c.set('keyBindings', bindings); // Triggers refresh() -> updateKeyBinderVisuals()
+                        } catch (err) {
+                            console.error("Failed to save keybinding:", err);
+                            btn.textContent = "Error Saving";
+                        }
+                        // Cleanup
+                        this.dom.keyTrap.blur();
+                        this.isKeyBindingActive = false;
+                        // Force immediate visual update just in case refresh is delayed
+                        this.updateKeyBinderVisuals(def.id);
+                    };
+                    this.dom.keyTrap.addEventListener('keydown', handler, { once: true });
+                };
+                row.appendChild(btn);
                 return row;
             }
             else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
@@ -4927,6 +5283,7 @@ class UIManager {
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
+        if(action === 'importShader') document.getElementById('importShaderFile').click();
         if(action === 'manageCharacters') this.charSelector.show();
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
@@ -4965,6 +5322,10 @@ class UIManager {
                     });
                 });
                 return; 
+            }
+            if (key === 'keyBindings') {
+                this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
+                return;
             }
             if(key === 'fontFamily') {
                 const sel = document.getElementById('in-fontFamily');
@@ -5025,7 +5386,53 @@ class UIManager {
                  // No, _renderColorList updates DOM directly. 
                  // But we need to update the Bias slider state.
             }
+            if (key === 'hideMenuIcon' || key === 'ALL') {
+                const shouldHide = this.c.get('hideMenuIcon');
+                const toggleBtn = this.dom.toggle;
+                // Clear any existing listeners/timeouts
+                if (this._menuIconTimeout) clearTimeout(this._menuIconTimeout);
+                if (this._menuMouseMoveHandler) {
+                    document.removeEventListener('mousemove', this._menuMouseMoveHandler);
+                    this._menuMouseMoveHandler = null;
+                }
+                if (shouldHide) {
+                    toggleBtn.style.transition = 'opacity 0.5s ease-in-out';
+                    const showIcon = () => {
+                        toggleBtn.style.opacity = '1';
+                        toggleBtn.style.pointerEvents = 'auto';
+                        clearTimeout(this._menuIconTimeout);
+                        // Hide again after 1s of no activity near it? 
+                        // Or just 1s after showing? The prompt says "hide itself after one second".
+                        this._menuIconTimeout = setTimeout(() => {
+                            // Only hide if panel is CLOSED
+                            if (!this.dom.panel.classList.contains('open')) {
+                                toggleBtn.style.opacity = '0';
+                                toggleBtn.style.pointerEvents = 'none';
+                            }
+                        }, 1000);
+                    };
+                    // Initial hide after delay
+                    showIcon(); 
+                    // Hot-zone detection
+                    this._menuMouseMoveHandler = (e) => {
+                        // Top right corner hot-zone (100x100px)
+                        const isHotZone = (e.clientX > window.innerWidth - 100) && (e.clientY < 100);
+                        if (isHotZone || this.dom.panel.classList.contains('open')) {
+                            showIcon();
+                        }
+                    };
+                    document.addEventListener('mousemove', this._menuMouseMoveHandler);
+                } else {
+                    // Reset to always visible
+                    toggleBtn.style.opacity = '1';
+                    toggleBtn.style.pointerEvents = 'auto';
+                }
+            }
             if(key) {
+                // Keybinder Refresh Logic
+                if (document.getElementById(`btn-key-${key}`)) {
+                    this.updateKeyBinderVisuals(key);
+                }
                 const inp = document.getElementById(`in-${key}`);
                 if(inp) { 
                     const def = this.defs.find(d=>d.id===key); 
@@ -5086,6 +5493,7 @@ class MatrixKernel {
         this._effectTimers = {}; // Initialize map for effect timers
         this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
         this._setupResizeListener();
+        this._setupInputListener();
         // FPS tracking variables
         this.lastFrameTime = 0; // Tracks time of the previous frame
         this.fpsHistory = []; // Used for simple FPS smoothing
@@ -5148,6 +5556,36 @@ class MatrixKernel {
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => this._resize(), 100); // Debounce resize events
+        });
+    }
+    /**
+     * Sets up the global input listener for key bindings.
+     * @private
+     */
+    _setupInputListener() {
+        window.addEventListener('keydown', (e) => {
+            // Ignore if typing in an input field or text area
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // Ignore if in key binding mode (Double check flag)
+            if (this.ui && this.ui.isKeyBindingActive) return;
+            // Ignore if modifier keys are pressed (unless we want to support them later)
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
+            const bindings = this.config.state.keyBindings || {};
+            const key = e.key.toLowerCase();
+            for (const [action, boundKey] of Object.entries(bindings)) {
+                if (boundKey && boundKey.toLowerCase() === key) {
+                    if (action === 'ToggleUI') {
+                        this.ui.togglePanel();
+                    } else {
+                        if (this.effectRegistry.trigger(action)) {
+                            this.notifications.show(`${action} Triggered`, 'success');
+                        }
+                    }
+                    // Prevent default action only if we matched a binding
+                    e.preventDefault();
+                    return;
+                }
+            }
         });
     }
     /**
@@ -5290,9 +5728,11 @@ class MatrixKernel {
 // Initialize the MatrixKernel on DOMContentLoaded
 window.addEventListener('DOMContentLoaded', async () => {
     const kernel = new MatrixKernel();
+    // Expose kernel and config globally for debugging/console access
+    window.matrix = kernel;
+    window.config = kernel.config;
     await kernel.initAsync();
-    this.lastFrameTime = performance.now(); // Set initial time
-    // this.run();
+    kernel.lastFrameTime = performance.now(); // Set initial time
 });
 </script>
     <script>

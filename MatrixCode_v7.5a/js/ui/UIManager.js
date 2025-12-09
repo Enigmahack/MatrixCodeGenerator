@@ -9,6 +9,7 @@ class UIManager {
         this.dom = this._initializeDOM();
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
+        this.isKeyBindingActive = false; // Flag to suspend global key inputs
         this.defs = this._generateDefinitions();
 
         // Event subscriptions
@@ -30,8 +31,31 @@ class UIManager {
             tabs: document.getElementById('navTabs'),
             content: document.getElementById('contentArea'),
             tooltip: document.getElementById('ui-tooltip') || this._createTooltip(),
+            keyTrap: document.getElementById('ui-key-trap') || this._createKeyTrap(),
             track: null, // Initialized later in init
         };
+    }
+
+    /**
+     * Create invisible input trap for key binding.
+     * @private
+     */
+    _createKeyTrap() {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'ui-key-trap';
+        // Ensure element is rendered but invisible/unobtrusive
+        input.style.position = 'fixed';
+        input.style.top = '0';
+        input.style.left = '0';
+        input.style.width = '1px';
+        input.style.height = '1px';
+        input.style.opacity = '0';
+        input.style.pointerEvents = 'none';
+        input.style.zIndex = '-1';
+        input.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(input);
+        return input;
     }
 
     /**
@@ -146,19 +170,17 @@ class UIManager {
     _generateBehaviorSettings() {
         return [
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
-            { cat: 'Behavior', id: 'ttlMinSeconds', type: 'range', label: 'Minimum Stream Life', min: 0.5, max: 20, step: 0.5, unit: 's' },
-            { cat: 'Behavior', id: 'ttlMaxSeconds', type: 'range', label: 'Maximum Stream Life', min: 1, max: 30, step: 0.5, unit: 's' },
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
             { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Before Eraser', min: 5, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
+            { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 25, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, dep: 'invertedTracerEnabled', description: "Invisible tracers that start erasing code" },
-            { cat: 'Behavior', id: 'tracerDropOutChance', type: 'range', label: 'Tracer Drop-off', min: 0, max: 0.1, step: 0.001, transform: v=>(v*100).toFixed(1)+'%', description: 'Chance for a tracer to randomly stop mid-fall.' },
-            { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-off', min: 0, max: 0.1, step: 0.001, transform: v=>(v*100).toFixed(1)+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
+            { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
@@ -310,6 +332,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
+            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
 
             { cat: 'System', type: 'accordion_header', label: 'Config' },
             { cat: 'System', type: 'slot', idx: 0 },
@@ -365,8 +388,8 @@ class UIManager {
      */
     togglePanel() {
         const isOpen = this.dom.panel.classList.toggle('open');
-        this.dom.panel.setAttribute('aria-hidden', !isOpen);
-        this.dom.toggle.setAttribute('aria-expanded', isOpen);
+        this.dom.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+        this.dom.toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     }
 
     /**
@@ -801,6 +824,25 @@ class UIManager {
     }
 
     /**
+     * Updates the text/state of a specific keybinder button.
+     * @param {string} id - The ID of the keybinding action (e.g., 'Pulse').
+     */
+    updateKeyBinderVisuals(id) {
+        const btn = document.getElementById(`btn-key-${id}`);
+        if (!btn) return;
+
+        const def = this.defs.find(d => d.id === id);
+        if (!def) return;
+
+        const bindings = this.c.get('keyBindings') || {};
+        const rawKey = bindings[id] || 'None';
+        const displayKey = rawKey === ' ' ? 'SPACE' : rawKey.toUpperCase();
+
+        btn.textContent = `${def.label}: [ ${displayKey} ]`;
+        btn.className = 'action-btn btn-info'; // Reset class
+    }
+
+    /**
      * Creates a styled label group for a UI control, optionally including an info icon with a tooltip.
      * @param {Object} def - The definition object for the UI control.
      * @returns {HTMLElement} The created label group DOM element.
@@ -859,9 +901,7 @@ class UIManager {
                 const newP = [...this.c.get(def.id)];
                 newP[idx] = e.target.value;
                 this.c.state[def.id] = newP; // Direct state mutation
-                // Optional: Notify renderer directly if needed for live preview, 
-                // but standard loop picks up state changes next frame.
-                // We do NOT call this.c.set() here to avoid UI refresh.
+                this.c.updateDerivedValues(); // Force derived update for live preview
             };
 
             // Commit change on release
@@ -967,43 +1007,6 @@ class UIManager {
             grp.append(save, load); row.append(inp, grp);
         } else if (def.type === 'font_list') {
             row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row);
-        } else if (def.type === 'keybinder') {
-            const btn = document.createElement('button');
-            const currentKey = (this.c.get('keyBindings') || {})[def.id] || 'None';
-            btn.className = 'action-btn btn-info';
-            btn.textContent = `${def.label}: [ ${currentKey.toUpperCase()} ]`;
-            btn.onclick = () => {
-                btn.textContent = `${def.label}: [ Press Key... ]`;
-                btn.className = 'action-btn btn-warn';
-                
-                const handler = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    let newKey = e.key;
-                    
-                    // Allow clearing with Backspace/Delete
-                    if (newKey === 'Backspace' || newKey === 'Delete') {
-                        newKey = null;
-                    } else if (newKey.length === 1) {
-                        // Single char keys
-                        newKey = newKey.toLowerCase();
-                    }
-                    
-                    const bindings = { ...this.c.get('keyBindings') };
-                    if (newKey) {
-                        bindings[def.id] = newKey;
-                    } else {
-                        delete bindings[def.id];
-                    }
-                    
-                    this.c.set('keyBindings', bindings);
-                    window.removeEventListener('keydown', handler);
-                    this.refresh('ALL'); // Re-render to show updated key
-                };
-                
-                window.addEventListener('keydown', handler, { once: true });
-            };
-            row.appendChild(btn);
         } else {
             row.className = def.type === 'checkbox' ? 'checkbox-row' : 'control-row';
             const labelGroup = this.createLabelGroup(def);
@@ -1106,7 +1109,10 @@ class UIManager {
                 inp.id = `in-${def.id}`; 
                 inp.name = def.id; 
                 
-                inp.oninput = e => { this.c.state[def.id] = e.target.value; }; // Live update state
+                inp.oninput = e => { 
+                    this.c.state[def.id] = e.target.value; 
+                    this.c.updateDerivedValues(); // Force derived update for live preview
+                }; 
                 inp.onchange = e => { this.c.set(def.id, e.target.value); }; // Commit and refresh
                 
                 w.appendChild(inp); row.appendChild(w); 
@@ -1128,41 +1134,63 @@ class UIManager {
 
             else if(def.type === 'keybinder') {
                 const btn = document.createElement('button');
-                const currentKey = (this.c.get('keyBindings') || {})[def.id] || 'None';
+                // Initial text setup
+                const rawKey = (this.c.get('keyBindings') || {})[def.id] || 'None';
+                const initialDisplay = rawKey === ' ' ? 'SPACE' : rawKey.toUpperCase();
+                
                 btn.className = 'action-btn btn-info';
-                btn.textContent = `${def.label}: [ ${currentKey.toUpperCase()} ]`;
+                btn.id = `btn-key-${def.id}`;
+                btn.textContent = `${def.label}: [ ${initialDisplay} ]`;
+                
                 btn.onclick = () => {
+                    this.isKeyBindingActive = true; 
                     btn.textContent = `${def.label}: [ Press Key... ]`;
+                    btn.classList.remove('btn-info');
                     btn.classList.add('btn-warn');
+                    
+                    // Focus trap to isolate input from global listeners
+                    this.dom.keyTrap.focus();
                     
                     const handler = (e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        
                         let newKey = e.key;
                         
-                        // Allow clearing with Backspace/Delete
+                        // Handle special keys
                         if (newKey === 'Backspace' || newKey === 'Delete') {
                             newKey = null;
                         } else if (newKey.length === 1) {
-                            // Single char keys
                             newKey = newKey.toLowerCase();
                         }
                         
-                        const bindings = { ...this.c.get('keyBindings') };
-                        if (newKey) {
-                            bindings[def.id] = newKey;
-                        } else {
-                            delete bindings[def.id];
+                        // Save config
+                        try {
+                            const bindings = { ...this.c.get('keyBindings') };
+                            if (newKey) {
+                                bindings[def.id] = newKey;
+                            } else {
+                                delete bindings[def.id];
+                            }
+                            this.c.set('keyBindings', bindings); // Triggers refresh() -> updateKeyBinderVisuals()
+                        } catch (err) {
+                            console.error("Failed to save keybinding:", err);
+                            btn.textContent = "Error Saving";
                         }
                         
-                        this.c.set('keyBindings', bindings);
-                        window.removeEventListener('keydown', handler);
-                        this.refresh('ALL'); // Re-render to show updated key
+                        // Cleanup
+                        this.dom.keyTrap.blur();
+                        this.isKeyBindingActive = false;
+                        
+                        // Force immediate visual update just in case refresh is delayed
+                        this.updateKeyBinderVisuals(def.id);
                     };
                     
-                    window.addEventListener('keydown', handler, { once: true });
+                    this.dom.keyTrap.addEventListener('keydown', handler, { once: true });
                 };
                 row.appendChild(btn);
+                return row;
             }
 
             else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
@@ -1225,6 +1253,10 @@ class UIManager {
                 });
                 return; 
             }
+            if (key === 'keyBindings') {
+                this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
+                return;
+            }
             if(key === 'fontFamily') {
                 const sel = document.getElementById('in-fontFamily');
                 if(sel) { 
@@ -1285,7 +1317,61 @@ class UIManager {
                  // But we need to update the Bias slider state.
             }
 
+            if (key === 'hideMenuIcon' || key === 'ALL') {
+                const shouldHide = this.c.get('hideMenuIcon');
+                const toggleBtn = this.dom.toggle;
+                
+                // Clear any existing listeners/timeouts
+                if (this._menuIconTimeout) clearTimeout(this._menuIconTimeout);
+                if (this._menuMouseMoveHandler) {
+                    document.removeEventListener('mousemove', this._menuMouseMoveHandler);
+                    this._menuMouseMoveHandler = null;
+                }
+
+                if (shouldHide) {
+                    toggleBtn.style.transition = 'opacity 0.5s ease-in-out';
+                    
+                    const showIcon = () => {
+                        toggleBtn.style.opacity = '1';
+                        toggleBtn.style.pointerEvents = 'auto';
+                        clearTimeout(this._menuIconTimeout);
+                        
+                        // Hide again after 1s of no activity near it? 
+                        // Or just 1s after showing? The prompt says "hide itself after one second".
+                        this._menuIconTimeout = setTimeout(() => {
+                            // Only hide if panel is CLOSED
+                            if (!this.dom.panel.classList.contains('open')) {
+                                toggleBtn.style.opacity = '0';
+                                toggleBtn.style.pointerEvents = 'none';
+                            }
+                        }, 1000);
+                    };
+
+                    // Initial hide after delay
+                    showIcon(); 
+
+                    // Hot-zone detection
+                    this._menuMouseMoveHandler = (e) => {
+                        // Top right corner hot-zone (100x100px)
+                        const isHotZone = (e.clientX > window.innerWidth - 100) && (e.clientY < 100);
+                        if (isHotZone || this.dom.panel.classList.contains('open')) {
+                            showIcon();
+                        }
+                    };
+                    document.addEventListener('mousemove', this._menuMouseMoveHandler);
+                } else {
+                    // Reset to always visible
+                    toggleBtn.style.opacity = '1';
+                    toggleBtn.style.pointerEvents = 'auto';
+                }
+            }
+
             if(key) {
+                // Keybinder Refresh Logic
+                if (document.getElementById(`btn-key-${key}`)) {
+                    this.updateKeyBinderVisuals(key);
+                }
+
                 const inp = document.getElementById(`in-${key}`);
                 if(inp) { 
                     const def = this.defs.find(d=>d.id===key); 

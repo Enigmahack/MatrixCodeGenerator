@@ -70,17 +70,14 @@ class ConfigurationManager {
             stretchY: 1.2,
 
             // --- BEHAVIOR ---
-            ttlMinSeconds: 1,
-            ttlMaxSeconds: 8,
             decayFadeDurationFrames: 13,
             streamSpawnCount: 5,
             eraserSpawnCount: 5,
             minStreamGap: 10,
-            minEraserGap: 15,
+            minEraserGap: 10,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
-            eraserStopChance: 0.05, // Chance for an eraser to stop mid-stream
-            tracerDropOutChance: 0.05, // Chance for a tracer to stop mid-stream
+            eraserStopChance: 5, // Chance for an eraser to stop mid-stream (0-25 integer)
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
@@ -173,6 +170,8 @@ class ConfigurationManager {
                 "Firewall": "y",
                 "ToggleUI": "h"
             },
+            
+            hideMenuIcon: false,
 
             // --- FONT SETTINGS ---
             fontSettings: {
@@ -242,6 +241,15 @@ class ConfigurationManager {
                 if (!this.state.streamPalette) {
                     this.state.streamPalette = [this.state.streamColor];
                 }
+                
+                // Migration: Convert eraserStopChance from float to integer if needed
+                if (this.state.eraserStopChance > 0 && this.state.eraserStopChance < 1) {
+                    this.state.eraserStopChance = Math.round(this.state.eraserStopChance * 100);
+                }
+                // Clamp to max 25
+                if (this.state.eraserStopChance > 25) {
+                    this.state.eraserStopChance = 25;
+                }
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -294,7 +302,7 @@ class ConfigurationManager {
      * Resets the application state to its default values.
      */
     reset() {
-        this.state = { ...this.defaults };
+        this.state = JSON.parse(JSON.stringify(this.defaults));
         this.updateDerivedValues();
         this.save();
         this.notify('ALL');
