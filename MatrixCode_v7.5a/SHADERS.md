@@ -51,18 +51,10 @@ The application now supports importing `.glsl` files directly through the Settin
 5.  Click **Import Fragment Shader (.glsl)**.
 6.  Select your shader file (e.g., `shaders/film_grain.glsl`).
 
-## Included Shaders
 
-### Film Grain (`shaders/film_grain.glsl`)
-
-A cinematic film grain effect that adds subtle dynamic noise to the image.
-
-**Features:**
-*   **Dynamic Noise:** The noise pattern shifts over time (`uTime`).
-*   **Adjustable:** You can edit the file to tweak `GRAIN_AMOUNT` and `SPEED` constants.
 
 **Fixing Orientation:**
-Previous versions of this shader might have flipped the image. The current version uses `vTexCoord` to ensure the correct orientation.
+The current version uses `vTexCoord` to ensure the correct orientation, if needed.
 
 ## Performance Tips
 

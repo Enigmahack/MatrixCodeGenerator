@@ -1,12 +1,3 @@
-/**
- * Film Grain Shader for Matrix Digital Rain
- * 
- * Features:
- * - Adds dynamic film grain noise
- * - Animated over time
- * - Respects texture orientation
- */
-
 precision mediump float;
 
 // Uniforms provided by PostProcessor.js
@@ -18,9 +9,9 @@ uniform float uTime;
 varying vec2 vTexCoord;
 
 // Shader Configuration
-const float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)
+const float GRAIN_AMOUNT = 0.1; // Intensity of the grain (0.0 to 1.0)
 const bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)
-const float SPEED = 2.5;         // Speed of grain animation
+const float SPEED = 2.2;         // Speed of grain animation
 
 // Random function
 float random(vec2 st) {
