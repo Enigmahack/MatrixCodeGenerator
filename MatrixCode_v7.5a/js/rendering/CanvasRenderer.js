@@ -696,9 +696,8 @@ class CanvasRenderer {
         const y = Math.floor(i / this.grid.cols);
         const cx = (x * d.cellWidth) + s.fontOffsetX;
         const cy = (y * d.cellHeight) + s.fontOffsetY;
-        const px = cx + (d.cellWidth * 0.5);
-        const py = cy + (d.cellHeight * 0.5);
-
+        
+        // Geometry for solid background
         if (o.solid) {
             const bg = o.bgColor || '#000000';
             this.ctx.fillStyle = bg;
@@ -708,22 +707,108 @@ class CanvasRenderer {
         }
 
         if (o.char && o.alpha > 0.01) {
-            this.ctx.fillStyle = o.color;
-            this.ctx.shadowColor = o.color;
-            this.ctx.shadowBlur = o.glow || 0;
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-            this.ctx.font = font;
-            this.ctx.globalAlpha = o.alpha;
-            this.ctx.fillText(o.char, px, py);
-            if (bloom) {
-                this.bloomCtx.save();
-                this.bloomCtx.fillStyle = o.color;
-                this.bloomCtx.font = font;
-                this.bloomCtx.globalAlpha = o.alpha;
-                this.bloomCtx.fillText(o.char, px, py);
-                this.bloomCtx.restore();
+            const px = cx + (d.cellWidth * 0.5);
+            const py = cy + (d.cellHeight * 0.5);
+            
+            // Check for Atlas availability
+            // Note: Overrides don't explicitly pass font, so we assume current active font or fallback
+            // For Deja Vu, it uses characters from active fonts.
+            // We'll try to find the character in the first available atlas or the specific one if we tracked it (we don't track it in 'o').
+            // Optimization: If o.char is single char, try to find in current font family atlas.
+            const fontName = s.fontFamily;
+            const atlas = s.enableGlyphAtlas ? this.glyphAtlases.get(fontName) : null;
+            const sprite = atlas ? atlas.get(o.char) : null;
+
+            if (sprite) {
+                // ATLAS DRAWING PATH (FAST)
+                // Note: o.color needs to be white/matching for atlas coloring to work perfectly if atlases are colored?
+                // Actually atlases are usually pre-colored or white.
+                // If o.color is different from atlas base, we might have an issue unless we use globalCompositeOperation 'source-in' or similar, which is slow.
+                // BUT, Matrix code usually just draws the sprite.
+                // If o.glow is needed, we set shadow.
+                
+                if (o.glow > 0) {
+                    this.ctx.shadowBlur = o.glow;
+                    this.ctx.shadowColor = o.color;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+                
+                this.ctx.globalAlpha = o.alpha;
+                // Atlas sprites are pre-sized to fontSize. o.size adds to that.
+                // Calculate scale factor if o.size > 0
+                let scale = 1.0;
+                if (o.size) {
+                    scale = (s.fontSize + o.size) / s.fontSize;
+                }
+                
+                const dw = sprite.w * scale;
+                const dh = sprite.h * scale;
+                
+                // Draw to Main Context
+                // Note: Atlas sprites usually contain the color. If o.color is meant to override, we can't easily do it with drawImage unless we use a buffer or filter.
+                // For simplicity and speed in Deja Vu (which uses Tracer Color usually), we assume atlas color or accept it.
+                // However, Deja Vu can randomize colors.
+                // If randomized colors are used, we MUST use fillText or a tinted draw.
+                // Tinting drawImage is slow (requires caching).
+                // FAST PATH: Use Atlas ONLY if color matches standard or we don't care about tinting (e.g. Simple Mode).
+                // For now, let's use fillText if no sprite OR if we suspect color mismatch to ensure correctness?
+                // Actually, let's try to use fillText for now to ensure correctness of color, 
+                // BUT remove the save/restore overhead which is the main killer.
+                
+                // WAIT - The user wants PERFORMANCE. Atlas is much faster.
+                // If we use Atlas, we lose custom color override per cell unless we have a colored atlas.
+                // Our GlyphAtlas generates colored sprites based on streamColor.
+                // If o.color != streamColor, we shouldn't use atlas.
+                // Let's stick to optimized fillText without save/restore for now, as color variation is key to Deja Vu.
+                
+                // Reverting to fillText but optimized:
+                this.ctx.fillStyle = o.color;
+                if (o.glow > 0) {
+                    this.ctx.shadowColor = o.color;
+                    this.ctx.shadowBlur = o.glow;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+                
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                if (this.ctx.font !== font) this.ctx.font = font;
+                
+                this.ctx.globalAlpha = o.alpha;
+                this.ctx.fillText(o.char, px, py);
+                
+                if (bloom) {
+                    // OPTIMIZATION: Remove save/restore. 
+                    // Manually set properties. State is reset at start of next frame anyway or by next draw call.
+                    this.bloomCtx.fillStyle = o.color;
+                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
+                    this.bloomCtx.globalAlpha = o.alpha;
+                    this.bloomCtx.fillText(o.char, px, py);
+                }
+            } else {
+                // FALLBACK / NON-ATLAS PATH
+                this.ctx.fillStyle = o.color;
+                if (o.glow > 0) {
+                    this.ctx.shadowColor = o.color;
+                    this.ctx.shadowBlur = o.glow;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                if (this.ctx.font !== font) this.ctx.font = font;
+                
+                this.ctx.globalAlpha = o.alpha;
+                this.ctx.fillText(o.char, px, py);
+                
+                if (bloom) {
+                    // OPTIMIZATION: Removed save/restore
+                    this.bloomCtx.fillStyle = o.color;
+                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
+                    this.bloomCtx.globalAlpha = o.alpha;
+                    this.bloomCtx.fillText(o.char, px, py);
+                }
             }
-            // Restore base font?? Not strictly needed as next draw call will set it.
         }
     }
 }

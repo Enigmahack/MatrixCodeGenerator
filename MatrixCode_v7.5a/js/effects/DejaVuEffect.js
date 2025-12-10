@@ -4,7 +4,11 @@ class DejaVuEffect extends AbstractEffect {
                 this.name = "DejaVu"; 
                 this.active = false; 
                 this.autoTimer = c.state.dejaVuFrequencySeconds * 60; 
-                this.map = null; 
+                this.map = null;
+                // Reusable object to prevent GC thrashing
+                this._retObj = { 
+                    char: '', color: '', alpha: 0, glow: 0, size: 0 
+                }; 
             }
             trigger() { 
                 if(this.active) return false; 
@@ -29,46 +33,47 @@ class DejaVuEffect extends AbstractEffect {
                     this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
                 }
                 
-                // Update bars and populate row map
+                // Cache derived values
+                const activeFonts = this.c.derived.activeFonts;
+                const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05));
+                const cols = this.g.cols;
+                const rows = this.g.rows;
+                const randomizeColors = s.dejaVuRandomizeColors;
+                
+                // Single pass for update, map fill, and glitch application
                 for(let i=this.bars.length-1; i>=0; i--) {
-                    const b = this.bars[i]; b.age++;
+                    const b = this.bars[i]; 
+                    b.age++;
+                    
                     if(b.age > b.maxAge) {
                         this.bars.splice(i, 1); 
-                    } else { 
-                        const limit = Math.min(this.g.rows, b.y + b.h);
-                        for(let r=b.y; r < limit; r++) this.map[r] = 1; 
-                    }
-                }
-                
-                // Apply glitches to active rows (Mutation logic)
-                // Optimization: Use cached active fonts list
-                const activeFonts = this.c.derived.activeFonts;
-                
-                for (const b of this.bars) {
-                    const limit = Math.min(this.g.rows, b.y + b.h);
-                    const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05)); // Reduced density for perf
-
-                    for(let y=b.y; y < limit; y++) {
+                        continue;
+                    } 
+                    
+                    const limit = Math.min(rows, b.y + b.h);
+                    
+                    for(let r=b.y; r < limit; r++) {
+                        this.map[r] = 1; 
+                        
+                        // Apply glitches
                         for(let k=0; k<glitchCount; k++) {
-                            const x = Utils.randomInt(0, this.g.cols - 1);
-                            const i = y * this.g.cols + x; // Direct index calculation
+                            // Optimized random integer generation
+                            const x = (Math.random() * cols) | 0;
+                            const idx = r * cols + x;
                             
-                            // Apply glitch
-                            this.g.rotatorProg[i] = 0; 
+                            this.g.rotatorProg[idx] = 0; 
                             
-                            // Pick from active fonts
-                            const fontData = activeFonts[Utils.randomInt(0, activeFonts.length - 1)];
-                            const char = fontData.chars[Utils.randomInt(0, fontData.chars.length - 1)];
+                            // Optimized font/char picking
+                            const fontData = activeFonts[(Math.random() * activeFonts.length) | 0];
+                            const chars = fontData.chars;
+                            // Ensure chars array is valid
+                            if (chars && chars.length > 0) {
+                                const char = chars[(Math.random() * chars.length) | 0];
+                                this.g.setChar(idx, char);
+                            }
                             
-                            this.g.setChar(i, char);
-                            // We don't strictly need to setFont here as we want the glitch to look like a raw data error, 
-                            // but setting it ensures the char renders correctly if using a custom font.
-                            // However, MatrixGrid doesn't easily support setting font by object ref, we need index.
-                            // Finding index of `fontData` in `activeFonts`...
-                            // Optimization: just pick random index first.
-                            
-                            if(s.dejaVuRandomizeColors) {
-                                this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
+                            if(randomizeColors) {
+                                this.g.complexStyles.set(idx, { h: (Math.random() * 360) | 0, s: 90, l: 70, glitched: true });
                             }
                         }
                     }
@@ -79,7 +84,8 @@ class DejaVuEffect extends AbstractEffect {
                 if(!this.active || !this.map) return null;
                 
                 // Optimization: Map lookup is O(1) array access.
-                const y = Math.floor(i / this.g.cols);
+                // Replace Math.floor with bitwise OR for performance
+                const y = (i / this.g.cols) | 0;
                 
                 // Fast rejection
                 if(this.map[y] === 0) return null;
@@ -90,12 +96,12 @@ class DejaVuEffect extends AbstractEffect {
                 const alpha = baseAlpha < 0.1 ? s.dejaVuHoleBrightness : baseAlpha; 
                 if(alpha < 0.01) return null;
                 
-                return { 
-                    char: this.g.getChar(i), 
-                    color: this.c.derived.tracerColorStr, 
-                    alpha, 
-                    glow: 20 * alpha, 
-                    size: 2 
-                };
+                this._retObj.char = this.g.getChar(i);
+                this._retObj.color = this.c.derived.tracerColorStr;
+                this._retObj.alpha = alpha;
+                this._retObj.glow = 0;
+                this._retObj.size = 2;
+                
+                return this._retObj;
             }
         }
