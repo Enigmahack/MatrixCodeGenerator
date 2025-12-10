@@ -74,7 +74,7 @@ class PulseEffect extends AbstractEffect {
                 }
                 this.origin = {x: ox, y: oy};
 
-                this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
+                this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * 60; this.radius = 0;
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
                 return true; 

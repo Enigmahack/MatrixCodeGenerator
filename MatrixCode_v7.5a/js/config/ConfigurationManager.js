@@ -100,6 +100,7 @@ class ConfigurationManager {
             shaderParameter: 0.5,
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
+            pulseDelaySeconds: 1.0,
             pulseDurationSeconds: 1.8,
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
@@ -192,7 +193,6 @@ class ConfigurationManager {
             tracerSizeIncrease: 1,
             supermanProb: 4,
             dejaVuAutoMode: true,
-            pulseDelayFrames: 60,
             clearPulseIgnoreTracers: true, // Not exposed in UI
             clearPulseCircular: false,
             clearPulseBlend: false,
