@@ -217,6 +217,16 @@ class PulseEffect extends AbstractEffect {
                 const rd = this.renderData;
                 let dist = 0;
                 
+                // Reset pooled object properties
+                this._retObj.char = '';
+                this._retObj.color = '';
+                this._retObj.alpha = 0;
+                this._retObj.glow = 0;
+                this._retObj.size = 0;
+                this._retObj.solid = false;
+                this._retObj.blend = false;
+                this._retObj.bgColor = '';
+
                 if (this.state === 'WAITING') {
 
                 } else {
@@ -267,19 +277,38 @@ class PulseEffect extends AbstractEffect {
                 const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
                 
                 // Common Gap Return
-                const gapReturn = { char: '', color: '#000000', alpha: 0, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                const gapReturn = this._retObj; // Use pooled object for gapReturn
+                gapReturn.char = '';
+                gapReturn.color = '#000000';
+                gapReturn.alpha = 0;
+                gapReturn.glow = 0;
+                gapReturn.size = 0;
+                gapReturn.solid = true;
+                gapReturn.bgColor = '#000000';
 
-                let result = null;
+                let result = this._retObj; // Use pooled object for result
 
                 if (this.state === 'WAITING' || dist > this.radius) {
                     if(baseColorStr === null) { const rgb = Utils.unpackRgb(this.snap.colors[i]); baseColorStr = `rgb(${rgb.r},${rgb.g},${rgb.b})`; }
                     // FIX: If ignoring tracers, return them with their ORIGINAL snapshot alpha/color, do not dim or force white.
                     if(isTracer && s.pulseIgnoreTracers) {
-                         result = { char, color: baseColorStr, alpha: snAlpha, glow: s.tracerGlow, size: s.tracerSizeIncrease, solid: true, bgColor: '#000000' };
+                         result.char = char;
+                         result.color = baseColorStr;
+                         result.alpha = snAlpha;
+                         result.glow = s.tracerGlow;
+                         result.size = s.tracerSizeIncrease;
+                         result.solid = true;
+                         result.bgColor = '#000000';
                     } else if (isGap) {
                          result = gapReturn;
                     } else {
-                         result = { char, color: baseColorStr, alpha: snAlpha * s.pulseDimming, glow: 0, size: 0, solid: true, bgColor: '#000000' };
+                         result.char = char;
+                         result.color = baseColorStr;
+                         result.alpha = snAlpha * s.pulseDimming;
+                         result.glow = 0;
+                         result.size = 0;
+                         result.solid = true;
+                         result.bgColor = '#000000';
                     }
                 } else {
                     if (s.pulsePreserveSpaces && isGap) {
@@ -329,20 +358,15 @@ class PulseEffect extends AbstractEffect {
                             finalColor = `rgb(${mR},${mG},${mB})`;
                         }
                         
-                        // Final return object
-                        actualCharAlpha = Math.max(0, actualCharAlpha);
-                        actualBgAlpha = Math.max(0, actualBgAlpha);
-        
-                        result = { 
-                            char, 
-                            color: finalColor, 
-                            alpha: actualCharAlpha, 
-                            glow: actualGlow, 
-                            size: s.tracerSizeIncrease, 
-                            solid: actualSolid, 
-                            blend: actualBlend,
-                            bgColor: `rgba(0,0,0,${actualBgAlpha})` 
-                        };
+                        // Populate pooled object
+                        result.char = char; 
+                        result.color = finalColor; 
+                        result.alpha = Math.max(0, actualCharAlpha); 
+                        result.glow = actualGlow; 
+                        result.size = s.tracerSizeIncrease; 
+                        result.solid = actualSolid; 
+                        result.blend = actualBlend;
+                        result.bgColor = `rgba(0,0,0,${Math.max(0, actualBgAlpha)})`; 
                     }
                 }
                 

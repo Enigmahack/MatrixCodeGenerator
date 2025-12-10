@@ -109,7 +109,6 @@ class UIManager {
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
-            { cat: 'Global', id: 'enableGlyphAtlas', type: 'checkbox', label: 'Performance pre-render' },
             { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.' },
             { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'] },
         ];

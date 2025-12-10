@@ -815,6 +815,7 @@ class ConfigurationManager {
             shaderParameter: 0.5,
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
+            pulseDelaySeconds: 1.0,
             pulseDurationSeconds: 1.8,
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
@@ -902,7 +903,6 @@ class ConfigurationManager {
             tracerSizeIncrease: 1,
             supermanProb: 4,
             dejaVuAutoMode: true,
-            pulseDelayFrames: 60,
             clearPulseIgnoreTracers: true, // Not exposed in UI
             clearPulseCircular: false,
             clearPulseBlend: false,
@@ -1479,7 +1479,11 @@ class DejaVuEffect extends AbstractEffect {
                 this.name = "DejaVu"; 
                 this.active = false; 
                 this.autoTimer = c.state.dejaVuFrequencySeconds * 60; 
-                this.map = null; 
+                this.map = null;
+                // Reusable object to prevent GC thrashing
+                this._retObj = { 
+                    char: '', color: '', alpha: 0, glow: 0, size: 0 
+                }; 
             }
             trigger() { 
                 if(this.active) return false; 
@@ -1501,39 +1505,39 @@ class DejaVuEffect extends AbstractEffect {
                     const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
                     this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
                 }
-                // Update bars and populate row map
+                // Cache derived values
+                const activeFonts = this.c.derived.activeFonts;
+                const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05));
+                const cols = this.g.cols;
+                const rows = this.g.rows;
+                const randomizeColors = s.dejaVuRandomizeColors;
+                // Single pass for update, map fill, and glitch application
                 for(let i=this.bars.length-1; i>=0; i--) {
-                    const b = this.bars[i]; b.age++;
+                    const b = this.bars[i]; 
+                    b.age++;
                     if(b.age > b.maxAge) {
                         this.bars.splice(i, 1); 
-                    } else { 
-                        const limit = Math.min(this.g.rows, b.y + b.h);
-                        for(let r=b.y; r < limit; r++) this.map[r] = 1; 
-                    }
-                }
-                // Apply glitches to active rows (Mutation logic)
-                // Optimization: Use cached active fonts list
-                const activeFonts = this.c.derived.activeFonts;
-                for (const b of this.bars) {
-                    const limit = Math.min(this.g.rows, b.y + b.h);
-                    const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05)); // Reduced density for perf
-                    for(let y=b.y; y < limit; y++) {
+                        continue;
+                    } 
+                    const limit = Math.min(rows, b.y + b.h);
+                    for(let r=b.y; r < limit; r++) {
+                        this.map[r] = 1; 
+                        // Apply glitches
                         for(let k=0; k<glitchCount; k++) {
-                            const x = Utils.randomInt(0, this.g.cols - 1);
-                            const i = y * this.g.cols + x; // Direct index calculation
-                            // Apply glitch
-                            this.g.rotatorProg[i] = 0; 
-                            // Pick from active fonts
-                            const fontData = activeFonts[Utils.randomInt(0, activeFonts.length - 1)];
-                            const char = fontData.chars[Utils.randomInt(0, fontData.chars.length - 1)];
-                            this.g.setChar(i, char);
-                            // We don't strictly need to setFont here as we want the glitch to look like a raw data error, 
-                            // but setting it ensures the char renders correctly if using a custom font.
-                            // However, MatrixGrid doesn't easily support setting font by object ref, we need index.
-                            // Finding index of `fontData` in `activeFonts`...
-                            // Optimization: just pick random index first.
-                            if(s.dejaVuRandomizeColors) {
-                                this.g.complexStyles.set(i, { h: Utils.randomInt(0,360), s: 90, l: 70, glitched: true });
+                            // Optimized random integer generation
+                            const x = (Math.random() * cols) | 0;
+                            const idx = r * cols + x;
+                            this.g.rotatorProg[idx] = 0; 
+                            // Optimized font/char picking
+                            const fontData = activeFonts[(Math.random() * activeFonts.length) | 0];
+                            const chars = fontData.chars;
+                            // Ensure chars array is valid
+                            if (chars && chars.length > 0) {
+                                const char = chars[(Math.random() * chars.length) | 0];
+                                this.g.setChar(idx, char);
+                            }
+                            if(randomizeColors) {
+                                this.g.complexStyles.set(idx, { h: (Math.random() * 360) | 0, s: 90, l: 70, glitched: true });
                             }
                         }
                     }
@@ -1542,7 +1546,8 @@ class DejaVuEffect extends AbstractEffect {
             getOverride(i) {
                 if(!this.active || !this.map) return null;
                 // Optimization: Map lookup is O(1) array access.
-                const y = Math.floor(i / this.g.cols);
+                // Replace Math.floor with bitwise OR for performance
+                const y = (i / this.g.cols) | 0;
                 // Fast rejection
                 if(this.map[y] === 0) return null;
                 const s = this.c.state; 
@@ -1550,13 +1555,12 @@ class DejaVuEffect extends AbstractEffect {
                 const baseAlpha = this.g.alphas[i];
                 const alpha = baseAlpha < 0.1 ? s.dejaVuHoleBrightness : baseAlpha; 
                 if(alpha < 0.01) return null;
-                return { 
-                    char: this.g.getChar(i), 
-                    color: this.c.derived.tracerColorStr, 
-                    alpha, 
-                    glow: 20 * alpha, 
-                    size: 2 
-                };
+                this._retObj.char = this.g.getChar(i);
+                this._retObj.color = this.c.derived.tracerColorStr;
+                this._retObj.alpha = alpha;
+                this._retObj.glow = 0;
+                this._retObj.size = 2;
+                return this._retObj;
             }
         }
 // --- FirewallEffect.js ---
@@ -1888,7 +1892,7 @@ class PulseEffect extends AbstractEffect {
                     oy = Math.floor(this.g.rows/2);
                 }
                 this.origin = {x: ox, y: oy};
-                this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelayFrames; this.radius = 0;
+                this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * 60; this.radius = 0;
                 const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
                 this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
                 return true; 
@@ -2827,8 +2831,7 @@ class CanvasRenderer {
         const y = Math.floor(i / this.grid.cols);
         const cx = (x * d.cellWidth) + s.fontOffsetX;
         const cy = (y * d.cellHeight) + s.fontOffsetY;
-        const px = cx + (d.cellWidth * 0.5);
-        const py = cy + (d.cellHeight * 0.5);
+        // Geometry for solid background
         if (o.solid) {
             const bg = o.bgColor || '#000000';
             this.ctx.fillStyle = bg;
@@ -2837,22 +2840,94 @@ class CanvasRenderer {
             this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
         }
         if (o.char && o.alpha > 0.01) {
-            this.ctx.fillStyle = o.color;
-            this.ctx.shadowColor = o.color;
-            this.ctx.shadowBlur = o.glow || 0;
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-            this.ctx.font = font;
-            this.ctx.globalAlpha = o.alpha;
-            this.ctx.fillText(o.char, px, py);
-            if (bloom) {
-                this.bloomCtx.save();
-                this.bloomCtx.fillStyle = o.color;
-                this.bloomCtx.font = font;
-                this.bloomCtx.globalAlpha = o.alpha;
-                this.bloomCtx.fillText(o.char, px, py);
-                this.bloomCtx.restore();
+            const px = cx + (d.cellWidth * 0.5);
+            const py = cy + (d.cellHeight * 0.5);
+            // Check for Atlas availability
+            // Note: Overrides don't explicitly pass font, so we assume current active font or fallback
+            // For Deja Vu, it uses characters from active fonts.
+            // We'll try to find the character in the first available atlas or the specific one if we tracked it (we don't track it in 'o').
+            // Optimization: If o.char is single char, try to find in current font family atlas.
+            const fontName = s.fontFamily;
+            const atlas = s.enableGlyphAtlas ? this.glyphAtlases.get(fontName) : null;
+            const sprite = atlas ? atlas.get(o.char) : null;
+            if (sprite) {
+                // ATLAS DRAWING PATH (FAST)
+                // Note: o.color needs to be white/matching for atlas coloring to work perfectly if atlases are colored?
+                // Actually atlases are usually pre-colored or white.
+                // If o.color is different from atlas base, we might have an issue unless we use globalCompositeOperation 'source-in' or similar, which is slow.
+                // BUT, Matrix code usually just draws the sprite.
+                // If o.glow is needed, we set shadow.
+                if (o.glow > 0) {
+                    this.ctx.shadowBlur = o.glow;
+                    this.ctx.shadowColor = o.color;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+                this.ctx.globalAlpha = o.alpha;
+                // Atlas sprites are pre-sized to fontSize. o.size adds to that.
+                // Calculate scale factor if o.size > 0
+                let scale = 1.0;
+                if (o.size) {
+                    scale = (s.fontSize + o.size) / s.fontSize;
+                }
+                const dw = sprite.w * scale;
+                const dh = sprite.h * scale;
+                // Draw to Main Context
+                // Note: Atlas sprites usually contain the color. If o.color is meant to override, we can't easily do it with drawImage unless we use a buffer or filter.
+                // For simplicity and speed in Deja Vu (which uses Tracer Color usually), we assume atlas color or accept it.
+                // However, Deja Vu can randomize colors.
+                // If randomized colors are used, we MUST use fillText or a tinted draw.
+                // Tinting drawImage is slow (requires caching).
+                // FAST PATH: Use Atlas ONLY if color matches standard or we don't care about tinting (e.g. Simple Mode).
+                // For now, let's use fillText if no sprite OR if we suspect color mismatch to ensure correctness?
+                // Actually, let's try to use fillText for now to ensure correctness of color, 
+                // BUT remove the save/restore overhead which is the main killer.
+                // WAIT - The user wants PERFORMANCE. Atlas is much faster.
+                // If we use Atlas, we lose custom color override per cell unless we have a colored atlas.
+                // Our GlyphAtlas generates colored sprites based on streamColor.
+                // If o.color != streamColor, we shouldn't use atlas.
+                // Let's stick to optimized fillText without save/restore for now, as color variation is key to Deja Vu.
+                // Reverting to fillText but optimized:
+                this.ctx.fillStyle = o.color;
+                if (o.glow > 0) {
+                    this.ctx.shadowColor = o.color;
+                    this.ctx.shadowBlur = o.glow;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                if (this.ctx.font !== font) this.ctx.font = font;
+                this.ctx.globalAlpha = o.alpha;
+                this.ctx.fillText(o.char, px, py);
+                if (bloom) {
+                    // OPTIMIZATION: Remove save/restore. 
+                    // Manually set properties. State is reset at start of next frame anyway or by next draw call.
+                    this.bloomCtx.fillStyle = o.color;
+                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
+                    this.bloomCtx.globalAlpha = o.alpha;
+                    this.bloomCtx.fillText(o.char, px, py);
+                }
+            } else {
+                // FALLBACK / NON-ATLAS PATH
+                this.ctx.fillStyle = o.color;
+                if (o.glow > 0) {
+                    this.ctx.shadowColor = o.color;
+                    this.ctx.shadowBlur = o.glow;
+                } else {
+                    this.ctx.shadowBlur = 0;
+                }
+                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+                if (this.ctx.font !== font) this.ctx.font = font;
+                this.ctx.globalAlpha = o.alpha;
+                this.ctx.fillText(o.char, px, py);
+                if (bloom) {
+                    // OPTIMIZATION: Removed save/restore
+                    this.bloomCtx.fillStyle = o.color;
+                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
+                    this.bloomCtx.globalAlpha = o.alpha;
+                    this.bloomCtx.fillText(o.char, px, py);
+                }
             }
-            // Restore base font?? Not strictly needed as next draw call will set it.
         }
     }
 }
@@ -4421,6 +4496,7 @@ class UIManager {
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
             { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseDelaySeconds', type: 'range', label: 'Delay', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
             { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'pulseEnabled' },
             { cat: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },

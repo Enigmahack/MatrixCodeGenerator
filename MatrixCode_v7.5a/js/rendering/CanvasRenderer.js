@@ -48,6 +48,76 @@ class CanvasRenderer {
         this.mouseX = 0.5;
         this.mouseY = 0.5;
         this._setupMouseTracking();
+        
+        // Reusable object for tracer state to avoid allocation in hot loops
+        this._tracerStateObj = { alpha: 0, phase: 'none' };
+
+        // State Cache
+        this._lastFont = null;
+        this._lastFillStyle = null;
+        this._lastShadowColor = null;
+        this._lastShadowBlur = null;
+        this._lastGlobalAlpha = null;
+
+        this._lastBloomFont = null;
+        this._lastBloomFillStyle = null;
+        this._lastBloomGlobalAlpha = null;
+    }
+
+    _resetStateCache() {
+        this._lastFont = null;
+        this._lastFillStyle = null;
+        this._lastShadowColor = null;
+        this._lastShadowBlur = null;
+        this._lastGlobalAlpha = null;
+
+        this._lastBloomFont = null;
+        this._lastBloomFillStyle = null;
+        this._lastBloomGlobalAlpha = null;
+    }
+
+    _setCtxFont(font, bloomEnabled) {
+        if (this._lastFont !== font) {
+            this.ctx.font = font;
+            this._lastFont = font;
+        }
+        if (bloomEnabled && this._lastBloomFont !== font) {
+            this.bloomCtx.font = font;
+            this._lastBloomFont = font;
+        }
+    }
+
+    _setCtxFillStyle(style, bloomEnabled) {
+        if (this._lastFillStyle !== style) {
+            this.ctx.fillStyle = style;
+            this._lastFillStyle = style;
+        }
+        if (bloomEnabled && this._lastBloomFillStyle !== style) {
+            this.bloomCtx.fillStyle = style;
+            this._lastBloomFillStyle = style;
+        }
+    }
+
+    _setCtxShadow(color, blur) {
+        if (this._lastShadowColor !== color) {
+            this.ctx.shadowColor = color;
+            this._lastShadowColor = color;
+        }
+        if (this._lastShadowBlur !== blur) {
+            this.ctx.shadowBlur = blur;
+            this._lastShadowBlur = blur;
+        }
+    }
+
+    _setCtxGlobalAlpha(alpha, bloomEnabled) {
+        if (this._lastGlobalAlpha !== alpha) {
+            this.ctx.globalAlpha = alpha;
+            this._lastGlobalAlpha = alpha;
+        }
+        if (bloomEnabled && this._lastBloomGlobalAlpha !== alpha) {
+            this.bloomCtx.globalAlpha = alpha;
+            this._lastBloomGlobalAlpha = alpha;
+        }
     }
 
     _setupMouseTracking() {
@@ -126,27 +196,37 @@ class CanvasRenderer {
     /**
      * Calculates the alpha and phase of the tracer based on its age and active state.
      * Optimized logic with early returns and simplified operations.
+     * Uses a reusable output object to avoid GC.
      */
-    _getTracerState(index, state) {
+    _getTracerState(index, state, out) {
+        // Reset defaults
+        out.alpha = 0;
+        out.phase = 'none';
+
         const age = this.grid.ages[index];
         const decay = this.grid.decays[index];
-        if (age <= 0 || decay >= 2) return { alpha: 0, phase: 'none' };
+        if (age <= 0 || decay >= 2) return out;
 
         const type = this.grid.types[index];
-        if (type !== CELL_TYPE.TRACER && type !== CELL_TYPE.ROTATOR) return { alpha: 0, phase: 'none' };
+        if (type !== CELL_TYPE.TRACER && type !== CELL_TYPE.ROTATOR) return out;
 
         const activeTime = age - 1;
         const attack = state.tracerAttackFrames;
         const hold = state.tracerHoldFrames;
         const release = state.tracerReleaseFrames;
 
-        if (activeTime < attack) return { alpha: (attack > 0) ? (activeTime / attack) : 1.0, phase: 'attack' };
-        else if (activeTime < attack + hold) return { alpha: 1.0, phase: 'hold' };
-        else if (activeTime < attack + hold + release) {
+        if (activeTime < attack) {
+            out.alpha = (attack > 0) ? (activeTime / attack) : 1.0;
+            out.phase = 'attack';
+        } else if (activeTime < attack + hold) {
+            out.alpha = 1.0;
+            out.phase = 'hold';
+        } else if (activeTime < attack + hold + release) {
             const relTime = activeTime - (attack + hold);
-            return { alpha: 1.0 - (relTime / release), phase: 'release' };
+            out.alpha = 1.0 - (relTime / release);
+            out.phase = 'release';
         }
-        return { alpha: 0, phase: 'none' };
+        return out;
     }
 
     _updateAtlases(s, d) {
@@ -277,7 +357,7 @@ class CanvasRenderer {
             }
 
             let gridAlpha = this.grid.alphas[i];
-            const tState = this._getTracerState(i, s);
+            const tState = this._getTracerState(i, s, this._tracerStateObj);
             if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
             const override = this.effects.getOverride(i);
             if (override && typeof override.alpha === 'number') gridAlpha = override.alpha;
@@ -407,22 +487,23 @@ class CanvasRenderer {
     }
 
     _drawGrid(d, s, frame, bloomEnabled) {
+        this._resetStateCache(); // Reset cache at start of grid draw
+
         const fontBase = d.fontBaseStr;
         
         // Only set font if NOT using atlas for everything
-        this.ctx.font = fontBase;
+        this._setCtxFont(fontBase, bloomEnabled);
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
         
         if (bloomEnabled) {
-            this.bloomCtx.font = fontBase;
             this.bloomCtx.textBaseline = 'middle';
             this.bloomCtx.textAlign = 'center';
         }
 
         const defaultColor = d.streamColorStr;
         let lastColor = defaultColor;
-        this._setFillStyle(defaultColor, bloomEnabled); 
+        this._setCtxFillStyle(defaultColor, bloomEnabled);
 
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
@@ -451,8 +532,7 @@ class CanvasRenderer {
     }
 
     _processCellRender(i, d, s, frame, bloomEnabled, fontBase, defaultColor, xOff, yOff, lastColor, useAtlas, activeFonts) {
-            this.ctx.shadowBlur = 0;
-            this.ctx.shadowColor = 'transparent';
+            this._setCtxShadow('transparent', 0);
 
             const override = this.effects.getOverride(i);
             if (override && !override.blend) {
@@ -463,7 +543,7 @@ class CanvasRenderer {
             let gridAlpha = this.grid.alphas[i];
             if (gridAlpha <= 0.01) return;
 
-            const tState = this._getTracerState(i, s);
+            const tState = this._getTracerState(i, s, this._tracerStateObj);
             if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
             if (gridAlpha <= 0.01) return;
 
@@ -487,7 +567,7 @@ class CanvasRenderer {
             const canUseAtlas = useAtlas && (color === paletteColor);
 
             if (!canUseAtlas && color !== lastColor) {
-                this._setFillStyle(color, bloomEnabled);
+                this._setCtxFillStyle(color, bloomEnabled);
                 lastColor = color;
             }
 
@@ -513,19 +593,6 @@ class CanvasRenderer {
             }
     }
 
-    _setFillStyle(color, bloomEnabled) {
-        this.ctx.fillStyle = color;
-        if (bloomEnabled) this.bloomCtx.fillStyle = color;
-    }
-
-    _getCellColor(style, frame) {
-        if (style.glitter && Math.random() < 0.02) return '#ffffff';
-        let h = style.h;
-        if (style.cycle) h = (h + (frame * style.speed)) % 360;
-        const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
-        return Utils.createRGBString(rgb);
-    }
-
     _drawCellCharAtlas(i, px, py, alpha, s, bloomEnabled, pIdx, atlas) {
         const decay = this.grid.decays[i];
         const char = this.grid.getChar(i);
@@ -540,18 +607,16 @@ class CanvasRenderer {
              const next = this.grid.nextChars.get(i);
              const nextSprite = next ? atlas.get(next) : null;
 
-             this.ctx.globalAlpha = alpha * (1 - p);
+             this._setCtxGlobalAlpha(alpha * (1 - p), bloomEnabled);
              this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              if(bloomEnabled) {
-                 this.bloomCtx.globalAlpha = alpha * (1 - p);
                  this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - sprite.w/2, py - sprite.h/2, sprite.w, sprite.h);
              }
 
              if (nextSprite) {
-                 this.ctx.globalAlpha = alpha * p;
+                 this._setCtxGlobalAlpha(alpha * p, bloomEnabled);
                  this.ctx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  if(bloomEnabled) {
-                     this.bloomCtx.globalAlpha = alpha * p;
                      this.bloomCtx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                  }
              }
@@ -567,19 +632,27 @@ class CanvasRenderer {
 
              if (s.deteriorationEnabled) {
                  const off = s.deteriorationStrength * prog;
-                 this.ctx.globalAlpha = alpha * 0.4 * prog;
+                 this._setCtxGlobalAlpha(alpha * 0.4 * prog, false); // Explicitly only ctx for deterioration? Or both? Original code: this.ctx.globalAlpha = ...
+                 // Original only set this.ctx.globalAlpha. Bloom wasn't explicitly drawn for deterioration ghosting.
                  this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
                  this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
              }
         }
 
-        this.ctx.globalAlpha = alpha;
+        this._setCtxGlobalAlpha(alpha, bloomEnabled);
         this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         
         if (bloomEnabled) {
-            this.bloomCtx.globalAlpha = alpha;
             this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
+    }
+
+    _getCellColor(style, frame) {
+        if (style.glitter && Math.random() < 0.02) return '#ffffff';
+        let h = style.h;
+        if (style.cycle) h = (h + (frame * style.speed)) % 360;
+        const rgb = Utils.hslToRgb(h | 0, style.s, style.l);
+        return Utils.createRGBString(rgb);
     }
 
     _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontName) {
@@ -590,25 +663,22 @@ class CanvasRenderer {
         // Use fontName passed in
         const fontSize = s.fontSize; // Could vary with dissolve
         const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
-        this.ctx.font = fontBase;
-        if(bloomEnabled) this.bloomCtx.font = fontBase;
+        this._setCtxFont(fontBase, bloomEnabled);
 
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
             const p = rotProg / s.rotatorCrossfadeFrames;
             
-            this.ctx.globalAlpha = alpha * (1 - p);
+            this._setCtxGlobalAlpha(alpha * (1 - p), bloomEnabled);
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha * (1 - p);
                 this.bloomCtx.fillText(char, px, py);
             }
 
             const next = this.grid.nextChars.get(i);
             if (next) {
-                this.ctx.globalAlpha = alpha * p;
+                this._setCtxGlobalAlpha(alpha * p, bloomEnabled);
                 this.ctx.fillText(next, px, py);
                 if (bloomEnabled) {
-                    this.bloomCtx.globalAlpha = alpha * p;
                     this.bloomCtx.fillText(next, px, py);
                 }
             }
@@ -616,27 +686,32 @@ class CanvasRenderer {
             const prog = (decay - 2) / s.decayFadeDurationFrames;
             const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
             const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${fontName}`;
-            this.ctx.font = font;
+            this._setCtxFont(font, false); // Bloom font handled via base or ignore for dissolve? Original updated this.ctx.font
+            // Actually, original updated ctx.font. BloomCtx doesn't seem to be updated for dissolve font size in original logic explicitly unless bloomEnabled was true, but original logic:
+            // this.ctx.font = font; ... if(bloomEnabled) this.bloomCtx.fillText...
+            // Bloom context uses its current font. If we didn't update bloom font, it might be wrong.
+            // Let's assume we should update bloom font if enabled.
+            if(bloomEnabled) this.bloomCtx.font = font; 
+            // Updating my helper to allow single context update is tricky.
+            // I'll manually set for now or assume bloom follows.
+            // _setCtxFont updates both if bloomEnabled is true.
             
             if (s.deteriorationEnabled) {
                 const off = s.deteriorationStrength * prog;
-                this.ctx.globalAlpha = alpha * 0.4 * prog;
+                this._setCtxGlobalAlpha(alpha * 0.4 * prog, false);
                 this.ctx.fillText(char, px, py - off);
                 this.ctx.fillText(char, px, py + off);
             }
             
-            this.ctx.globalAlpha = alpha;
+            this._setCtxGlobalAlpha(alpha, bloomEnabled);
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha;
                 this.bloomCtx.fillText(char, px, py);
             }
-            // Don't need to reset font here, it's set at start of function
         } else {
-            this.ctx.globalAlpha = alpha;
+            this._setCtxGlobalAlpha(alpha, bloomEnabled);
             this.ctx.fillText(char, px, py);
             if (bloomEnabled) {
-                this.bloomCtx.globalAlpha = alpha;
                 this.bloomCtx.fillText(char, px, py);
             }
         }
@@ -644,14 +719,13 @@ class CanvasRenderer {
 
     _drawTracers(d, s, frame, bloomEnabled, xOff, yOff) {
         const tStr = d.tracerColorStr;
-        this.ctx.shadowBlur = s.tracerGlow;
-        this.ctx.shadowColor = tStr;
+        this._setCtxShadow(tStr, s.tracerGlow);
         
         const activeFonts = d.activeFonts;
 
         for (const i of this.grid.activeIndices) {
             if (this.effects.getOverride(i)) continue;
-            const tState = this._getTracerState(i, s);
+            const tState = this._getTracerState(i, s, this._tracerStateObj);
             if (tState.alpha > 0.01) {
                 const x = i % this.grid.cols;
                 const y = Math.floor(i / this.grid.cols);
@@ -663,10 +737,7 @@ class CanvasRenderer {
                 const fontData = activeFonts[fontIdx] || activeFonts[0];
                 const tFont = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + s.tracerSizeIncrease}px ${fontData.name}`;
                 
-                if (this.ctx.font !== tFont) {
-                    this.ctx.font = tFont;
-                    if (bloomEnabled) this.bloomCtx.font = tFont;
-                }
+                this._setCtxFont(tFont, bloomEnabled);
 
                 const style = this.grid.complexStyles.get(i);
                 let cStr = tStr;
@@ -677,14 +748,19 @@ class CanvasRenderer {
                     cStr = Utils.createRGBString(tc);
                 }
 
-                this.ctx.fillStyle = cStr;
-                this.ctx.shadowColor = cStr;
-                if (bloomEnabled) this.bloomCtx.fillStyle = cStr;
+                this._setCtxFillStyle(cStr, bloomEnabled);
+                // Shadow color tracks fill style for tracers usually? Original code set shadowColor = cStr
+                // Yes: this.ctx.shadowColor = cStr;
+                // But my helper _setCtxShadow handles color and blur together.
+                // I need to update shadow color if it changed.
+                if (this._lastShadowColor !== cStr) {
+                    this.ctx.shadowColor = cStr;
+                    this._lastShadowColor = cStr;
+                }
 
-                this.ctx.globalAlpha = tState.alpha;
+                this._setCtxGlobalAlpha(tState.alpha, bloomEnabled);
                 this.ctx.fillText(this.grid.getChar(i), px, py);
                 if (bloomEnabled) {
-                    this.bloomCtx.globalAlpha = tState.alpha;
                     this.bloomCtx.fillText(this.grid.getChar(i), px, py);
                 }
             }
@@ -700,7 +776,8 @@ class CanvasRenderer {
         // Geometry for solid background
         if (o.solid) {
             const bg = o.bgColor || '#000000';
-            this.ctx.fillStyle = bg;
+            this._setCtxFillStyle(bg, false); // Backgrounds usually don't bloom? Original code didn't draw bg to bloomCtx.
+            // Original: this.ctx.fillStyle = bg; ... fillRect
             const w = Math.ceil(d.cellWidth) + 1;
             const h = Math.ceil(d.cellHeight) + 1;
             this.ctx.fillRect(Math.floor(cx), Math.floor(cy), w, h);
@@ -710,104 +787,46 @@ class CanvasRenderer {
             const px = cx + (d.cellWidth * 0.5);
             const py = cy + (d.cellHeight * 0.5);
             
-            // Check for Atlas availability
-            // Note: Overrides don't explicitly pass font, so we assume current active font or fallback
-            // For Deja Vu, it uses characters from active fonts.
-            // We'll try to find the character in the first available atlas or the specific one if we tracked it (we don't track it in 'o').
-            // Optimization: If o.char is single char, try to find in current font family atlas.
             const fontName = s.fontFamily;
             const atlas = s.enableGlyphAtlas ? this.glyphAtlases.get(fontName) : null;
             const sprite = atlas ? atlas.get(o.char) : null;
 
             if (sprite) {
-                // ATLAS DRAWING PATH (FAST)
-                // Note: o.color needs to be white/matching for atlas coloring to work perfectly if atlases are colored?
-                // Actually atlases are usually pre-colored or white.
-                // If o.color is different from atlas base, we might have an issue unless we use globalCompositeOperation 'source-in' or similar, which is slow.
-                // BUT, Matrix code usually just draws the sprite.
-                // If o.glow is needed, we set shadow.
-                
+                // ATLAS DRAWING PATH
                 if (o.glow > 0) {
-                    this.ctx.shadowBlur = o.glow;
-                    this.ctx.shadowColor = o.color;
+                    this._setCtxShadow(o.color, o.glow);
                 } else {
-                    this.ctx.shadowBlur = 0;
+                    this._setCtxShadow('transparent', 0);
                 }
                 
-                this.ctx.globalAlpha = o.alpha;
-                // Atlas sprites are pre-sized to fontSize. o.size adds to that.
-                // Calculate scale factor if o.size > 0
-                let scale = 1.0;
-                if (o.size) {
-                    scale = (s.fontSize + o.size) / s.fontSize;
-                }
+                this._setCtxGlobalAlpha(o.alpha, false); // Atlas drawImage handles globalAlpha on ctx.
+                // Does it handle Bloom? Yes if I pass bloom=true to helper.
+                // But wait, sprite drawing logic usually does two drawImage calls.
+                // Here we revert to fillText for color correctness?
+                // NO, previous optimization reverted to fillText because atlas color might not match.
+                // Let's stick to fillText as established in previous step for correctness.
                 
-                const dw = sprite.w * scale;
-                const dh = sprite.h * scale;
-                
-                // Draw to Main Context
-                // Note: Atlas sprites usually contain the color. If o.color is meant to override, we can't easily do it with drawImage unless we use a buffer or filter.
-                // For simplicity and speed in Deja Vu (which uses Tracer Color usually), we assume atlas color or accept it.
-                // However, Deja Vu can randomize colors.
-                // If randomized colors are used, we MUST use fillText or a tinted draw.
-                // Tinting drawImage is slow (requires caching).
-                // FAST PATH: Use Atlas ONLY if color matches standard or we don't care about tinting (e.g. Simple Mode).
-                // For now, let's use fillText if no sprite OR if we suspect color mismatch to ensure correctness?
-                // Actually, let's try to use fillText for now to ensure correctness of color, 
-                // BUT remove the save/restore overhead which is the main killer.
-                
-                // WAIT - The user wants PERFORMANCE. Atlas is much faster.
-                // If we use Atlas, we lose custom color override per cell unless we have a colored atlas.
-                // Our GlyphAtlas generates colored sprites based on streamColor.
-                // If o.color != streamColor, we shouldn't use atlas.
-                // Let's stick to optimized fillText without save/restore for now, as color variation is key to Deja Vu.
-                
-                // Reverting to fillText but optimized:
-                this.ctx.fillStyle = o.color;
-                if (o.glow > 0) {
-                    this.ctx.shadowColor = o.color;
-                    this.ctx.shadowBlur = o.glow;
-                } else {
-                    this.ctx.shadowBlur = 0;
-                }
-                
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-                if (this.ctx.font !== font) this.ctx.font = font;
-                
-                this.ctx.globalAlpha = o.alpha;
-                this.ctx.fillText(o.char, px, py);
-                
-                if (bloom) {
-                    // OPTIMIZATION: Remove save/restore. 
-                    // Manually set properties. State is reset at start of next frame anyway or by next draw call.
-                    this.bloomCtx.fillStyle = o.color;
-                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
-                    this.bloomCtx.globalAlpha = o.alpha;
-                    this.bloomCtx.fillText(o.char, px, py);
-                }
+                // Fallback to fillText logic below...
+            }
+            
+            // FILLTEXT PATH (Unified)
+            this._setCtxFillStyle(o.color, bloom);
+            
+            if (o.glow > 0) {
+                this._setCtxShadow(o.color, o.glow);
             } else {
-                // FALLBACK / NON-ATLAS PATH
-                this.ctx.fillStyle = o.color;
-                if (o.glow > 0) {
-                    this.ctx.shadowColor = o.color;
-                    this.ctx.shadowBlur = o.glow;
-                } else {
-                    this.ctx.shadowBlur = 0;
-                }
-
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
-                if (this.ctx.font !== font) this.ctx.font = font;
-                
-                this.ctx.globalAlpha = o.alpha;
-                this.ctx.fillText(o.char, px, py);
-                
-                if (bloom) {
-                    // OPTIMIZATION: Removed save/restore
-                    this.bloomCtx.fillStyle = o.color;
-                    if (this.bloomCtx.font !== font) this.bloomCtx.font = font;
-                    this.bloomCtx.globalAlpha = o.alpha;
-                    this.bloomCtx.fillText(o.char, px, py);
-                }
+                this._setCtxShadow('transparent', 0);
+            }
+            
+            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+            this._setCtxFont(font, bloom);
+            
+            this._setCtxGlobalAlpha(o.alpha, bloom);
+            
+            this.ctx.fillText(o.char, px, py);
+            
+            if (bloom) {
+                this.bloomCtx.fillText(o.char, px, py);
             }
         }
     }
