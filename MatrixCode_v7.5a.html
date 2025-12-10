@@ -3260,29 +3260,28 @@ class SimulationSystem {
                     stream.active = false;
                     continue;
                 }
-            // Tracer Random Drop-off
-            } else if (!stream.isEraser) {
-                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
-                    stream.active = false;
-                    continue;
-                }
-            } else {
-                // Tracer Collision Detection
-                // Check the cell we are about to move into (y+1)
-                // Actually, we check if the *next* move would hit something.
-                // If stream.y is currently at Y, next write is Y+1.
-                const nextY = stream.y + 1;
-                if (nextY < this.grid.rows) {
-                    const nextIdx = this.grid.getIndex(stream.x, nextY);
-                    // If next cell is occupied (decay > 0)
-                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
-                        // Collision! Stop stream.
-                        // We don't write to nextY, effectively stopping "on top" of the existing block.
-                        stream.active = false;
-                        continue; 
+            } else {                    
+                    // Tracer Collision Detection
+                    // Check the cell we are about to move into (y+1)
+                    // Actually, we check if the *next* move would hit something.
+                    // If stream.y is currently at Y, next write is Y+1.
+                    const nextY = stream.y + 1;
+                    if (nextY < this.grid.rows) {
+                        const nextIdx = this.grid.getIndex(stream.x, nextY);
+                        // If next cell is occupied (decay > 0)
+                        if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                            // Collision! Stop stream.
+                            // We don't write to nextY, effectively stopping "on top" of the existing block.
+                                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                                    stream.active = false; //Tracer Random Drop-Off
+                                }
+                            {  
+                            stream.active = false;
+                            continue; 
+                        }
                     }
                 }
-            }
+            } 
             stream.age++;
             if (stream.age >= stream.visibleLen) {
                 this._handleStreamCompletion(stream);
