@@ -1333,7 +1333,7 @@ class UIManager {
                 }
 
                 if (shouldHide) {
-                    toggleBtn.style.transition = 'opacity 0.5s ease-in-out';
+                    toggleBtn.style.transition = 'opacity 0.5s ease-in-out, transform 0.3s ease';
                     
                     const showIcon = () => {
                         toggleBtn.style.opacity = '1';

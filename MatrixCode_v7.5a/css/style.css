@@ -547,14 +547,3 @@ textarea.char-input:focus { outline: none; border-color: var(--accent); }
     margin-top: 5px;
     min-height: 1.2em;
 }
-
-
-/* Reduce size of tooltip/info icons */
-.info-icon {
-    width: 16px;
-    height: 16px;
-    font-size: 11px;
-    margin-left: 6px;
-    margin-right: 6px;
-}
-
