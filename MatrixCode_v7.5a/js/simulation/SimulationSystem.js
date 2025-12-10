@@ -84,22 +84,6 @@ class SimulationSystem {
             this._lastOverlapDensity = currentDensity;
         }
 
-        // Slowly churn the noise if shimmer is enabled
-        if (this.config.state.overlapShimmer) {
-             const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
-             for(let k=0; k<updates; k++) {
-                const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
-                
-                // Check lock (Pulse Effect Pause)
-                if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) continue;
-
-                if (Math.random() < currentDensity) {
-                    setOverlapChar(idx);
-                } else {
-                    this.grid.overlapChars[idx] = 0;
-                }
-            }
-        }
     }
 
     _resetColumns() {

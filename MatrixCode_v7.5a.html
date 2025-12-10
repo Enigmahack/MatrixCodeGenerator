@@ -395,7 +395,7 @@
     background: var(--accent);
     color: #000;
     box-shadow: 0 0 20px var(--accent);
-    transform: rotate(90deg);
+    transform: rotate(30deg);
 }
         @media (max-width: 600px) {
             #settingsPanel { width: 100%; max-width: 100%; border-left: none; }
@@ -536,7 +536,7 @@ textarea.char-input:focus { outline: none; border-color: var(--accent); }
     </aside>
     <script>
 // --- Utils.js ---
-const APP_VERSION = "7.5"; // Retained current version
+const APP_VERSION = "7.5a"; // Retained current version
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS
 // =========================================================================
@@ -622,31 +622,6 @@ const Utils = {
      * @returns {string} An RGB color string (e.g., "rgb(255,0,0)").
      */
     createRGBString: (color) => `rgb(${color.r},${color.g},${color.b})`,
-    /**
-     * Converts RGB {r, g, b} to HSL {h, s, l}.
-     * @param {number} r - Red (0-255).
-     * @param {number} g - Green (0-255).
-     * @param {number} b - Blue (0-255).
-     * @returns {{h: number, s: number, l: number}} HSL values.
-     */
-    rgbToHsl: (r, g, b) => {
-        r /= 255; g /= 255; b /= 255;
-        const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        let h, s, l = (max + min) / 2;
-        if (max === min) {
-            h = s = 0; // achromatic
-        } else {
-            const d = max - min;
-            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-            switch (max) {
-                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                case g: h = (b - r) / d + 2; break;
-                case b: h = (r - g) / d + 4; break;
-            }
-            h *= 60;
-        }
-        return { h, s: s * 100, l: l * 100 };
-    },
     // List of available characters for random selection
     CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
     // Subset of Katakana characters for specific use cases
@@ -749,13 +724,15 @@ const CELL_TYPE = {
 // --- ConfigurationManager.js ---
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v7.5';
-        this.slotsKey = 'matrix_slots_v7.5';
+        this.storageKey = 'matrix_config_v7.5a';
+        this.slotsKey = 'matrix_slots_v7.5a';
         this.defaults = this._initializeDefaults();
         this.state = { ...this.defaults };
         this.derived = {};
         this.slots = this._loadSlots();
         this.subscribers = [];
+        this._previousSmoothingEnabled = undefined;
+        this._previousSmoothingAmount = undefined;
         this._loadState();
         this.updateDerivedValues();
     }
@@ -782,6 +759,7 @@ class ConfigurationManager {
             smoothingEnabled: true,
             smoothingAmount: 0.5,
             showFpsCounter: false,
+            suppressToasts: false,
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
             fontWeight: "normal",
@@ -794,7 +772,6 @@ class ConfigurationManager {
             overlapColor: "#FFD700",
             overlapDensity: 0.5,
             overlapTarget: "stream",
-            overlapShimmer: false,
             dissolveEnabled: true,
             dissolveMinSize: 18,
             deteriorationEnabled: true,
@@ -816,6 +793,7 @@ class ConfigurationManager {
             eraserSpawnCount: 5,
             minStreamGap: 10,
             minEraserGap: 10,
+            minGapTypes: 15,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
             eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
@@ -834,6 +812,7 @@ class ConfigurationManager {
             // --- FX ---
             shaderEnabled: false,
             customShader: null, // String content of GLSL shader
+            shaderParameter: 0.5,
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
             pulseDurationSeconds: 1.8,
@@ -963,7 +942,16 @@ class ConfigurationManager {
      */
     _loadState() {
         try {
-            const storedState = localStorage.getItem(this.storageKey);
+            let storedState = localStorage.getItem(this.storageKey);
+            // Fallback to previous version if current version not found
+            if (!storedState) {
+                const legacyKey = 'matrix_config_v7.5';
+                storedState = localStorage.getItem(legacyKey);
+                if (storedState) {
+                    console.log("Migrating configuration from v7.5");
+                    // Optionally notify user here, but we can't access notifications yet.
+                }
+            }
             if (storedState) {
                 const parsed = JSON.parse(storedState);
                 delete parsed.customFonts; // Remove unsupported keys if present
@@ -1010,13 +998,45 @@ class ConfigurationManager {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
-        this.state[key] = value;
-        // Maintain consistency between related properties
-        if (key === 'streamMinLength') {
-            this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
-        } else if (key === 'streamMaxLength') {
-            this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
+        // Special handling for shaderEnabled
+        if (key === 'shaderEnabled') {
+            if (value === true) { // Shader is being enabled
+                // Store current smoothing values only if they are not already forced
+                if (this.state.smoothingEnabled !== false) {
+                    this._previousSmoothingEnabled = this.state.smoothingEnabled;
+                } else {
+                    this._previousSmoothingEnabled = undefined; // No previous value to restore
+                }
+                if (this.state.smoothingAmount !== 0.1) {
+                    this._previousSmoothingAmount = this.state.smoothingAmount;
+                } else {
+                    this._previousSmoothingAmount = undefined; // No previous value to restore
+                }
+                // Force smoothing off
+                if (this.state.smoothingEnabled !== false) {
+                    this.state.smoothingEnabled = false;
+                    this.notify('smoothingEnabled');
+                }
+                if (this.state.smoothingAmount !== 0.1) {
+                    this.state.smoothingAmount = 0.1; // Minimum value as per UI definition
+                    this.notify('smoothingAmount');
+                }
+            } else { // Shader is being disabled
+                // Restore previous smoothing values if they were stored
+                if (this._previousSmoothingEnabled !== undefined && this.state.smoothingEnabled !== this._previousSmoothingEnabled) {
+                    this.state.smoothingEnabled = this._previousSmoothingEnabled;
+                    this.notify('smoothingEnabled');
+                }
+                if (this._previousSmoothingAmount !== undefined && this.state.smoothingAmount !== this._previousSmoothingAmount) {
+                    this.state.smoothingAmount = this._previousSmoothingAmount;
+                    this.notify('smoothingAmount');
+                }
+                // Clear stored previous values
+                this._previousSmoothingEnabled = undefined;
+                this._previousSmoothingAmount = undefined;
+            }
         }
+        this.state[key] = value; // Update the actual key's value
         this.updateDerivedValues();
         this.save();
         this.notify(key);
@@ -1161,7 +1181,6 @@ class MatrixGrid {
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
-        this.noiseDirty = true;
     }
     /**
      * Resizes the grid based on new width and height, reallocating arrays only if dimensions change.
@@ -1255,7 +1274,6 @@ class MatrixGrid {
         this.complexStyles = new Map();
         this.nextChars = new Map();
         this.nextOverlapChars = new Map();
-        this.noiseDirty = true;
         // Update grid dimensions
         this.cols = newCols;
         this.rows = newRows;
@@ -2265,6 +2283,25 @@ class CanvasRenderer {
         this.w = 0;
         this.h = 0;
         this.lastShaderSource = null;
+        // Mouse Tracking for Shader
+        this.mouseX = 0.5;
+        this.mouseY = 0.5;
+        this._setupMouseTracking();
+    }
+    _setupMouseTracking() {
+        const updateMouse = (e) => {
+            const rect = this.cvs.getBoundingClientRect();
+            // Normalize to 0..1
+            this.mouseX = (e.clientX - rect.left) / rect.width;
+            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height); // Flip Y to match WebGL coords
+            // Clamp
+            this.mouseX = Math.max(0, Math.min(1, this.mouseX));
+            this.mouseY = Math.max(0, Math.min(1, this.mouseY));
+        };
+        window.addEventListener('mousemove', updateMouse);
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches.length > 0) updateMouse(e.touches[0]);
+        }, { passive: true });
     }
     resize() {
         const scale = this.config.state.resolution;
@@ -2387,7 +2424,9 @@ class CanvasRenderer {
             }
             // Render to WebGL
             // We pass the 2D canvas as the texture source
-            this.postProcessor.render(this.cvs, performance.now() / 1000);
+            // Pass Mouse (vec2) and Parameter (float)
+            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
+            this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
             // Show WebGL, Hide 2D
             if (this.postProcessor.canvas.style.display === 'none') {
                 this.postProcessor.canvas.style.display = 'block';
@@ -2746,14 +2785,6 @@ class CanvasRenderer {
         const tStr = d.tracerColorStr;
         this.ctx.shadowBlur = s.tracerGlow;
         this.ctx.shadowColor = tStr;
-        // Tracers always use base font or specific if we want...
-        // For simplicity, let's use the font of the cell? 
-        // But tracers are drawn in a batch.
-        // To support multi-font tracers, we need to check the grid font.
-        // But performance... 
-        // Compromise: Tracers use the default font family or the first active one.
-        // Or we iterate and switch fonts.
-        // Let's loop and check fonts.
         const activeFonts = d.activeFonts;
         for (const i of this.grid.activeIndices) {
             if (this.effects.getOverride(i)) continue;
@@ -2938,6 +2969,8 @@ class PostProcessor {
             uniform sampler2D uTexture;
             uniform vec2 uResolution;
             uniform float uTime;
+            uniform vec2 uMouse;
+            uniform float uParameter;
             varying vec2 vTexCoord;
             void main() {
                 gl_FragColor = texture2D(uTexture, vTexCoord);
@@ -3014,7 +3047,7 @@ class PostProcessor {
         this.canvas.height = height;
         this.gl.viewport(0, 0, width, height);
     }
-    render(sourceCanvas, time) {
+    render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5) {
         if (!this.gl || !this.program) return;
         this.gl.useProgram(this.program);
         // Bind Vertex Buffer
@@ -3033,6 +3066,11 @@ class PostProcessor {
         this.gl.uniform2f(uRes, this.canvas.width, this.canvas.height);
         const uTime = this.gl.getUniformLocation(this.program, 'uTime');
         this.gl.uniform1f(uTime, time);
+        // NEW UNIFORMS
+        const uMouse = this.gl.getUniformLocation(this.program, 'uMouse');
+        if (uMouse) this.gl.uniform2f(uMouse, mouseX, mouseY);
+        const uParam = this.gl.getUniformLocation(this.program, 'uParameter');
+        if (uParam) this.gl.uniform1f(uParam, param);
         // Draw
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
@@ -3048,7 +3086,6 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
-        this._activeFontList = []; 
         this.nextSpawnFrame = 0; // Track next spawn time
     }
     _initializeModes(config) {
@@ -3069,9 +3106,6 @@ class SimulationSystem {
         if (this.grid.cellLocks) {
             this.grid.cellLocks.fill(0);
         }
-    }
-    _refreshActiveFonts() {
-        // Deprecated
     }
     _manageOverlapGrid(frame) {
         if (!this.config.state.overlapEnabled) {
@@ -3118,22 +3152,6 @@ class SimulationSystem {
             }
             this.overlapInitialized = true;
             this._lastOverlapDensity = currentDensity;
-            this.grid.noiseDirty = true;
-        }
-        // Slowly churn the noise if shimmer is enabled
-        if (this.config.state.overlapShimmer) {
-             const updates = Math.ceil(this.grid.overlapChars.length * 0.005); 
-             for(let k=0; k<updates; k++) {
-                const idx = Math.floor(Math.random() * this.grid.overlapChars.length);
-                // Check lock (Pulse Effect Pause)
-                if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) continue;
-                if (Math.random() < currentDensity) {
-                    setOverlapChar(idx);
-                } else {
-                    this.grid.overlapChars[idx] = 0;
-                }
-            }
-            this.grid.noiseDirty = true;
         }
     }
     _resetColumns() {
@@ -3181,13 +3199,13 @@ class SimulationSystem {
             const lastStream = this.lastStreamInColumn[col];
             // Erasers can spawn even if top is blocked (they clear content).
             // Gap check prevents them from spawning on top of themselves.
-            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap)) {
+            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
                 continue; // Spawned eraser, move to next column
             } 
             // Tracers CANNOT spawn if top is blocked (collision).
-            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap)) {
+            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
                 continue; // Spawned tracer, move to next column
@@ -3201,27 +3219,25 @@ class SimulationSystem {
         }
         return array;
     }
-    _columnHasContent(col, maxRows) {
-        for (let y = 0; y < maxRows; y++) {
-            if (this.grid.decays[this.grid.getIndex(col, y)] > 0) return true;
-        }
-        return false;
-    }
-    _canSpawn(lastStream, minGap) {
-        // Deprecated, use _canSpawnTracer
-        return !lastStream || !lastStream.active || lastStream.y > minGap;
-    }
-    _canSpawnTracer(lastStream, minGap) {
+    _canSpawnTracer(lastStream, minGap, minGapTypes) {
         // If no last stream, or it's finished, we can spawn
         if (!lastStream || !lastStream.active) return true;
-        // If last stream was an Eraser, we can spawn a tracer immediately behind it (it clears the path)
-        if (lastStream.isEraser) return true;
-        // Otherwise (last was Tracer), respect the gap
+        // If last stream was an Eraser, check the Type Gap
+        if (lastStream.isEraser) {
+            return lastStream.y > minGapTypes;
+        }
+        // Otherwise (last was Tracer), respect the standard gap
         return lastStream.y > minGap;
     }
-    _canSpawnEraser(col, minGap) {
+    _canSpawnEraser(col, minGap, minGapTypes) {
         const lastEraser = this.lastEraserInColumn[col];
-        return !lastEraser || !lastEraser.active || lastEraser.y > minGap;
+        if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
+        // Also check the absolute last stream (could be a tracer)
+        const lastStream = this.lastStreamInColumn[col];
+        if (lastStream && lastStream.active && !lastStream.isEraser) {
+            if (lastStream.y <= minGapTypes) return false;
+        }
+        return true;
     }
     _processActiveStreams(frame) {
         for (let i = this.activeStreams.length - 1; i >= 0; i--) {
@@ -4138,7 +4154,8 @@ class FontManager {
     // =========================================================================
 // --- NotificationManager.js ---
 class NotificationManager {
-    constructor() {
+    constructor(config) {
+        this.config = config;
         this.container = document.getElementById('toast-container') || this._createContainer();
     }
     /**
@@ -4160,6 +4177,7 @@ class NotificationManager {
      * @param {number} [duration=3000] - The duration (in milliseconds) for the notification to be visible.
      */
     show(message, type = 'info', duration = 3000) {
+        if (this.config && this.config.state && this.config.state.suppressToasts) return;
         // Create the notification element.
         const toast = this._createToast(message, type);
         // Ensure the container is attached.
@@ -4300,14 +4318,14 @@ class UIManager {
     _generateGlobalSettings() {
         return [
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
-            { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
-            { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
+            { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
+            { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
             { cat: 'Global', id: 'enableGlyphAtlas', type: 'checkbox', label: 'Performance pre-render' },
-            { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing' },
-            { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: 'smoothingEnabled' },
+            { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.' },
+            { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'] },
         ];
     }
     /**
@@ -4317,7 +4335,7 @@ class UIManager {
      */
     _generateAppearanceSettings() {
         return [
-            { cat: 'Appearance', type: 'accordion_header', label: 'Character Details' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Customization' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
@@ -4325,15 +4343,17 @@ class UIManager {
             { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
             { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
-            { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' }, // Main Accordion Header
+            { cat: 'Appearance', type: 'accordion_subheader', label: 'General' },
             { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Allows for brightness variance when characters are written' },
             { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+            { cat: 'Appearance', type: 'accordion_subheader', label: 'Stream Trails' },
             { cat: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit:'fr' },
             { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
-            { cat: 'Appearance', type: 'accordion_header', label: 'Character Overlay' },
+            { cat: 'Appearance', type: 'accordion_subheader', label: 'Character Overlap' },
             { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap' },
             { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled' },
             { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled' },
@@ -4365,6 +4385,7 @@ class UIManager {
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 10, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Tracers'},
@@ -4395,105 +4416,106 @@ class UIManager {
      */
     _generateFXSettings() {
         return [
-            { cat: 'FX', type: 'header', label: 'Movie FX' }, // Using header for main section
-            { cat: 'FX', type: 'accordion_header', label: 'Pulse' },
-            { cat: 'FX', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
-            { cat: 'FX', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
-            { cat: 'FX', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Preserve Tracer Glow', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'pulseEnabled' },
-            { cat: 'FX', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: "Start at a full square" },
-            { cat: 'FX', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Clear Pulse' },
-            { cat: 'FX', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
-            { cat: 'FX', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
-            { cat: 'FX', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'clearPulseEnabled' },
-            { cat: 'FX', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled', description: "Start at a full square" },
-            { cat: 'FX', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'clearPulseEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Pulse Storm' },
-            { cat: 'FX', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
-            { cat: 'FX', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
-            { cat: 'FX', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
-            { cat: 'FX', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Deja Vu' },
-            { cat: 'FX', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
-            { cat: 'FX', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
-            { cat: 'FX', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Maximum Thickness', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Enable Color Writing', dep: 'dejaVuEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'FX', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Superman' },
-            { cat: 'FX', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
-            { cat: 'FX', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman FX' },
-            { cat: 'FX', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanIncludeColors', type: 'checkbox', label: 'Additional Glow', dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', description: 'Higher values mean trails last longer.' },
-            { cat: 'FX', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 10, dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'supermanEnabled' },
-            { cat: 'FX', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
-            { cat: 'FX', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
-            { cat: 'FX', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
-            { cat: 'FX', type: 'header', label: 'Special FX' }, // Header for Special FX
-            { cat: 'FX', type: 'accordion_header', label: 'Star Power' },
-            { cat: 'FX', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
-            { cat: 'FX', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
-            { cat: 'FX', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Rainbow Streams' },
-            { cat: 'FX', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
-            { cat: 'FX', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
-            { cat: 'FX', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
-            { cat: 'FX', type: 'accordion_header', label: 'Firewall Anomaly' }, 
-            { cat: 'FX', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-info' },
-            { cat: 'FX', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall FX' },
-            { cat: 'FX', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
-            { cat: 'FX', type: 'accordion_subheader', label: 'Look', dep: 'firewallEnabled' },
-            { cat: 'FX', id: 'firewallRandomColorEnabled', type: 'checkbox', label: 'Random Color', dep: 'firewallEnabled' },
-            { cat: 'FX', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
-            { cat: 'FX', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
-            { cat: 'FX', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
-            { cat: 'FX', type: 'header', label: 'Post Processing' },
-            { cat: 'FX', type: 'accordion_header', label: 'Shader' },
-            { cat: 'FX', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
-            { cat: 'FX', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
-            { cat: 'FX', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2). Output to gl_FragColor.', dep: 'shaderEnabled' },
+            { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
+            { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
+            { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'pulseEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Preserve Tracer Glow', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'pulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'pulseEnabled' },
+            { cat: 'Effects', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'pulseEnabled', description: "Start at a full square" },
+            { cat: 'Effects', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'pulseEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Clear Pulse' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
+            { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled', description: "Start at a full square" },
+            { cat: 'Effects', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Pulse Storm' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
+            { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
+            { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
+            { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 600, step: 10, unit: 's', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Maximum Thickness', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Enable Color Writing', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Superman' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
+            { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects' },
+            { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'supermanEnabled' },
+            { cat: 'Effects', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
+            { cat: 'Effects', id: 'supermanIncludeColors', type: 'checkbox', label: 'Additional Glow', dep: 'supermanEnabled' },
+            { cat: 'Effects', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', description: 'Higher values mean trails last longer.' },
+            { cat: 'Effects', id: 'supermanGlow', type: 'range', label: 'Voltage Glow', min: 1, max: 10, dep: 'supermanEnabled' },
+            { cat: 'Effects', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'supermanEnabled' },
+            { cat: 'Effects', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
+            { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
+            { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
+            { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
+            { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
+            { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
+            { cat: 'Effects', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', unit:'%' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
+            { cat: 'Effects', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Rainbow Streams' },
+            { cat: 'Effects', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
+            { cat: 'Effects', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+            { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Firewall Anomaly' }, 
+            { cat: 'Effects', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-info' },
+            { cat: 'Effects', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall Effects' },
+            { cat: 'Effects', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'firewallEnabled' },
+            { cat: 'Effects', id: 'firewallRandomColorEnabled', type: 'checkbox', label: 'Random Color', dep: 'firewallEnabled' },
+            { cat: 'Effects', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
+            { cat: 'Effects', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
+            { cat: 'Effects', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
+            { cat: 'Effects', type: 'header', label: 'Post Processing' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Shader' },
+            { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
+            { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', description: "A generic 0.0-1.0 value passed to the shader as 'uParameter'." },
+            { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
+            { cat: 'Effects', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
         ];
     }
     /**
@@ -4503,6 +4525,14 @@ class UIManager {
      */
     _generateSystemTab() {
         return [
+            { cat: 'System', type: 'accordion_header', label: 'Configuration' },
+            { cat: 'System', type: 'slot', idx: 0 },
+            { cat: 'System', type: 'slot', idx: 1 },
+            { cat: 'System', type: 'slot', idx: 2 },
+            { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
+            { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
+            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
+            { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
             { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
             { cat: 'System', type: 'keybinder', id: 'Pulse', label: 'Pulse' },
@@ -4512,14 +4542,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
-            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
-            { cat: 'System', type: 'accordion_header', label: 'Config' },
-            { cat: 'System', type: 'slot', idx: 0 },
-            { cat: 'System', type: 'slot', idx: 1 },
-            { cat: 'System', type: 'slot', idx: 2 },
-            { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
-            { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
-            { cat: 'System', type: 'accordion_header', label: 'Maintenance' },
+            { cat: 'System', type: 'accordion_header', label: 'System Reset' },
             { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
             { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
             // CAUTION separator - will be handled in renderControl
@@ -4527,12 +4550,13 @@ class UIManager {
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
-            { cat: 'System', type: 'accordion_header', label: 'FAQ' },
+            { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
             { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.' },
             { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.' },
-            { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Details" you can import your own TTF or OTF font file.' },
-            { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "FX" tab.' },
-            { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' }
+            { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Customization" you can import your own TTF or OTF font file.' },
+            { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.' },
+            { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' },
+            { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Feel free to reach out via github! I\'m definitely open to ideas and suggestions.' }
         ];
     }
     /**
@@ -4722,13 +4746,13 @@ class UIManager {
         accordionItem.appendChild(header);
         accordionItem.appendChild(body);
         tabContentGroup.appendChild(accordionItem);
-        // Default open logic: Open if it is the FIRST accordion in this tab
-        const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
-        if (accordionsInTab.length === 1) { // Only open the very first accordion created
-            body.classList.add('open');
-            header.classList.add('active');
-            header.querySelector('.accordion-icon').classList.add('rotated');
-        }
+        // Default open logic: REMOVED per user request
+        // const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
+        // if (accordionsInTab.length === 1) { 
+        //     body.classList.add('open');
+        //     header.classList.add('active');
+        //     header.querySelector('.accordion-icon').classList.add('rotated');
+        // }
         return body;
     }
     /**
@@ -4803,6 +4827,11 @@ class UIManager {
                 const data = JSON.parse(ev.target.result);
                 // Merge loaded config with defaults to ensure all properties exist
                 this.c.state = { ...this.c.defaults, ...data.state };
+                // Handle Saved Presets
+                if (data.savedPresets) {
+                    this.c.slots = data.savedPresets;
+                    this.c.saveSlots();
+                }
                 this.c.updateDerivedValues();
                 this.c.save();
                 this.c.notify('ALL');
@@ -5130,8 +5159,10 @@ class UIManager {
                     if (isTouching) return; // Block native updates during touch interaction
                     const v = parseFloat(e.target.value); 
                     let actual = def.invert ? (def.max+def.min)-v : v; 
-                    // Sanitize to max 1 decimal place for state
-                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+                    // Dynamic precision based on step
+                    const step = def.step || 1;
+                    const decimals = (step.toString().split('.')[1] || '').length;
+                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
                     this.c.set(def.id, actual); 
                     const disp = document.getElementById(`val-${def.id}`); 
                     if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
@@ -5167,16 +5198,15 @@ class UIManager {
                         const min = parseFloat(def.min);
                         const max = parseFloat(def.max);
                         let newVal = min + (percent * (max - min));
-                        if (def.step) {
-                            const step = parseFloat(def.step);
-                            newVal = Math.round(newVal / step) * step;
-                        }
+                        // Dynamic precision based on step
+                        const step = parseFloat(def.step || 1);
+                        newVal = Math.round(newVal / step) * step;
                         if (newVal < min) newVal = min;
                         if (newVal > max) newVal = max;
                         inp.value = newVal;
                         let actual = def.invert ? (max+min)-newVal : newVal; 
-                        // Sanitize
-                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+                        const decimals = (step.toString().split('.')[1] || '').length;
+                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
                         this.c.set(def.id, actual); 
                         const disp = document.getElementById(`val-${def.id}`); 
                         if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
@@ -5280,7 +5310,7 @@ class UIManager {
     handleAction(action) {
         if(action === 'reset' && confirm('Reset all settings?')) this.c.reset();
         if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.notifications.show('Cache Cleared', 'success'));
-        if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
+        if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
         if(action === 'importShader') document.getElementById('importShaderFile').click();
@@ -5446,7 +5476,9 @@ class UIManager {
                             if(disp) {
                                 let displayVal = val;
                                 if (!def.transform && typeof val === 'number') {
-                                    displayVal = parseFloat(val.toFixed(1));
+                                    const step = def.step || 1;
+                                    const decimals = (step.toString().split('.')[1] || '').length;
+                                    displayVal = parseFloat(val.toFixed(decimals));
                                 }
                                 disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                             }
@@ -5514,8 +5546,8 @@ class MatrixKernel {
      * @private
      */
     _initializeManagers() {
-        this.notifications = new NotificationManager();
         this.config = new ConfigurationManager();
+        this.notifications = new NotificationManager(this.config);
         this.grid = new MatrixGrid(this.config);
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);

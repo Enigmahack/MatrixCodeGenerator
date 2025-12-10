@@ -8,6 +8,8 @@ class ConfigurationManager {
         this.derived = {};
         this.slots = this._loadSlots();
         this.subscribers = [];
+        this._previousSmoothingEnabled = undefined;
+        this._previousSmoothingAmount = undefined;
 
         this._loadState();
         this.updateDerivedValues();
@@ -52,7 +54,6 @@ class ConfigurationManager {
             overlapColor: "#FFD700",
             overlapDensity: 0.5,
             overlapTarget: "stream",
-            overlapShimmer: false,
             
             dissolveEnabled: true,
             dissolveMinSize: 18,
@@ -299,7 +300,47 @@ class ConfigurationManager {
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
 
-        this.state[key] = value;
+        // Special handling for shaderEnabled
+        if (key === 'shaderEnabled') {
+            if (value === true) { // Shader is being enabled
+                // Store current smoothing values only if they are not already forced
+                if (this.state.smoothingEnabled !== false) {
+                    this._previousSmoothingEnabled = this.state.smoothingEnabled;
+                } else {
+                    this._previousSmoothingEnabled = undefined; // No previous value to restore
+                }
+                if (this.state.smoothingAmount !== 0.1) {
+                    this._previousSmoothingAmount = this.state.smoothingAmount;
+                } else {
+                    this._previousSmoothingAmount = undefined; // No previous value to restore
+                }
+
+                // Force smoothing off
+                if (this.state.smoothingEnabled !== false) {
+                    this.state.smoothingEnabled = false;
+                    this.notify('smoothingEnabled');
+                }
+                if (this.state.smoothingAmount !== 0.1) {
+                    this.state.smoothingAmount = 0.1; // Minimum value as per UI definition
+                    this.notify('smoothingAmount');
+                }
+            } else { // Shader is being disabled
+                // Restore previous smoothing values if they were stored
+                if (this._previousSmoothingEnabled !== undefined && this.state.smoothingEnabled !== this._previousSmoothingEnabled) {
+                    this.state.smoothingEnabled = this._previousSmoothingEnabled;
+                    this.notify('smoothingEnabled');
+                }
+                if (this._previousSmoothingAmount !== undefined && this.state.smoothingAmount !== this._previousSmoothingAmount) {
+                    this.state.smoothingAmount = this._previousSmoothingAmount;
+                    this.notify('smoothingAmount');
+                }
+                // Clear stored previous values
+                this._previousSmoothingEnabled = undefined;
+                this._previousSmoothingAmount = undefined;
+            }
+        }
+        
+        this.state[key] = value; // Update the actual key's value
 
         this.updateDerivedValues();
         this.save();
