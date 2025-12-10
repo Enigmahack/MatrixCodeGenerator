@@ -103,8 +103,8 @@ class UIManager {
     _generateGlobalSettings() {
         return [
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
-            { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, unit: 'px' },
-            { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20 },
+            { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
+            { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
@@ -175,6 +175,7 @@ class UIManager {
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 10, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
@@ -315,8 +316,9 @@ class UIManager {
             { cat: 'FX', type: 'header', label: 'Post Processing' },
             { cat: 'FX', type: 'accordion_header', label: 'Shader' },
             { cat: 'FX', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
+            { cat: 'FX', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', description: "A generic 0.0-1.0 value passed to the shader as 'uParameter'." },
             { cat: 'FX', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
-            { cat: 'FX', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2). Output to gl_FragColor.', dep: 'shaderEnabled' },
+            { cat: 'FX', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
         ];
     }
 
@@ -336,7 +338,6 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
-            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
 
             { cat: 'System', type: 'accordion_header', label: 'Config' },
             { cat: 'System', type: 'slot', idx: 0 },
@@ -344,6 +345,8 @@ class UIManager {
             { cat: 'System', type: 'slot', idx: 2 },
             { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
+            { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
+            { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
         
             { cat: 'System', type: 'accordion_header', label: 'Maintenance' },
             { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
@@ -579,13 +582,13 @@ class UIManager {
         accordionItem.appendChild(body);
         tabContentGroup.appendChild(accordionItem);
 
-        // Default open logic: Open if it is the FIRST accordion in this tab
-        const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
-        if (accordionsInTab.length === 1) { // Only open the very first accordion created
-            body.classList.add('open');
-            header.classList.add('active');
-            header.querySelector('.accordion-icon').classList.add('rotated');
-        }
+        // Default open logic: REMOVED per user request
+        // const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
+        // if (accordionsInTab.length === 1) { 
+        //     body.classList.add('open');
+        //     header.classList.add('active');
+        //     header.querySelector('.accordion-icon').classList.add('rotated');
+        // }
 
         return body;
     }
@@ -670,6 +673,13 @@ class UIManager {
                 const data = JSON.parse(ev.target.result);
                 // Merge loaded config with defaults to ensure all properties exist
                 this.c.state = { ...this.c.defaults, ...data.state };
+                
+                // Handle Saved Presets
+                if (data.savedPresets) {
+                    this.c.slots = data.savedPresets;
+                    this.c.saveSlots();
+                }
+
                 this.c.updateDerivedValues();
                 this.c.save();
                 this.c.notify('ALL');
@@ -1034,8 +1044,11 @@ class UIManager {
                     if (isTouching) return; // Block native updates during touch interaction
                     const v = parseFloat(e.target.value); 
                     let actual = def.invert ? (def.max+def.min)-v : v; 
-                    // Sanitize to max 1 decimal place for state
-                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+                    
+                    // Dynamic precision based on step
+                    const step = def.step || 1;
+                    const decimals = (step.toString().split('.')[1] || '').length;
+                    if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
 
                     this.c.set(def.id, actual); 
                     const disp = document.getElementById(`val-${def.id}`); 
@@ -1078,18 +1091,20 @@ class UIManager {
                         const min = parseFloat(def.min);
                         const max = parseFloat(def.max);
                         let newVal = min + (percent * (max - min));
-                        if (def.step) {
-                            const step = parseFloat(def.step);
-                            newVal = Math.round(newVal / step) * step;
-                        }
+                        
+                        // Dynamic precision based on step
+                        const step = parseFloat(def.step || 1);
+                        newVal = Math.round(newVal / step) * step;
+                        
                         if (newVal < min) newVal = min;
                         if (newVal > max) newVal = max;
 
                         inp.value = newVal;
                         
                         let actual = def.invert ? (max+min)-newVal : newVal; 
-                        // Sanitize
-                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(1));
+                        
+                        const decimals = (step.toString().split('.')[1] || '').length;
+                        if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
 
                         this.c.set(def.id, actual); 
                         
@@ -1213,7 +1228,7 @@ class UIManager {
     handleAction(action) {
         if(action === 'reset' && confirm('Reset all settings?')) this.c.reset();
         if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.notifications.show('Cache Cleared', 'success'));
-        if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state}, `matrix_conf_v${APP_VERSION}.json`);
+        if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
         if(action === 'importShader') document.getElementById('importShaderFile').click();
@@ -1389,7 +1404,9 @@ class UIManager {
                             if(disp) {
                                 let displayVal = val;
                                 if (!def.transform && typeof val === 'number') {
-                                    displayVal = parseFloat(val.toFixed(1));
+                                    const step = def.step || 1;
+                                    const decimals = (step.toString().split('.')[1] || '').length;
+                                    displayVal = parseFloat(val.toFixed(decimals));
                                 }
                                 disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                             }

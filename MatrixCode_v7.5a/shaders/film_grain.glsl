@@ -4,6 +4,7 @@ precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
 uniform float uTime;
+uniform float uParameter;
 
 // Use vTexCoord from Vertex Shader for correct orientation
 varying vec2 vTexCoord;
@@ -30,7 +31,7 @@ void main() {
     float noise = (random(vTexCoord + t) - 0.5) * 2.0;
     
     // Apply grain
-    color.rgb += noise * GRAIN_AMOUNT;
+    color.rgb += noise * ((uParameter - 0.1) + GRAIN_AMOUNT);
     
     // Output final color
     gl_FragColor = color;

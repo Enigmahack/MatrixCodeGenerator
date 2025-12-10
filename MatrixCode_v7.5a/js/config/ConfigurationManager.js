@@ -1,7 +1,7 @@
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v7.5';
-        this.slotsKey = 'matrix_slots_v7.5';
+        this.storageKey = 'matrix_config_v7.5a';
+        this.slotsKey = 'matrix_slots_v7.5a';
         this.defaults = this._initializeDefaults();
 
         this.state = { ...this.defaults };
@@ -37,6 +37,7 @@ class ConfigurationManager {
             smoothingEnabled: true,
             smoothingAmount: 0.5,
             showFpsCounter: false,
+            suppressToasts: false,
 
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
@@ -75,6 +76,7 @@ class ConfigurationManager {
             eraserSpawnCount: 5,
             minStreamGap: 10,
             minEraserGap: 10,
+            minGapTypes: 15,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
             eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
@@ -94,6 +96,7 @@ class ConfigurationManager {
             // --- FX ---
             shaderEnabled: false,
             customShader: null, // String content of GLSL shader
+            shaderParameter: 0.5,
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
             pulseDurationSeconds: 1.8,
@@ -232,7 +235,18 @@ class ConfigurationManager {
      */
     _loadState() {
         try {
-            const storedState = localStorage.getItem(this.storageKey);
+            let storedState = localStorage.getItem(this.storageKey);
+            
+            // Fallback to previous version if current version not found
+            if (!storedState) {
+                const legacyKey = 'matrix_config_v7.5';
+                storedState = localStorage.getItem(legacyKey);
+                if (storedState) {
+                    console.log("Migrating configuration from v7.5");
+                    // Optionally notify user here, but we can't access notifications yet.
+                }
+            }
+
             if (storedState) {
                 const parsed = JSON.parse(storedState);
                 delete parsed.customFonts; // Remove unsupported keys if present
@@ -286,13 +300,6 @@ class ConfigurationManager {
         if (this.state[key] === value) return; // Skip if no change in value
 
         this.state[key] = value;
-
-        // Maintain consistency between related properties
-        if (key === 'streamMinLength') {
-            this.state.streamMaxLength = Math.max(this.state.streamMaxLength, value);
-        } else if (key === 'streamMaxLength') {
-            this.state.streamMinLength = Math.min(this.state.streamMinLength, value);
-        }
 
         this.updateDerivedValues();
         this.save();

@@ -38,8 +38,8 @@ class MatrixKernel {
      * @private
      */
     _initializeManagers() {
-        this.notifications = new NotificationManager();
         this.config = new ConfigurationManager();
+        this.notifications = new NotificationManager(this.config);
         this.grid = new MatrixGrid(this.config);
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);

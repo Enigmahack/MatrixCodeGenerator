@@ -12,6 +12,8 @@ class PostProcessor {
             uniform sampler2D uTexture;
             uniform vec2 uResolution;
             uniform float uTime;
+            uniform vec2 uMouse;
+            uniform float uParameter;
             varying vec2 vTexCoord;
             
             void main() {
@@ -106,7 +108,7 @@ class PostProcessor {
         this.gl.viewport(0, 0, width, height);
     }
 
-    render(sourceCanvas, time) {
+    render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5) {
         if (!this.gl || !this.program) return;
 
         this.gl.useProgram(this.program);
@@ -131,6 +133,13 @@ class PostProcessor {
         
         const uTime = this.gl.getUniformLocation(this.program, 'uTime');
         this.gl.uniform1f(uTime, time);
+
+        // NEW UNIFORMS
+        const uMouse = this.gl.getUniformLocation(this.program, 'uMouse');
+        if (uMouse) this.gl.uniform2f(uMouse, mouseX, mouseY);
+
+        const uParam = this.gl.getUniformLocation(this.program, 'uParameter');
+        if (uParam) this.gl.uniform1f(uParam, param);
 
         // Draw
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);

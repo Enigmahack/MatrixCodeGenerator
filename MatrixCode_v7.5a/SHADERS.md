@@ -16,9 +16,11 @@ Your shader will receive the following variables (uniforms) automatically:
 | :--- | :--- | :--- |
 | `uTexture` | `sampler2D` | The rendered Matrix frame (the source image). |
 | `uResolution` | `vec2` | The dimensions of the canvas in pixels (x: width, y: height). |
-| `uTime` | `float` | The elapsed time in seconds since the simulation started. |
+| `uTime` | `float` | The elapsed time in seconds since the simulation started, in milliseconds. |
+| `uMouse` | `vec2` | The normalized mouse coordinates (x: 0.0-1.0, y: 0.0-1.0, with y=0.0 at bottom). |
+| `uParameter` | `float` | A general-purpose float value (0.0-1.0) controllable via a UI slider. |
 
-**Important:** The shader also receives `varying vec2 vTexCoord` from the vertex shader. **Always use this for texture lookups** to ensure the image is oriented correctly.
+**Important:** The shader also receives `varying vec2 vTexCoord` from the vertex shader. **Always use this for texture lookups** to ensure the image is oriented correctly. The `vTexCoord` ranges from (0.0, 0.0) at the bottom-left to (1.0, 1.0) at the top-right of the texture.
 
 ## Basic Shader Structure
 
@@ -29,6 +31,8 @@ precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
 uniform float uTime;
+uniform vec2 uMouse;
+uniform float uParameter;
 varying vec2 vTexCoord;
 
 void main() {
@@ -48,13 +52,9 @@ The application now supports importing `.glsl` files directly through the Settin
 2.  Navigate to the **FX** tab.
 3.  Scroll down to the **Post Processing** section.
 4.  Enable **Custom Shader**.
-5.  Click **Import Fragment Shader (.glsl)**.
-6.  Select your shader file (e.g., `shaders/film_grain.glsl`).
-
-
-
-**Fixing Orientation:**
-The current version uses `vTexCoord` to ensure the correct orientation, if needed.
+5.  Adjust the **Shader Parameter** slider to control the `uParameter` uniform in your shader.
+6.  Click **Import Fragment Shader (.glsl)**.
+7.  Select your shader file (e.g., `shaders/film_grain.glsl`).
 
 ## Performance Tips
 

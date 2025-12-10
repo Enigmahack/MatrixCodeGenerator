@@ -43,6 +43,29 @@ class CanvasRenderer {
         this.w = 0;
         this.h = 0;
         this.lastShaderSource = null;
+
+        // Mouse Tracking for Shader
+        this.mouseX = 0.5;
+        this.mouseY = 0.5;
+        this._setupMouseTracking();
+    }
+
+    _setupMouseTracking() {
+        const updateMouse = (e) => {
+            const rect = this.cvs.getBoundingClientRect();
+            // Normalize to 0..1
+            this.mouseX = (e.clientX - rect.left) / rect.width;
+            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height); // Flip Y to match WebGL coords
+            
+            // Clamp
+            this.mouseX = Math.max(0, Math.min(1, this.mouseX));
+            this.mouseY = Math.max(0, Math.min(1, this.mouseY));
+        };
+
+        window.addEventListener('mousemove', updateMouse);
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches.length > 0) updateMouse(e.touches[0]);
+        }, { passive: true });
     }
 
     resize() {
@@ -193,7 +216,9 @@ class CanvasRenderer {
 
             // Render to WebGL
             // We pass the 2D canvas as the texture source
-            this.postProcessor.render(this.cvs, performance.now() / 1000);
+            // Pass Mouse (vec2) and Parameter (float)
+            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
+            this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
             
             // Show WebGL, Hide 2D
             if (this.postProcessor.canvas.style.display === 'none') {
@@ -621,15 +646,6 @@ class CanvasRenderer {
         const tStr = d.tracerColorStr;
         this.ctx.shadowBlur = s.tracerGlow;
         this.ctx.shadowColor = tStr;
-        // Tracers always use base font or specific if we want...
-        // For simplicity, let's use the font of the cell? 
-        // But tracers are drawn in a batch.
-        // To support multi-font tracers, we need to check the grid font.
-        // But performance... 
-        // Compromise: Tracers use the default font family or the first active one.
-        // Or we iterate and switch fonts.
-        
-        // Let's loop and check fonts.
         
         const activeFonts = d.activeFonts;
 

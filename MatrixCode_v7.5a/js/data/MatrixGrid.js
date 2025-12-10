@@ -19,7 +19,6 @@ class MatrixGrid {
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
-        this.noiseDirty = true;
     }
 
     /**
@@ -127,7 +126,6 @@ class MatrixGrid {
         this.complexStyles = new Map();
         this.nextChars = new Map();
         this.nextOverlapChars = new Map();
-        this.noiseDirty = true;
 
         // Update grid dimensions
         this.cols = newCols;

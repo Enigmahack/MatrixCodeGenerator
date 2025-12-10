@@ -8,7 +8,6 @@ class SimulationSystem {
         this.modes = this._initializeModes(config);
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
-        this._activeFontList = []; 
         this.nextSpawnFrame = 0; // Track next spawn time
     }
 
@@ -32,10 +31,6 @@ class SimulationSystem {
         if (this.grid.cellLocks) {
             this.grid.cellLocks.fill(0);
         }
-    }
-
-    _refreshActiveFonts() {
-        // Deprecated
     }
 
     _manageOverlapGrid(frame) {
@@ -87,7 +82,6 @@ class SimulationSystem {
             }
             this.overlapInitialized = true;
             this._lastOverlapDensity = currentDensity;
-            this.grid.noiseDirty = true;
         }
 
         // Slowly churn the noise if shimmer is enabled
@@ -105,7 +99,6 @@ class SimulationSystem {
                     this.grid.overlapChars[idx] = 0;
                 }
             }
-            this.grid.noiseDirty = true;
         }
     }
 
@@ -167,14 +160,14 @@ class SimulationSystem {
 
             // Erasers can spawn even if top is blocked (they clear content).
             // Gap check prevents them from spawning on top of themselves.
-            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap)) {
+            if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
                 continue; // Spawned eraser, move to next column
             } 
             
             // Tracers CANNOT spawn if top is blocked (collision).
-            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap)) {
+            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
                 continue; // Spawned tracer, move to next column
@@ -190,32 +183,30 @@ class SimulationSystem {
         return array;
     }
 
-    _columnHasContent(col, maxRows) {
-        for (let y = 0; y < maxRows; y++) {
-            if (this.grid.decays[this.grid.getIndex(col, y)] > 0) return true;
-        }
-        return false;
-    }
-
-    _canSpawn(lastStream, minGap) {
-        // Deprecated, use _canSpawnTracer
-        return !lastStream || !lastStream.active || lastStream.y > minGap;
-    }
-
-    _canSpawnTracer(lastStream, minGap) {
+    _canSpawnTracer(lastStream, minGap, minGapTypes) {
         // If no last stream, or it's finished, we can spawn
         if (!lastStream || !lastStream.active) return true;
         
-        // If last stream was an Eraser, we can spawn a tracer immediately behind it (it clears the path)
-        if (lastStream.isEraser) return true;
+        // If last stream was an Eraser, check the Type Gap
+        if (lastStream.isEraser) {
+            return lastStream.y > minGapTypes;
+        }
 
-        // Otherwise (last was Tracer), respect the gap
+        // Otherwise (last was Tracer), respect the standard gap
         return lastStream.y > minGap;
     }
     
-    _canSpawnEraser(col, minGap) {
+    _canSpawnEraser(col, minGap, minGapTypes) {
         const lastEraser = this.lastEraserInColumn[col];
-        return !lastEraser || !lastEraser.active || lastEraser.y > minGap;
+        if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
+        
+        // Also check the absolute last stream (could be a tracer)
+        const lastStream = this.lastStreamInColumn[col];
+        if (lastStream && lastStream.active && !lastStream.isEraser) {
+            if (lastStream.y <= minGapTypes) return false;
+        }
+        
+        return true;
     }
 
     _processActiveStreams(frame) {

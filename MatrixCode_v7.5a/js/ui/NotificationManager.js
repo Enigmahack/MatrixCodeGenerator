@@ -1,5 +1,6 @@
 class NotificationManager {
-    constructor() {
+    constructor(config) {
+        this.config = config;
         this.container = document.getElementById('toast-container') || this._createContainer();
     }
 
@@ -23,6 +24,8 @@ class NotificationManager {
      * @param {number} [duration=3000] - The duration (in milliseconds) for the notification to be visible.
      */
     show(message, type = 'info', duration = 3000) {
+        if (this.config && this.config.state && this.config.state.suppressToasts) return;
+
         // Create the notification element.
         const toast = this._createToast(message, type);
 

@@ -1,4 +1,4 @@
-const APP_VERSION = "7.5"; // Retained current version
+const APP_VERSION = "7.5a"; // Retained current version
 
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS
@@ -94,33 +94,6 @@ const Utils = {
      * @returns {string} An RGB color string (e.g., "rgb(255,0,0)").
      */
     createRGBString: (color) => `rgb(${color.r},${color.g},${color.b})`,
-
-    /**
-     * Converts RGB {r, g, b} to HSL {h, s, l}.
-     * @param {number} r - Red (0-255).
-     * @param {number} g - Green (0-255).
-     * @param {number} b - Blue (0-255).
-     * @returns {{h: number, s: number, l: number}} HSL values.
-     */
-    rgbToHsl: (r, g, b) => {
-        r /= 255; g /= 255; b /= 255;
-        const max = Math.max(r, g, b), min = Math.min(r, g, b);
-        let h, s, l = (max + min) / 2;
-
-        if (max === min) {
-            h = s = 0; // achromatic
-        } else {
-            const d = max - min;
-            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-            switch (max) {
-                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                case g: h = (b - r) / d + 2; break;
-                case b: h = (r - g) / d + 4; break;
-            }
-            h *= 60;
-        }
-        return { h, s: s * 100, l: l * 100 };
-    },
 
     // List of available characters for random selection
     CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
