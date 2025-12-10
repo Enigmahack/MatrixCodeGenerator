@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Matrix Digital Rain</title>
@@ -827,7 +826,8 @@ class ConfigurationManager {
             minEraserGap: 10,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
-            eraserStopChance: 5, // Chance for an eraser to stop mid-stream (0-25 integer)
+            eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
+            tracerStopChance: 1,
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
@@ -3260,6 +3260,12 @@ class SimulationSystem {
                     stream.active = false;
                     continue;
                 }
+            // Tracer Random Drop-off
+            } else if (!stream.isEraser) {
+                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                    stream.active = false;
+                    continue;
+                }
             } else {
                 // Tracer Collision Detection
                 // Check the cell we are about to move into (y+1)
@@ -3273,8 +3279,6 @@ class SimulationSystem {
                         // Collision! Stop stream.
                         // We don't write to nextY, effectively stopping "on top" of the existing block.
                         stream.active = false;
-                        // Optional: Trigger a small splash or effect?
-                        // For now just stop.
                         continue; 
                     }
                 }
@@ -4333,6 +4337,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
             { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Allows for brightness variance when characters are written' },
             { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
+            { cat: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit:'fr' },
             { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
             { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
@@ -4365,19 +4370,22 @@ class UIManager {
     _generateBehaviorSettings() {
         return [
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
+            { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
-            { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 120, unit:'fr' },
             { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
-            { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 25, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
+            { cat: 'Behavior', type: 'accordion_subheader', label: 'Tracers'},
             { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
-            { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
+            { cat: 'Behavior', id: 'tracerStopChance', type: 'range', label: 'Tracer Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for a tracer to randomly stop, leaving a hanging stream.'},
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
+            { cat: 'Behavior', type: 'accordion_subheader', label: 'Erasers'},
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
+            { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
+            { cat: 'Behavior', type: 'accordion_subheader', label: 'Inverted Tracers'},
             { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Tracers that only write occassional characters" },
             { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
