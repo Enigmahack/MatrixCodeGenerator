@@ -252,6 +252,12 @@ class SimulationSystem {
                     stream.active = false;
                     continue;
                 }
+            // Tracer Random Drop-off
+            } else if (!stream.isEraser) {
+                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                    stream.active = false;
+                    continue;
+                }
             } else {
                 // Tracer Collision Detection
                 // Check the cell we are about to move into (y+1)
@@ -265,9 +271,6 @@ class SimulationSystem {
                         // Collision! Stop stream.
                         // We don't write to nextY, effectively stopping "on top" of the existing block.
                         stream.active = false;
-                        
-                        // Optional: Trigger a small splash or effect?
-                        // For now just stop.
                         continue; 
                     }
                 }

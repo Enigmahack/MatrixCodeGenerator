@@ -77,7 +77,8 @@ class ConfigurationManager {
             minEraserGap: 10,
             holeRate: 0.1,
             desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
-            eraserStopChance: 5, // Chance for an eraser to stop mid-stream (0-25 integer)
+            eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
+            tracerStopChance: 1,
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
             tracerReleaseFrames: 5,
