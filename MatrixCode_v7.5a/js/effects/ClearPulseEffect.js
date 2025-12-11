@@ -16,16 +16,28 @@ class ClearPulseEffect extends AbstractEffect {
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
         const d = this.c.derived;
+        const activeFonts = d.activeFonts;
+        const numFonts = activeFonts.length;
 
         // Snapshot colors and fill chars to avoid per-frame calculations
         this.snap = { 
             fillChars: new Uint16Array(total),
-            colors: new Uint32Array(total)
+            fillFonts: new Uint8Array(total),
+            colors: new Uint32Array(total),
+            fonts: new Uint8Array(this.g.fonts)
         };
 
         for (let i = 0; i < total; i++) {
             // Snapshot Fill Char
-            this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
+            const fIdx = Math.floor(Math.random() * numFonts);
+            this.snap.fillFonts[i] = fIdx;
+            const fontData = activeFonts[fIdx] || activeFonts[0];
+            const chars = fontData.chars;
+            if(chars && chars.length > 0) {
+                 this.snap.fillChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+            } else {
+                 this.snap.fillChars[i] = 32;
+            }
             
             // Snapshot Color (Simulating the logic that was previously in getOverride)
             let rgb;
@@ -163,13 +175,21 @@ class ClearPulseEffect extends AbstractEffect {
         if (s.clearPulsePreserveSpaces && isGap) return null;
 
         let char;
+        let fontIdx;
+        
         if (isGap) {
             // Fill the gap (Reveal effect) using snapshot
             char = String.fromCharCode(this.snap.fillChars[i]);
+            fontIdx = this.snap.fillFonts[i];
         } else {
             // Use LIVE character (Flow continues)
             char = this.g.getChar(i);
+            fontIdx = this.snap.fonts[i];
         }
+        
+        const activeFonts = this.c.derived.activeFonts;
+        const fontData = activeFonts[fontIdx] || activeFonts[0];
+        const fontName = fontData.name;
 
         // Color Calculation
         const tRgb = d.tracerRgb;
@@ -180,12 +200,12 @@ class ClearPulseEffect extends AbstractEffect {
         if (s.clearPulseBlend) { 
             // Use snapshot color which is pre-calculated for all cells (Stream or Style)
             const baseInt = this.snap.colors[i];
-            const bR = (baseInt >> 16) & 0xFF;
-            const bG = (baseInt >> 8) & 0xFF;
+            const bR = (baseInt >> 16) & 0xFF; 
+            const bG = (baseInt >> 8) & 0xFF; 
             const bB = baseInt & 0xFF;
             
             const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
-            const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
+            const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); 
             const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
             finalColor = `rgb(${mR},${mG},${mB})`;
         }
@@ -195,6 +215,7 @@ class ClearPulseEffect extends AbstractEffect {
 
         return { 
             char, 
+            font: fontName,
             color: finalColor, 
             alpha: 1.0, 
             glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 

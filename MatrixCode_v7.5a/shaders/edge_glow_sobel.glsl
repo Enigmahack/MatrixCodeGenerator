@@ -1,5 +1,4 @@
-
-// edge_glow_sobel.glsl
+// Name: Edge Glow (Sobel)
 precision highp float;
 
 uniform sampler2D uTexture;

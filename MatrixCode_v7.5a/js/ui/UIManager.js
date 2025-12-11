@@ -175,9 +175,9 @@ class UIManager {
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
             { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
-            { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 10, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
+            { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 2, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
@@ -196,11 +196,14 @@ class UIManager {
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
-            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 1.0, step: 0.01, dep: 'rotatorEnabled' },
             { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: "Lock the rotator change to the cycles that move the tracers" },
             { cat: 'Behavior', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
             { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotateDuringFade', type: 'checkbox', label: 'Rotate during fade', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorDesyncEnabled', type: 'checkbox', label: 'Desynchronize Rotators', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorDesyncVariance', type: 'range', label: 'Desync Variance', min: 0, max: 100, unit: '%', dep: ['rotatorEnabled', 'rotatorDesyncEnabled'] },
         ];
     }
 
@@ -212,16 +215,6 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
-            
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
-
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
-            { cat: 'Effects', type: 'button', label: 'Run Both in Order', action: 'boot_crash_sequence', class: 'btn-warn' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
@@ -297,6 +290,20 @@ class UIManager {
             { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
             { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
 
+            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
+            { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
+            
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
+            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', warning: "Photosensitivity Warning: Enabling this effect will cause pulsing lights and strobing effects that could be disruptive to those more sensitive to flashing lights. Please be aware of the impact this may have to those around you." },
+            { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 60, max: 600, step: 10, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
+            { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Sequence Now', action: 'boot_crash_sequence', class: 'btn-warn' },
+
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
 
             { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
@@ -328,6 +335,7 @@ class UIManager {
             
             { cat: 'Effects', type: 'header', label: 'Post Processing' },
             { cat: 'Effects', type: 'accordion_header', label: 'Shader' },
+            { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
             { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
             { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', description: "A generic 0.0-1.0 value passed to the shader as 'uParameter'." },
             { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
@@ -353,6 +361,9 @@ class UIManager {
 
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
             { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
+            { cat: 'System', type: 'keybinder', id: 'BootSequence', label: 'Boot Animation' },
+            { cat: 'System', type: 'keybinder', id: 'CrashSequence', label: 'Crash Animation' },
+            { cat: 'System', type: 'keybinder', id: 'BootCrashSequence', label: 'Boot to Crash' },
             { cat: 'System', type: 'keybinder', id: 'Pulse', label: 'Pulse' },
             { cat: 'System', type: 'keybinder', id: 'ClearPulse', label: 'Clear Pulse' },
             { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
@@ -1006,6 +1017,7 @@ class UIManager {
             const div = document.createElement('div');
             div.className = 'info-description';
             div.textContent = def.text;
+            if (def.id) div.id = `in-${def.id}`;
             return div;
         }
         if (def.type === 'faq_item') {
@@ -1225,7 +1237,16 @@ class UIManager {
                 return row;
             }
 
-            else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
+            else if(def.type === 'checkbox') { 
+                inp = document.createElement('input'); 
+                inp.type = 'checkbox'; 
+                inp.checked = this.c.get(def.id); 
+                inp.onchange = e => { 
+                    if(e.target.checked && def.warning) alert(def.warning);
+                    this.c.set(def.id, e.target.checked); 
+                }; 
+                row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
+            }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
             row.appendChild(inp);
             if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
@@ -1343,6 +1364,39 @@ class UIManager {
                     const randomChar = Utils.getRandomKatakanaChar();
                     const currentColor = this.c.get('streamColor');
                     favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
+                }
+            }
+            if (key === 'customShader' || key === 'shaderEnabled' || key === 'ALL') {
+                const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
+                if (shaderNameDisplay) {
+                    let name = 'No shader loaded.';
+                    const customShaderSource = this.c.get('customShader');
+                    const shaderEnabled = this.c.get('shaderEnabled');
+                    
+                    if (shaderEnabled && customShaderSource) {
+                        // 1. Try to find a name metadata tag in the first 500 chars
+                        // Matches "// Name: My Shader" or "// Shader: My Shader" case-insensitive
+                        const nameMatch = customShaderSource.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
+                        
+                        if (nameMatch && nameMatch[1]) {
+                            name = nameMatch[1].trim();
+                        } 
+                        // 2. Fallback: Check if it's standard code
+                        else if (customShaderSource.trim().startsWith('precision')) {
+                            name = 'Custom Shader (No Name)';
+                        }
+                        // 3. Fallback: If it doesn't look like code (maybe it really is a path?)
+                        else if (customShaderSource.length < 200 && (customShaderSource.includes('/') || customShaderSource.includes('\\'))) {
+                             const parts = customShaderSource.split(/[\/\\]/);
+                             name = parts[parts.length - 1];
+                        }
+                        else {
+                             name = 'Custom Shader';
+                        }
+                    } else if (shaderEnabled) {
+                         name = 'Unnamed/Default Shader'; 
+                    }
+                    shaderNameDisplay.textContent = `Loaded: ${name}`;
                 }
             }
             if (key === 'streamPalette') {

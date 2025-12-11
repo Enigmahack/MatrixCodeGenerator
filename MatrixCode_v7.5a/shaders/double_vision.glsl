@@ -1,3 +1,4 @@
+// Name: Double Vision
 precision mediump float;
 
 // Inputs provided by the application

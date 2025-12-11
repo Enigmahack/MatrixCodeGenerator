@@ -787,29 +787,10 @@ class CanvasRenderer {
             const px = cx + (d.cellWidth * 0.5);
             const py = cy + (d.cellHeight * 0.5);
             
-            const fontName = s.fontFamily;
-            const atlas = s.enableGlyphAtlas ? this.glyphAtlases.get(fontName) : null;
-            const sprite = atlas ? atlas.get(o.char) : null;
-
-            if (sprite) {
-                // ATLAS DRAWING PATH
-                if (o.glow > 0) {
-                    this._setCtxShadow(o.color, o.glow);
-                } else {
-                    this._setCtxShadow('transparent', 0);
-                }
-                
-                this._setCtxGlobalAlpha(o.alpha, false); // Atlas drawImage handles globalAlpha on ctx.
-                // Does it handle Bloom? Yes if I pass bloom=true to helper.
-                // But wait, sprite drawing logic usually does two drawImage calls.
-                // Here we revert to fillText for color correctness?
-                // NO, previous optimization reverted to fillText because atlas color might not match.
-                // Let's stick to fillText as established in previous step for correctness.
-                
-                // Fallback to fillText logic below...
-            }
+            const fontName = o.font || s.fontFamily;
             
             // FILLTEXT PATH (Unified)
+            // Effects require dynamic colors/sizes not supported by simple atlas draw
             this._setCtxFillStyle(o.color, bloom);
             
             if (o.glow > 0) {
@@ -818,7 +799,7 @@ class CanvasRenderer {
                 this._setCtxShadow('transparent', 0);
             }
             
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${fontName}`;
             this._setCtxFont(font, bloom);
             
             this._setCtxGlobalAlpha(o.alpha, bloom);

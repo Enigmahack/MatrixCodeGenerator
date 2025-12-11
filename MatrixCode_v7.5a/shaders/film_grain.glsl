@@ -1,3 +1,4 @@
+// Name: Dirty Film Grain
 precision mediump float;
 
 // Uniforms provided by PostProcessor.js

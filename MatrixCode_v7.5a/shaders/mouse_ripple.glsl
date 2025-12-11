@@ -1,5 +1,4 @@
-
-// mouse_ripple_lens.glsl
+// Name: Mouse Lens Ripple
 precision highp float;
 
 uniform sampler2D uTexture;

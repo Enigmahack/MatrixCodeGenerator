@@ -1,5 +1,4 @@
 ToDo: 
-Implement Crashing Effect
 Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse blast resets the code to normal)
 Implement a multi-monitor configuration? 
 Implement a wrapper to EXE/DMG?

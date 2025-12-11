@@ -7,14 +7,26 @@ class PulseEffect extends AbstractEffect {
                 
                 // Reusable object to prevent GC thrashing during render loop
                 this._retObj = { 
-                    char: '', color: '', alpha: 0, glow: 0, size: 0, solid: false, blend: false, bgColor: '' 
+                    char: '', font: null, color: '', alpha: 0, glow: 0, size: 0, solid: false, blend: false, bgColor: '' 
                 };
             }
             trigger() {
                 if(this.active) return false;
                 const total = this.g.cols * this.g.rows;
-                this.snap = { chars: new Uint16Array(this.g.chars), alphas: new Float32Array(this.g.alphas), colors: new Uint32Array(total), tracers: new Uint8Array(total), fillChars: new Uint16Array(total) };
+                // Add fonts and fillFonts to snapshot
+                this.snap = { 
+                    chars: new Uint16Array(this.g.chars), 
+                    fonts: new Uint8Array(this.g.fonts),
+                    alphas: new Float32Array(this.g.alphas), 
+                    colors: new Uint32Array(total), 
+                    tracers: new Uint8Array(total), 
+                    fillChars: new Uint16Array(total),
+                    fillFonts: new Uint8Array(total)
+                };
                 const d = this.c.derived; const s = this.c.state; const holdEnd = d.cycleDuration + d.holdFrames;
+                const activeFonts = d.activeFonts;
+                const numFonts = activeFonts.length;
+
                 for(let i=0; i<total; i++) {
                     let rgb = d.streamRgb; 
                     let isTracer = false; 
@@ -56,7 +68,17 @@ class PulseEffect extends AbstractEffect {
                     // Store packed color for all cells
                     this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); 
                     this.snap.tracers[i] = isTracer ? 1 : 0; 
-                    this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
+                    
+                    // Generate Fill Char/Font for gaps
+                    const fIdx = Math.floor(Math.random() * numFonts);
+                    this.snap.fillFonts[i] = fIdx;
+                    const fontData = activeFonts[fIdx] || activeFonts[0];
+                    const chars = fontData.chars;
+                    if(chars && chars.length > 0) {
+                        this.snap.fillChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+                    } else {
+                        this.snap.fillChars[i] = 32;
+                    }
                 }
                 
                 let ox, oy;
@@ -198,8 +220,8 @@ class PulseEffect extends AbstractEffect {
                                     dist = Math.max(dx, dy * ratio);
                                 }
 
-                                if (dist <= radius) {
-                                    // Inside the wave or the hole -> Simulation Active
+                                if (dist < innerEdge) {
+                                    // Inside the hole -> Simulation Active
                                     const idx = y * this.g.cols + x;
                                     this.g.cellLocks[idx] = 0;
                                 }
@@ -219,6 +241,7 @@ class PulseEffect extends AbstractEffect {
                 
                 // Reset pooled object properties
                 this._retObj.char = '';
+                this._retObj.font = null;
                 this._retObj.color = '';
                 this._retObj.alpha = 0;
                 this._retObj.glow = 0;
@@ -270,15 +293,30 @@ class PulseEffect extends AbstractEffect {
                     if (dist < rd.innerEdge) return null;
                 }
                 
-                const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
+                const snAlpha = this.snap.alphas[i]; 
+                let charCode = this.snap.chars[i];
+                let fontIdx = this.snap.fonts[i]; // Default to captured font
+
                 const tRgb = d.tracerRgb; const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
                 let baseColorStr = null; let isGap = false;
-                if (snAlpha <= 0.01) { isGap = true; if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i]; }
+                if (snAlpha <= 0.01) { 
+                    isGap = true; 
+                    if (!s.pulsePreserveSpaces) {
+                         charCode = this.snap.fillChars[i];
+                         fontIdx = this.snap.fillFonts[i]; // Use fill font
+                    }
+                }
                 const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
                 
+                // Resolve Font Name
+                const activeFonts = this.c.derived.activeFonts;
+                const fontData = activeFonts[fontIdx] || activeFonts[0];
+                const fontName = fontData.name;
+
                 // Common Gap Return
                 const gapReturn = this._retObj; // Use pooled object for gapReturn
                 gapReturn.char = '';
+                gapReturn.font = null;
                 gapReturn.color = '#000000';
                 gapReturn.alpha = 0;
                 gapReturn.glow = 0;
@@ -293,6 +331,7 @@ class PulseEffect extends AbstractEffect {
                     // FIX: If ignoring tracers, return them with their ORIGINAL snapshot alpha/color, do not dim or force white.
                     if(isTracer && s.pulseIgnoreTracers) {
                          result.char = char;
+                         result.font = fontName;
                          result.color = baseColorStr;
                          result.alpha = snAlpha;
                          result.glow = s.tracerGlow;
@@ -303,6 +342,7 @@ class PulseEffect extends AbstractEffect {
                          result = gapReturn;
                     } else {
                          result.char = char;
+                         result.font = fontName;
                          result.color = baseColorStr;
                          result.alpha = snAlpha * s.pulseDimming;
                          result.glow = 0;
@@ -360,6 +400,7 @@ class PulseEffect extends AbstractEffect {
                         
                         // Populate pooled object
                         result.char = char; 
+                        result.font = fontName;
                         result.color = finalColor; 
                         result.alpha = Math.max(0, actualCharAlpha); 
                         result.glow = actualGlow; 

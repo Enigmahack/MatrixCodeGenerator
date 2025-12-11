@@ -104,6 +104,7 @@ class MiniPulseEffect extends AbstractEffect {
                     if (combinedAlpha <= 0.01) continue;
 
                     let char = this.g.getChar(i);
+                    let fontIdx = this.g.getFont(i);
                     // Use CELL_TYPE.EMPTY for robust gap detection
                     // Fallback to alpha check only if type is not reliable (though it should be)
                     let isGap = (this.g.types[i] === CELL_TYPE.EMPTY); 
@@ -111,11 +112,22 @@ class MiniPulseEffect extends AbstractEffect {
                     if (isGap) {
                         if (s.miniPulsePreserveSpaces) return null;
                         
-                        // Optimization: Utils.CHARS is static, access is fast.
-                        // Modulo math is fast.
-                        const glitchIndex = (i + Math.floor(p.r)) % Utils.CHARS.length; 
-                        char = Utils.CHARS[glitchIndex]; 
+                        // Use active fonts for glitches
+                        const activeFonts = d.activeFonts;
+                        fontIdx = (i + Math.floor(p.r)) % activeFonts.length;
+                        const fontData = activeFonts[fontIdx] || activeFonts[0];
+                        const chars = fontData.chars;
+                        if (chars && chars.length > 0) {
+                            const glitchIndex = (i + Math.floor(p.r)) % chars.length; 
+                            char = chars[glitchIndex]; 
+                        } else {
+                            char = Utils.CHARS[0];
+                        }
                     }
+                    
+                    const activeFonts = d.activeFonts;
+                    const fontData = activeFonts[fontIdx] || activeFonts[0];
+                    const fontName = fontData.name;
                     
                     // Matches ClearPulse logic for "solid" pops in gaps
                     const useSolid = isGap;
@@ -126,6 +138,7 @@ class MiniPulseEffect extends AbstractEffect {
                     
                     return { 
                         char: char, 
+                        font: fontName,
                         color: d.tracerColorStr, 
                         alpha: combinedAlpha, 
                         glow: s.tracerGlow * combinedAlpha, 

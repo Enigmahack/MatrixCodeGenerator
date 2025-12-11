@@ -31,6 +31,14 @@ class MatrixKernel {
         this._resize();
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
+
+        // Trigger Boot Sequence on startup if enabled
+        if (this.config.get('bootSequenceEnabled')) {
+            // Short delay to ensure everything is ready
+            setTimeout(() => {
+                this.effectRegistry.trigger('BootSequence');
+            }, 100);
+        }
     }
 
     /**
@@ -61,7 +69,7 @@ class MatrixKernel {
             CrashEffect
         ];
         effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect) {
+            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
             } else {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config));
@@ -176,7 +184,8 @@ class MatrixKernel {
                 { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
                 { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
+                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
+                { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
 
             autoEffects.forEach(effect => {
@@ -267,7 +276,8 @@ class MatrixKernel {
             { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
             { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
+            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
+            { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 
         autoEffects.forEach(effect => {

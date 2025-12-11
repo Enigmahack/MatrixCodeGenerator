@@ -29,16 +29,16 @@ class ConfigurationManager {
             // --- GLOBAL ---
             streamColor: "#65d778",
             streamPalette: ["#65d778"],
-            paletteBias: 0.0,
+            paletteBias: 0,
             tracerColor: "#d9f2f2",
             fontSize: 24,
             streamSpeed: 16,
-            releaseInterval: 4,
+            releaseInterval: 2,
             resolution: 1,
             enableGlyphAtlas: true,
-            smoothingEnabled: true,
-            smoothingAmount: 0.5,
-            showFpsCounter: false,
+            smoothingEnabled: false,
+            smoothingAmount: 0.1,
+            showFpsCounter: true,
             suppressToasts: false,
 
             // --- APPEARANCE ---
@@ -52,8 +52,8 @@ class ConfigurationManager {
             // Overlap / Imposition Layer
             overlapEnabled: false,
             overlapColor: "#FFD700",
-            overlapDensity: 0.5,
-            overlapTarget: "stream",
+            overlapDensity: 0.2,
+            overlapTarget: "all",
             
             dissolveEnabled: true,
             dissolveMinSize: 18,
@@ -62,8 +62,8 @@ class ConfigurationManager {
             enableBloom: true,
             bloomStrength: 4,
             bloomOpacity: 0.45,
-            tracerGlow: 6,
-            clearAlpha: 0.8,
+            tracerGlow: 12,
+            clearAlpha: 0.7,
             horizontalSpacingFactor: 0.7,
             verticalSpacingFactor: 1,
             fontOffsetX: 0,
@@ -72,15 +72,15 @@ class ConfigurationManager {
             stretchY: 1.2,
 
             // --- BEHAVIOR ---
-            decayFadeDurationFrames: 13,
-            streamSpawnCount: 5,
-            eraserSpawnCount: 5,
-            minStreamGap: 10,
-            minEraserGap: 10,
-            minGapTypes: 15,
+            decayFadeDurationFrames: 23,
+            streamSpawnCount: 6,
+            eraserSpawnCount: 16,
+            minStreamGap: 30,
+            minEraserGap: 30,
+            minGapTypes: 20,
             holeRate: 0.1,
-            desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
-            eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
+            desyncIntensity: 0, 
+            eraserStopChance: 1, 
             tracerStopChance: 1,
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
@@ -91,17 +91,21 @@ class ConfigurationManager {
             rotatorChance: 0.13,
             rotatorSyncToTracer: true,
             rotatorSyncMultiplier: 0.5,
-            rotatorCycleFactor: 11,
+            rotatorCycleFactor: 20,
             rotatorCrossfadeFrames: 6,
+            rotateDuringFade: false,
+            rotatorDesyncEnabled: false,
+            rotatorDesyncVariance: 0,
 
             // --- FX ---
             shaderEnabled: false,
-            customShader: null, // String content of GLSL shader
-            shaderParameter: 0.5,
+            customShader: null, 
+            shaderParameter: 0,
+            
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
-            pulseDelaySeconds: 1.0,
-            pulseDurationSeconds: 1.8,
+            pulseDelaySeconds: 0.7,
+            pulseDurationSeconds: 1.2,
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
             pulseDimming: 0.2,
@@ -113,13 +117,14 @@ class ConfigurationManager {
 
             clearPulseEnabled: true,
             clearPulseFrequencySeconds: 235,
-            clearPulseDurationSeconds: 1,
+            clearPulseDurationSeconds: 0.7,
             clearPulsePreserveSpaces: true,
             clearPulseBlend: false,
-            clearPulseWidth: 280,
+            clearPulseWidth: 190,
             clearPulseRandomPosition: true,
             clearPulseInstantStart: false,
             clearPulseCircular: false,
+            
             miniPulseEnabled: true,
             miniPulseFrequencySeconds: 450,
             miniPulseDurationSeconds: 5,
@@ -128,6 +133,7 @@ class ConfigurationManager {
             miniPulseSpawnChance: 0.06,
             miniPulseSpeed: 16,
             miniPulseSize: 360,
+            
             dejaVuEnabled: true,
             dejaVuFrequencySeconds: 350,
             dejaVuDurationSeconds: 5,
@@ -138,6 +144,7 @@ class ConfigurationManager {
             dejaVuIntensity: 0.1,
             dejaVuBarDurationFrames: 28,
             dejaVuVarianceFrames: 43,
+            
             supermanEnabled: true,
             supermanFrequencySeconds: 290,
             supermanDurationSeconds: 6,
@@ -148,6 +155,7 @@ class ConfigurationManager {
             supermanFlickerRate: 2,
             supermanWidth: 4,
             supermanSpawnSpeed: 69,
+            
             starPowerEnabled: false,
             starPowerFreq: 100,
             starPowerRainbowMode: "char",
@@ -156,9 +164,11 @@ class ConfigurationManager {
             starPowerGlitter: false,
             starPowerColorCycle: true,
             starPowerCycleSpeed: 5,
+            
             rainbowStreamEnabled: false,
-            rainbowStreamChance: 1,
+            rainbowStreamChance: 0.5,
             rainbowStreamIntensity: 50,
+            
             firewallEnabled: false,
             firewallFrequencySeconds: 150,
             firewallRandomColorEnabled: true,
@@ -166,20 +176,27 @@ class ConfigurationManager {
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
 
+            // --- BOOT / CRASH ---
+            bootSequenceEnabled: false,
+            crashEnabled: false,
+            crashFrequencySeconds: 600,
+            runBothInOrder: true,
+
             // --- INPUT BINDINGS ---
             keyBindings: {
-                "Pulse": "q",
+                "Pulse": "p",
                 "ClearPulse": "w",
                 "MiniPulse": "e",
                 "DejaVu": "r",
                 "Superman": "t",
                 "Firewall": "y",
+                "ToggleUI": " ",
                 "BootSequence": "b",
-                "CrashSequence": "c",
-                "ToggleUI": "h"
+                "CrashSequence": "x",
+                "BootCrashSequence": "c"
             },
             
-            hideMenuIcon: false,
+            hideMenuIcon: true,
 
             // --- FONT SETTINGS ---
             fontSettings: {
@@ -195,10 +212,12 @@ class ConfigurationManager {
             tracerSizeIncrease: 1,
             supermanProb: 4,
             dejaVuAutoMode: true,
-            clearPulseIgnoreTracers: true, // Not exposed in UI
-            clearPulseCircular: false,
-            clearPulseBlend: false,
-            clearPulseInstantStart: false
+            clearPulseIgnoreTracers: true, 
+            clearPulseCircular: false, 
+            clearPulseInstantStart: false,
+            dejaVuPerformanceMode: false,
+            pulseDelayFrames: 60,
+            overlapShimmer: false
         };
     }
 
@@ -218,7 +237,11 @@ class ConfigurationManager {
         }
 
         // Default slots if not found or error occurs
-        return Array(3).fill(null).map((_, i) => ({ name: `Save Slot ${i + 1}`, data: null }));
+        return [
+            { name: "Trilogy", data: JSON.parse(JSON.stringify(this.defaults)) },
+            { name: "Save Slot 2", data: null },
+            { name: "Save Slot 3", data: null }
+        ];
     }
 
     /**

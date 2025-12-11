@@ -1,6 +1,7 @@
 class BootEffect extends AbstractEffect {
-    constructor(g, c) {
+    constructor(g, c, registry) {
         super(g, c);
+        this.registry = registry;
         this.name = "BootSequence";
         this.active = false;
         this.startTime = 0;
@@ -256,6 +257,10 @@ void main() {
             this.c.set('shaderEnabled', this.originalShaderEnabled);
             this.c.set('shaderParameter', this.originalShaderParameter);
             console.log("BootEffect Finished");
+
+            if (this.c.get('runBothInOrder') && this.registry) {
+                this.registry.trigger('CrashSequence');
+            }
             return;
         }
 

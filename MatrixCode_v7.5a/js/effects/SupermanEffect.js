@@ -124,9 +124,13 @@ class SupermanEffect extends AbstractEffect {
 
                     const effectAlpha = this.afterimages.get(i);
                     const s = this.c.state;
+                    
+                    const fontIdx = this.g.getFont(i);
+                    const fontName = this.c.derived.activeFonts[fontIdx]?.name || s.fontFamily;
 
                     return {
                         char: this.g.getChar(i),
+                        font: fontName,
                         color: s.supermanIncludeColors ? '#ffffffff' : '#b9e4b8ff', 
                         alpha: effectAlpha, 
                         glow: s.supermanGlow, 

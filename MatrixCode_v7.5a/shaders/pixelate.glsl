@@ -1,5 +1,4 @@
-
-// pixelate.glsl
+// Name: Pixelate
 precision highp float;
 
 uniform sampler2D uTexture;

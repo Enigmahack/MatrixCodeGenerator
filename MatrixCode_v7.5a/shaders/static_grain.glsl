@@ -1,3 +1,4 @@
+// Name: Static Grain
 precision mediump float;
 
 // Inputs provided by the application

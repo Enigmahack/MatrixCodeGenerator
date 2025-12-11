@@ -1,5 +1,4 @@
-
-// hue_shift_desat.glsl
+// Name: Hue Shift
 precision highp float;
 
 uniform sampler2D uTexture;

@@ -199,7 +199,7 @@ void main() {
         this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
         this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
-        console.log("CrashEffect Triggered (Final Polish 4)");
+        console.log("CrashEffect Triggered (Sheets Gray Fix)");
         return true;
     }
 
@@ -304,7 +304,7 @@ void main() {
         
         if (this.registry && canSpawn) { 
             if (Math.random() < 0.002) this.registry.trigger('ClearPulse');
-            if (Math.random() < 0.005) this.registry.trigger('MiniPulse');
+            // Removed MiniPulse
         }
 
         if (this.shaderState.activeId === 0) {
@@ -335,7 +335,7 @@ void main() {
     }
 
     _updateBlackSheets() {
-        if (this.blackSheets.length < 300) { 
+        if (this.blackSheets.length < 500) { 
             if (Math.random() < 0.8) { 
                 const grid = this.g;
                 const r = Math.random();
@@ -350,16 +350,15 @@ void main() {
                     if (c < 0) c = 0; 
                 } else { c = Math.floor(Math.random() * (grid.cols - w)); }
                 const row = Math.floor(Math.random() * (grid.rows - h));
-                const duration = Math.floor(Math.random() * 120) + 60; 
+                const duration = Math.floor(Math.random() * 200) + 100; 
                 const axis = Math.random() < 0.5 ? 0 : 1;
                 const expandAmount = Math.floor(Math.random() * w) + 2; 
                 const speedScale = Math.random() * 0.6 + 0.2;
-                // Stronger Opacity (0.6 - 0.95) for visibility
                 this.blackSheets.push({ 
                     c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
                     posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
                     flashFrames: 0, 
-                    maxAlpha: 0.6 + Math.random() * 0.35, 
+                    maxAlpha: 0.75 + Math.random() * 0.2, 
                     currentAlpha: 0.0, targetAlpha: 1.0 
                 });
             }
@@ -623,7 +622,26 @@ void main() {
         for (const s of this.blackSheets) {
             if (col >= s.c && col < s.c + s.w &&
                 row >= s.r && row < s.r + s.h) {
-                totalAlpha = 1.0 - (1.0 - totalAlpha) * (1.0 - s.currentAlpha * s.maxAlpha);
+                
+                let sheetAlpha = s.currentAlpha * s.maxAlpha;
+
+                // Edge Fading: Soften the edges of the rectangle
+                const nx = (col - s.posX) / s.w;
+                const ny = (row - s.posY) / s.h;
+                
+                // Linear fade on all sides (20% of width/height)
+                const fadeSize = 0.2;
+                const fadeL = nx < fadeSize ? nx / fadeSize : 1.0;
+                const fadeR = (1.0 - nx) < fadeSize ? (1.0 - nx) / fadeSize : 1.0;
+                const fadeT = ny < fadeSize ? ny / fadeSize : 1.0;
+                const fadeB = (1.0 - ny) < fadeSize ? (1.0 - ny) / fadeSize : 1.0;
+                
+                sheetAlpha *= Math.min(fadeL, fadeR, fadeT, fadeB);
+
+                // Accumulation: Allow slight darkening on overlap
+                // Base is Max, plus a small fraction of the product to simulate density without instant black
+                totalAlpha = Math.max(totalAlpha, sheetAlpha) + (sheetAlpha * 0.2); 
+                if (totalAlpha > 1.0) totalAlpha = 1.0;
             }
         }
         
@@ -634,14 +652,18 @@ void main() {
             if (this.c.derived && this.c.derived.streamColorStr) dimColor = this.c.derived.streamColorStr;
             else if (this.c.state.streamColor) dimColor = this.c.state.streamColor;
             
-            let textAlpha = Math.max(0.05, 1.0 - totalAlpha);
+            // Fix: Check if cell is active to prevent lighting up empty space
+            const isActive = this.g.alphas[i] > 0.05;
+            // Text fades out as sheet gets darker
+            const textAlpha = isActive ? Math.max(0, 1.0 - totalAlpha) : 0.0;
             
             return { 
-                char: grid.getChar(i), 
+                char: isActive ? grid.getChar(i) : '', 
                 color: dimColor, 
                 alpha: textAlpha, 
-                solid: false, 
-                blend: true 
+                solid: true, 
+                bgColor: `rgba(0, 0, 0, ${totalAlpha})`, // Pure Black
+                blend: false 
             };
         }
         

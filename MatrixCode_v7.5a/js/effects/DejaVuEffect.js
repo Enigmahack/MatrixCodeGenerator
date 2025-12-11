@@ -64,12 +64,14 @@ class DejaVuEffect extends AbstractEffect {
                             this.g.rotatorProg[idx] = 0; 
                             
                             // Optimized font/char picking
-                            const fontData = activeFonts[(Math.random() * activeFonts.length) | 0];
+                            const fontIdx = (Math.random() * activeFonts.length) | 0;
+                            const fontData = activeFonts[fontIdx];
                             const chars = fontData.chars;
                             // Ensure chars array is valid
                             if (chars && chars.length > 0) {
                                 const char = chars[(Math.random() * chars.length) | 0];
                                 this.g.setChar(idx, char);
+                                this.g.setFont(idx, fontIdx);
                             }
                             
                             if(randomizeColors) {
@@ -96,7 +98,11 @@ class DejaVuEffect extends AbstractEffect {
                 const alpha = baseAlpha < 0.1 ? s.dejaVuHoleBrightness : baseAlpha; 
                 if(alpha < 0.01) return null;
                 
+                const fontIdx = this.g.getFont(i);
+                const fontName = this.c.derived.activeFonts[fontIdx]?.name || s.fontFamily;
+
                 this._retObj.char = this.g.getChar(i);
+                this._retObj.font = fontName;
                 this._retObj.color = this.c.derived.tracerColorStr;
                 this._retObj.alpha = alpha;
                 this._retObj.glow = 0;

@@ -15,6 +15,7 @@ class MatrixGrid {
         this.ages = null;
         this.brightness = null;
         this.rotatorProg = null;
+        this.rotatorOffsets = null;
 
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
@@ -109,6 +110,11 @@ class MatrixGrid {
         this.ages = new Int32Array(totalCells);
         this.brightness = new Float32Array(totalCells);
         this.rotatorProg = new Float32Array(totalCells);
+        this.rotatorOffsets = new Uint8Array(totalCells); // Offset for desync logic
+        
+        for(let i=0; i<totalCells; i++) {
+            this.rotatorOffsets[i] = Math.floor(Math.random() * 255);
+        }
 
         // Color Palette Index (0-2)
         this.paletteIndices = new Uint8Array(totalCells);

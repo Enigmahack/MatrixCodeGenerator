@@ -228,26 +228,25 @@ class SimulationSystem {
                     continue;
                 }
             } else {                    
-                    // Tracer Collision Detection
-                    // Check the cell we are about to move into (y+1)
-                    // Actually, we check if the *next* move would hit something.
-                    // If stream.y is currently at Y, next write is Y+1.
-                    const nextY = stream.y + 1;
-                    if (nextY < this.grid.rows) {
-                        const nextIdx = this.grid.getIndex(stream.x, nextY);
-                        // If next cell is occupied (decay > 0)
-                        if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
-                            // Collision! Stop stream.
-                            // We don't write to nextY, effectively stopping "on top" of the existing block.
+                // Tracer Random Drop-Off
+                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                    stream.active = false;
+                    continue;
+                }
 
-                                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
-                                    stream.active = false; //Tracer Random Drop-Off
-                                }
-                                
-                            {  
-                            stream.active = false;
-                            continue; 
-                        }
+                // Tracer Collision Detection
+                // Check the cell we are about to move into (y+1)
+                // Actually, we check if the *next* move would hit something.
+                // If stream.y is currently at Y, next write is Y+1.
+                const nextY = stream.y + 1;
+                if (nextY < this.grid.rows) {
+                    const nextIdx = this.grid.getIndex(stream.x, nextY);
+                    // If next cell is occupied (decay > 0)
+                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                        // Collision! Stop stream.
+                        // We don't write to nextY, effectively stopping "on top" of the existing block.
+                        stream.active = false;
+                        continue; 
                     }
                 }
             } 
@@ -339,7 +338,9 @@ class SimulationSystem {
     }
 
     _initializeTracerStream(stream, s) {
-        stream.len = Utils.randomInt(4, this.grid.rows * 3);
+        // Tracers now run full screen length by default. 
+        // "Length" is effectively controlled by Erasers or Drop-Off chance.
+        stream.len = this.grid.rows + 10; 
         stream.visibleLen = this.grid.rows * 4; // Default to run full screen length
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
 
@@ -369,6 +370,9 @@ class SimulationSystem {
     }
 
     _handleEraserHead(idx) {
+        // If already fading, let it continue fading to respect current brightness
+        if (this.grid.decays[idx] >= 2) return;
+
         if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             this.grid.decays[idx] = 2;
@@ -488,11 +492,12 @@ class SimulationSystem {
 
     _handleRotator(idx, frame, s, d) {
         const prog = this.grid.rotatorProg[idx];
+        const decay = this.grid.decays[idx];
 
         if (prog > 0) {
             this._progressRotator(idx, prog, s.rotatorCrossfadeFrames);
-        } else if (this.grid.decays[idx] === 1) {
-            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames);
+        } else if (decay === 1 || (s.rotateDuringFade && decay > 1)) {
+            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames, s);
         }
     }
 
@@ -515,8 +520,23 @@ class SimulationSystem {
         }
     }
 
-    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
-        if (frame % cycleFrames === 0) {
+    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames, s) {
+        let effectiveCycle = cycleFrames;
+        
+        if (s.rotatorDesyncEnabled) {
+            // "Different speeds... with variance"
+            // Use the pre-calculated random offset (0-255) to vary the cycle duration
+            const variancePercent = s.rotatorDesyncVariance / 100; // 0.0 to 1.0
+            const maxVariance = cycleFrames * variancePercent;
+            
+            // Map 0..255 to -1..1
+            const offsetNorm = (this.grid.rotatorOffsets[idx] / 127.5) - 1.0;
+            
+            // Apply variance
+            effectiveCycle = Math.max(1, Math.round(cycleFrames + (offsetNorm * maxVariance)));
+        }
+
+        if (frame % effectiveCycle === 0) {
             // Get correct font charset
             const fontIdx = this.grid.getFont(idx);
             const activeFonts = this.config.derived.activeFonts;

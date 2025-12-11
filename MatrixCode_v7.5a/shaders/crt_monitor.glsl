@@ -1,3 +1,5 @@
+// Name: CRT Monitor
+
 precision mediump float;
 
 uniform sampler2D uTexture;

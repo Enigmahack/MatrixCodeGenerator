@@ -1,3 +1,4 @@
+// Name: Dirty LCD Monitor
 precision mediump float;
 
 uniform sampler2D uTexture;
