@@ -60,7 +60,13 @@ class MatrixKernel {
             BootEffect,
             CrashEffect
         ];
-        effects.forEach((EffectClass) => this.effectRegistry.register(new EffectClass(this.grid, this.config)));
+        effects.forEach((EffectClass) => {
+            if (EffectClass === CrashEffect) {
+                this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
+            } else {
+                this.effectRegistry.register(new EffectClass(this.grid, this.config));
+            }
+        });
     }
 
     /**
