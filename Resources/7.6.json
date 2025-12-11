@@ -64,7 +64,11 @@
     "rotatorCycleFactor": 17,
     "rotatorCrossfadeFrames": 4,
     "shaderEnabled": true,
-    "customShader": "/**\n * Film Grain Shader for Matrix Digital Rain\n * \n * Features:\n * - Adds dynamic film grain noise\n * - Animated over time\n * - Respects texture orientation\n */\n\nprecision mediump float;\n\n// Uniforms provided by PostProcessor.js\nuniform sampler2D uTexture;\nuniform vec2 uResolution;\nuniform float uTime;\n\n// Use vTexCoord from Vertex Shader for correct orientation\nvarying vec2 vTexCoord;\n\n// Shader Configuration\nconst float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)\nconst bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)\nconst float SPEED = 2.5;         // Speed of grain animation\n\n// Random function\nfloat random(vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);\n}\n\nvoid main() {\n    // Sample the original texture using standard texture coordinates\n    vec4 color = texture2D(uTexture, vTexCoord);\n    \n    // Calculate noise\n    // We can use gl_FragCoord or vTexCoord for noise seed\n    float t = ANIMATED ? uTime * SPEED : 0.0;\n    \n    // Generate random noise value [-1.0, 1.0]\n    float noise = (random(vTexCoord + t) - 0.5) * 2.0;\n    \n    // Apply grain\n    color.rgb += noise * GRAIN_AMOUNT;\n    \n    // Output final color\n    gl_FragColor = color;\n}\n",
+    "customShader": "/**\n * Film Grain Shader for Matrix Digital Rain\n * \n * Features:\n * - Adds dynamic film grain noise\n * - Animated over time\n * - Respects texture orientation\n */\n\nprecision mediump float;\n\n// Uniforms provided by PostProcessor.js\nuniform sampler2D uTexture;\nuniform vec2 uResolution;\nuniform float uTime;\n\n// Use vTexCoord from Vertex Shader for correct orientation\nvarying vec2 vTexCoord;\n\n// Shader Configuration\nconst float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)\nconst bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)\nconst float SPEED = 2.5;         // Speed of grain animation\n\n// Random function\nfloat random(vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}\n\nvoid main() {\n    // Sample the original texture using standard texture coordinates\n    vec4 color = texture2D(uTexture, vTexCoord);
+    \n    // Calculate noise\n    // We can use gl_FragCoord or vTexCoord for noise seed\n    float t = ANIMATED ? uTime * SPEED : 0.0;\n    \n    // Generate random noise value [-1.0, 1.0]\n    float noise = (random(vTexCoord + t) - 0.5) * 2.0;\n    \n    // Apply grain\n    color.rgb += noise * GRAIN_AMOUNT;\n    \n    // Output final color\n    gl_FragColor = color;
+}
+",
     "pulseEnabled": false,
     "pulseFrequencySeconds": 300,
     "pulseDurationSeconds": 1.8,
@@ -114,7 +118,6 @@
     "supermanWidth": 4,
     "supermanSpawnSpeed": 69,
     "starPowerEnabled": false,
-    "starPowerFreq": 100,
     "starPowerRainbowMode": "char",
     "starPowerSaturation": 100,
     "starPowerIntensity": 51,

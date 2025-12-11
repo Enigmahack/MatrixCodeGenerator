@@ -199,6 +199,7 @@ void main() {
         this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
         this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
+        this.endFlashTriggered = false;
         // console.log("CrashEffect Triggered");
         return true;
     }
@@ -210,6 +211,11 @@ void main() {
 
         const elapsedTime = (performance.now() - this.startTime) / 1000;
         const progress = elapsedTime / this.durationSeconds;
+
+        if (progress > 0.92 && !this.endFlashTriggered) {
+            this.endFlashTriggered = true;
+            if (this.registry) this.registry.trigger('Pulse');
+        }
 
         if (progress >= 1.0) {
             this.active = false;
@@ -335,32 +341,35 @@ void main() {
     }
 
     _updateBlackSheets() {
-        if (this.blackSheets.length < 500) { 
-            if (Math.random() < 0.8) { 
-                const grid = this.g;
-                const r = Math.random();
-                let w, h;
-                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
-                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
-                else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
-                let c;
-                if (Math.random() < 0.8) { 
-                    if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
-                    else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
-                    if (c < 0) c = 0; 
-                } else { c = Math.floor(Math.random() * (grid.cols - w)); }
-                const row = Math.floor(Math.random() * (grid.rows - h));
-                const duration = Math.floor(Math.random() * 200) + 100; 
-                const axis = Math.random() < 0.5 ? 0 : 1;
-                const expandAmount = Math.floor(Math.random() * w) + 2; 
-                const speedScale = Math.random() * 0.6 + 0.2;
-                this.blackSheets.push({ 
-                    c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
-                    posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
-                    flashFrames: 0, 
-                    maxAlpha: 0.75 + Math.random() * 0.2, 
-                    currentAlpha: 0.0, targetAlpha: 1.0 
-                });
+        if (this.blackSheets.length < 1000) { 
+            // Spawn multiple sheets per frame for denser coverage
+            for (let k = 0; k < 3; k++) {
+                if (Math.random() < 0.6) { 
+                    const grid = this.g;
+                    const r = Math.random();
+                    let w, h;
+                    if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
+                    else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
+                    else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
+                    let c;
+                    if (Math.random() < 0.8) { 
+                        if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
+                        else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
+                        if (c < 0) c = 0; 
+                    } else { c = Math.floor(Math.random() * (grid.cols - w)); }
+                    const row = Math.floor(Math.random() * (grid.rows - h));
+                    const duration = Math.floor(Math.random() * 200) + 100; 
+                    const axis = Math.random() < 0.5 ? 0 : 1;
+                    const expandAmount = Math.floor(Math.random() * w) + 2; 
+                    const speedScale = Math.random() * 0.6 + 0.2;
+                    this.blackSheets.push({ 
+                        c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
+                        posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
+                        flashFrames: 0, 
+                        maxAlpha: 0.75 + Math.random() * 0.2, 
+                        currentAlpha: 0.0, targetAlpha: 1.0 
+                    });
+                }
             }
         }
         for (let i = this.blackSheets.length - 1; i >= 0; i--) {
@@ -609,7 +618,7 @@ void main() {
                     if (rem < 30) snapshot.alpha = rem / 30.0;
                 } else {
                     const rem = snapshot.endFrame - currentFrame;
-                    if (rem < 3) snapshot.alpha = rem / 3.0; 
+                    if (rem < 10) snapshot.alpha = rem / 10.0; 
                 }
             }
         }
@@ -633,9 +642,7 @@ void main() {
         
         for (const tri of this.supermanState.fluxTriangles) {
             if (this._pointInTriangle(col, row, tri.p1, tri.p2, tri.p3)) {
-                let fluxColor = '#00FF00'; 
-                if (this.c.derived && this.c.derived.streamColorStr) fluxColor = this.c.derived.streamColorStr;
-                else if (this.c.state.streamColor) fluxColor = this.c.state.streamColor;
+                let fluxColor = this._getCellColor(i);
                 return { char: grid.getChar(i), color: fluxColor, font: fontName, alpha: 1.0, glow: 2, solid: true, bgColor: '#000000', blend: true };
             }
         }

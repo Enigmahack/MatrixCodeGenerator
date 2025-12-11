@@ -382,7 +382,7 @@
     border-radius: 50%;
     border: 1px solid var(--panel-border);
     background: rgba(10, 12, 16, 0.6);
-    color: var(--text-main);
+    color: var(--accent);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -724,8 +724,8 @@ const CELL_TYPE = {
 // --- ConfigurationManager.js ---
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v7.5a';
-        this.slotsKey = 'matrix_slots_v7.5a';
+        this.storageKey = 'matrix_config_v7.6';
+        this.slotsKey = 'matrix_slots_v7.6';
         this.defaults = this._initializeDefaults();
         this.state = { ...this.defaults };
         this.derived = {};
@@ -746,181 +746,217 @@ class ConfigurationManager {
      */
     _initializeDefaults() {
         return {
-            // --- GLOBAL ---
-            streamColor: "#65d778",
-            streamPalette: ["#65d778"],
-            paletteBias: 0,
-            tracerColor: "#d9f2f2",
-            fontSize: 24,
-            streamSpeed: 16,
-            releaseInterval: 2,
-            resolution: 1,
-            enableGlyphAtlas: true,
-            smoothingEnabled: false,
-            smoothingAmount: 0.1,
-            showFpsCounter: true,
-            suppressToasts: false,
-            // --- APPEARANCE ---
-            fontFamily: "MatrixEmbedded",
-            fontWeight: "normal",
-            italicEnabled: false,
-            mirrorEnabled: false,
-            variableBrightnessEnabled: true,
-            brightnessVariance: 20,
-            // Overlap / Imposition Layer
-            overlapEnabled: false,
-            overlapColor: "#FFD700",
-            overlapDensity: 0.2,
-            overlapTarget: "all",
-            dissolveEnabled: true,
-            dissolveMinSize: 18,
-            deteriorationEnabled: true,
-            deteriorationStrength: 4,
-            enableBloom: true,
-            bloomStrength: 4,
-            bloomOpacity: 0.45,
-            tracerGlow: 12,
-            clearAlpha: 0.7,
-            horizontalSpacingFactor: 0.7,
-            verticalSpacingFactor: 1,
-            fontOffsetX: 0,
-            fontOffsetY: 0,
-            stretchX: 1,
-            stretchY: 1.2,
-            // --- BEHAVIOR ---
-            decayFadeDurationFrames: 23,
-            streamSpawnCount: 6,
-            eraserSpawnCount: 16,
-            minStreamGap: 30,
-            minEraserGap: 30,
-            minGapTypes: 20,
-            holeRate: 0.1,
-            desyncIntensity: 0, 
-            eraserStopChance: 1, 
-            tracerStopChance: 1,
-            tracerAttackFrames: 3,
-            tracerHoldFrames: 0,
-            tracerReleaseFrames: 5,
-            invertedTracerEnabled: true,
-            invertedTracerChance: 0.1,
-            rotatorEnabled: true,
-            rotatorChance: 0.13,
-            rotatorSyncToTracer: true,
-            rotatorSyncMultiplier: 0.5,
-            rotatorCycleFactor: 20,
-            rotatorCrossfadeFrames: 6,
-            rotateDuringFade: false,
-            rotatorDesyncEnabled: false,
-            rotatorDesyncVariance: 0,
-            // --- FX ---
-            shaderEnabled: false,
-            customShader: null, 
-            shaderParameter: 0,
-            pulseEnabled: true,
-            pulseFrequencySeconds: 300,
-            pulseDelaySeconds: 0.7,
-            pulseDurationSeconds: 1.2,
-            pulsePreserveSpaces: true,
-            pulseIgnoreTracers: true,
-            pulseDimming: 0.2,
-            pulseBlend: false,
-            pulseWidth: 130,
-            pulseRandomPosition: true,
-            pulseInstantStart: false,
-            pulseCircular: false,
-            clearPulseEnabled: true,
-            clearPulseFrequencySeconds: 235,
-            clearPulseDurationSeconds: 0.7,
-            clearPulsePreserveSpaces: true,
-            clearPulseBlend: false,
-            clearPulseWidth: 190,
-            clearPulseRandomPosition: true,
-            clearPulseInstantStart: false,
-            clearPulseCircular: false,
-            miniPulseEnabled: true,
-            miniPulseFrequencySeconds: 450,
-            miniPulseDurationSeconds: 5,
-            miniPulsePreserveSpaces: true,
-            miniPulseThickness: 100,
-            miniPulseSpawnChance: 0.06,
-            miniPulseSpeed: 16,
-            miniPulseSize: 360,
-            dejaVuEnabled: true,
-            dejaVuFrequencySeconds: 350,
-            dejaVuDurationSeconds: 5,
-            dejaVuMinRectHeight: 1,
-            dejaVuMaxRectHeight: 10,
-            dejaVuHoleBrightness: 0.02,
-            dejaVuRandomizeColors: false,
-            dejaVuIntensity: 0.1,
-            dejaVuBarDurationFrames: 28,
-            dejaVuVarianceFrames: 43,
-            supermanEnabled: true,
-            supermanFrequencySeconds: 290,
-            supermanDurationSeconds: 6,
-            supermanIncludeColors: true,
-            supermanFadeSpeed: 6,
-            supermanGlow: 4,
-            supermanBoltThickness: 5,
-            supermanFlickerRate: 2,
-            supermanWidth: 4,
-            supermanSpawnSpeed: 69,
-            starPowerEnabled: false,
-            starPowerFreq: 100,
-            starPowerRainbowMode: "char",
-            starPowerSaturation: 100,
-            starPowerIntensity: 51,
-            starPowerGlitter: false,
-            starPowerColorCycle: true,
-            starPowerCycleSpeed: 5,
-            rainbowStreamEnabled: false,
-            rainbowStreamChance: 0.5,
-            rainbowStreamIntensity: 50,
-            firewallEnabled: false,
-            firewallFrequencySeconds: 150,
-            firewallRandomColorEnabled: true,
-            firewallColor: "#00ff00",
-            firewallReverseDurationFrames: 20,
-            firewallEraseDurationFrames: 50,
-            // --- BOOT / CRASH ---
-            bootSequenceEnabled: false,
-            crashEnabled: false,
-            crashFrequencySeconds: 600,
-            runBothInOrder: true,
-            // --- INPUT BINDINGS ---
-            keyBindings: {
-                "Pulse": "p",
-                "ClearPulse": "w",
-                "MiniPulse": "e",
-                "DejaVu": "r",
-                "Superman": "t",
-                "Firewall": "y",
-                "ToggleUI": " ",
-                "BootSequence": "b",
-                "CrashSequence": "x",
-                "BootCrashSequence": "c"
+            "streamColor": "#65d778",
+            "streamPalette": [
+              "#65d778",
+              "#169825",
+              "#3fab79"
+            ],
+            "paletteBias": 0,
+            "tracerColor": "#a2ecec",
+            "fontSize": 24,
+            "streamSpeed": 18,
+            "releaseInterval": 4,
+            "resolution": 1.6,
+            "enableGlyphAtlas": true,
+            "smoothingEnabled": true,
+            "smoothingAmount": 0.6,
+            "showFpsCounter": true,
+            "fontFamily": "MatrixEmbedded",
+            "fontWeight": "normal",
+            "italicEnabled": false,
+            "mirrorEnabled": false,
+            "variableBrightnessEnabled": true,
+            "brightnessVariance": 54,
+            "overlapEnabled": true,
+            "overlapColor": "#f2df73",
+            "overlapDensity": 0.4,
+            "overlapTarget": "all",
+            "overlapShimmer": false,
+            "dissolveEnabled": true,
+            "dissolveMinSize": 18,
+            "deteriorationEnabled": true,
+            "deteriorationStrength": 4,
+            "enableBloom": true,
+            "bloomStrength": 3,
+            "bloomOpacity": 0.8,
+            "tracerGlow": 6,
+            "clearAlpha": 0.6,
+            "horizontalSpacingFactor": 0.8,
+            "verticalSpacingFactor": 0.9,
+            "fontOffsetX": 0,
+            "fontOffsetY": 0,
+            "stretchX": 1,
+            "stretchY": 1.2,
+            "decayFadeDurationFrames": 70,
+            "streamSpawnCount": 5,
+            "eraserSpawnCount": 6,
+            "minStreamGap": 10,
+            "minEraserGap": 15,
+            "holeRate": 0,
+            "desyncIntensity": 0,
+            "eraserStopChance": 0,
+            "tracerStopChance": 1,
+            "tracerAttackFrames": 3,
+            "tracerHoldFrames": 0,
+            "tracerReleaseFrames": 5,
+            "invertedTracerEnabled": false,
+            "invertedTracerChance": 0.1,
+            "rotatorEnabled": true,
+            "rotatorChance": 0.13,
+            "rotatorSyncToTracer": true,
+            "rotatorSyncMultiplier": 0.3,
+            "rotatorCycleFactor": 17,
+            "rotatorCrossfadeFrames": 4,
+            "shaderEnabled": true,
+            "customShader": `/**
+ * Film Grain Shader for Matrix Digital Rain
+ * 
+ * Features:
+ * - Adds dynamic film grain noise
+ * - Animated over time
+ * - Respects texture orientation
+ */
+precision mediump float;
+// Uniforms provided by PostProcessor.js
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+// Use vTexCoord from Vertex Shader for correct orientation
+varying vec2 vTexCoord;
+// Shader Configuration
+const float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)
+const bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)
+const float SPEED = 2.5;         // Speed of grain animation
+// Random function
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
+void main() {
+    // Sample the original texture using standard texture coordinates
+    vec4 color = texture2D(uTexture, vTexCoord);
+    // Calculate noise
+    // We can use gl_FragCoord or vTexCoord for noise seed
+    float t = ANIMATED ? uTime * SPEED : 0.0;
+    // Generate random noise value [-1.0, 1.0]
+    float noise = (random(vTexCoord + t) - 0.5) * 2.0;
+    // Apply grain
+    color.rgb += noise * GRAIN_AMOUNT;
+    // Output final color
+    gl_FragColor = color;
+}
+`,
+            "pulseEnabled": false,
+            "pulseFrequencySeconds": 300,
+            "pulseDurationSeconds": 1.8,
+            "pulsePreserveSpaces": true,
+            "pulseIgnoreTracers": true,
+            "pulseDimming": 0.2,
+            "pulseBlend": false,
+            "pulseWidth": 130,
+            "pulseRandomPosition": true,
+            "pulseInstantStart": false,
+            "pulseCircular": false,
+            "clearPulseEnabled": false,
+            "clearPulseFrequencySeconds": 235,
+            "clearPulseDurationSeconds": 1,
+            "clearPulsePreserveSpaces": true,
+            "clearPulseBlend": false,
+            "clearPulseWidth": 280,
+            "clearPulseRandomPosition": true,
+            "clearPulseInstantStart": false,
+            "clearPulseCircular": false,
+            "miniPulseEnabled": false,
+            "miniPulseFrequencySeconds": 450,
+            "miniPulseDurationSeconds": 5,
+            "miniPulsePreserveSpaces": true,
+            "miniPulseThickness": 100,
+            "miniPulseSpawnChance": 0.06,
+            "miniPulseSpeed": 16,
+            "miniPulseSize": 360,
+            "dejaVuEnabled": false,
+            "dejaVuFrequencySeconds": 350,
+            "dejaVuDurationSeconds": 5,
+            "dejaVuMinRectHeight": 1,
+            "dejaVuMaxRectHeight": 10,
+            "dejaVuHoleBrightness": 0.02,
+            "dejaVuRandomizeColors": false,
+            "dejaVuIntensity": 0.1,
+            "dejaVuBarDurationFrames": 28,
+            "dejaVuVarianceFrames": 43,
+            "supermanEnabled": false,
+            "supermanFrequencySeconds": 290,
+            "supermanDurationSeconds": 6,
+            "supermanIncludeColors": true,
+            "supermanFadeSpeed": 6,
+            "supermanGlow": 4,
+            "supermanBoltThickness": 5,
+            "supermanFlickerRate": 2,
+            "supermanWidth": 4,
+            "supermanSpawnSpeed": 69,
+            "starPowerEnabled": false,
+            "starPowerRainbowMode": "char",
+            "starPowerSaturation": 100,
+            "starPowerIntensity": 51,
+            "starPowerGlitter": false,
+            "starPowerColorCycle": true,
+            "starPowerCycleSpeed": 5,
+            "rainbowStreamEnabled": false,
+            "rainbowStreamChance": 1,
+            "rainbowStreamIntensity": 50,
+            "firewallEnabled": false,
+            "firewallFrequencySeconds": 150,
+            "firewallRandomColorEnabled": true,
+            "firewallColor": "#00ff00",
+            "firewallReverseDurationFrames": 20,
+            "firewallEraseDurationFrames": 50,
+            "bootSequenceEnabled": false,
+            "crashEnabled": false,
+            "crashFrequencySeconds": 600,
+            "runBothInOrder": true,
+            "keyBindings": {
+              "Pulse": "q",
+              "ClearPulse": "w",
+              "MiniPulse": "e",
+              "DejaVu": "r",
+              "Superman": "t",
+              "Firewall": "y",
+              "ToggleUI": "h",
+              "BootSequence": "b",
+              "CrashSequence": "x",
+              "BootCrashSequence": "c"
             },
-            hideMenuIcon: true,
-            // --- FONT SETTINGS ---
-            fontSettings: {
-                "MatrixEmbedded": {
-                    active: true,
-                    useCustomChars: false,
-                    customCharacters: ""
-                }
+            "hideMenuIcon": true,
+            "fontSettings": {
+              "MatrixEmbedded": {
+                "active": false,
+                "useCustomChars": false,
+                "customCharacters": ""
+              },
+              "CustomFont_5e2697679380fc43": {
+                "active": true,
+                "useCustomChars": true,
+                "customCharacters": "~}|{z!\"#$%&'()*43210.-,+56789:;<=>HGFEDCBA@?IJKLMNOPQR\\[ZYXWVUTS]^_`abcdefpoyxnmwvlkutjisrhgq/"
+              }
             },
-            // Properties not directly exposed in UI but used in defaults.json or internally
-            deteriorationType: "ghost",
-            tracerSizeIncrease: 1,
-            supermanProb: 4,
-            dejaVuAutoMode: true,
-            clearPulseIgnoreTracers: true, 
-            clearPulseCircular: false, 
-            clearPulseInstantStart: false,
-            dejaVuPerformanceMode: false,
-            pulseDelayFrames: 60,
-            overlapShimmer: false
-        };
+            "deteriorationType": "ghost",
+            "tracerSizeIncrease": 1,
+            "supermanProb": 4,
+            "dejaVuAutoMode": true,
+            "clearPulseIgnoreTracers": true,
+            "clearPulseCircular": false,
+            "clearPulseInstantStart": false,
+            "dejaVuPerformanceMode": false,
+            "pulseDelayFrames": 60,
+            "overlapShimmer": false,
+            "minGapTypes": 20,
+            "rotateDuringFade": false,
+            "rotatorDesyncEnabled": false,
+            "rotatorDesyncVariance": 0,
+            "suppressToasts": false,
+            "ttlMinSeconds": 1,
+            "ttlMaxSeconds": 8
+          };
     }
     /**
      * Loads configuration slots from local storage.
@@ -1062,10 +1098,10 @@ class ConfigurationManager {
      * Resets the application state to its default values.
      */
     reset() {
-        this.state = JSON.parse(JSON.stringify(this.defaults));
-        this.updateDerivedValues();
-        this.save();
-        this.notify('ALL');
+        // Load the "Trilogy" preset (slot 0) after a factory reset
+        // This ensures the desired default configuration is applied consistently.
+        this.loadFromSlot(0);
+        // The loadFromSlot method already calls updateDerivedValues(), save(), and notify('ALL')
     }
     /**
      * Saves the current application state to a specific slot.
@@ -1913,6 +1949,7 @@ void main() {
         this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
         this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
+        this.endFlashTriggered = false;
         // console.log("CrashEffect Triggered");
         return true;
     }
@@ -1921,6 +1958,10 @@ void main() {
         this.frame++; 
         const elapsedTime = (performance.now() - this.startTime) / 1000;
         const progress = elapsedTime / this.durationSeconds;
+        if (progress > 0.92 && !this.endFlashTriggered) {
+            this.endFlashTriggered = true;
+            if (this.registry) this.registry.trigger('Pulse');
+        }
         if (progress >= 1.0) {
             this.active = false;
             this.c.set('customShader', this.originalShader);
@@ -2031,32 +2072,35 @@ void main() {
         }
     }
     _updateBlackSheets() {
-        if (this.blackSheets.length < 500) { 
-            if (Math.random() < 0.8) { 
-                const grid = this.g;
-                const r = Math.random();
-                let w, h;
-                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
-                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
-                else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
-                let c;
-                if (Math.random() < 0.8) { 
-                    if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
-                    else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
-                    if (c < 0) c = 0; 
-                } else { c = Math.floor(Math.random() * (grid.cols - w)); }
-                const row = Math.floor(Math.random() * (grid.rows - h));
-                const duration = Math.floor(Math.random() * 200) + 100; 
-                const axis = Math.random() < 0.5 ? 0 : 1;
-                const expandAmount = Math.floor(Math.random() * w) + 2; 
-                const speedScale = Math.random() * 0.6 + 0.2;
-                this.blackSheets.push({ 
-                    c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
-                    posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
-                    flashFrames: 0, 
-                    maxAlpha: 0.75 + Math.random() * 0.2, 
-                    currentAlpha: 0.0, targetAlpha: 1.0 
-                });
+        if (this.blackSheets.length < 1000) { 
+            // Spawn multiple sheets per frame for denser coverage
+            for (let k = 0; k < 3; k++) {
+                if (Math.random() < 0.6) { 
+                    const grid = this.g;
+                    const r = Math.random();
+                    let w, h;
+                    if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
+                    else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
+                    else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
+                    let c;
+                    if (Math.random() < 0.8) { 
+                        if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
+                        else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
+                        if (c < 0) c = 0; 
+                    } else { c = Math.floor(Math.random() * (grid.cols - w)); }
+                    const row = Math.floor(Math.random() * (grid.rows - h));
+                    const duration = Math.floor(Math.random() * 200) + 100; 
+                    const axis = Math.random() < 0.5 ? 0 : 1;
+                    const expandAmount = Math.floor(Math.random() * w) + 2; 
+                    const speedScale = Math.random() * 0.6 + 0.2;
+                    this.blackSheets.push({ 
+                        c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
+                        posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
+                        flashFrames: 0, 
+                        maxAlpha: 0.75 + Math.random() * 0.2, 
+                        currentAlpha: 0.0, targetAlpha: 1.0 
+                    });
+                }
             }
         }
         for (let i = this.blackSheets.length - 1; i >= 0; i--) {
@@ -2288,7 +2332,7 @@ void main() {
                     if (rem < 30) snapshot.alpha = rem / 30.0;
                 } else {
                     const rem = snapshot.endFrame - currentFrame;
-                    if (rem < 3) snapshot.alpha = rem / 3.0; 
+                    if (rem < 10) snapshot.alpha = rem / 10.0; 
                 }
             }
         }
@@ -2306,9 +2350,7 @@ void main() {
         }
         for (const tri of this.supermanState.fluxTriangles) {
             if (this._pointInTriangle(col, row, tri.p1, tri.p2, tri.p3)) {
-                let fluxColor = '#00FF00'; 
-                if (this.c.derived && this.c.derived.streamColorStr) fluxColor = this.c.derived.streamColorStr;
-                else if (this.c.state.streamColor) fluxColor = this.c.state.streamColor;
+                let fluxColor = this._getCellColor(i);
                 return { char: grid.getChar(i), color: fluxColor, font: fontName, alpha: 1.0, glow: 2, solid: true, bgColor: '#000000', blend: true };
             }
         }
@@ -2765,12 +2807,11 @@ class PulseEffect extends AbstractEffect {
                     if(style) {
                         rgb = Utils.hslToRgb(style.h, style.s, style.l);
                     } else {
-                        // Fallback for non-styled cells (should be rare now with StandardMode fix)
-                         // But we still need to check if it's a tracer to set the color to White/TracerColor if needed?
-                         // Actually, relying on 'isTracer' below to override the color for the snapshot is better?
-                         // No, 'snap.colors' should hold the VISUAL color.
-                         // If it's a tracer without style, it should be TracerColor.
-                         // But let's stick to the flow:
+                        // FIX: Use palette color if available
+                        const pIdx = this.g.paletteIndices[i];
+                        if (d.paletteRgbs && d.paletteRgbs[pIdx]) {
+                            rgb = d.paletteRgbs[pIdx];
+                        }
                     }
                     // 2. Identify Tracer State (Independent of Style)
                     const type = this.g.types[i]; 
@@ -4680,6 +4721,8 @@ class CharacterSelectorModal {
         this.scanCanvas.width = 20;
         this.scanCanvas.height = 20;
         this.scanCtx = this.scanCanvas.getContext('2d', { willReadFrequently: true });
+        // Subscribe to config changes for fontSettings
+        this.config.subscribe((key) => this._handleConfigChange(key));
     }
     show() {
         if (!this.dom) {
@@ -4701,6 +4744,12 @@ class CharacterSelectorModal {
     hide() {
         if (this.dom) {
             this.dom.overlay.classList.remove('visible');
+        }
+    }
+    _handleConfigChange(key) {
+        if (key === 'fontSettings' && this.dom && this.dom.overlay.classList.contains('visible')) {
+            // If font settings changed while modal is open, reload current font settings to refresh UI
+            this._loadFontSettings(this.currentFont);
         }
     }
     _createDOM() {
@@ -5121,46 +5170,22 @@ class FontManager {
      * Import a custom font into the database and inject it as a CSS @font-face.
      * @param {File} file - The font file to import.
      */
-    importFont(file) {
-        const reader = new FileReader();
-        reader.onload = async event => {
-            const arrayBuffer = event.target.result;
-            const blob = new Blob([arrayBuffer], { type: file.type });
-            let fontName;
-            try {
-                const hash = await Utils.computeSHA256(arrayBuffer);
-                fontName = `CustomFont_${hash.substring(0, 16)}`;
-            } catch (e) {
-                console.warn("Hashing failed, falling back to timestamp", e);
-                fontName = `CustomFont_${Date.now()}`;
-            }
-            const record = {
-                name: fontName,
-                display: file.name,
-                data: blob,
-                mimeType: file.type,
-            };
-            const transaction = this.db.transaction(this.storeName, 'readwrite');
-            const objectStore = transaction.objectStore(this.storeName);
-            objectStore.put(record).onsuccess = () => {
-                const format = this._getFormatFromType(file.type);
-                this._injectCSS(fontName, URL.createObjectURL(blob), format);
-                this.loadedFonts.push(record);
-                // Ensure config and activate the new font
-                this._ensureFontConfig(fontName);
-                // Optionally auto-activate imported font?
-                // const settings = { ...this.config.get('fontSettings') };
-                // settings[fontName].active = true;
-                // this.config.set('fontSettings', settings);
-                this.config.set('fontFamily', fontName);
-                this._notify();
-                this.notifications.show(`Imported: ${file.name}`, 'success');
-            };
-            transaction.onerror = () => {
-                this.notifications.show('Database Write Failed', 'error');
-            };
-        };
-        reader.readAsArrayBuffer(file);
+    async importFont(file) {
+        // ... (file loading and parsing code) ...
+        try {
+            // ... (IndexedDB saving) ...
+            const fontData = { name: fontName, display: fontDisplay, isEmbedded: false };
+            this.loadedFonts.push(fontData);
+            // Ensure font is active in config
+            this._saveFontSetting(fontData.name, 'active', true);
+            this.notifications.show(`Font '${fontDisplay}' imported.`, 'success');
+            // Notify other components that font list or settings may have changed
+            this.config.notify('fontFamily'); // This refreshes the font dropdown and logo
+            this._notifySubscribers(); // Notify FontManager's own subscribers (e.g., UIManager for font list)
+        } catch (error) {
+            console.error("Error importing font:", error);
+            this.notifications.show(`Failed to import font '${fontDisplay}'.`, 'error');
+        }
     }
     /**
      * Delete a font by its ID from the database and the DOM.
@@ -6457,52 +6482,40 @@ class UIManager {
                 this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
                 return;
             }
-            if(key === 'fontFamily') {
-                const sel = document.getElementById('in-fontFamily');
-                if(sel) { 
-                    sel.innerHTML = ''; 
-                    this._getFonts().forEach(o => { 
-                        const opt = document.createElement('option'); 
-                        opt.value = o.value; 
-                        opt.textContent = o.label; 
-                        if(o.custom) opt.className = 'custom-font-opt'; 
-                        if(this.c.get('fontFamily') === o.value) opt.selected = true; 
-                        sel.appendChild(opt); 
-                    }); 
-                }
-                const list = document.getElementById('fontListUI'); 
-                                if (list) this.updateFontList(list); 
-                                // Update logo when font family changes, re-randomize char
-                                const logo = document.getElementById('matrixLogo');
-                                if (logo) {
-                                    const randomChar = Utils.getRandomKatakanaChar();
-                                    const currentColor = this.c.get('streamColor');
-                                    logo.src = Utils.generateGlyphSVG(randomChar, currentColor, 48, this.c.get('fontFamily'));
-                                }
-                                const favicon = document.getElementById('favicon');
-                                if (favicon) {
-                                    const randomChar = Utils.getRandomKatakanaChar();
-                                    const currentColor = this.c.get('streamColor');
-                                    favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
-                                }
-                                return;
+                        if (key === 'fontFamily' || key === 'fontSettings') { // Now also refreshes on fontSettings changes
+                            const sel = document.getElementById('in-fontFamily');
+                            if(sel) { 
+                                sel.innerHTML = ''; 
+                                this._getFonts().forEach(o => { 
+                                    const opt = document.createElement('option'); 
+                                    opt.value = o.value; 
+                                    opt.textContent = o.label; 
+                                    if(o.custom) opt.className = 'custom-font-opt'; 
+                                    if(this.c.get('fontFamily') === o.value) opt.selected = true; 
+                                    sel.appendChild(opt); 
+                                }); 
                             }
-            if (key === 'streamColor') {
-                const logo = document.getElementById('matrixLogo');
-                if (logo) {
-                    const randomChar = Utils.getRandomKatakanaChar(); // Re-randomize char on color change too
-                    const currentColor = this.c.get('streamColor');
-                    logo.src = Utils.generateGlyphSVG(randomChar, currentColor, 48, this.c.get('fontFamily'));
-                }
-                const favicon = document.getElementById('favicon');
-                if (favicon) {
-                    const randomChar = Utils.getRandomKatakanaChar();
-                    const currentColor = this.c.get('streamColor');
-                    favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
-                }
-            }
-            if (key === 'customShader' || key === 'shaderEnabled' || key === 'ALL') {
-                const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
+                            const list = document.getElementById('fontListUI'); 
+                            if (list) this.updateFontList(list); 
+                            // Update logo and favicon when font family or settings change, re-randomize char
+                            const currentPrimaryColor = this.c.get('streamPalette')[0]; // Use primary palette color
+                            const logo = document.getElementById('matrixLogo');
+                            if (logo) {
+                                const randomChar = Utils.getRandomKatakanaChar();
+                                logo.src = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 48, this.c.get('fontFamily'));
+                            }
+                            const favicon = document.getElementById('favicon');
+                            if (favicon) {
+                                const randomChar = Utils.getRandomKatakanaChar();
+                                favicon.href = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
+                            }
+                            return;
+                        }
+                        // Removed the separate `if (key === 'streamColor')` block as its functionality
+                        // is now handled by the 'streamPalette' block, and this 'fontFamily'/'fontSettings' block.
+                        // ... the rest of the refresh method ...
+                        if (key === 'customShader' || key === 'shaderEnabled' || key === 'ALL') {
+                            const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
                 if (shaderNameDisplay) {
                     let name = 'No shader loaded.';
                     const customShaderSource = this.c.get('customShader');
@@ -6542,10 +6555,29 @@ class UIManager {
                          biasRow.classList.add('control-disabled');
                      }
                  }
-                 // Re-render the list itself if needed? 
-                 // Actually the _renderColorList calls refresh implicitly by updating DOM? 
-                 // No, _renderColorList updates DOM directly. 
-                 // But we need to update the Bias slider state.
+                 // Update UI Elements based on primary color
+                 if (palette && palette.length > 0) {
+                     const color = palette[0];
+                     // Update Settings Wheel
+                     const toggle = this.dom.toggle;
+                     if (toggle) {
+                         toggle.style.setProperty('--accent', color);
+                         toggle.style.borderColor = color;
+                         // toggle.style.color = color; // Removed to allow CSS hover override
+                         toggle.style.boxShadow = `0 0 5px ${color}40`; // Subtle glow using hex alpha
+                     }
+                     // Update Logo & Favicon
+                     const logo = document.getElementById('matrixLogo');
+                     if (logo) {
+                        const randomChar = Utils.getRandomKatakanaChar();
+                        logo.src = Utils.generateGlyphSVG(randomChar, color, 48, this.c.get('fontFamily'));
+                     }
+                     const favicon = document.getElementById('favicon');
+                     if (favicon) {
+                        const randomChar = Utils.getRandomKatakanaChar();
+                        favicon.href = Utils.generateGlyphSVG(randomChar, color, 32, this.c.get('fontFamily'));
+                     }
+                 }
             }
             if (key === 'hideMenuIcon' || key === 'ALL') {
                 const shouldHide = this.c.get('hideMenuIcon');

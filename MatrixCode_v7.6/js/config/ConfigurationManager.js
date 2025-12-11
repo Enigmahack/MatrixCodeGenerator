@@ -1,7 +1,7 @@
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v7.5a';
-        this.slotsKey = 'matrix_slots_v7.5a';
+        this.storageKey = 'matrix_config_v7.6';
+        this.slotsKey = 'matrix_slots_v7.6';
         this.defaults = this._initializeDefaults();
 
         this.state = { ...this.defaults };
@@ -26,199 +26,227 @@ class ConfigurationManager {
      */
     _initializeDefaults() {
         return {
-            // --- GLOBAL ---
-            streamColor: "#65d778",
-            streamPalette: ["#65d778"],
-            paletteBias: 0,
-            tracerColor: "#d9f2f2",
-            fontSize: 24,
-            streamSpeed: 16,
-            releaseInterval: 2,
-            resolution: 1,
-            enableGlyphAtlas: true,
-            smoothingEnabled: false,
-            smoothingAmount: 0.1,
-            showFpsCounter: true,
-            suppressToasts: false,
+            "streamColor": "#65d778",
+            "streamPalette": [
+              "#65d778",
+              "#169825",
+              "#3fab79"
+            ],
+            "paletteBias": 0,
+            "tracerColor": "#a2ecec",
+            "fontSize": 24,
+            "streamSpeed": 18,
+            "releaseInterval": 4,
+            "resolution": 1.6,
+            "enableGlyphAtlas": true,
+            "smoothingEnabled": true,
+            "smoothingAmount": 0.6,
+            "showFpsCounter": true,
+            "fontFamily": "MatrixEmbedded",
+            "fontWeight": "normal",
+            "italicEnabled": false,
+            "mirrorEnabled": false,
+            "variableBrightnessEnabled": true,
+            "brightnessVariance": 54,
+            "overlapEnabled": true,
+            "overlapColor": "#f2df73",
+            "overlapDensity": 0.4,
+            "overlapTarget": "all",
+            "overlapShimmer": false,
+            "dissolveEnabled": true,
+            "dissolveMinSize": 18,
+            "deteriorationEnabled": true,
+            "deteriorationStrength": 4,
+            "enableBloom": true,
+            "bloomStrength": 3,
+            "bloomOpacity": 0.8,
+            "tracerGlow": 6,
+            "clearAlpha": 0.6,
+            "horizontalSpacingFactor": 0.8,
+            "verticalSpacingFactor": 0.9,
+            "fontOffsetX": 0,
+            "fontOffsetY": 0,
+            "stretchX": 1,
+            "stretchY": 1.2,
+            "decayFadeDurationFrames": 70,
+            "streamSpawnCount": 5,
+            "eraserSpawnCount": 6,
+            "minStreamGap": 10,
+            "minEraserGap": 15,
+            "holeRate": 0,
+            "desyncIntensity": 0,
+            "eraserStopChance": 0,
+            "tracerStopChance": 1,
+            "tracerAttackFrames": 3,
+            "tracerHoldFrames": 0,
+            "tracerReleaseFrames": 5,
+            "invertedTracerEnabled": false,
+            "invertedTracerChance": 0.1,
+            "rotatorEnabled": true,
+            "rotatorChance": 0.13,
+            "rotatorSyncToTracer": true,
+            "rotatorSyncMultiplier": 0.3,
+            "rotatorCycleFactor": 17,
+            "rotatorCrossfadeFrames": 4,
+            "shaderEnabled": true,
+            "customShader": `/**
+ * Film Grain Shader for Matrix Digital Rain
+ * 
+ * Features:
+ * - Adds dynamic film grain noise
+ * - Animated over time
+ * - Respects texture orientation
+ */
 
-            // --- APPEARANCE ---
-            fontFamily: "MatrixEmbedded",
-            fontWeight: "normal",
-            italicEnabled: false,
-            mirrorEnabled: false,
-            variableBrightnessEnabled: true,
-            brightnessVariance: 20,
-            
-            // Overlap / Imposition Layer
-            overlapEnabled: false,
-            overlapColor: "#FFD700",
-            overlapDensity: 0.2,
-            overlapTarget: "all",
-            
-            dissolveEnabled: true,
-            dissolveMinSize: 18,
-            deteriorationEnabled: true,
-            deteriorationStrength: 4,
-            enableBloom: true,
-            bloomStrength: 4,
-            bloomOpacity: 0.45,
-            tracerGlow: 12,
-            clearAlpha: 0.7,
-            horizontalSpacingFactor: 0.7,
-            verticalSpacingFactor: 1,
-            fontOffsetX: 0,
-            fontOffsetY: 0,
-            stretchX: 1,
-            stretchY: 1.2,
+precision mediump float;
 
-            // --- BEHAVIOR ---
-            decayFadeDurationFrames: 23,
-            streamSpawnCount: 6,
-            eraserSpawnCount: 16,
-            minStreamGap: 30,
-            minEraserGap: 30,
-            minGapTypes: 20,
-            holeRate: 0.1,
-            desyncIntensity: 0, 
-            eraserStopChance: 1, 
-            tracerStopChance: 1,
-            tracerAttackFrames: 3,
-            tracerHoldFrames: 0,
-            tracerReleaseFrames: 5,
-            invertedTracerEnabled: true,
-            invertedTracerChance: 0.1,
-            rotatorEnabled: true,
-            rotatorChance: 0.13,
-            rotatorSyncToTracer: true,
-            rotatorSyncMultiplier: 0.5,
-            rotatorCycleFactor: 20,
-            rotatorCrossfadeFrames: 6,
-            rotateDuringFade: false,
-            rotatorDesyncEnabled: false,
-            rotatorDesyncVariance: 0,
+// Uniforms provided by PostProcessor.js
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
 
-            // --- FX ---
-            shaderEnabled: false,
-            customShader: null, 
-            shaderParameter: 0,
-            
-            pulseEnabled: true,
-            pulseFrequencySeconds: 300,
-            pulseDelaySeconds: 0.7,
-            pulseDurationSeconds: 1.2,
-            pulsePreserveSpaces: true,
-            pulseIgnoreTracers: true,
-            pulseDimming: 0.2,
-            pulseBlend: false,
-            pulseWidth: 130,
-            pulseRandomPosition: true,
-            pulseInstantStart: false,
-            pulseCircular: false,
+// Use vTexCoord from Vertex Shader for correct orientation
+varying vec2 vTexCoord;
 
-            clearPulseEnabled: true,
-            clearPulseFrequencySeconds: 235,
-            clearPulseDurationSeconds: 0.7,
-            clearPulsePreserveSpaces: true,
-            clearPulseBlend: false,
-            clearPulseWidth: 190,
-            clearPulseRandomPosition: true,
-            clearPulseInstantStart: false,
-            clearPulseCircular: false,
-            
-            miniPulseEnabled: true,
-            miniPulseFrequencySeconds: 450,
-            miniPulseDurationSeconds: 5,
-            miniPulsePreserveSpaces: true,
-            miniPulseThickness: 100,
-            miniPulseSpawnChance: 0.06,
-            miniPulseSpeed: 16,
-            miniPulseSize: 360,
-            
-            dejaVuEnabled: true,
-            dejaVuFrequencySeconds: 350,
-            dejaVuDurationSeconds: 5,
-            dejaVuMinRectHeight: 1,
-            dejaVuMaxRectHeight: 10,
-            dejaVuHoleBrightness: 0.02,
-            dejaVuRandomizeColors: false,
-            dejaVuIntensity: 0.1,
-            dejaVuBarDurationFrames: 28,
-            dejaVuVarianceFrames: 43,
-            
-            supermanEnabled: true,
-            supermanFrequencySeconds: 290,
-            supermanDurationSeconds: 6,
-            supermanIncludeColors: true,
-            supermanFadeSpeed: 6,
-            supermanGlow: 4,
-            supermanBoltThickness: 5,
-            supermanFlickerRate: 2,
-            supermanWidth: 4,
-            supermanSpawnSpeed: 69,
-            
-            starPowerEnabled: false,
-            starPowerFreq: 100,
-            starPowerRainbowMode: "char",
-            starPowerSaturation: 100,
-            starPowerIntensity: 51,
-            starPowerGlitter: false,
-            starPowerColorCycle: true,
-            starPowerCycleSpeed: 5,
-            
-            rainbowStreamEnabled: false,
-            rainbowStreamChance: 0.5,
-            rainbowStreamIntensity: 50,
-            
-            firewallEnabled: false,
-            firewallFrequencySeconds: 150,
-            firewallRandomColorEnabled: true,
-            firewallColor: "#00ff00",
-            firewallReverseDurationFrames: 20,
-            firewallEraseDurationFrames: 50,
+// Shader Configuration
+const float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)
+const bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)
+const float SPEED = 2.5;         // Speed of grain animation
 
-            // --- BOOT / CRASH ---
-            bootSequenceEnabled: false,
-            crashEnabled: false,
-            crashFrequencySeconds: 600,
-            runBothInOrder: true,
+// Random function
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
 
-            // --- INPUT BINDINGS ---
-            keyBindings: {
-                "Pulse": "p",
-                "ClearPulse": "w",
-                "MiniPulse": "e",
-                "DejaVu": "r",
-                "Superman": "t",
-                "Firewall": "y",
-                "ToggleUI": " ",
-                "BootSequence": "b",
-                "CrashSequence": "x",
-                "BootCrashSequence": "c"
+void main() {
+    // Sample the original texture using standard texture coordinates
+    vec4 color = texture2D(uTexture, vTexCoord);
+    
+    // Calculate noise
+    // We can use gl_FragCoord or vTexCoord for noise seed
+    float t = ANIMATED ? uTime * SPEED : 0.0;
+    
+    // Generate random noise value [-1.0, 1.0]
+    float noise = (random(vTexCoord + t) - 0.5) * 2.0;
+    
+    // Apply grain
+    color.rgb += noise * GRAIN_AMOUNT;
+    
+    // Output final color
+    gl_FragColor = color;
+}
+`,
+            "pulseEnabled": false,
+            "pulseFrequencySeconds": 300,
+            "pulseDurationSeconds": 1.8,
+            "pulsePreserveSpaces": true,
+            "pulseIgnoreTracers": true,
+            "pulseDimming": 0.2,
+            "pulseBlend": false,
+            "pulseWidth": 130,
+            "pulseRandomPosition": true,
+            "pulseInstantStart": false,
+            "pulseCircular": false,
+            "clearPulseEnabled": false,
+            "clearPulseFrequencySeconds": 235,
+            "clearPulseDurationSeconds": 1,
+            "clearPulsePreserveSpaces": true,
+            "clearPulseBlend": false,
+            "clearPulseWidth": 280,
+            "clearPulseRandomPosition": true,
+            "clearPulseInstantStart": false,
+            "clearPulseCircular": false,
+            "miniPulseEnabled": false,
+            "miniPulseFrequencySeconds": 450,
+            "miniPulseDurationSeconds": 5,
+            "miniPulsePreserveSpaces": true,
+            "miniPulseThickness": 100,
+            "miniPulseSpawnChance": 0.06,
+            "miniPulseSpeed": 16,
+            "miniPulseSize": 360,
+            "dejaVuEnabled": false,
+            "dejaVuFrequencySeconds": 350,
+            "dejaVuDurationSeconds": 5,
+            "dejaVuMinRectHeight": 1,
+            "dejaVuMaxRectHeight": 10,
+            "dejaVuHoleBrightness": 0.02,
+            "dejaVuRandomizeColors": false,
+            "dejaVuIntensity": 0.1,
+            "dejaVuBarDurationFrames": 28,
+            "dejaVuVarianceFrames": 43,
+            "supermanEnabled": false,
+            "supermanFrequencySeconds": 290,
+            "supermanDurationSeconds": 6,
+            "supermanIncludeColors": true,
+            "supermanFadeSpeed": 6,
+            "supermanGlow": 4,
+            "supermanBoltThickness": 5,
+            "supermanFlickerRate": 2,
+            "supermanWidth": 4,
+            "supermanSpawnSpeed": 69,
+            "starPowerEnabled": false,
+            "starPowerRainbowMode": "char",
+            "starPowerSaturation": 100,
+            "starPowerIntensity": 51,
+            "starPowerGlitter": false,
+            "starPowerColorCycle": true,
+            "starPowerCycleSpeed": 5,
+            "rainbowStreamEnabled": false,
+            "rainbowStreamChance": 1,
+            "rainbowStreamIntensity": 50,
+            "firewallEnabled": false,
+            "firewallFrequencySeconds": 150,
+            "firewallRandomColorEnabled": true,
+            "firewallColor": "#00ff00",
+            "firewallReverseDurationFrames": 20,
+            "firewallEraseDurationFrames": 50,
+            "bootSequenceEnabled": false,
+            "crashEnabled": false,
+            "crashFrequencySeconds": 600,
+            "runBothInOrder": true,
+            "keyBindings": {
+              "Pulse": "q",
+              "ClearPulse": "w",
+              "MiniPulse": "e",
+              "DejaVu": "r",
+              "Superman": "t",
+              "Firewall": "y",
+              "ToggleUI": "h",
+              "BootSequence": "b",
+              "CrashSequence": "x",
+              "BootCrashSequence": "c"
             },
-            
-            hideMenuIcon: true,
-
-            // --- FONT SETTINGS ---
-            fontSettings: {
-                "MatrixEmbedded": {
-                    active: true,
-                    useCustomChars: false,
-                    customCharacters: ""
-                }
+            "hideMenuIcon": true,
+            "fontSettings": {
+              "MatrixEmbedded": {
+                "active": false,
+                "useCustomChars": false,
+                "customCharacters": ""
+              },
+              "CustomFont_5e2697679380fc43": {
+                "active": true,
+                "useCustomChars": true,
+                "customCharacters": "~}|{z!\"#$%&'()*43210.-,+56789:;<=>HGFEDCBA@?IJKLMNOPQR\\[ZYXWVUTS]^_`abcdefpoyxnmwvlkutjisrhgq/"
+              }
             },
-
-            // Properties not directly exposed in UI but used in defaults.json or internally
-            deteriorationType: "ghost",
-            tracerSizeIncrease: 1,
-            supermanProb: 4,
-            dejaVuAutoMode: true,
-            clearPulseIgnoreTracers: true, 
-            clearPulseCircular: false, 
-            clearPulseInstantStart: false,
-            dejaVuPerformanceMode: false,
-            pulseDelayFrames: 60,
-            overlapShimmer: false
-        };
+            "deteriorationType": "ghost",
+            "tracerSizeIncrease": 1,
+            "supermanProb": 4,
+            "dejaVuAutoMode": true,
+            "clearPulseIgnoreTracers": true,
+            "clearPulseCircular": false,
+            "clearPulseInstantStart": false,
+            "dejaVuPerformanceMode": false,
+            "pulseDelayFrames": 60,
+            "overlapShimmer": false,
+            "minGapTypes": 20,
+            "rotateDuringFade": false,
+            "rotatorDesyncEnabled": false,
+            "rotatorDesyncVariance": 0,
+            "suppressToasts": false,
+            "ttlMinSeconds": 1,
+            "ttlMaxSeconds": 8
+          };
     }
 
     /**
@@ -376,10 +404,10 @@ class ConfigurationManager {
      * Resets the application state to its default values.
      */
     reset() {
-        this.state = JSON.parse(JSON.stringify(this.defaults));
-        this.updateDerivedValues();
-        this.save();
-        this.notify('ALL');
+        // Load the "Trilogy" preset (slot 0) after a factory reset
+        // This ensures the desired default configuration is applied consistently.
+        this.loadFromSlot(0);
+        // The loadFromSlot method already calls updateDerivedValues(), save(), and notify('ALL')
     }
 
     /**
