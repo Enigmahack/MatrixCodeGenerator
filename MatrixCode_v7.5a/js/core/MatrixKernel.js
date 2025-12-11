@@ -56,7 +56,9 @@ class MatrixKernel {
             MiniPulseEffect,
             DejaVuEffect,
             SupermanEffect,
-            FirewallEffect
+            FirewallEffect,
+            BootEffect,
+            CrashEffect
         ];
         effects.forEach((EffectClass) => this.effectRegistry.register(new EffectClass(this.grid, this.config)));
     }
@@ -73,6 +75,13 @@ class MatrixKernel {
 
         // Initialize font manager and await its completion
         await this.fontMgr.init();
+
+        // Safety: Reset Shader State on Reload
+        if (this.config.get('shaderEnabled')) {
+            this.config.set('shaderEnabled', false);
+            this.config.set('customShader', null);
+            console.log("Resetting stuck shader state on init.");
+        }
     }
 
     /**
@@ -109,7 +118,11 @@ class MatrixKernel {
                 if (boundKey && boundKey.toLowerCase() === key) {
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
-                    } else {
+                    } else if (action === 'BootSequence' || action === 'CrashSequence') { 
+                        this.effectRegistry.trigger(action);
+                        this.notifications.show(`${action} Triggered`, 'success');
+                    }
+                    else {
                         if (this.effectRegistry.trigger(action)) {
                             this.notifications.show(`${action} Triggered`, 'success');
                         }

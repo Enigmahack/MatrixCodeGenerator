@@ -887,6 +887,8 @@ class ConfigurationManager {
                 "DejaVu": "r",
                 "Superman": "t",
                 "Firewall": "y",
+                "BootSequence": "b",
+                "CrashSequence": "c",
                 "ToggleUI": "h"
             },
             hideMenuIcon: false,
@@ -1295,6 +1297,220 @@ class EffectRegistry {
             update() {}
             getOverride(i) { return null; }
         }
+// --- BootEffect.js ---
+class BootEffect extends AbstractEffect {
+    constructor(g, c) {
+        super(g, c);
+        this.name = "BootSequence";
+        this.active = false;
+        this.startTime = 0;
+        this.durationSeconds = 3.5; 
+        this.originalShader = null; 
+        this.originalShaderEnabled = false; 
+        this.originalShaderParameter = 0.5; 
+    }
+    trigger() {
+        if (this.active) return false;
+        this.originalShaderEnabled = this.c.state.shaderEnabled;
+        this.originalShader = this.c.state.customShader;
+        this.originalShaderParameter = this.c.state.shaderParameter;
+        this.c.set('shaderEnabled', true);
+        this.c.set('customShader', `
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec2 uMouse;
+uniform float uParameter; // 0.0 to 1.0 over 3.5s
+varying vec2 vTexCoord;
+// --- UTILS ---
+float random(float n) {
+    return fract(sin(n * 12.9898) * 43758.5453123);
+}
+float noise(float p) {
+    float i = floor(p);
+    float f = fract(p);
+    return mix(random(i), random(i + 1.0), f * f * (3.0 - 2.0 * f));
+}
+float sdRoundedBox(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + r;
+    return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+}
+float sdBox(vec2 p, vec2 b) {
+    vec2 d = abs(p) - b;
+    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+}
+float vignetteRect(vec2 uv, float margin) {
+    vec2 v = smoothstep(0.0, margin, uv) * smoothstep(1.0, 1.0 - margin, uv);
+    return v.x * v.y;
+}
+float smoothstep_custom(float edge0, float edge1, float x) {
+    x = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return x * x * (3.0 - 2.0 * x);
+}
+// "Scanner Sheet" with subtle torn edges
+// axis: 0 = none, 1 = jagged horizontal edges, 2 = jagged vertical edges
+float scannerSheet(vec2 uv, vec2 center, vec2 size, float blur, int axis) {
+    vec2 pos = uv - center;
+    // Torn edge effect
+    float jagged = 0.0;
+    if (axis == 1) {
+        jagged = (noise(uv.x * 50.0) - 0.5) * 0.005; 
+        pos.y += jagged;
+    } else if (axis == 2) {
+        jagged = (noise(uv.y * 50.0) - 0.5) * 0.005;
+        pos.x += jagged;
+    }
+    vec2 d = abs(pos) - size;
+    float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+    return 1.0 - smoothstep(0.0, blur, dist);
+}
+// Asymmetrical Scanner Scenes (Full Span + Torn Edges)
+vec3 getScannerScene(int pattern, vec2 uv) {
+    vec3 col = vec3(1.0); 
+    // Pattern 0: Split Scan (Full Width)
+    if (pattern == 0) {
+        float top = scannerSheet(uv, vec2(0.5, 0.75), vec2(1.0, 0.25), 0.02, 1);
+        float bot = scannerSheet(uv, vec2(0.5, 0.25), vec2(1.0, 0.25), 0.02, 1);
+        float art = scannerSheet(uv, vec2(0.5, 0.6), vec2(1.0, 0.05), 0.01, 1); 
+        vec3 cTop = vec3(0.85, 0.9, 0.95);
+        vec3 cBot = vec3(1.0);
+        col = mix(vec3(0.9), cBot, bot);
+        col = mix(col, cTop, top);
+        col = mix(col, vec3(0.7), art);
+    }
+    // Pattern 1: Faded Gradient + Full Height Side Bar
+    if (pattern == 1) {
+        float grad = smoothstep(0.0, 1.0, uv.y);
+        col = vec3(mix(0.6, 1.0, grad));
+        float bar = scannerSheet(uv, vec2(0.15, 0.5), vec2(0.08, 1.0), 0.05, 2); 
+        col = mix(col, vec3(0.95), bar);
+    }
+    // Pattern 2: Bottom Bar (Full Width)
+    if (pattern == 2) {
+        col = vec3(0.85);
+        float bar = scannerSheet(uv, vec2(0.5, 0.15), vec2(1.0, 0.15), 0.03, 1);
+        float art = scannerSheet(uv, vec2(0.5, 0.85), vec2(1.0, 0.05), 0.01, 1);
+        col = mix(col, vec3(1.0), bar);
+        col = mix(col, vec3(0.9), art);
+    }
+    // Pattern 3: Thick Vertical Block (Full Height)
+    if (pattern == 3) {
+        col = vec3(1.0);
+        float side = scannerSheet(uv, vec2(0.9, 0.5), vec2(0.15, 1.0), 0.08, 2);
+        float block = scannerSheet(uv, vec2(0.3, 0.5), vec2(0.15, 1.0), 0.01, 2); 
+        vec3 blueLeak = vec3(0.7, 0.85, 1.0);
+        col = mix(col, blueLeak, side);
+        col = mix(col, vec3(0.8), block);
+    }
+    // Pattern 4: Top Header (Full Width)
+    if (pattern == 4) {
+        col = vec3(0.95);
+        float head = scannerSheet(uv, vec2(0.5, 0.9), vec2(1.0, 0.1), 0.02, 1);
+        float bar = scannerSheet(uv, vec2(0.5, 0.1), vec2(1.0, 0.05), 0.01, 1);
+        col = mix(col, vec3(1.0), head);
+        col = mix(col, vec3(0.85), bar);
+    }
+    // Pattern 5: Corner Heavy (Full Span components)
+    if (pattern == 5) {
+        col = vec3(0.9);
+        float vStrip = scannerSheet(uv, vec2(0.1, 0.5), vec2(0.15, 1.0), 0.1, 2);
+        float hStrip = scannerSheet(uv, vec2(0.5, 0.4), vec2(1.0, 0.08), 0.02, 1);
+        col = mix(col, vec3(1.0), vStrip);
+        col = mix(col, vec3(0.8), hStrip);
+    }
+    // Pattern 6: Wide Horizontal Split (Full Width)
+    if (pattern == 6) {
+        col = vec3(1.0);
+        float mid = scannerSheet(uv, vec2(0.5, 0.4), vec2(1.0, 0.15), 0.05, 1);
+        col = mix(vec3(0.85), vec3(1.0), mid);
+    }
+    return col;
+}
+void main() {
+    vec4 origColor = texture2D(uTexture, vTexCoord);
+    vec2 uv = vTexCoord;
+    vec2 p = uv * 2.0 - 1.0;
+    float aspect = uResolution.x / uResolution.y;
+    p.x *= aspect;
+    vec4 finalColor = vec4(0.0, 0.0, 0.0, 1.0); 
+    // --- TIMING ---
+    float t_dot = smoothstep_custom(0.15, 0.25, uParameter);
+    float t_v_stretch = smoothstep_custom(0.25, 0.35, uParameter);
+    float t_h_stretch = smoothstep_custom(0.35, 0.45, uParameter);
+    vec3 whiteLayer = vec3(0.0);
+    float whiteAlpha = 0.0;
+    if (uParameter < 0.45) {
+        if (uParameter > 0.15) {
+            float line_thickness = 0.008; 
+            float max_height = 2.0; 
+            float max_width = 2.0 * aspect;
+            float current_radius = line_thickness * t_dot;
+            float added_height = mix(0.0, max_height, t_v_stretch * t_v_stretch);
+            float added_width = mix(0.0, max_width, t_h_stretch * t_h_stretch);
+            float active_radius = mix(current_radius, 0.0, t_h_stretch);
+            float d = sdRoundedBox(p, vec2(added_width, added_height), active_radius);
+            float glow = 1.0 - smoothstep(0.0, 0.015, d);
+            float core = 1.0 - smoothstep(0.0, 0.0005, d);
+            whiteAlpha = max(glow, core);
+            if (t_h_stretch < 0.1) {
+                 float total_h = added_height + active_radius;
+                 float v_fade = smoothstep(total_h, total_h * 0.5, abs(p.y));
+                 whiteAlpha *= v_fade;
+            } else {
+                 whiteAlpha = mix(whiteAlpha, 1.0, t_h_stretch);
+            }
+            whiteLayer = vec3(1.0);
+        }
+    } else {
+        // --- FLASHES ---
+        float t_flash_phase = (uParameter - 0.45) / 0.55; 
+        float cycle_count = 22.0; 
+        float raw_cycle = t_flash_phase * cycle_count;
+        float cycle_index = floor(raw_cycle);
+        float rnd = random(cycle_index + 123.45); 
+        int pattern = int(rnd * 7.0); 
+        whiteLayer = getScannerScene(pattern, uv);
+        whiteAlpha = 1.0; 
+        float fade_out = smoothstep_custom(0.90, 1.0, uParameter);
+        whiteAlpha *= (1.0 - fade_out);
+    }
+    // --- COMPOSITE ---
+    // Tighter, less intense vignette
+    float border = vignetteRect(uv, 0.01); // 1% margin
+    whiteAlpha *= border;
+    vec3 background = vec3(0.0);
+    if (uParameter > 0.90) {
+         background = origColor.rgb;
+    }
+    finalColor.rgb = mix(background, whiteLayer, whiteAlpha);
+    gl_FragColor = finalColor;
+}
+`); 
+        this.c.set('shaderParameter', 0.0); 
+        this.active = true;
+        this.startTime = performance.now();
+        console.log("BootEffect Triggered");
+        return true;
+    }
+    update() {
+        if (!this.active) return;
+        const elapsedTime = (performance.now() - this.startTime) / 1000;
+        let progress = elapsedTime / this.durationSeconds;
+        if (progress >= 1.0) {
+            this.active = false;
+            this.c.set('customShader', this.originalShader);
+            this.c.set('shaderEnabled', this.originalShaderEnabled);
+            this.c.set('shaderParameter', this.originalShaderParameter);
+            console.log("BootEffect Finished");
+            return;
+        }
+        this.c.set('shaderParameter', progress);
+    }
+    getOverride(i) {
+        return null;
+    }
+}
 // --- ClearPulseEffect.js ---
 class ClearPulseEffect extends AbstractEffect {
     constructor(g, c) {
@@ -1470,6 +1686,203 @@ class ClearPulseEffect extends AbstractEffect {
             blend: useBlend, 
             bgColor: '#000000' 
         };
+    }
+}
+// --- CrashEffect.js ---
+class CrashEffect extends AbstractEffect {
+    constructor(g, c) {
+        super(g, c);
+        this.name = "CrashSequence";
+        this.active = false;
+        this.startTime = 0;
+        this.durationSeconds = 3; // TESTING ONLY: 3s Total
+        this.currentPhase = 0; 
+        this.originalShader = null;
+        this.originalShaderEnabled = false;
+        this.originalShaderParameter = 0.5;
+        this.frame = 0; // Local frame counter
+        this.snapshotOverlay = new Map(); 
+        this.blackSheets = []; 
+        this._phaseCache = {
+            superman5: { vines: [] } 
+        };
+        this.phases = [
+            { id: '1a', duration: 3, description: 'Sheets + Deja Vu' }, 
+            // Others ignored
+            { id: '1b', duration: 8, description: 'placeholder' },
+            { id: '2', duration: 5, description: 'placeholder' },
+            { id: '3', duration: 8, description: 'placeholder' },
+            { id: '4', duration: 8, description: 'placeholder' },
+            { id: '5', duration: 15, description: 'placeholder' },
+            { id: '6', duration: 5, description: 'placeholder' },
+            { id: '7', duration: 3, description: 'placeholder' },
+        ];
+    }
+    trigger() {
+        if (this.active) return false;
+        this.originalShaderEnabled = this.c.state.shaderEnabled;
+        this.originalShader = this.c.state.customShader;
+        this.originalShaderParameter = this.c.state.shaderParameter;
+        this.c.set('shaderEnabled', true);
+        this.c.set('customShader', `
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec2 uMouse;
+uniform float uParameter; 
+varying vec2 vTexCoord;
+void main() {
+    gl_FragColor = texture2D(uTexture, vTexCoord);
+}
+`);
+        this.c.set('shaderParameter', 0.0); 
+        this.active = true;
+        this.startTime = performance.now();
+        this.currentPhase = 0;
+        this.frame = 0; // Reset frame
+        this.snapshotOverlay.clear(); 
+        this.blackSheets = []; 
+        console.log("CrashEffect Triggered (3s Test)");
+        return true;
+    }
+    update() {
+        if (!this.active) return;
+        this.frame++; // Increment local frame
+        const elapsedTime = (performance.now() - this.startTime) / 1000;
+        let progress = elapsedTime / this.durationSeconds;
+        if (progress >= 1.0) {
+            this.active = false;
+            this.c.set('customShader', this.originalShader);
+            this.c.set('shaderEnabled', this.originalShaderEnabled);
+            this.c.set('shaderParameter', this.originalShaderParameter);
+            this.snapshotOverlay.clear();
+            this.blackSheets = [];
+            console.log("CrashEffect Finished");
+            return;
+        }
+        let accumulatedDuration = 0;
+        let phaseFound = false;
+        for (let i = 0; i < this.phases.length; i++) {
+            accumulatedDuration += this.phases[i].duration;
+            if (elapsedTime < accumulatedDuration) {
+                this.currentPhase = i;
+                phaseFound = true;
+                break;
+            }
+        }
+        if (!phaseFound) this.currentPhase = this.phases.length - 1;
+        // --- JS LOGIC ---
+        this._updateBlackSheets();
+        this._updateSnapshots();
+        const phaseId = this.phases[this.currentPhase].id;
+        if (phaseId === '1a') {
+            if (Math.random() < 0.03) { 
+                this._triggerWhiteBlock();
+            }
+        }
+    }
+    _updateBlackSheets() {
+        if (this.blackSheets.length < 200) {
+            if (Math.random() < 0.8) { 
+                const grid = this.g;
+                const r = Math.random();
+                let w, h;
+                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
+                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
+                else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
+                let c;
+                if (Math.random() < 0.6) { 
+                    if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.3)); 
+                    else c = Math.floor(grid.cols * 0.7 + Math.random() * (grid.cols * 0.3)) - w; 
+                    if (c < 0) c = 0; 
+                } else {
+                    c = Math.floor(Math.random() * (grid.cols - w)); 
+                }
+                const row = Math.floor(Math.random() * (grid.rows - h));
+                const duration = Math.floor(Math.random() * 120) + 60; 
+                const axis = Math.random() < 0.5 ? 0 : 1;
+                const expandAmount = Math.floor(Math.random() * w) + 2; 
+                this.blackSheets.push({ c, r: row, w, h, axis, expandAmount, age: 0, life: duration });
+            }
+        }
+        for (let i = this.blackSheets.length - 1; i >= 0; i--) {
+            const s = this.blackSheets[i];
+            s.age++;
+            if (s.age >= s.life) this.blackSheets.splice(i, 1);
+        }
+    }
+    _triggerWhiteBlock() {
+        const grid = this.g;
+        // 1 or 2 instances
+        const count = Math.random() < 0.5 ? 1 : 2;
+        for (let k = 0; k < count; k++) {
+            const h = 11; 
+            const r = Math.floor(Math.random() * (grid.rows - h));
+            const duration = 18; // 0.3s
+            const endFrame = this.frame + duration; // Use local frame
+            for (let row = r; row < r + h; row++) {
+                for (let col = 0; col < grid.cols; col++) {
+                    const i = row * grid.cols + col;
+                    this.snapshotOverlay.set(i, {
+                        char: grid.getChar(i), 
+                        color: '#FFFFFF',
+                        alpha: 1.0,
+                        endFrame: endFrame,
+                        isFrozen: true
+                    });
+                }
+            }
+        }
+    }
+    _updateSnapshots() {
+        const currentFrame = this.frame; // Use local frame
+        for (const [index, snapshot] of this.snapshotOverlay.entries()) {
+            if (currentFrame > snapshot.endFrame) {
+                this.snapshotOverlay.delete(index);
+            } else {
+                const rem = snapshot.endFrame - currentFrame;
+                if (rem < 5) snapshot.alpha = rem / 5.0; 
+            }
+        }
+    }
+    _triggerSnapshot(isColumn) {}
+    _generateVines() {}
+    getOverride(i) {
+        if (!this.active) return null;
+        const grid = this.g;
+        const col = i % grid.cols;
+        const row = Math.floor(i / grid.cols);
+        const snapshot = this.snapshotOverlay.get(i);
+        if (snapshot) {
+            return {
+                char: snapshot.char,
+                color: snapshot.color,
+                alpha: snapshot.alpha,
+                glow: 10,
+                size: 0,
+                solid: false, 
+                blend: true
+            };
+        }
+        for (const s of this.blackSheets) {
+            const progress = s.age / s.life;
+            let curW = s.w;
+            let curH = s.h;
+            if (s.axis === 0) curW += s.expandAmount * progress; 
+            else curH += s.expandAmount * progress; 
+            if (col >= s.c && col < s.c + curW &&
+                row >= s.r && row < s.r + curH) {
+                return {
+                    solid: true,
+                    bgColor: '#000000', 
+                    alpha: 1.0,
+                    color: '#000000', 
+                    char: ' ' 
+                };
+            }
+        }
+        return null;
     }
 }
 // --- DejaVuEffect.js ---
@@ -4528,6 +4941,13 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
+            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
+            { cat: 'Effects', type: 'button', label: 'Run Both in Order', action: 'boot_crash_sequence', class: 'btn-warn' },
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
@@ -5427,6 +5847,18 @@ class UIManager {
         if(action === 'importFont') document.getElementById('importFontFile').click();
         if(action === 'importShader') document.getElementById('importShaderFile').click();
         if(action === 'manageCharacters') this.charSelector.show();
+        if(action === 'boot') { if(this.effects.trigger('BootSequence')) this.notifications.show('Boot Sequence Initiated', 'success'); else this.notifications.show('Boot Sequence Active...', 'info'); }
+        if(action === 'crash') { if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger'); else this.notifications.show('Crash Sequence Active...', 'info'); }
+        if(action === 'boot_crash_sequence') {
+            if(this.effects.trigger('BootSequence')) {
+                this.notifications.show('Boot Sequence Initiated', 'success');
+                setTimeout(() => {
+                    if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger');
+                }, 4000);
+            } else {
+                this.notifications.show('Sequence Active...', 'info');
+            }
+        }
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
@@ -5675,7 +6107,9 @@ class MatrixKernel {
             MiniPulseEffect,
             DejaVuEffect,
             SupermanEffect,
-            FirewallEffect
+            FirewallEffect,
+            BootEffect,
+            CrashEffect
         ];
         effects.forEach((EffectClass) => this.effectRegistry.register(new EffectClass(this.grid, this.config)));
     }
@@ -5690,6 +6124,12 @@ class MatrixKernel {
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
         // Initialize font manager and await its completion
         await this.fontMgr.init();
+        // Safety: Reset Shader State on Reload
+        if (this.config.get('shaderEnabled')) {
+            this.config.set('shaderEnabled', false);
+            this.config.set('customShader', null);
+            console.log("Resetting stuck shader state on init.");
+        }
     }
     /**
      * Sets up a debounced window resize listener.
@@ -5720,7 +6160,11 @@ class MatrixKernel {
                 if (boundKey && boundKey.toLowerCase() === key) {
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
-                    } else {
+                    } else if (action === 'BootSequence' || action === 'CrashSequence') { 
+                        this.effectRegistry.trigger(action);
+                        this.notifications.show(`${action} Triggered`, 'success');
+                    }
+                    else {
                         if (this.effectRegistry.trigger(action)) {
                             this.notifications.show(`${action} Triggered`, 'success');
                         }

@@ -213,6 +213,16 @@ class UIManager {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
 
+            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
+            
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
+            { cat: 'Effects', type: 'button', label: 'Run Both in Order', action: 'boot_crash_sequence', class: 'btn-warn' },
+
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
@@ -1236,6 +1246,18 @@ class UIManager {
         if(action === 'importFont') document.getElementById('importFontFile').click();
         if(action === 'importShader') document.getElementById('importShaderFile').click();
         if(action === 'manageCharacters') this.charSelector.show();
+        if(action === 'boot') { if(this.effects.trigger('BootSequence')) this.notifications.show('Boot Sequence Initiated', 'success'); else this.notifications.show('Boot Sequence Active...', 'info'); }
+        if(action === 'crash') { if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger'); else this.notifications.show('Crash Sequence Active...', 'info'); }
+        if(action === 'boot_crash_sequence') {
+            if(this.effects.trigger('BootSequence')) {
+                this.notifications.show('Boot Sequence Initiated', 'success');
+                setTimeout(() => {
+                    if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger');
+                }, 4000);
+            } else {
+                this.notifications.show('Sequence Active...', 'info');
+            }
+        }
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }

@@ -174,6 +174,8 @@ class ConfigurationManager {
                 "DejaVu": "r",
                 "Superman": "t",
                 "Firewall": "y",
+                "BootSequence": "b",
+                "CrashSequence": "c",
                 "ToggleUI": "h"
             },
             
