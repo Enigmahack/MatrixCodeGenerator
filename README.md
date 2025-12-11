@@ -1,5 +1,5 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.5a.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.6.html
 
 **Note: 
 The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
