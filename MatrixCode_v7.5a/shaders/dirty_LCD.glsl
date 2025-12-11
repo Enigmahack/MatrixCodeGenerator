@@ -2,6 +2,7 @@ precision mediump float;
 
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
+uniform float uParameter;
 varying vec2 vTexCoord;
 
 // Change this value to make the lines denser!
@@ -12,7 +13,7 @@ const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
 const float GRID_OPACITY = 0.5;
 
 // Adding grain dirtyness to the screen
-const float GRAIN_AMOUNT = 0.13; // Increase this value (0.0 to 1.0) to make the grain more noticeable
+const float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable
 
 // Random graininess
 float random(vec2 st) {
@@ -50,7 +51,7 @@ void main() {
     // mix(Color A, Color B, Factor)
     // If boostFactor is 0.0: returns 1.0 (color.rgb * 1.0)
     // If boostFactor is 1.0: returns BRIGHTNESS_BOOST (color.rgb * 1.2)
-    float finalMultiplier = mix(1.0, BRIGHTNESS_BOOST, boostFactor);
+    float finalMultiplier = mix(uParameter + 1.0, BRIGHTNESS_BOOST, boostFactor * uParameter);
     
     color.rgb *= finalMultiplier;
     

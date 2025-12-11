@@ -2,6 +2,7 @@ precision mediump float;
 
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
+uniform float uParameter;
 varying vec2 vTexCoord;
 
 // Change this value to make the lines denser!
@@ -21,12 +22,12 @@ void main() {
 
     vec2 pixelCoord = vTexCoord * uResolution.xy;
     vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
-    vec2 fractionalPart = fract(scaledCoord);
-    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);
-    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);
+    vec2 fractionalPart = fract(scaledCoord * uParameter);
+    float verticalLine = step(fractionalPart.x, LINE_THICKNESS * uParameter + 0.1);
+    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS * uParameter + 0.1);
     float gridMask = min(verticalLine + horizontalLine, 1.0);
     vec3 blendedColor = mix(color.rgb, GRID_COLOR, gridMask);
-    color.rgb = mix(color.rgb, blendedColor, GRID_OPACITY);
+    color.rgb = mix(color.rgb, blendedColor, GRID_OPACITY * uParameter);
 
 
     // 1. Calculate the final grid-processed color's overall brightness (Luminance).

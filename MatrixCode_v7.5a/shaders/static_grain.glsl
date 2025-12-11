@@ -2,6 +2,8 @@ precision mediump float;
 
 // Inputs provided by the application
 uniform sampler2D uTexture;
+uniform float uParameter;
+
 // uniform float uTime; // NOT needed for static grain
 varying vec2 vTexCoord;
 
@@ -33,7 +35,7 @@ void main() {
     // We only apply the noise to the Red, Green, and Blue channels (.rgb).
     // The noise value is scaled by the GRAIN_AMOUNT.
     // A negative noise makes the pixel darker, a positive noise makes it brighter.
-    color.rgb += finalNoise * GRAIN_AMOUNT;
+    color.rgb += finalNoise * (uParameter * 0.5);
     
     // 5. Output final color
     gl_FragColor = color;

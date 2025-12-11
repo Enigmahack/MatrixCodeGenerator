@@ -2,6 +2,7 @@ precision mediump float;
 
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
+uniform float uParameter;
 varying vec2 vTexCoord;
 
 // Change this value to make the lines denser!
@@ -12,14 +13,14 @@ const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
 const float GRID_OPACITY = 0.5;
 
 // CRT Color Shift (Chromatic Aberration) Settings
-const float SHIFT_AMOUNT = 0.004;       // Magnitude of the color fringe (very small)
+const float SHIFT_AMOUNT = 0.01;       // Magnitude of the color fringe (very small)
 
 // Brightness Boost (Thresholding/Glow) Settings
 const float BRIGHTNESS_THRESHOLD = 0.3;  // Only pixels brighter than this will be boosted
 const float BRIGHTNESS_BOOST = 1.6;      // How much to multiply bright colors by
 
 // --- Barrel Distortion Settings ---
-const float BARREL_DISTORTION_AMOUNT = 0.08; // Controls the bulge magnitude (0.0 to 1.0)
+const float BARREL_DISTORTION_AMOUNT = 1.0; // Controls the bulge magnitude (0.0 to 1.0)
 
 void main() {
     
@@ -36,7 +37,7 @@ void main() {
     // C. Calculate the distortion factor
     // The factor must be > 1.0 for a convex (bulging) look. 
     // It's calculated by adding a fraction of the distance (r2) to 1.0.
-    float factor = 1.0 + r2 * BARREL_DISTORTION_AMOUNT;
+    float factor = 1.0 + r2 * (BARREL_DISTORTION_AMOUNT * uParameter * 0.25);
 
     // D. Apply the factor and shift back to 0.0-1.0 range
     // This coordinate will be our base for sampling the warped image.
@@ -63,8 +64,8 @@ void main() {
     float shiftMagnitude = sin(centerBias * 3.14159265); 
 
     // Sample the texture three times using the **warpedTexCoord** as the base
-    vec2 redCoord   = warpedTexCoord + vec2(-shiftMagnitude * SHIFT_AMOUNT, 0.0);
-    vec2 blueCoord  = warpedTexCoord + vec2( shiftMagnitude * SHIFT_AMOUNT, 0.0);
+    vec2 redCoord   = warpedTexCoord + vec2(-shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
+    vec2 blueCoord  = warpedTexCoord + vec2( shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
     
     // Use the base warped coordinate for the green channel
     float red   = texture2D(uTexture, redCoord).r;

@@ -3,6 +3,7 @@ precision mediump float;
 // Inputs provided by the application
 uniform sampler2D uTexture;
 uniform float uTime;
+uniform float uParameter;
 varying vec2 vTexCoord;
 
 // Configuration for the effect
@@ -28,7 +29,7 @@ void main() {
 
         // Calculate the new coordinate for this sample.
         // This coordinate is closer to the center than the original vTexCoord.
-        vec2 sampleCoord = mix(vTexCoord, center, step * BLUR_AMOUNT * 100.0);
+        vec2 sampleCoord = mix(vTexCoord, center, step * BLUR_AMOUNT * (uParameter * 10.0) * 100.0);
         
         // --- IMPORTANT LOGIC EXPLAINED BELOW ---
         // 'mix(A, B, t)' returns A*(1-t) + B*t. 
