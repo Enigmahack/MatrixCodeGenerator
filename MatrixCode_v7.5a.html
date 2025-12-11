@@ -749,16 +749,16 @@ class ConfigurationManager {
             // --- GLOBAL ---
             streamColor: "#65d778",
             streamPalette: ["#65d778"],
-            paletteBias: 0.0,
+            paletteBias: 0,
             tracerColor: "#d9f2f2",
             fontSize: 24,
             streamSpeed: 16,
-            releaseInterval: 4,
+            releaseInterval: 2,
             resolution: 1,
             enableGlyphAtlas: true,
-            smoothingEnabled: true,
-            smoothingAmount: 0.5,
-            showFpsCounter: false,
+            smoothingEnabled: false,
+            smoothingAmount: 0.1,
+            showFpsCounter: true,
             suppressToasts: false,
             // --- APPEARANCE ---
             fontFamily: "MatrixEmbedded",
@@ -770,8 +770,8 @@ class ConfigurationManager {
             // Overlap / Imposition Layer
             overlapEnabled: false,
             overlapColor: "#FFD700",
-            overlapDensity: 0.5,
-            overlapTarget: "stream",
+            overlapDensity: 0.2,
+            overlapTarget: "all",
             dissolveEnabled: true,
             dissolveMinSize: 18,
             deteriorationEnabled: true,
@@ -779,8 +779,8 @@ class ConfigurationManager {
             enableBloom: true,
             bloomStrength: 4,
             bloomOpacity: 0.45,
-            tracerGlow: 6,
-            clearAlpha: 0.8,
+            tracerGlow: 12,
+            clearAlpha: 0.7,
             horizontalSpacingFactor: 0.7,
             verticalSpacingFactor: 1,
             fontOffsetX: 0,
@@ -788,15 +788,15 @@ class ConfigurationManager {
             stretchX: 1,
             stretchY: 1.2,
             // --- BEHAVIOR ---
-            decayFadeDurationFrames: 13,
-            streamSpawnCount: 5,
-            eraserSpawnCount: 5,
-            minStreamGap: 10,
-            minEraserGap: 10,
-            minGapTypes: 15,
+            decayFadeDurationFrames: 23,
+            streamSpawnCount: 6,
+            eraserSpawnCount: 16,
+            minStreamGap: 30,
+            minEraserGap: 30,
+            minGapTypes: 20,
             holeRate: 0.1,
-            desyncIntensity: 0.0, // 0 = uniform speed, 1 = chaotic varying speeds
-            eraserStopChance: 1, // Chance for an eraser to stop mid-stream (0-25 integer)
+            desyncIntensity: 0, 
+            eraserStopChance: 1, 
             tracerStopChance: 1,
             tracerAttackFrames: 3,
             tracerHoldFrames: 0,
@@ -807,16 +807,19 @@ class ConfigurationManager {
             rotatorChance: 0.13,
             rotatorSyncToTracer: true,
             rotatorSyncMultiplier: 0.5,
-            rotatorCycleFactor: 11,
+            rotatorCycleFactor: 20,
             rotatorCrossfadeFrames: 6,
+            rotateDuringFade: false,
+            rotatorDesyncEnabled: false,
+            rotatorDesyncVariance: 0,
             // --- FX ---
             shaderEnabled: false,
-            customShader: null, // String content of GLSL shader
-            shaderParameter: 0.5,
+            customShader: null, 
+            shaderParameter: 0,
             pulseEnabled: true,
             pulseFrequencySeconds: 300,
-            pulseDelaySeconds: 1.0,
-            pulseDurationSeconds: 1.8,
+            pulseDelaySeconds: 0.7,
+            pulseDurationSeconds: 1.2,
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
             pulseDimming: 0.2,
@@ -827,10 +830,10 @@ class ConfigurationManager {
             pulseCircular: false,
             clearPulseEnabled: true,
             clearPulseFrequencySeconds: 235,
-            clearPulseDurationSeconds: 1,
+            clearPulseDurationSeconds: 0.7,
             clearPulsePreserveSpaces: true,
             clearPulseBlend: false,
-            clearPulseWidth: 280,
+            clearPulseWidth: 190,
             clearPulseRandomPosition: true,
             clearPulseInstantStart: false,
             clearPulseCircular: false,
@@ -871,7 +874,7 @@ class ConfigurationManager {
             starPowerColorCycle: true,
             starPowerCycleSpeed: 5,
             rainbowStreamEnabled: false,
-            rainbowStreamChance: 1,
+            rainbowStreamChance: 0.5,
             rainbowStreamIntensity: 50,
             firewallEnabled: false,
             firewallFrequencySeconds: 150,
@@ -879,19 +882,25 @@ class ConfigurationManager {
             firewallColor: "#00ff00",
             firewallReverseDurationFrames: 20,
             firewallEraseDurationFrames: 50,
+            // --- BOOT / CRASH ---
+            bootSequenceEnabled: false,
+            crashEnabled: false,
+            crashFrequencySeconds: 600,
+            runBothInOrder: true,
             // --- INPUT BINDINGS ---
             keyBindings: {
-                "Pulse": "q",
+                "Pulse": "p",
                 "ClearPulse": "w",
                 "MiniPulse": "e",
                 "DejaVu": "r",
                 "Superman": "t",
                 "Firewall": "y",
+                "ToggleUI": " ",
                 "BootSequence": "b",
-                "CrashSequence": "c",
-                "ToggleUI": "h"
+                "CrashSequence": "x",
+                "BootCrashSequence": "c"
             },
-            hideMenuIcon: false,
+            hideMenuIcon: true,
             // --- FONT SETTINGS ---
             fontSettings: {
                 "MatrixEmbedded": {
@@ -905,10 +914,12 @@ class ConfigurationManager {
             tracerSizeIncrease: 1,
             supermanProb: 4,
             dejaVuAutoMode: true,
-            clearPulseIgnoreTracers: true, // Not exposed in UI
-            clearPulseCircular: false,
-            clearPulseBlend: false,
-            clearPulseInstantStart: false
+            clearPulseIgnoreTracers: true, 
+            clearPulseCircular: false, 
+            clearPulseInstantStart: false,
+            dejaVuPerformanceMode: false,
+            pulseDelayFrames: 60,
+            overlapShimmer: false
         };
     }
     /**
@@ -926,7 +937,11 @@ class ConfigurationManager {
             console.warn('Failed to load slots:', e);
         }
         // Default slots if not found or error occurs
-        return Array(3).fill(null).map((_, i) => ({ name: `Save Slot ${i + 1}`, data: null }));
+        return [
+            { name: "Trilogy", data: JSON.parse(JSON.stringify(this.defaults)) },
+            { name: "Save Slot 2", data: null },
+            { name: "Save Slot 3", data: null }
+        ];
     }
     /**
      * Saves configuration slots to local storage.
@@ -1180,6 +1195,7 @@ class MatrixGrid {
         this.ages = null;
         this.brightness = null;
         this.rotatorProg = null;
+        this.rotatorOffsets = null;
         // Auxiliary storage
         this.complexStyles = new Map(); // Tracks complex character styling
         this.nextChars = new Map(); // Tracks characters for transitions
@@ -1264,6 +1280,10 @@ class MatrixGrid {
         this.ages = new Int32Array(totalCells);
         this.brightness = new Float32Array(totalCells);
         this.rotatorProg = new Float32Array(totalCells);
+        this.rotatorOffsets = new Uint8Array(totalCells); // Offset for desync logic
+        for(let i=0; i<totalCells; i++) {
+            this.rotatorOffsets[i] = Math.floor(Math.random() * 255);
+        }
         // Color Palette Index (0-2)
         this.paletteIndices = new Uint8Array(totalCells);
         // Font Index (0-255) for multi-font support
@@ -1299,8 +1319,9 @@ class EffectRegistry {
         }
 // --- BootEffect.js ---
 class BootEffect extends AbstractEffect {
-    constructor(g, c) {
+    constructor(g, c, registry) {
         super(g, c);
+        this.registry = registry;
         this.name = "BootSequence";
         this.active = false;
         this.startTime = 0;
@@ -1503,6 +1524,9 @@ void main() {
             this.c.set('shaderEnabled', this.originalShaderEnabled);
             this.c.set('shaderParameter', this.originalShaderParameter);
             console.log("BootEffect Finished");
+            if (this.c.get('runBothInOrder') && this.registry) {
+                this.registry.trigger('CrashSequence');
+            }
             return;
         }
         this.c.set('shaderParameter', progress);
@@ -1528,14 +1552,26 @@ class ClearPulseEffect extends AbstractEffect {
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
         const d = this.c.derived;
+        const activeFonts = d.activeFonts;
+        const numFonts = activeFonts.length;
         // Snapshot colors and fill chars to avoid per-frame calculations
         this.snap = { 
             fillChars: new Uint16Array(total),
-            colors: new Uint32Array(total)
+            fillFonts: new Uint8Array(total),
+            colors: new Uint32Array(total),
+            fonts: new Uint8Array(this.g.fonts)
         };
         for (let i = 0; i < total; i++) {
             // Snapshot Fill Char
-            this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
+            const fIdx = Math.floor(Math.random() * numFonts);
+            this.snap.fillFonts[i] = fIdx;
+            const fontData = activeFonts[fIdx] || activeFonts[0];
+            const chars = fontData.chars;
+            if(chars && chars.length > 0) {
+                 this.snap.fillChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+            } else {
+                 this.snap.fillChars[i] = 32;
+            }
             // Snapshot Color (Simulating the logic that was previously in getOverride)
             let rgb;
             const style = this.g.complexStyles.get(i);
@@ -1652,13 +1688,19 @@ class ClearPulseEffect extends AbstractEffect {
         const isGap = (alpha <= 0.01);
         if (s.clearPulsePreserveSpaces && isGap) return null;
         let char;
+        let fontIdx;
         if (isGap) {
             // Fill the gap (Reveal effect) using snapshot
             char = String.fromCharCode(this.snap.fillChars[i]);
+            fontIdx = this.snap.fillFonts[i];
         } else {
             // Use LIVE character (Flow continues)
             char = this.g.getChar(i);
+            fontIdx = this.snap.fonts[i];
         }
+        const activeFonts = this.c.derived.activeFonts;
+        const fontData = activeFonts[fontIdx] || activeFonts[0];
+        const fontName = fontData.name;
         // Color Calculation
         const tRgb = d.tracerRgb;
         const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
@@ -1666,11 +1708,11 @@ class ClearPulseEffect extends AbstractEffect {
         if (s.clearPulseBlend) { 
             // Use snapshot color which is pre-calculated for all cells (Stream or Style)
             const baseInt = this.snap.colors[i];
-            const bR = (baseInt >> 16) & 0xFF;
-            const bG = (baseInt >> 8) & 0xFF;
+            const bR = (baseInt >> 16) & 0xFF; 
+            const bG = (baseInt >> 8) & 0xFF; 
             const bB = baseInt & 0xFF;
             const mR = Math.floor(tRgb.r + (bR - tRgb.r) * rel);
-            const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel);
+            const mG = Math.floor(tRgb.g + (bG - tRgb.g) * rel); 
             const mB = Math.floor(tRgb.b + (bB - tRgb.b) * rel);
             finalColor = `rgb(${mR},${mG},${mB})`;
         }
@@ -1678,6 +1720,7 @@ class ClearPulseEffect extends AbstractEffect {
         const useBlend = !isGap && s.clearPulseBlend;
         return { 
             char, 
+            font: fontName,
             color: finalColor, 
             alpha: 1.0, 
             glow: Math.max(s.tracerGlow, 30 * (1.0 - rel)), 
@@ -1870,7 +1913,7 @@ void main() {
         this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
         this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
-        console.log("CrashEffect Triggered (Final Polish 4)");
+        console.log("CrashEffect Triggered (Sheets Gray Fix)");
         return true;
     }
     update() {
@@ -1960,7 +2003,7 @@ void main() {
         }
         if (this.registry && canSpawn) { 
             if (Math.random() < 0.002) this.registry.trigger('ClearPulse');
-            if (Math.random() < 0.005) this.registry.trigger('MiniPulse');
+            // Removed MiniPulse
         }
         if (this.shaderState.activeId === 0) {
             if (canSpawn && Math.random() < 0.02) {
@@ -1988,7 +2031,7 @@ void main() {
         }
     }
     _updateBlackSheets() {
-        if (this.blackSheets.length < 300) { 
+        if (this.blackSheets.length < 500) { 
             if (Math.random() < 0.8) { 
                 const grid = this.g;
                 const r = Math.random();
@@ -2003,16 +2046,15 @@ void main() {
                     if (c < 0) c = 0; 
                 } else { c = Math.floor(Math.random() * (grid.cols - w)); }
                 const row = Math.floor(Math.random() * (grid.rows - h));
-                const duration = Math.floor(Math.random() * 120) + 60; 
+                const duration = Math.floor(Math.random() * 200) + 100; 
                 const axis = Math.random() < 0.5 ? 0 : 1;
                 const expandAmount = Math.floor(Math.random() * w) + 2; 
                 const speedScale = Math.random() * 0.6 + 0.2;
-                // Stronger Opacity (0.6 - 0.95) for visibility
                 this.blackSheets.push({ 
                     c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
                     posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
                     flashFrames: 0, 
-                    maxAlpha: 0.6 + Math.random() * 0.35, 
+                    maxAlpha: 0.75 + Math.random() * 0.2, 
                     currentAlpha: 0.0, targetAlpha: 1.0 
                 });
             }
@@ -2252,7 +2294,21 @@ void main() {
         for (const s of this.blackSheets) {
             if (col >= s.c && col < s.c + s.w &&
                 row >= s.r && row < s.r + s.h) {
-                totalAlpha = 1.0 - (1.0 - totalAlpha) * (1.0 - s.currentAlpha * s.maxAlpha);
+                let sheetAlpha = s.currentAlpha * s.maxAlpha;
+                // Edge Fading: Soften the edges of the rectangle
+                const nx = (col - s.posX) / s.w;
+                const ny = (row - s.posY) / s.h;
+                // Linear fade on all sides (20% of width/height)
+                const fadeSize = 0.2;
+                const fadeL = nx < fadeSize ? nx / fadeSize : 1.0;
+                const fadeR = (1.0 - nx) < fadeSize ? (1.0 - nx) / fadeSize : 1.0;
+                const fadeT = ny < fadeSize ? ny / fadeSize : 1.0;
+                const fadeB = (1.0 - ny) < fadeSize ? (1.0 - ny) / fadeSize : 1.0;
+                sheetAlpha *= Math.min(fadeL, fadeR, fadeT, fadeB);
+                // Accumulation: Allow slight darkening on overlap
+                // Base is Max, plus a small fraction of the product to simulate density without instant black
+                totalAlpha = Math.max(totalAlpha, sheetAlpha) + (sheetAlpha * 0.2); 
+                if (totalAlpha > 1.0) totalAlpha = 1.0;
             }
         }
         if (totalAlpha > 0.01) {
@@ -2260,13 +2316,17 @@ void main() {
             let dimColor = '#00FF00';
             if (this.c.derived && this.c.derived.streamColorStr) dimColor = this.c.derived.streamColorStr;
             else if (this.c.state.streamColor) dimColor = this.c.state.streamColor;
-            let textAlpha = Math.max(0.05, 1.0 - totalAlpha);
+            // Fix: Check if cell is active to prevent lighting up empty space
+            const isActive = this.g.alphas[i] > 0.05;
+            // Text fades out as sheet gets darker
+            const textAlpha = isActive ? Math.max(0, 1.0 - totalAlpha) : 0.0;
             return { 
-                char: grid.getChar(i), 
+                char: isActive ? grid.getChar(i) : '', 
                 color: dimColor, 
                 alpha: textAlpha, 
-                solid: false, 
-                blend: true 
+                solid: true, 
+                bgColor: `rgba(0, 0, 0, ${totalAlpha})`, // Pure Black
+                blend: false 
             };
         }
         return null;
@@ -2329,12 +2389,14 @@ class DejaVuEffect extends AbstractEffect {
                             const idx = r * cols + x;
                             this.g.rotatorProg[idx] = 0; 
                             // Optimized font/char picking
-                            const fontData = activeFonts[(Math.random() * activeFonts.length) | 0];
+                            const fontIdx = (Math.random() * activeFonts.length) | 0;
+                            const fontData = activeFonts[fontIdx];
                             const chars = fontData.chars;
                             // Ensure chars array is valid
                             if (chars && chars.length > 0) {
                                 const char = chars[(Math.random() * chars.length) | 0];
                                 this.g.setChar(idx, char);
+                                this.g.setFont(idx, fontIdx);
                             }
                             if(randomizeColors) {
                                 this.g.complexStyles.set(idx, { h: (Math.random() * 360) | 0, s: 90, l: 70, glitched: true });
@@ -2355,7 +2417,10 @@ class DejaVuEffect extends AbstractEffect {
                 const baseAlpha = this.g.alphas[i];
                 const alpha = baseAlpha < 0.1 ? s.dejaVuHoleBrightness : baseAlpha; 
                 if(alpha < 0.01) return null;
+                const fontIdx = this.g.getFont(i);
+                const fontName = this.c.derived.activeFonts[fontIdx]?.name || s.fontFamily;
                 this._retObj.char = this.g.getChar(i);
+                this._retObj.font = fontName;
                 this._retObj.color = this.c.derived.tracerColorStr;
                 this._retObj.alpha = alpha;
                 this._retObj.glow = 0;
@@ -2592,16 +2657,27 @@ class MiniPulseEffect extends AbstractEffect {
                     const combinedAlpha = lifeFade; 
                     if (combinedAlpha <= 0.01) continue;
                     let char = this.g.getChar(i);
+                    let fontIdx = this.g.getFont(i);
                     // Use CELL_TYPE.EMPTY for robust gap detection
                     // Fallback to alpha check only if type is not reliable (though it should be)
                     let isGap = (this.g.types[i] === CELL_TYPE.EMPTY); 
                     if (isGap) {
                         if (s.miniPulsePreserveSpaces) return null;
-                        // Optimization: Utils.CHARS is static, access is fast.
-                        // Modulo math is fast.
-                        const glitchIndex = (i + Math.floor(p.r)) % Utils.CHARS.length; 
-                        char = Utils.CHARS[glitchIndex]; 
+                        // Use active fonts for glitches
+                        const activeFonts = d.activeFonts;
+                        fontIdx = (i + Math.floor(p.r)) % activeFonts.length;
+                        const fontData = activeFonts[fontIdx] || activeFonts[0];
+                        const chars = fontData.chars;
+                        if (chars && chars.length > 0) {
+                            const glitchIndex = (i + Math.floor(p.r)) % chars.length; 
+                            char = chars[glitchIndex]; 
+                        } else {
+                            char = Utils.CHARS[0];
+                        }
                     }
+                    const activeFonts = d.activeFonts;
+                    const fontData = activeFonts[fontIdx] || activeFonts[0];
+                    const fontName = fontData.name;
                     // Matches ClearPulse logic for "solid" pops in gaps
                     const useSolid = isGap;
                     const useBlend = !isGap;
@@ -2609,6 +2685,7 @@ class MiniPulseEffect extends AbstractEffect {
                     const bgAlpha = useSolid ? combinedAlpha : 0;
                     return { 
                         char: char, 
+                        font: fontName,
                         color: d.tracerColorStr, 
                         alpha: combinedAlpha, 
                         glow: s.tracerGlow * combinedAlpha, 
@@ -2630,14 +2707,25 @@ class PulseEffect extends AbstractEffect {
                 this.renderData = null; // Cache for update-calc
                 // Reusable object to prevent GC thrashing during render loop
                 this._retObj = { 
-                    char: '', color: '', alpha: 0, glow: 0, size: 0, solid: false, blend: false, bgColor: '' 
+                    char: '', font: null, color: '', alpha: 0, glow: 0, size: 0, solid: false, blend: false, bgColor: '' 
                 };
             }
             trigger() {
                 if(this.active) return false;
                 const total = this.g.cols * this.g.rows;
-                this.snap = { chars: new Uint16Array(this.g.chars), alphas: new Float32Array(this.g.alphas), colors: new Uint32Array(total), tracers: new Uint8Array(total), fillChars: new Uint16Array(total) };
+                // Add fonts and fillFonts to snapshot
+                this.snap = { 
+                    chars: new Uint16Array(this.g.chars), 
+                    fonts: new Uint8Array(this.g.fonts),
+                    alphas: new Float32Array(this.g.alphas), 
+                    colors: new Uint32Array(total), 
+                    tracers: new Uint8Array(total), 
+                    fillChars: new Uint16Array(total),
+                    fillFonts: new Uint8Array(total)
+                };
                 const d = this.c.derived; const s = this.c.state; const holdEnd = d.cycleDuration + d.holdFrames;
+                const activeFonts = d.activeFonts;
+                const numFonts = activeFonts.length;
                 for(let i=0; i<total; i++) {
                     let rgb = d.streamRgb; 
                     let isTracer = false; 
@@ -2676,7 +2764,16 @@ class PulseEffect extends AbstractEffect {
                     // Store packed color for all cells
                     this.snap.colors[i] = Utils.packRgb(rgb.r, rgb.g, rgb.b); 
                     this.snap.tracers[i] = isTracer ? 1 : 0; 
-                    this.snap.fillChars[i] = Utils.getRandomChar().charCodeAt(0);
+                    // Generate Fill Char/Font for gaps
+                    const fIdx = Math.floor(Math.random() * numFonts);
+                    this.snap.fillFonts[i] = fIdx;
+                    const fontData = activeFonts[fIdx] || activeFonts[0];
+                    const chars = fontData.chars;
+                    if(chars && chars.length > 0) {
+                        this.snap.fillChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+                    } else {
+                        this.snap.fillChars[i] = 32;
+                    }
                 }
                 let ox, oy;
                 if (s.pulseRandomPosition) {
@@ -2798,8 +2895,8 @@ class PulseEffect extends AbstractEffect {
                                     const dy = Math.abs(cy - oy);
                                     dist = Math.max(dx, dy * ratio);
                                 }
-                                if (dist <= radius) {
-                                    // Inside the wave or the hole -> Simulation Active
+                                if (dist < innerEdge) {
+                                    // Inside the hole -> Simulation Active
                                     const idx = y * this.g.cols + x;
                                     this.g.cellLocks[idx] = 0;
                                 }
@@ -2816,6 +2913,7 @@ class PulseEffect extends AbstractEffect {
                 let dist = 0;
                 // Reset pooled object properties
                 this._retObj.char = '';
+                this._retObj.font = null;
                 this._retObj.color = '';
                 this._retObj.alpha = 0;
                 this._retObj.glow = 0;
@@ -2861,14 +2959,27 @@ class PulseEffect extends AbstractEffect {
                     }
                     if (dist < rd.innerEdge) return null;
                 }
-                const snAlpha = this.snap.alphas[i]; let charCode = this.snap.chars[i];
+                const snAlpha = this.snap.alphas[i]; 
+                let charCode = this.snap.chars[i];
+                let fontIdx = this.snap.fonts[i]; // Default to captured font
                 const tRgb = d.tracerRgb; const targetColor = `rgb(${tRgb.r},${tRgb.g},${tRgb.b})`;
                 let baseColorStr = null; let isGap = false;
-                if (snAlpha <= 0.01) { isGap = true; if (!s.pulsePreserveSpaces) charCode = this.snap.fillChars[i]; }
+                if (snAlpha <= 0.01) { 
+                    isGap = true; 
+                    if (!s.pulsePreserveSpaces) {
+                         charCode = this.snap.fillChars[i];
+                         fontIdx = this.snap.fillFonts[i]; // Use fill font
+                    }
+                }
                 const char = String.fromCharCode(charCode); const isTracer = (this.snap.tracers[i] === 1);
+                // Resolve Font Name
+                const activeFonts = this.c.derived.activeFonts;
+                const fontData = activeFonts[fontIdx] || activeFonts[0];
+                const fontName = fontData.name;
                 // Common Gap Return
                 const gapReturn = this._retObj; // Use pooled object for gapReturn
                 gapReturn.char = '';
+                gapReturn.font = null;
                 gapReturn.color = '#000000';
                 gapReturn.alpha = 0;
                 gapReturn.glow = 0;
@@ -2881,6 +2992,7 @@ class PulseEffect extends AbstractEffect {
                     // FIX: If ignoring tracers, return them with their ORIGINAL snapshot alpha/color, do not dim or force white.
                     if(isTracer && s.pulseIgnoreTracers) {
                          result.char = char;
+                         result.font = fontName;
                          result.color = baseColorStr;
                          result.alpha = snAlpha;
                          result.glow = s.tracerGlow;
@@ -2891,6 +3003,7 @@ class PulseEffect extends AbstractEffect {
                          result = gapReturn;
                     } else {
                          result.char = char;
+                         result.font = fontName;
                          result.color = baseColorStr;
                          result.alpha = snAlpha * s.pulseDimming;
                          result.glow = 0;
@@ -2940,6 +3053,7 @@ class PulseEffect extends AbstractEffect {
                         }
                         // Populate pooled object
                         result.char = char; 
+                        result.font = fontName;
                         result.color = finalColor; 
                         result.alpha = Math.max(0, actualCharAlpha); 
                         result.glow = actualGlow; 
@@ -3057,8 +3171,11 @@ class SupermanEffect extends AbstractEffect {
                     if (alphaChar <= 0.05) return null;
                     const effectAlpha = this.afterimages.get(i);
                     const s = this.c.state;
+                    const fontIdx = this.g.getFont(i);
+                    const fontName = this.c.derived.activeFonts[fontIdx]?.name || s.fontFamily;
                     return {
                         char: this.g.getChar(i),
+                        font: fontName,
                         color: s.supermanIncludeColors ? '#ffffffff' : '#b9e4b8ff', 
                         alpha: effectAlpha, 
                         glow: s.supermanGlow, 
@@ -3733,32 +3850,16 @@ class CanvasRenderer {
         if (o.char && o.alpha > 0.01) {
             const px = cx + (d.cellWidth * 0.5);
             const py = cy + (d.cellHeight * 0.5);
-            const fontName = s.fontFamily;
-            const atlas = s.enableGlyphAtlas ? this.glyphAtlases.get(fontName) : null;
-            const sprite = atlas ? atlas.get(o.char) : null;
-            if (sprite) {
-                // ATLAS DRAWING PATH
-                if (o.glow > 0) {
-                    this._setCtxShadow(o.color, o.glow);
-                } else {
-                    this._setCtxShadow('transparent', 0);
-                }
-                this._setCtxGlobalAlpha(o.alpha, false); // Atlas drawImage handles globalAlpha on ctx.
-                // Does it handle Bloom? Yes if I pass bloom=true to helper.
-                // But wait, sprite drawing logic usually does two drawImage calls.
-                // Here we revert to fillText for color correctness?
-                // NO, previous optimization reverted to fillText because atlas color might not match.
-                // Let's stick to fillText as established in previous step for correctness.
-                // Fallback to fillText logic below...
-            }
+            const fontName = o.font || s.fontFamily;
             // FILLTEXT PATH (Unified)
+            // Effects require dynamic colors/sizes not supported by simple atlas draw
             this._setCtxFillStyle(o.color, bloom);
             if (o.glow > 0) {
                 this._setCtxShadow(o.color, o.glow);
             } else {
                 this._setCtxShadow('transparent', 0);
             }
-            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${s.fontFamily}`;
+            const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${s.fontSize + (o.size || 0)}px ${fontName}`;
             this._setCtxFont(font, bloom);
             this._setCtxGlobalAlpha(o.alpha, bloom);
             this.ctx.fillText(o.char, px, py);
@@ -4181,24 +4282,24 @@ class SimulationSystem {
                     continue;
                 }
             } else {                    
-                    // Tracer Collision Detection
-                    // Check the cell we are about to move into (y+1)
-                    // Actually, we check if the *next* move would hit something.
-                    // If stream.y is currently at Y, next write is Y+1.
-                    const nextY = stream.y + 1;
-                    if (nextY < this.grid.rows) {
-                        const nextIdx = this.grid.getIndex(stream.x, nextY);
-                        // If next cell is occupied (decay > 0)
-                        if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
-                            // Collision! Stop stream.
-                            // We don't write to nextY, effectively stopping "on top" of the existing block.
-                                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
-                                    stream.active = false; //Tracer Random Drop-Off
-                                }
-                            {  
-                            stream.active = false;
-                            continue; 
-                        }
+                // Tracer Random Drop-Off
+                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                    stream.active = false;
+                    continue;
+                }
+                // Tracer Collision Detection
+                // Check the cell we are about to move into (y+1)
+                // Actually, we check if the *next* move would hit something.
+                // If stream.y is currently at Y, next write is Y+1.
+                const nextY = stream.y + 1;
+                if (nextY < this.grid.rows) {
+                    const nextIdx = this.grid.getIndex(stream.x, nextY);
+                    // If next cell is occupied (decay > 0)
+                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                        // Collision! Stop stream.
+                        // We don't write to nextY, effectively stopping "on top" of the existing block.
+                        stream.active = false;
+                        continue; 
                     }
                 }
             } 
@@ -4277,7 +4378,9 @@ class SimulationSystem {
         return stream;
     }
     _initializeTracerStream(stream, s) {
-        stream.len = Utils.randomInt(4, this.grid.rows * 3);
+        // Tracers now run full screen length by default. 
+        // "Length" is effectively controlled by Erasers or Drop-Off chance.
+        stream.len = this.grid.rows + 10; 
         stream.visibleLen = this.grid.rows * 4; // Default to run full screen length
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
         for (let i = 0; i < stream.len; i++) {
@@ -4301,6 +4404,8 @@ class SimulationSystem {
         }
     }
     _handleEraserHead(idx) {
+        // If already fading, let it continue fading to respect current brightness
+        if (this.grid.decays[idx] >= 2) return;
         if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             this.grid.decays[idx] = 2;
@@ -4399,10 +4504,11 @@ class SimulationSystem {
     }
     _handleRotator(idx, frame, s, d) {
         const prog = this.grid.rotatorProg[idx];
+        const decay = this.grid.decays[idx];
         if (prog > 0) {
             this._progressRotator(idx, prog, s.rotatorCrossfadeFrames);
-        } else if (this.grid.decays[idx] === 1) {
-            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames);
+        } else if (decay === 1 || (s.rotateDuringFade && decay > 1)) {
+            this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames, s);
         }
     }
     _progressRotator(idx, prog, crossfadeFrames) {
@@ -4423,8 +4529,19 @@ class SimulationSystem {
             this.grid.rotatorProg[idx] = prog + 1;
         }
     }
-    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames) {
-        if (frame % cycleFrames === 0) {
+    _cycleRotator(idx, frame, crossfadeFrames, cycleFrames, s) {
+        let effectiveCycle = cycleFrames;
+        if (s.rotatorDesyncEnabled) {
+            // "Different speeds... with variance"
+            // Use the pre-calculated random offset (0-255) to vary the cycle duration
+            const variancePercent = s.rotatorDesyncVariance / 100; // 0.0 to 1.0
+            const maxVariance = cycleFrames * variancePercent;
+            // Map 0..255 to -1..1
+            const offsetNorm = (this.grid.rotatorOffsets[idx] / 127.5) - 1.0;
+            // Apply variance
+            effectiveCycle = Math.max(1, Math.round(cycleFrames + (offsetNorm * maxVariance)));
+        }
+        if (frame % effectiveCycle === 0) {
             // Get correct font charset
             const fontIdx = this.grid.getFont(idx);
             const activeFonts = this.config.derived.activeFonts;
@@ -5294,9 +5411,9 @@ class UIManager {
             { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
             { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1 },
             { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', description: "Varies the speed and release timing of tracers. 0% is uniform sync." },
-            { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 5, max: 50, unit: 'px' },
-            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 10, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
+            { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 2, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px' },
+            { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Tracers'},
@@ -5313,11 +5430,14 @@ class UIManager {
             { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },
-            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 0.2, step: 0.01, dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 1.0, step: 0.01, dep: 'rotatorEnabled' },
             { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: "Lock the rotator change to the cycles that move the tracers" },
             { cat: 'Behavior', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
             { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotateDuringFade', type: 'checkbox', label: 'Rotate during fade', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorDesyncEnabled', type: 'checkbox', label: 'Desynchronize Rotators', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorDesyncVariance', type: 'range', label: 'Desync Variance', min: 0, max: 100, unit: '%', dep: ['rotatorEnabled', 'rotatorDesyncEnabled'] },
         ];
     }
     /**
@@ -5328,13 +5448,6 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
-            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
-            { cat: 'Effects', type: 'button', label: 'Run Both in Order', action: 'boot_crash_sequence', class: 'btn-warn' },
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
@@ -5404,6 +5517,17 @@ class UIManager {
             { cat: 'Effects', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
             { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
             { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
+            { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
+            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', warning: "Photosensitivity Warning: Enabling this effect will cause pulsing lights and strobing effects that could be disruptive to those more sensitive to flashing lights. Please be aware of the impact this may have to those around you." },
+            { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 60, max: 600, step: 10, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
+            { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Sequence Now', action: 'boot_crash_sequence', class: 'btn-warn' },
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
             { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
             { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
@@ -5431,6 +5555,7 @@ class UIManager {
             { cat: 'Effects', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
             { cat: 'Effects', type: 'header', label: 'Post Processing' },
             { cat: 'Effects', type: 'accordion_header', label: 'Shader' },
+            { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
             { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
             { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', description: "A generic 0.0-1.0 value passed to the shader as 'uParameter'." },
             { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
@@ -5454,6 +5579,9 @@ class UIManager {
             { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
             { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
+            { cat: 'System', type: 'keybinder', id: 'BootSequence', label: 'Boot Animation' },
+            { cat: 'System', type: 'keybinder', id: 'CrashSequence', label: 'Crash Animation' },
+            { cat: 'System', type: 'keybinder', id: 'BootCrashSequence', label: 'Boot to Crash' },
             { cat: 'System', type: 'keybinder', id: 'Pulse', label: 'Pulse' },
             { cat: 'System', type: 'keybinder', id: 'ClearPulse', label: 'Clear Pulse' },
             { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
@@ -6031,6 +6159,7 @@ class UIManager {
             const div = document.createElement('div');
             div.className = 'info-description';
             div.textContent = def.text;
+            if (def.id) div.id = `in-${def.id}`;
             return div;
         }
         if (def.type === 'faq_item') {
@@ -6214,7 +6343,16 @@ class UIManager {
                 row.appendChild(btn);
                 return row;
             }
-            else if(def.type === 'checkbox') { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = this.c.get(def.id); inp.onchange = e => this.c.set(def.id, e.target.checked); row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; }
+            else if(def.type === 'checkbox') { 
+                inp = document.createElement('input'); 
+                inp.type = 'checkbox'; 
+                inp.checked = this.c.get(def.id); 
+                inp.onchange = e => { 
+                    if(e.target.checked && def.warning) alert(def.warning);
+                    this.c.set(def.id, e.target.checked); 
+                }; 
+                row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
+            }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
             row.appendChild(inp);
             if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
@@ -6330,6 +6468,37 @@ class UIManager {
                     const randomChar = Utils.getRandomKatakanaChar();
                     const currentColor = this.c.get('streamColor');
                     favicon.href = Utils.generateGlyphSVG(randomChar, currentColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
+                }
+            }
+            if (key === 'customShader' || key === 'shaderEnabled' || key === 'ALL') {
+                const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
+                if (shaderNameDisplay) {
+                    let name = 'No shader loaded.';
+                    const customShaderSource = this.c.get('customShader');
+                    const shaderEnabled = this.c.get('shaderEnabled');
+                    if (shaderEnabled && customShaderSource) {
+                        // 1. Try to find a name metadata tag in the first 500 chars
+                        // Matches "// Name: My Shader" or "// Shader: My Shader" case-insensitive
+                        const nameMatch = customShaderSource.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
+                        if (nameMatch && nameMatch[1]) {
+                            name = nameMatch[1].trim();
+                        } 
+                        // 2. Fallback: Check if it's standard code
+                        else if (customShaderSource.trim().startsWith('precision')) {
+                            name = 'Custom Shader (No Name)';
+                        }
+                        // 3. Fallback: If it doesn't look like code (maybe it really is a path?)
+                        else if (customShaderSource.length < 200 && (customShaderSource.includes('/') || customShaderSource.includes('\\'))) {
+                             const parts = customShaderSource.split(/[\/\\]/);
+                             name = parts[parts.length - 1];
+                        }
+                        else {
+                             name = 'Custom Shader';
+                        }
+                    } else if (shaderEnabled) {
+                         name = 'Unnamed/Default Shader'; 
+                    }
+                    shaderNameDisplay.textContent = `Loaded: ${name}`;
                 }
             }
             if (key === 'streamPalette') {
@@ -6471,6 +6640,13 @@ class MatrixKernel {
         this._resize();
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
+        // Trigger Boot Sequence on startup if enabled
+        if (this.config.get('bootSequenceEnabled')) {
+            // Short delay to ensure everything is ready
+            setTimeout(() => {
+                this.effectRegistry.trigger('BootSequence');
+            }, 100);
+        }
     }
     /**
      * Initializes core managers (Notification, Config, Grid, Simulation, EffectRegistry).
@@ -6499,7 +6675,7 @@ class MatrixKernel {
             CrashEffect
         ];
         effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect) {
+            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
             } else {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config));
@@ -6600,7 +6776,8 @@ class MatrixKernel {
                 { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
                 { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
+                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
+                { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
             autoEffects.forEach(effect => {
                 if ((key === effect.enabledKey && this.config.state[effect.enabledKey]) || key === 'ALL') {
@@ -6679,7 +6856,8 @@ class MatrixKernel {
             { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
             { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' }
+            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
+            { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
         autoEffects.forEach(effect => {
             if (this.config.state[effect.enabledKey]) {
