@@ -1,3 +1,4 @@
+
 class SimulationSystem {
     constructor(grid, config) {
         this.grid = grid;
@@ -9,6 +10,10 @@ class SimulationSystem {
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.nextSpawnFrame = 0; // Track next spawn time
+
+        // Reusable columns pool to avoid per-spawn allocation
+        this._columnsPool = new Array(this.grid.cols);
+        for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
     }
 
     _initializeModes(config) {
@@ -20,9 +25,11 @@ class SimulationSystem {
     }
 
     update(frame) {
+        // Keep columns arrays in sync with grid size
         if (this.lastStreamInColumn.length !== this.grid.cols) {
             this._resetColumns();
         }
+
         this._manageStreams(frame);
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
@@ -34,13 +41,19 @@ class SimulationSystem {
     }
 
     _manageOverlapGrid(frame) {
-        if (!this.config.state.overlapEnabled) {
+        const s = this.config.state;
+
+        if (!s.overlapEnabled) {
             // Reset initialization state when disabled
             if (this.overlapInitialized) {
                 this.overlapInitialized = false;
-                // Clear all overlap chars when disabled
-                for(let i=0; i<this.grid.overlapChars.length; i++) {
-                    this.grid.overlapChars[i] = 0;
+                // Clear all overlap chars when disabled (faster than manual loop)
+                if (this.grid.overlapChars && typeof this.grid.overlapChars.fill === 'function') {
+                    this.grid.overlapChars.fill(0);
+                } else {
+                    for (let i = 0; i < this.grid.overlapChars.length; i++) {
+                        this.grid.overlapChars[i] = 0;
+                    }
                 }
             }
             return;
@@ -48,7 +61,7 @@ class SimulationSystem {
         
         const activeFonts = this.config.derived.activeFonts;
         const numFonts = activeFonts.length;
-        const currentDensity = this.config.state.overlapDensity;
+        const currentDensity = s.overlapDensity;
 
         // Helper to get random char for a cell
         const setOverlapChar = (i) => {
@@ -65,7 +78,8 @@ class SimulationSystem {
             const fontData = activeFonts[fIdx] || activeFonts[0];
             const chars = fontData.chars;
             if (chars && chars.length > 0) {
-                this.grid.overlapChars[i] = chars[Math.floor(Math.random() * chars.length)].charCodeAt(0);
+                const r = Math.floor(Math.random() * chars.length);
+                this.grid.overlapChars[i] = chars[r].charCodeAt(0);
             } else {
                 this.grid.overlapChars[i] = 32; // Space if empty
             }
@@ -73,7 +87,8 @@ class SimulationSystem {
 
         // Check if we need to reinitialize (density changed or first time)
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
-            for(let i=0; i<this.grid.overlapChars.length; i++) {
+            const N = this.grid.overlapChars.length;
+            for (let i = 0; i < N; i++) {
                 if (Math.random() < currentDensity) {
                     setOverlapChar(i);
                 } else {
@@ -83,7 +98,6 @@ class SimulationSystem {
             this.overlapInitialized = true;
             this._lastOverlapDensity = currentDensity;
         }
-
     }
 
     _resetColumns() {
@@ -92,6 +106,10 @@ class SimulationSystem {
         this.activeStreams = [];
         // Reset overlap initialization when grid resizes
         this.overlapInitialized = false;
+
+        // Rebuild columns pool to match new grid size
+        this._columnsPool = new Array(this.grid.cols);
+        for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
     }
 
     _manageStreams(frame) {
@@ -120,11 +138,18 @@ class SimulationSystem {
     }
 
     _spawnStreams(s, d) {
-        const columns = this._shuffleArray([...Array(this.grid.cols).keys()]);
+        // Shuffle columns pool in place (Fisher–Yates), avoid per-spawn allocation
+        const columns = this._columnsPool;
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = columns[i]; columns[i] = columns[j]; columns[j] = tmp;
+        }
+
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
 
-        for (const col of columns) {
+        for (let k = 0; k < columns.length; k++) {
+            const col = columns[k];
             if (streamCount <= 0 && eraserCount <= 0) break;
 
             const spawnIdx = this.grid.getIndex(col, 0);
@@ -194,16 +219,22 @@ class SimulationSystem {
     }
 
     _processActiveStreams(frame) {
+        const grid = this.grid;
+        const rows = grid.rows;
+        const cellLocks = grid.cellLocks;
+        const decays = grid.decays;
+
         for (let i = this.activeStreams.length - 1; i >= 0; i--) {
             const stream = this.activeStreams[i];
             if (!stream.active) {
+                // remove inactive stream (keep order; backwards + splice is OK)
                 this.activeStreams.splice(i, 1);
                 continue;
             }
 
             // Check if stream is currently frozen by an effect
-            const headIdx = this.grid.getIndex(stream.x, Math.max(0, stream.y));
-            if (headIdx !== -1 && this.grid.cellLocks && this.grid.cellLocks[headIdx] === 1) {
+            const headIdx = grid.getIndex(stream.x, Math.max(0, stream.y));
+            if (headIdx !== -1 && cellLocks && cellLocks[headIdx] === 1) {
                 continue;
             }
 
@@ -223,28 +254,26 @@ class SimulationSystem {
 
             // Eraser Random Drop-off
             if (stream.isEraser) {
-                if (this.config.state.eraserStopChance > 0 && Math.random() < (this.config.state.eraserStopChance / 100)) {
+                const stopChance = this.config.state.eraserStopChance;
+                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
                     stream.active = false;
                     continue;
                 }
             } else {                    
                 // Tracer Random Drop-Off
-                if (this.config.state.tracerStopChance > 0 && Math.random() < (this.config.state.tracerStopChance / 100)) {
+                const stopChance = this.config.state.tracerStopChance;
+                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
                     stream.active = false;
                     continue;
                 }
 
                 // Tracer Collision Detection
-                // Check the cell we are about to move into (y+1)
-                // Actually, we check if the *next* move would hit something.
-                // If stream.y is currently at Y, next write is Y+1.
                 const nextY = stream.y + 1;
-                if (nextY < this.grid.rows) {
-                    const nextIdx = this.grid.getIndex(stream.x, nextY);
+                if (nextY < rows) {
+                    const nextIdx = grid.getIndex(stream.x, nextY);
                     // If next cell is occupied (decay > 0)
-                    if (nextIdx !== -1 && this.grid.decays[nextIdx] > 0) {
+                    if (nextIdx !== -1 && decays[nextIdx] > 0) {
                         // Collision! Stop stream.
-                        // We don't write to nextY, effectively stopping "on top" of the existing block.
                         stream.active = false;
                         continue; 
                     }
@@ -290,14 +319,11 @@ class SimulationSystem {
         const fontIdx = Math.floor(Math.random() * activeFonts.length);
         
         // Calculate individual speed
-        // Base speed tick interval: 21 - s.streamSpeed
-        // Higher streamSpeed = lower interval = faster
         const baseTick = Math.max(1, 21 - s.streamSpeed);
         let tickInterval = baseTick;
         
         if (s.desyncIntensity > 0) {
             // Variance: +/- 50% of baseTick * intensity
-            // e.g. if tick=5, int=1.0, var= +/- 2.5. Range 2.5 to 7.5.
             const variance = baseTick * s.desyncIntensity * 0.8;
             const offset = (Math.random() * variance * 2) - variance;
             tickInterval = Math.max(1, baseTick + offset);
@@ -320,7 +346,7 @@ class SimulationSystem {
             isEraser: forceEraser,
             pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsStr?.length || 1)),
             fontIndex: fontIdx,
-            tickInterval: tickInterval, // How many frames per move
+            tickInterval: tickInterval, // How many frames per move (can be float; preserved)
             tickTimer: 0 // Counter
         };
 
@@ -338,8 +364,7 @@ class SimulationSystem {
     }
 
     _initializeTracerStream(stream, s) {
-        // Tracers now run full screen length by default. 
-        // "Length" is effectively controlled by Erasers or Drop-Off chance.
+        // Tracers run full screen length by default.
         stream.len = this.grid.rows + 10; 
         stream.visibleLen = this.grid.rows * 4; // Default to run full screen length
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
@@ -370,12 +395,13 @@ class SimulationSystem {
     }
 
     _handleEraserHead(idx) {
+        const decays = this.grid.decays;
         // If already fading, let it continue fading to respect current brightness
-        if (this.grid.decays[idx] >= 2) return;
+        if (decays[idx] >= 2) return;
 
-        if (this.grid.decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
+        if (decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
-            this.grid.decays[idx] = 2;
+            decays[idx] = 2;
         } else {
             this._clearCell(idx);
         }
@@ -387,49 +413,54 @@ class SimulationSystem {
             : !stream.holes.has(stream.y);
 
         if (shouldWrite) {
-            const { state: s, derived: d } = this.config;
+            const s = this.config.state;
+            const d = this.config.derived;
+            const grid = this.grid;
+
             const cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
                 ? CELL_TYPE.ROTATOR
                 : CELL_TYPE.TRACER;
 
-            this.grid.types[idx] = cellType;
-            this.grid.ages[idx] = 1;
-            this.grid.decays[idx] = 1;
-            this.grid.rotatorProg[idx] = 0;
+            grid.types[idx] = cellType;
+            grid.ages[idx] = 1;
+            grid.decays[idx] = 1;
+            grid.rotatorProg[idx] = 0;
             
             // Set font
-            this.grid.setFont(idx, stream.fontIndex);
+            grid.setFont(idx, stream.fontIndex);
             
             if (Math.random() < s.paletteBias) {
-                this.grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
+                grid.paletteIndices[idx] = Math.floor(Math.random() * (d.paletteColorsStr?.length || 1));
             } else {
-                this.grid.paletteIndices[idx] = stream.pIdx;
+                grid.paletteIndices[idx] = stream.pIdx;
             }
             
-            this.grid.activeIndices.add(idx);
+            grid.activeIndices.add(idx);
 
             // Get char from active font set
-            const activeFonts = this.config.derived.activeFonts;
+            const activeFonts = d.activeFonts;
             const fontData = activeFonts[stream.fontIndex] || activeFonts[0];
             const charSet = fontData.chars;
             const char = charSet[Math.floor(Math.random() * charSet.length)];
-            this.grid.setChar(idx, char);
+            grid.setChar(idx, char);
 
             if (s.overlapEnabled && Math.random() < s.overlapDensity) {
                 // Use same charset for overlap to match font
-                this.grid.overlapChars[idx] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
+                grid.overlapChars[idx] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
             }
             
-            this.grid.brightness[idx] = s.variableBrightnessEnabled
+            const b = s.variableBrightnessEnabled
                 ? Utils.randomFloat(d.varianceMin, 1.0)
                 : 1.0;
 
-            this.grid.alphas[idx] = this.grid.brightness[idx];
+            grid.brightness[idx] = b;
+            grid.alphas[idx] = b;
+
             const style = this.modes[stream.mode].style(stream, frame, s);
             if (style) {
-                this.grid.complexStyles.set(idx, style);
+                grid.complexStyles.set(idx, style);
             } else {
-                this.grid.complexStyles.delete(idx);
+                grid.complexStyles.delete(idx);
             }
         } else {
             this._clearCell(idx);
@@ -437,52 +468,57 @@ class SimulationSystem {
     }
 
     _clearCell(idx) {
-        this.grid.types[idx] = CELL_TYPE.EMPTY;
-        this.grid.ages[idx] = 0;
-        this.grid.decays[idx] = 0;
-        this.grid.alphas[idx] = 0;
-        this.grid.overlapChars[idx] = 0;
+        const grid = this.grid;
+        grid.types[idx] = CELL_TYPE.EMPTY;
+        grid.ages[idx] = 0;
+        grid.decays[idx] = 0;
+        grid.alphas[idx] = 0;
+        grid.overlapChars[idx] = 0;
 
-        this.grid.complexStyles.delete(idx);
-        this.grid.nextChars.delete(idx);
-        this.grid.activeIndices.delete(idx); // Improves performance
+        grid.complexStyles.delete(idx);
+        grid.nextChars.delete(idx);
+        grid.activeIndices.delete(idx); // Improves performance
     }
 
     _updateCells(frame) {
-        const { state: s, derived: d } = this.config;
+        const s = this.config.state;
+        const d = this.config.derived;
+        const grid = this.grid;
 
-        for (const idx of this.grid.activeIndices) {
+        for (const idx of grid.activeIndices) {
             this._updateCell(idx, frame, s, d);
         }
     }
 
     _updateCell(idx, frame, s, d) {
-        // Check if cell is locked by an effect (e.g. Pulse)
-        if (this.grid.cellLocks && this.grid.cellLocks[idx] === 1) return;
+        const grid = this.grid;
 
-        const decay = this.grid.decays[idx];
+        // Check if cell is locked by an effect (e.g. Pulse)
+        if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
+
+        const decay = grid.decays[idx];
         if (decay === 0) return;
 
-        let age = this.grid.ages[idx];
+        let age = grid.ages[idx];
         if (age > 0) {
             age = this._incrementAge(age, d.maxState);
-            this.grid.ages[idx] = age;
+            grid.ages[idx] = age;
         }
 
-        if (s.rotatorEnabled && this.grid.types[idx] === CELL_TYPE.ROTATOR) {
+        if (s.rotatorEnabled && grid.types[idx] === CELL_TYPE.ROTATOR) {
             this._handleRotator(idx, frame, s, d);
         }
 
         if (decay >= 2) {
-            this.grid.decays[idx]++;
-            const newDecay = this.grid.decays[idx];
+            grid.decays[idx]++;
+            const newDecay = grid.decays[idx];
             if (this._shouldDecay(idx, newDecay, s.decayFadeDurationFrames)) {
                 this._clearCell(idx);
                 return;
             }
-            this.grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
+            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
         } else {
-            this.grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
+            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
         }
     }
 
@@ -491,8 +527,9 @@ class SimulationSystem {
     }
 
     _handleRotator(idx, frame, s, d) {
-        const prog = this.grid.rotatorProg[idx];
-        const decay = this.grid.decays[idx];
+        const grid = this.grid;
+        const prog = grid.rotatorProg[idx];
+        const decay = grid.decays[idx];
 
         if (prog > 0) {
             this._progressRotator(idx, prog, s.rotatorCrossfadeFrames);
@@ -502,35 +539,37 @@ class SimulationSystem {
     }
 
     _progressRotator(idx, prog, crossfadeFrames) {
+        const grid = this.grid;
+
         if (prog >= crossfadeFrames) {
-            const nextChar = this.grid.nextChars.get(idx);
+            const nextChar = grid.nextChars.get(idx);
             if (nextChar) {
-                this.grid.setChar(idx, nextChar);
+                grid.setChar(idx, nextChar);
                 if (this.config.state.overlapEnabled) {
-                    const nextOverlap = this.grid.nextOverlapChars.get(idx);
+                    const nextOverlap = grid.nextOverlapChars.get(idx);
                     if (nextOverlap) {
-                        this.grid.overlapChars[idx] = nextOverlap;
-                        this.grid.noiseDirty = true;
+                        grid.overlapChars[idx] = nextOverlap;
+                        grid.noiseDirty = true;
                     }
                 }
             }
-            this.grid.rotatorProg[idx] = 0;
+            grid.rotatorProg[idx] = 0;
         } else {
-            this.grid.rotatorProg[idx] = prog + 1;
+            grid.rotatorProg[idx] = prog + 1;
         }
     }
 
     _cycleRotator(idx, frame, crossfadeFrames, cycleFrames, s) {
+        const grid = this.grid;
         let effectiveCycle = cycleFrames;
         
         if (s.rotatorDesyncEnabled) {
             // "Different speeds... with variance"
-            // Use the pre-calculated random offset (0-255) to vary the cycle duration
             const variancePercent = s.rotatorDesyncVariance / 100; // 0.0 to 1.0
             const maxVariance = cycleFrames * variancePercent;
             
             // Map 0..255 to -1..1
-            const offsetNorm = (this.grid.rotatorOffsets[idx] / 127.5) - 1.0;
+            const offsetNorm = (grid.rotatorOffsets[idx] / 127.5) - 1.0;
             
             // Apply variance
             effectiveCycle = Math.max(1, Math.round(cycleFrames + (offsetNorm * maxVariance)));
@@ -538,23 +577,23 @@ class SimulationSystem {
 
         if (frame % effectiveCycle === 0) {
             // Get correct font charset
-            const fontIdx = this.grid.getFont(idx);
+            const fontIdx = grid.getFont(idx);
             const activeFonts = this.config.derived.activeFonts;
             const fontData = activeFonts[fontIdx] || activeFonts[0];
             const charSet = fontData.chars;
             
             if (crossfadeFrames <= 2) {
-                this.grid.setChar(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
+                grid.setChar(idx, this._getUniqueChar(grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
-                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
-                    this.grid.overlapChars[idx] = this._getUniqueChar(currentOverlap, charSet).charCodeAt(0);
+                    const currentOverlap = String.fromCharCode(grid.overlapChars[idx]);
+                    grid.overlapChars[idx] = this._getUniqueChar(currentOverlap, charSet).charCodeAt(0);
                 }
             } else {
-                this.grid.rotatorProg[idx] = 1;
-                this.grid.nextChars.set(idx, this._getUniqueChar(this.grid.getChar(idx), charSet));
+                grid.rotatorProg[idx] = 1;
+                grid.nextChars.set(idx, this._getUniqueChar(grid.getChar(idx), charSet));
                 if (this.config.state.overlapEnabled) {
-                    const currentOverlap = String.fromCharCode(this.grid.overlapChars[idx]);
-                    this.grid.nextOverlapChars.set(idx, this._getUniqueChar(currentOverlap, charSet).charCodeAt(0));
+                    const currentOverlap = String.fromCharCode(grid.overlapChars[idx]);
+                    grid.nextOverlapChars.set(idx, this._getUniqueChar(currentOverlap, charSet).charCodeAt(0));
                 }
             }
         }
@@ -577,13 +616,14 @@ class SimulationSystem {
     }
 
     _calculateAlpha(idx, age, decay, fadeDurationFrames) {
-        if (age > 0) {
+        const b = this.grid.brightness[idx];
+               if (age > 0) {
             return 1.0;
         } else if (decay === 1) {
-            return 0.95 * this.grid.brightness[idx];
+            return 0.95 * b;
         } else if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;
-            return 0.95 * (1 - ratio) * this.grid.brightness[idx];
+            return 0.95 * (1 - ratio) * b;
         }
         return 0;
     }

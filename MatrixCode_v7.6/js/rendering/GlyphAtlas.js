@@ -1,3 +1,4 @@
+
 class GlyphAtlas {
     constructor(config, fontName = null, customChars = null) {
         this.config = config;
@@ -7,7 +8,7 @@ class GlyphAtlas {
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { alpha: true });
         
-        // Map character codes to their x/y coordinates in the atlas
+        // Map character strings to their rect in the atlas
         this.charMap = new Map();
         
         // Atlas dimensions and cell size
@@ -23,6 +24,13 @@ class GlyphAtlas {
 
         // Pre-calculated half sizes for centering
         this.halfCell = 0;
+
+        // Internal caches for differential updates
+        this._lastCols = 0;
+        this._lastRows = 0;
+        this._lastCharListKey = '';
+        this._lastMaxSize = 0;
+        this._lastPadding = 0;
     }
 
     /**
@@ -34,87 +42,178 @@ class GlyphAtlas {
 
         // Determine font and chars to use
         const fontFamily = this.fontName || s.fontFamily;
-        const charList = this.customChars || Utils.CHARS;
+        const charList = this.customChars || Utils.CHARS; // string or array-like string
 
-        // Check if update is needed (font, color, or size change)
+        // Build dependency keys
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
         const paletteStr = d.paletteColorsStr.join(',');
-        
-        // Include overlap color and charList length/content in dependency check
         const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
 
-        if (this.currentFont === fontBase && 
-            this.currentPalette === fullConfigStr && 
+        // Early exit if nothing changed and no pending update
+        if (this.currentFont === fontBase &&
+            this.currentPalette === fullConfigStr &&
             !this.needsUpdate) {
             return;
         }
+
+        // Update tracked keys
+        const paletteChanged = this.currentPalette !== fullConfigStr;
+        const fontChanged = this.currentFont !== fontBase;
 
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
         this.needsUpdate = false;
 
-        // Calculate cell dimensions (add padding for glow/blur)
+        // Compute layout-affecting values
         const padding = Math.max(s.tracerGlow, 10) * 2;
-        this.cellSize = Math.ceil(maxSize + padding);
-        this.halfCell = this.cellSize / 2;
+        const layoutChanged =
+            fontChanged ||
+            this._lastMaxSize !== maxSize ||
+            this._lastPadding !== padding ||
+            this._lastCharListKey !== (charList.length + ':' + charList);
 
-        // Calculate atlas dimensions
-        const cols = Math.ceil(Math.sqrt(charList.length));
-        const rows = Math.ceil(charList.length / cols);
+        // If layout changed, recompute grid and resize canvas if needed
+        if (layoutChanged) {
+            this.cellSize = Math.ceil(maxSize + padding);
+            this.halfCell = this.cellSize / 2;
 
-        this.atlasWidth = cols * this.cellSize;
-        this.blockHeight = rows * this.cellSize; // Height of ONE color set
-        
-        // Total height = Palette Colors + 1 Overlap Color
-        const colorsToDraw = [...d.paletteColorsStr, s.overlapColor];
-        this.atlasHeight = this.blockHeight * colorsToDraw.length;
+            // Calculate atlas grid
+            const cols = Math.ceil(Math.sqrt(charList.length));
+            const rows = Math.ceil(charList.length / cols);
+            this._lastCols = cols;
+            this._lastRows = rows;
 
-        // Resize canvas
-        this.canvas.width = this.atlasWidth;
-        this.canvas.height = this.atlasHeight;
+            // Dimensions per color block
+            const newAtlasWidth = cols * this.cellSize;
+            const newBlockHeight = rows * this.cellSize;
 
-        // Clear and set up context
-        this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
-        this.ctx.font = fontBase;
-        this.ctx.textBaseline = 'middle';
-        this.ctx.textAlign = 'center';
+            // Total height = Palette Colors + 1 Overlap Color
+            const blocksCount = (d.paletteColorsStr?.length || 0) + 1;
+            const newAtlasHeight = newBlockHeight * blocksCount;
 
-        this.charMap.clear();
+            // Resize canvas only if dimensions changed (avoid resetting context unnecessarily)
+            if (this.canvas.width !== newAtlasWidth || this.canvas.height !== newAtlasHeight) {
+                this.canvas.width = newAtlasWidth;
+                this.canvas.height = newAtlasHeight;
+            }
 
-        // Draw Characters for each color in the palette + overlap
-        colorsToDraw.forEach((color, pIdx) => {
-            this.ctx.fillStyle = color;
-            const yOffset = pIdx * this.blockHeight;
+            // Update stored dimensions
+            this.atlasWidth = newAtlasWidth;
+            this.blockHeight = newBlockHeight;
+            this.atlasHeight = newAtlasHeight;
+
+            // Context state (must be set after resize because resize resets state)
+            this.ctx.font = fontBase;
+            this.ctx.textBaseline = 'middle';
+            this.ctx.textAlign = 'center';
+
+            // Clear and rebuild char map (only needed when layout changes)
+            this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
+            this.charMap.clear();
+
+            // Draw characters for palette blocks + overlap, and build charMap for the first block
+            const paletteLen = d.paletteColorsStr?.length || 0;
+
+            // Draw palette blocks
+            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
+                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
+                const yOffset = pIdx * this.blockHeight;
+
+                for (let i = 0; i < charList.length; i++) {
+                    const char = charList[i];
+                    const col = i % this._lastCols;
+                    const row = (i / this._lastCols) | 0;
+
+                    const x = col * this.cellSize + this.halfCell;
+                    const y = row * this.cellSize + this.halfCell + yOffset;
+
+                    this.ctx.fillText(char, x, y);
+
+                    // Store map ONLY for the first block; rects same for other blocks
+                    if (pIdx === 0) {
+                        this.charMap.set(char, {
+                            x: col * this.cellSize,
+                            y: row * this.cellSize,
+                            w: this.cellSize,
+                            h: this.cellSize
+                        });
+                    }
+                }
+            }
+
+            // Draw overlap color block (final block)
+            this.ctx.fillStyle = s.overlapColor;
+            const overlapYOffset = paletteLen * this.blockHeight;
 
             for (let i = 0; i < charList.length; i++) {
                 const char = charList[i];
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                
+                const col = i % this._lastCols;
+                const row = (i / this._lastCols) | 0;
+
                 const x = col * this.cellSize + this.halfCell;
-                const y = row * this.cellSize + this.halfCell + yOffset;
+                const y = row * this.cellSize + this.halfCell + overlapYOffset;
 
                 this.ctx.fillText(char, x, y);
+            }
 
-                // Store map ONLY for the first block (pIdx 0) as relative coords are same
-                if (pIdx === 0) {
-                    this.charMap.set(char, {
-                        x: col * this.cellSize,
-                        y: row * this.cellSize,
-                        w: this.cellSize,
-                        h: this.cellSize
-                    });
+            // Update layout caches
+            this._lastMaxSize = maxSize;
+            this._lastPadding = padding;
+            this._lastCharListKey = charList.length + ':' + charList;
+        } else {
+            // Layout unchanged: only colors or shader-related visual aspects changed
+            // We redraw the atlas (fast) without rebuilding charMap or recomputing layout.
+
+            // Keep existing dimensions; ensure context state is valid
+            this.ctx.font = fontBase;
+            this.ctx.textBaseline = 'middle';
+            this.ctx.textAlign = 'center';
+
+            // Clear whole atlas and repaint with new colors
+            this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
+
+            const paletteLen = d.paletteColorsStr?.length || 0;
+
+            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
+                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
+                const yOffset = pIdx * this.blockHeight;
+
+                for (let i = 0; i < charList.length; i++) {
+                    const char = charList[i];
+                    const col = i % this._lastCols;
+                    const row = (i / this._lastCols) | 0;
+
+                    const x = col * this.cellSize + this.halfCell;
+                    const y = row * this.cellSize + this.halfCell + yOffset;
+
+                    this.ctx.fillText(char, x, y);
                 }
             }
-        });
+
+            // Overlap block repaint
+            this.ctx.fillStyle = s.overlapColor;
+            const overlapYOffset = paletteLen * this.blockHeight;
+
+            for (let i = 0; i < charList.length; i++) {
+                const char = charList[i];
+                const col = i % this._lastCols;
+                const row = (i / this._lastCols) | 0;
+
+                const x = col * this.cellSize + this.halfCell;
+                const y = row * this.cellSize + this.halfCell + overlapYOffset;
+
+                this.ctx.fillText(char, x, y);
+            }
+            // Note: charMap remains valid since layout did not change.
+        }
     }
 
     /**
      * Returns the source coordinates for a character.
      * @param {string} char 
-     * @returns {Object|null} Source rect {x,y,w,h} or null
+         * @returns {Object|null} Source rect {x,y,w,h} or null
      */
     get(char) {
         return this.charMap.get(char);

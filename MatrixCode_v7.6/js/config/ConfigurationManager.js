@@ -1,3 +1,4 @@
+
 class ConfigurationManager {
     constructor() {
         this.storageKey = 'matrix_config_v7.6';
@@ -10,6 +11,28 @@ class ConfigurationManager {
         this.subscribers = [];
         this._previousSmoothingEnabled = undefined;
         this._previousSmoothingAmount = undefined;
+
+        // Keys that affect derived values (safe superset to ensure correctness)
+        this._derivedKeys = new Set([
+            'streamSpeed',
+            'horizontalSpacingFactor',
+            'verticalSpacingFactor',
+            'rotatorSyncToTracer',
+            'rotatorSyncMultiplier',
+            'rotatorCycleFactor',
+            'tracerAttackFrames',
+            'tracerReleaseFrames',
+            'tracerHoldFrames',
+            'fontSize',
+            'brightnessVariance',
+            'streamColor',
+            'tracerColor',
+            'streamPalette',
+            'fontFamily',
+            'fontWeight',
+            'italicEnabled',
+            'fontSettings'
+        ]);
 
         this._loadState();
         this.updateDerivedValues();
@@ -89,51 +112,108 @@ class ConfigurationManager {
             "rotatorCycleFactor": 17,
             "rotatorCrossfadeFrames": 4,
             "shaderEnabled": true,
-            "customShader": `/**
- * Film Grain Shader for Matrix Digital Rain
- * 
- * Features:
- * - Adds dynamic film grain noise
- * - Animated over time
- * - Respects texture orientation
- */
+            "customShader": `
+// Name: CRT Monitor
 
 precision mediump float;
 
-// Uniforms provided by PostProcessor.js
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
-uniform float uTime;
-
-// Use vTexCoord from Vertex Shader for correct orientation
+uniform float uParameter;
 varying vec2 vTexCoord;
 
-// Shader Configuration
-const float GRAIN_AMOUNT = 0.05; // Intensity of the grain (0.0 to 1.0)
-const bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)
-const float SPEED = 2.5;         // Speed of grain animation
+// Change this value to make the lines denser!
+// It represents the WIDTH/HEIGHT of one grid cell in pixels.
+const float GRID_CELL_SIZE = 2.0; // Lower numbers = lines closer together, but line thickness is proportional
+const float LINE_THICKNESS = 0.3;
+const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
+const float GRID_OPACITY = 0.5;
 
-// Random function
-float random(vec2 st) {
-    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-}
+// CRT Color Shift (Chromatic Aberration) Settings
+const float SHIFT_AMOUNT = 0.01;       // Magnitude of the color fringe (very small)
+
+// Brightness Boost (Thresholding/Glow) Settings
+const float BRIGHTNESS_THRESHOLD = 0.3;  // Only pixels brighter than this will be boosted
+const float BRIGHTNESS_BOOST = 1.6;      // How much to multiply bright colors by
+
+// --- Barrel Distortion Settings ---
+const float BARREL_DISTORTION_AMOUNT = 1.0; // Controls the bulge magnitude (0.0 to 1.0)
 
 void main() {
-    // Sample the original texture using standard texture coordinates
-    vec4 color = texture2D(uTexture, vTexCoord);
     
-    // Calculate noise
-    // We can use gl_FragCoord or vTexCoord for noise seed
-    float t = ANIMATED ? uTime * SPEED : 0.0;
+    // --- 1. CRT Barrel Distortion (Warp) ---
     
-    // Generate random noise value [-1.0, 1.0]
-    float noise = (random(vTexCoord + t) - 0.5) * 2.0;
+    // A. Center coordinates: shifts vTexCoord from [0.0, 1.0] to [-0.5, 0.5]
+    vec2 centeredCoord = vTexCoord - 0.5;
     
-    // Apply grain
-    color.rgb += noise * GRAIN_AMOUNT;
+    // B. Calculate distance squared from center
+    // The distortion effect should be stronger in the corners than in the middle.
+    // dot(v, v) is a fast way to get length squared (r*r).
+    float r2 = dot(centeredCoord, centeredCoord); 
     
-    // Output final color
-    gl_FragColor = color;
+    // C. Calculate the distortion factor
+    // The factor must be > 1.0 for a convex (bulging) look. 
+    // It's calculated by adding a fraction of the distance (r2) to 1.0.
+    float factor = 1.0 + r2 * (BARREL_DISTORTION_AMOUNT * uParameter * 0.25);
+
+    // D. Apply the factor and shift back to 0.0-1.0 range
+    // This coordinate will be our base for sampling the warped image.
+    vec2 warpedTexCoord = centeredCoord * factor + 0.5;
+
+    // --- Boundary Check ---
+    // If the warped coordinate is outside [0.0, 1.0], it's smeared/clipped.
+    // The 'any' function checks if any component (x or y) of the boolean vector is true.
+    if (any(lessThan(warpedTexCoord, vec2(0.0))) || any(greaterThan(warpedTexCoord, vec2(1.0)))) {
+        // If the coordinate is outside the bounds, output black (or transparent)
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return; // Exit the shader immediately to skip all further calculations
+    }
+
+    // --- 2. CRT Chromatic Shift (Red/Blue Fringing) ---
+    
+    // The centerBias calculation remains based on the original vTexCoord 
+    // to keep the color shift aligned with the screen's surface.
+    vec2 pixelCoord = vTexCoord * uResolution.xy;
+    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
+    vec2 fractionalPart = fract(scaledCoord);
+    
+    float centerBias = fractionalPart.x - 0.5; 
+    float shiftMagnitude = sin(centerBias * 3.14159265); 
+
+    // Sample the texture three times using the **warpedTexCoord** as the base
+    vec2 redCoord   = warpedTexCoord + vec2(-shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
+    vec2 blueCoord  = warpedTexCoord + vec2( shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
+    
+    // Use the base warped coordinate for the green channel
+    float red   = texture2D(uTexture, redCoord).r;
+    float green = texture2D(uTexture, warpedTexCoord).g; 
+    float blue  = texture2D(uTexture, blueCoord).b;
+    
+    vec4 finalColor = vec4(red, green, blue, 1.0);
+
+    // --- 3. Static Grid Overlay ---
+
+    // The grid lines are calculated using the original screen coordinate (vTexCoord)
+    // which simulates the grid being painted onto the curved glass.
+    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);
+    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);
+    float gridMask = min(verticalLine + horizontalLine, 1.0);
+
+    // Apply the grid
+    vec3 blendedColor = mix(finalColor.rgb, GRID_COLOR, gridMask);
+    finalColor.rgb = mix(finalColor.rgb, blendedColor, GRID_OPACITY);
+
+
+    // --- 4. Brightness Boost (Thresholding/Glow Effect) ---
+
+    float brightness = dot(finalColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);
+    float finalMultiplier = mix(1.0, BRIGHTNESS_BOOST, boostFactor);
+    finalColor.rgb *= finalMultiplier;
+
+    
+    // 5. Output Final Color
+    gl_FragColor = finalColor;
 }
 `,
             "pulseEnabled": false,
@@ -226,7 +306,7 @@ void main() {
               "CustomFont_5e2697679380fc43": {
                 "active": true,
                 "useCustomChars": true,
-                "customCharacters": "~}|{z!\"#$%&'()*43210.-,+56789:;<=>HGFEDCBA@?IJKLMNOPQR\\[ZYXWVUTS]^_`abcdefpoyxnmwvlkutjisrhgq/"
+                "customCharacters": "~}|{z!\"#$%&amp;'()*43210.-,+56789:;&lt;=&gt;HGFEDCBA@?IJKLMNOPQR\\[ZYXWVUTS]^_`abcdefpoyxnmwvlkutjisrhgq/"
               }
             },
             "deteriorationType": "ghost",
@@ -250,6 +330,17 @@ void main() {
     }
 
     /**
+     * Deep clone utility to minimize allocations and handle future structuredClone availability.
+     * @private
+     */
+    _deepClone(obj) {
+        if (typeof structuredClone === 'function') {
+            return structuredClone(obj);
+        }
+        return JSON.parse(JSON.stringify(obj));
+    }
+
+    /**
      * Loads configuration slots from local storage.
      * @private
      * @returns {Array<Object>} An array of slot data.
@@ -266,7 +357,7 @@ void main() {
 
         // Default slots if not found or error occurs
         return [
-            { name: "Trilogy", data: JSON.parse(JSON.stringify(this.defaults)) },
+            { name: "Trilogy", data: this._deepClone(this.defaults) },
             { name: "Save Slot 2", data: null },
             { name: "Save Slot 3", data: null }
         ];
@@ -297,7 +388,6 @@ void main() {
                 storedState = localStorage.getItem(legacyKey);
                 if (storedState) {
                     // console.log("Migrating configuration from v7.5");
-                    // Optionally notify user here, but we can't access notifications yet.
                 }
             }
 
@@ -395,7 +485,11 @@ void main() {
         
         this.state[key] = value; // Update the actual key's value
 
-        this.updateDerivedValues();
+        // Only recompute derived values when relevant keys change (preserves behavior, improves perf)
+        if (this._derivedKeys.has(key) || key === 'ALL') {
+            this.updateDerivedValues();
+        }
+
         this.save();
         this.notify(key);
     }
@@ -418,7 +512,7 @@ void main() {
         if (this.slots[index]) { // Ensure slot exists
             this.slots[index] = {
                 name: this.slots[index].name,
-                data: JSON.parse(JSON.stringify(this.state)) // Deep clone state
+                data: this._deepClone(this.state) // Deep clone state
             };
             this.saveSlots();
         } else {
@@ -470,7 +564,15 @@ void main() {
      * @param {string} key - The key of the changed configuration setting.
      */
     notify(key) {
-        this.subscribers.forEach((callback) => callback(key, this.state));
+        // Guard each subscriber to prevent one failing listener from breaking the chain
+        for (let i = 0; i < this.subscribers.length; i++) {
+            const callback = this.subscribers[i];
+            try {
+                callback(key, this.state);
+            } catch (e) {
+                console.warn('Subscriber callback failed:', e);
+            }
+        }
     }
 
     /**
@@ -486,6 +588,20 @@ void main() {
             ? Math.max(1, Math.floor(cycleDuration / s.rotatorSyncMultiplier))
             : Math.max(10, Math.round(60 - s.rotatorCycleFactor * 2.5));
 
+        // Precompute common color conversions only once
+        const streamRgb = Utils.hexToRgb(s.streamColor);
+        const tracerRgb = Utils.hexToRgb(s.tracerColor);
+
+        // Palette conversions done once and reused
+        const paletteHexes = (s.streamPalette && s.streamPalette.length > 0)
+            ? s.streamPalette
+            : [s.streamColor];
+        const paletteRgbs = new Array(paletteHexes.length);
+        for (let i = 0; i < paletteHexes.length; i++) {
+            paletteRgbs[i] = Utils.hexToRgb(paletteHexes[i]);
+        }
+        const paletteColorsStr = paletteRgbs.map(Utils.createRGBString);
+
         this.derived = {
             cycleDuration,
             safeAttack: Math.min(Math.max(1, s.tracerAttackFrames), cycleDuration),
@@ -496,20 +612,22 @@ void main() {
             cellWidth: s.fontSize * hFactor,
             cellHeight: s.fontSize * vFactor,
             varianceMin: 1.0 - s.brightnessVariance / 100,
-            streamRgb: Utils.hexToRgb(s.streamColor),
-            tracerRgb: Utils.hexToRgb(s.tracerColor),
-            streamColorStr: Utils.createRGBString(Utils.hexToRgb(s.streamColor)),
-            paletteRgbs: (s.streamPalette || [s.streamColor]).map(c => Utils.hexToRgb(c)),
-            paletteColorsStr: (s.streamPalette || [s.streamColor]).map(c => Utils.createRGBString(Utils.hexToRgb(c))),
-            tracerColorStr: Utils.createRGBString(Utils.hexToRgb(s.tracerColor)),
+            streamRgb,
+            tracerRgb,
+            streamColorStr: Utils.createRGBString(streamRgb),
+            paletteRgbs,
+            paletteColorsStr,
+            tracerColorStr: Utils.createRGBString(tracerRgb),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };
 
-        // Active Fonts Logic
+        // Active Fonts Logic (avoid allocations where possible)
         const fontSettings = s.fontSettings || {};
         const activeFonts = [];
-        for (const [name, conf] of Object.entries(fontSettings)) {
-            if (conf.active) {
+        for (const name in fontSettings) {
+            if (!Object.prototype.hasOwnProperty.call(fontSettings, name)) continue;
+            const conf = fontSettings[name];
+            if (conf && conf.active) {
                 let chars = Utils.CHARS;
                 if (conf.useCustomChars && conf.customCharacters) {
                     const clean = conf.customCharacters.replace(/\s+/g, '');
@@ -525,6 +643,6 @@ void main() {
 }
 
 
-    // =========================================================================
-    // 3.0 MATRIX GRID
-    // =========================================================================
+// =========================================================================
+// 3.0 MATRIX GRID
+// =========================================================================

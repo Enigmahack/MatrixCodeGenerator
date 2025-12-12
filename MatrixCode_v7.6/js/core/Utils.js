@@ -1,4 +1,4 @@
-const APP_VERSION = "7.5a"; // Retained current version
+const APP_VERSION = "7.6"; // Retained current version
 
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS

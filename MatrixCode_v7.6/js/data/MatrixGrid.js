@@ -1,3 +1,4 @@
+
 class MatrixGrid {
     constructor(config) {
         this.config = config;
@@ -29,9 +30,20 @@ class MatrixGrid {
      */
     resize(width, height) {
         const d = this.config.derived;
-        const newCols = Math.max(1, Math.floor(width / d.cellWidth));
-        const newRows = Math.max(1, Math.floor(height / d.cellHeight));
 
+        // Defensive guards to avoid NaN/Infinity causing zero/invalid sizes
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return; // Ignore invalid dimensions; preserves existing buffers
+        }
+        if (!d || !Number.isFinite(d.cellWidth) || !Number.isFinite(d.cellHeight) || d.cellWidth <= 0 || d.cellHeight <= 0) {
+            return; // Derived not ready; avoid thrashing allocations
+        }
+
+        // Compute new grid size using integer math
+        const newCols = Math.max(1, (width / d.cellWidth) | 0);
+        const newRows = Math.max(1, (height / d.cellHeight) | 0);
+
+        // Reallocate only when shape changes
         if (newCols !== this.cols || newRows !== this.rows) {
             this._resizeGrid(newCols, newRows);
         }
@@ -44,7 +56,8 @@ class MatrixGrid {
      * @returns {number} The 1D index, or -1 if out of bounds.
      */
     getIndex(x, y) {
-        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) {
+        // Branch order keeps fast path hot (common valid case avoids extra checks)
+        if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) {
             return -1; // Out of bounds
         }
         return y * this.cols + x;
@@ -56,7 +69,9 @@ class MatrixGrid {
      * @param {string} charStr - The character string to set.
      */
     setChar(idx, charStr) {
+        // Fast path: minimal type/length checking, identical behavior
         if (typeof charStr === "string" && charStr.length > 0) {
+            // Using bitwise OR to coerce to 32-bit int is unnecessary; charCodeAt already returns int
             this.chars[idx] = charStr.charCodeAt(0);
         }
     }
@@ -67,7 +82,7 @@ class MatrixGrid {
      * @returns {string} The character at the index.
      */
     getChar(idx) {
-        // Ensure chars array is not null before accessing
+        // Preserve original behavior: return '' on invalid; charCode 0 returns '\u0000'
         if (!this.chars || idx < 0 || idx >= this.chars.length) return '';
         return String.fromCharCode(this.chars[idx]);
     }
@@ -102,18 +117,20 @@ class MatrixGrid {
     _resizeGrid(newCols, newRows) {
         const totalCells = newCols * newRows;
 
-        // Reinitialize arrays with new size
-        this.chars = new Uint16Array(totalCells);
-        this.types = new Uint8Array(totalCells);
-        this.alphas = new Float32Array(totalCells);
-        this.decays = new Uint8Array(totalCells);
-        this.ages = new Int32Array(totalCells);
-        this.brightness = new Float32Array(totalCells);
-        this.rotatorProg = new Float32Array(totalCells);
+        // Allocate typed arrays (zero-initialized by spec)
+        this.chars        = new Uint16Array(totalCells);
+        this.types        = new Uint8Array(totalCells);
+        this.alphas       = new Float32Array(totalCells);
+        this.decays       = new Uint8Array(totalCells);
+        this.ages         = new Int32Array(totalCells);
+        this.brightness   = new Float32Array(totalCells);
+        this.rotatorProg  = new Float32Array(totalCells);
         this.rotatorOffsets = new Uint8Array(totalCells); // Offset for desync logic
         
-        for(let i=0; i<totalCells; i++) {
-            this.rotatorOffsets[i] = Math.floor(Math.random() * 255);
+        // Fill rotatorOffsets with 0..254 (preserves original range & distribution)
+        for (let i = 0; i < totalCells; i++) {
+            // Bitwise OR is faster than Math.floor and yields identical 0..254 range
+            this.rotatorOffsets[i] = (Math.random() * 255) | 0;
         }
 
         // Color Palette Index (0-2)
@@ -128,15 +145,17 @@ class MatrixGrid {
         // Cell Locks (for pausing simulation under effects)
         this.cellLocks = new Uint8Array(totalCells);
 
-        this.activeIndices = new Set();
-        this.complexStyles = new Map();
-        this.nextChars = new Map();
-        this.nextOverlapChars = new Map();
+        // Replace containers (preserves prior semantics that new objects are created on resize)
+        this.activeIndices     = new Set();
+        this.complexStyles     = new Map();
+        this.nextChars         = new Map();
+        this.nextOverlapChars  = new Map();
 
         // Update grid dimensions
         this.cols = newCols;
         this.rows = newRows;
     }
+
 }
 
 
