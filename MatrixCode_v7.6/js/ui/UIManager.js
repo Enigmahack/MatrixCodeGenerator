@@ -351,9 +351,9 @@ class UIManager {
     _generateSystemTab() {
         return [
             { cat: 'System', type: 'accordion_header', label: 'Configuration' },
-            { cat: 'System', type: 'slot', idx: 0 },
-            { cat: 'System', type: 'slot', idx: 1 },
-            { cat: 'System', type: 'slot', idx: 2 },
+            { cat: 'System', type: 'slot', idx: 0, id: 'slot_0' },
+            { cat: 'System', type: 'slot', idx: 1, id: 'slot_1' },
+            { cat: 'System', type: 'slot', idx: 2, id: 'slot_2' },
             { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
             { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
@@ -1296,6 +1296,15 @@ class UIManager {
         try {
             if(key === 'ALL') { 
                 this.defs.forEach(d => { if(d.id) this.refresh(d.id); }); 
+                
+                // Refresh Slot Names
+                if (this.c.slots) {
+                    this.c.slots.forEach((slot, i) => {
+                        const slotInput = document.getElementById(`slot-input-${i}`);
+                        if (slotInput) slotInput.value = slot.name;
+                    });
+                }
+
                 this.refresh('fontFamily'); // Special refresh for font list
                 this.dom.content.querySelectorAll('.accordion-content').forEach(accordionBody => {
                     const allDepRows = accordionBody.querySelectorAll('[data-dep]');

@@ -87,6 +87,13 @@ class MatrixKernel {
         this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
 
+        // Subscribe to font changes to invalidate rendering caches
+        this.fontMgr.subscribe(() => {
+            if (this.renderer) {
+                this.renderer.handleFontChange();
+            }
+        });
+
         // Initialize font manager and await its completion
         await this.fontMgr.init();
 

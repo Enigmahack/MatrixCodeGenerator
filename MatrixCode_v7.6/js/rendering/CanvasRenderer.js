@@ -127,6 +127,16 @@ class CanvasRenderer {
         }
     }
 
+    /**
+     * Clears the internal glyph atlas cache to force regeneration.
+     * Call this when fonts are added, removed, or changed.
+     */
+    handleFontChange() {
+        this.glyphAtlases.clear();
+        // Force a re-render of atlases on next frame
+        this._resetStateCache();
+    }
+
     _setupMouseTracking() {
         const updateMouse = (e) => {
             const rect = this.cvs.getBoundingClientRect();

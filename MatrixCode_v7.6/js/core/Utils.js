@@ -96,7 +96,7 @@ const Utils = {
     createRGBString: (color) => `rgb(${color.r},${color.g},${color.b})`,
 
     // List of available characters for random selection
-    CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
+    CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
 
     // Subset of Katakana characters for specific use cases
     KATAKANA_CHARS: 'ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
