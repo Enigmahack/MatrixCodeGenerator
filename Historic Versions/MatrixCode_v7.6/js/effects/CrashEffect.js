@@ -5,7 +5,7 @@ class CrashEffect extends AbstractEffect {
         this.name = "CrashSequence";
         this.active = false;
         this.startTime = 0;
-        this.durationSeconds = 30; 
+        this.durationSeconds = this.c.get('crashDurationSeconds') || 30; 
         
         this.originalShader = null;
         this.originalShaderEnabled = false;
@@ -37,14 +37,21 @@ class CrashEffect extends AbstractEffect {
         };
         
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
-        this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
         
-        this.chaosState = {
-            activeCount: 0,
-            breakTimer: 0,
-            nextBreak: 180 
+        // Refactored State for Flash/Fade
+        this.flashState = {
+            active: false,
+            timer: 0,
+            duration: 40, 
+            nextFlash: 60, 
+            cycleDuration: 240
         };
+        
+        // Max opacity for the black overlay (never fully 1.0)
+        this.MAX_BLACK_LEVEL = 0.5; 
+        this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
+        this.endFlashTriggered = false;
     }
 
     trigger() {
@@ -53,6 +60,11 @@ class CrashEffect extends AbstractEffect {
         this.originalShaderEnabled = this.c.state.shaderEnabled;
         this.originalShader = this.c.state.customShader;
         this.originalShaderParameter = this.c.state.shaderParameter;
+
+        // Get Stream Color for the Splash
+        const colorStr = this.c.derived.streamColorStr || '#00FF00';
+        const rgb = Utils.hexToRgb(colorStr);
+        const vec3Color = `vec3(${rgb.r/255.0}, ${rgb.g/255.0}, ${rgb.b/255.0})`;
 
         this.c.set('shaderEnabled', true);
         this.c.set('customShader', `
@@ -64,10 +76,35 @@ uniform vec2 uMouse;
 uniform float uParameter; 
 varying vec2 vTexCoord;
 
+// --- UTILS ---
 float random(float n) { return fract(sin(n) * 43758.5453123); }
 float rect(vec2 uv, vec2 pos, vec2 size) {
     vec2 d = abs(uv - pos) - size;
     return 1.0 - step(0.0, max(d.x, d.y));
+}
+float noise(float p) {
+    float i = floor(p);
+    float f = fract(p);
+    return mix(random(i), random(i + 1.0), f * f * (3.0 - 2.0 * f));
+}
+float scannerSheet(vec2 uv, vec2 center, vec2 size, float blur, int axis) {
+    vec2 pos = uv - center;
+    float jagged = 0.0;
+    if (axis == 1) { jagged = (noise(uv.x * 50.0) - 0.5) * 0.005; pos.y += jagged; } 
+    else if (axis == 2) { jagged = (noise(uv.y * 50.0) - 0.5) * 0.005; pos.x += jagged; }
+    vec2 d = abs(pos) - size;
+    float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+    return 1.0 - smoothstep(0.0, blur, dist);
+}
+vec3 getScannerScene(int pattern, vec2 uv) {
+    vec3 col = vec3(1.0); 
+    if (pattern == 0) {
+        float top = scannerSheet(uv, vec2(0.5, 0.75), vec2(1.0, 0.25), 0.02, 1);
+        float bot = scannerSheet(uv, vec2(0.5, 0.25), vec2(1.0, 0.25), 0.02, 1);
+        col = mix(vec3(0.9), vec3(1.0), bot);
+        col = mix(col, vec3(0.85, 0.9, 0.95), top);
+    }
+    return col;
 }
 
 void main() {
@@ -76,7 +113,26 @@ void main() {
     float progress = fract(uParameter); 
     
     vec4 finalColor = texture2D(uTexture, uv);
+    vec3 splashColor = ${vec3Color};
 
+    // --- PHASE 10: SPLASH EFFECT ---
+    if (phase_idx == 10.0) {
+         // INSTANT FLASH: Starts at 1.0, fades out
+         float t = progress; 
+         
+         float bar = scannerSheet(uv, vec2(0.5, 0.5), vec2(1.0, 0.2), 0.3, 1);
+         
+         // Instant attack (starts max), fast linear decay
+         // Fade out completely by t=0.6
+         float flashAlpha = bar * (1.0 - smoothstep(0.0, 0.6, t));
+
+         if (flashAlpha > 0.0) {
+            // Additive blend 
+            finalColor.rgb += splashColor * flashAlpha * 3.0; 
+         }
+    }
+
+    // --- EXISTING DISTORTIONS ---
     if (phase_idx == 2.0) {
         vec4 distColor = vec4(0.0);
         float active = 0.0;
@@ -111,39 +167,7 @@ void main() {
     }
     
     if (phase_idx == 3.0) {
-        for (float i = 0.0; i < 3.0; i++) {
-            float seed = i * 12.34;
-            float dur = 0.2 + random(seed)*0.3; 
-            float offset = random(seed + 1.0) * 10.0;
-            float localT = mod(uTime + offset, dur + 0.1); 
-            if (localT < dur) {
-                float prog = localT / dur;
-                float cycleIdx = floor((uTime + offset) / (dur + 0.1));
-                float subSeed = seed + cycleIdx * 7.89;
-                vec2 pos = vec2(random(subSeed), random(subSeed + 1.0));
-                float type = random(subSeed + 2.0); 
-                if (type < 0.6) { 
-                    vec2 size = vec2(0.3 + random(subSeed)*0.5, 0.05 + random(subSeed)*0.1);
-                    if (rect(uv, pos, size) > 0.0) {
-                        float smearX = (uv.x - pos.x) * 0.5 + pos.x; 
-                        finalColor = mix(finalColor, texture2D(uTexture, vec2(smearX, uv.y)), 0.8);
-                    }
-                } else if (type < 0.8) { 
-                    vec2 size = vec2(0.2 + random(subSeed)*0.3, 0.005); 
-                    if (rect(uv, pos, size) > 0.0) {
-                        float gray = dot(finalColor.rgb, vec3(0.299, 0.587, 0.114));
-                        finalColor.rgb = vec3(gray * 2.0); 
-                    }
-                } else { 
-                    vec2 size = vec2(0.02, 0.5 + random(subSeed)*0.5); 
-                    if (size.y < 1.0) size.y = 1.0; 
-                    if (rect(uv, pos, size) > 0.0) {
-                        float fade = 1.0 - prog; 
-                        finalColor = mix(finalColor, vec4(1.0), fade * 0.8);
-                    }
-                }
-            }
-        }
+        if (random(uTime) > 0.9) finalColor.rgb = mix(finalColor.rgb, vec3(0.0), 0.2);
     }
 
     if (phase_idx == 7.0) {
@@ -154,9 +178,6 @@ void main() {
         if (uv.y <= startY && uv.y >= currentTop) {
             float alpha = 1.0 - smoothstep(0.1, 0.4, progress);
             finalColor = mix(finalColor, vec4(0.0, 0.0, 0.0, 1.0), alpha);
-        }
-        if (progress > 0.3 && progress < 0.35) {
-             if (abs(uv.y - 0.2) < 0.02) finalColor = texture2D(uTexture, vec2(0.5, 0.2)) * 2.0;
         }
     }
     
@@ -195,12 +216,16 @@ void main() {
         this.supermanState = { active: false, axis: 0, cells: new Set(), fluxTriangles: [], flickerTimer: 0, initialBranches: [], burstTimer: 0, isBursting: false, cooldown: 0, edgeType: 0, isMirrored: false };
         this.shaderState = { activeId: 0, timer: 0, duration: 0 };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
-        this.burstCount = 0;
-        this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
-        this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
         this.endFlashTriggered = false;
-        // console.log("CrashEffect Triggered");
+        
+        this.flashState.active = false;
+        this.flashState.nextFlash = 30; 
+        
+        // Use Max Black Level if Flash is enabled, otherwise full visibility (0.0)
+        this.MAX_BLACK_LEVEL = 0.5;
+        this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
+
         return true;
     }
 
@@ -225,157 +250,205 @@ void main() {
             this.snapshotOverlay.clear();
             this.blackSheets = [];
             this.supermanState.cells.clear();
-            // console.log("CrashEffect Finished");
             return;
         }
 
-        // --- CHAOS LOGIC ---
+        // --- FLASH & FADE LOGIC ---
+        const enableFlash = this.c.get('crashEnableFlash');
         
-        if (this.chaosState.breakTimer > 0) {
-            this.chaosState.breakTimer--;
-            this.globalRevealAlpha = 0.0; 
-            this.c.set('shaderParameter', 0.0); 
-            return; 
-        } else {
-            this.chaosState.nextBreak--;
-            if (this.chaosState.nextBreak <= 0) {
-                this.chaosState.breakTimer = 60; 
-                this.chaosState.nextBreak = 180 + Math.random() * 180; 
-                this.chaosState.activeCount = 0;
-                return;
-            }
-        }
-        
-        if (this.globalRevealAlpha < 1.0) this.globalRevealAlpha += 0.1;
-
-        this.chaosState.activeCount = 0;
-        if (this.supermanState.active) this.chaosState.activeCount++;
-        if (this.shaderState.activeId !== 0) this.chaosState.activeCount++;
-        if (this.snapshotOverlay.size > 0) this.chaosState.activeCount++; 
-
-        const canSpawn = this.chaosState.activeCount < 2;
-
-        this.sheetState.timer--;
-        if (this.sheetState.timer <= 0) {
-            this.sheetState.spawning = !this.sheetState.spawning;
-            this.sheetState.timer = this.sheetState.spawning ? 600 : 300; 
-        }
-        if (this.sheetState.spawning) this._updateBlackSheets();
-        else {
-            for (let i = this.blackSheets.length - 1; i >= 0; i--) {
-                const s = this.blackSheets[i];
-                s.age++;
-                if (s.age >= s.life) this.blackSheets.splice(i, 1);
-                s.posX += s.dx; s.posY += s.dy;
-                s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-                s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
-            }
-        }
-        for (const s of this.blackSheets) {
-            if (Math.random() < 0.01) s.targetAlpha = (s.targetAlpha > 0.5) ? 0.0 : s.maxAlpha;
-            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
-            s.posX += s.dx; s.posY += s.dy;
-            if (Math.random() < 0.02) { s.targetW = Math.max(2, s.targetW + (Math.random() - 0.5) * 4); s.targetH = Math.max(2, s.targetH + (Math.random() - 0.5) * 4); }
-            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
-        }
-
-        this._updateSnapshots();
-        
-        if (this.supermanState.active) {
-            this._updateSuperman();
-            this.supermanState.globalTimer--;
-            if (this.supermanState.globalTimer <= 0) {
-                this.supermanState.active = false;
-                this.supermanState.cells.clear();
-                this.supermanState.fluxTriangles = [];
-            }
-        } else if (canSpawn) {
-            if (Math.random() < 0.03) {
-                const type = Math.random() < 0.6 ? 0 : 1; 
-                this._triggerSuperman(type);
-            }
-        }
-        
-        if (canSpawn && Math.random() < 0.04) this._triggerWhiteBlock(); 
-        if (canSpawn && Math.random() < 0.03) this._triggerColumnBurst(); 
-        
-        if (!this.smithState.triggered && canSpawn && Math.random() < 0.005) { 
-            this._triggerSmith();
-        }
-        if (this.smithState.active) {
-            this.smithState.timer--;
-            if (this.smithState.timer <= 0) this.smithState.active = false;
-        }
-        
-        if (this.registry && canSpawn) { 
-            if (Math.random() < 0.002) this.registry.trigger('ClearPulse');
-            // Removed MiniPulse
-        }
-
-        if (this.shaderState.activeId === 0) {
-            if (canSpawn && Math.random() < 0.02) {
-                const r = Math.random();
-                let id = 0;
-                let dur = 0;
-                if (r < 0.15) { id = 2; dur = 60; } 
-                else if (r < 0.50) { id = 3; dur = 45; } 
-                else if (r < 0.70) { id = 7; dur = 60; } 
-                else if (r < 0.85) { id = 8; dur = 30; } 
-                else { id = 9; dur = 45; } 
+        if (enableFlash) {
+            if (this.flashState.active) {
+                this.flashState.timer++;
+                // Run Phase 10 (Splash)
+                const p = Math.min(1.0, this.flashState.timer / this.flashState.duration);
+                this.c.set('shaderParameter', 10.0 + p);
                 
-                this.shaderState.activeId = id;
-                this.shaderState.duration = dur;
-                this.shaderState.timer = 0;
+                // INSTANT REVEAL at start of flash
+                if (this.flashState.timer === 1) {
+                    this.baseBlackLevel = 0.0; 
+                }
+                
+                // Start fading out code halfway through flash
+                if (p > 0.5) {
+                    // Linear fade from 0.0 to MAX_BLACK_LEVEL
+                    const fadeP = (p - 0.5) * 2.0; 
+                    this.baseBlackLevel = fadeP * this.MAX_BLACK_LEVEL;
+                } else {
+                    this.baseBlackLevel = 0.0; 
+                }
+                
+                if (this.flashState.timer >= this.flashState.duration) {
+                    this.flashState.active = false;
+                    this.c.set('shaderParameter', 0.0);
+                    this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
+                }
+            } else {
+                // Not flashing - Keep at Max Black Level
+                if (this.baseBlackLevel < this.MAX_BLACK_LEVEL) {
+                    this.baseBlackLevel += 0.05; 
+                    if (this.baseBlackLevel > this.MAX_BLACK_LEVEL) this.baseBlackLevel = this.MAX_BLACK_LEVEL;
+                } else {
+                    this.baseBlackLevel = this.MAX_BLACK_LEVEL;
+                }
+                
+                // Trigger Next Flash
+                this.flashState.nextFlash--;
+                if (this.flashState.nextFlash <= 0) {
+                    this._triggerFlash();
+                }
             }
         } else {
-            this.shaderState.timer++;
-            if (this.shaderState.timer >= this.shaderState.duration) {
-                this.shaderState.activeId = 0;
-                this.c.set('shaderParameter', 0.0);
-            } else {
-                const p = this.shaderState.timer / this.shaderState.duration;
-                this.c.set('shaderParameter', this.shaderState.activeId + p);
-            }
+            this.baseBlackLevel = 0.0;
+            this.c.set('shaderParameter', 0.0);
         }
-    }
-
-    _updateBlackSheets() {
-        if (this.blackSheets.length < 1000) { 
-            // Spawn multiple sheets per frame for denser coverage
-            for (let k = 0; k < 3; k++) {
-                if (Math.random() < 0.6) { 
-                    const grid = this.g;
+        
+        // --- OTHER SHADERS ---
+        // Only run chaos shaders if flash is not active
+        if (!this.flashState.active) {
+            if (this.shaderState.activeId === 0) {
+                 if (Math.random() < 0.01) {
                     const r = Math.random();
-                    let w, h;
-                    if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
-                    else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
-                    else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
-                    let c;
-                    if (Math.random() < 0.8) { 
-                        if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
-                        else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
-                        if (c < 0) c = 0; 
-                    } else { c = Math.floor(Math.random() * (grid.cols - w)); }
-                    const row = Math.floor(Math.random() * (grid.rows - h));
-                    const duration = Math.floor(Math.random() * 200) + 100; 
-                    const axis = Math.random() < 0.5 ? 0 : 1;
-                    const expandAmount = Math.floor(Math.random() * w) + 2; 
-                    const speedScale = Math.random() * 0.6 + 0.2;
-                    this.blackSheets.push({ 
-                        c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
-                        posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
-                        flashFrames: 0, 
-                        maxAlpha: 0.75 + Math.random() * 0.2, 
-                        currentAlpha: 0.0, targetAlpha: 1.0 
-                    });
+                    let id = 0; let dur = 0;
+                    if (r < 0.3) { id = 3; dur = 20; }
+                    else if (r < 0.6) { id = 9; dur = 30; }
+                    else { id = 2; dur = 40; }
+                    
+                    this.shaderState.activeId = id;
+                    this.shaderState.duration = dur;
+                    this.shaderState.timer = 0;
+                 }
+            } else {
+                this.shaderState.timer++;
+                if (this.shaderState.timer >= this.shaderState.duration) {
+                    this.shaderState.activeId = 0;
+                    this.c.set('shaderParameter', 0.0);
+                } else {
+                    const p = this.shaderState.timer / this.shaderState.duration;
+                    this.c.set('shaderParameter', this.shaderState.activeId + p);
                 }
             }
         }
+
+        // --- BLACK SHEETS ---
+        const maxSheets = this.c.get('crashSheetCount');
+        
+        this.sheetState.timer--;
+        if (this.sheetState.timer <= 0) {
+            this.sheetState.spawning = !this.sheetState.spawning;
+            this.sheetState.timer = this.sheetState.spawning ? 400 : 200; 
+        }
+        if (this.sheetState.spawning) this._updateBlackSheets(maxSheets);
+        
+        // Adjust array size if user reduced count
+        if (this.blackSheets.length > maxSheets) {
+            this.blackSheets.splice(maxSheets);
+        }
+        
+        // Update Sheets (Roaming/Bouncing)
         for (let i = this.blackSheets.length - 1; i >= 0; i--) {
             const s = this.blackSheets[i];
-            s.age++;
-            if (s.age >= s.life) this.blackSheets.splice(i, 1);
+            
+            s.posX += s.dx; s.posY += s.dy;
+            
+            // Bounce logic
+            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.dx *= -1;
+            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.dy *= -1;
+
+            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
+            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
+            
+            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
+        }
+
+        // --- SUPERMAN & OTHER ELEMENTS ---
+        this._updateSnapshots();
+        
+        if (this.c.get('crashEnableSuperman')) {
+            if (this.supermanState.active) {
+                this._updateSuperman();
+                this.supermanState.globalTimer--;
+                if (this.supermanState.globalTimer <= 0) {
+                    this.supermanState.active = false;
+                    this.supermanState.cells.clear();
+                    this.supermanState.fluxTriangles = [];
+                }
+            } else {
+                if (Math.random() < 0.02) {
+                    const type = Math.random() < 0.6 ? 0 : 1; 
+                    this._triggerSuperman(type);
+                }
+            }
+        } else {
+            // Cleanup if disabled mid-run
+            this.supermanState.active = false;
+            this.supermanState.cells.clear();
+        }
+        
+        if (Math.random() < 0.02) this._triggerWhiteBlock(); 
+        if (Math.random() < 0.02) this._triggerColumnBurst(); 
+        
+        if (this.c.get('crashEnableSmith')) {
+            if (!this.smithState.triggered && Math.random() < 0.005) { 
+                this._triggerSmith();
+            }
+            if (this.smithState.active) {
+                this.smithState.timer--;
+                if (this.smithState.timer <= 0) this.smithState.active = false;
+            }
+        }
+        
+        if (this.registry) { 
+            if (Math.random() < 0.001) this.registry.trigger('ClearPulse');
+        }
+    }
+    
+    _triggerFlash() {
+        this.flashState.active = true;
+        this.flashState.timer = 0;
+        this.flashState.duration = 40; 
+        
+        // Calculate delay based on settings (Seconds -> Frames)
+        const minS = this.c.get('crashFlashDelayMin');
+        const maxS = this.c.get('crashFlashDelayMax');
+        const delayFrames = (minS + Math.random() * (maxS - minS)) * 60;
+        
+        this.flashState.nextFlash = delayFrames; 
+    }
+
+    _updateBlackSheets(maxSheets) {
+        if (this.blackSheets.length < maxSheets) { 
+            // Spawn fewer but bigger/faster
+            if (Math.random() < 0.4) { 
+                const grid = this.g;
+                const r = Math.random();
+                let w, h;
+                
+                // Revised Sizes: Smaller overall, Max ~24
+                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 4; h = Math.floor(Math.random() * 4) + 4; } // 4-8
+                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 8; h = Math.floor(Math.random() * 8) + 8; } // 8-16
+                else { w = Math.floor(Math.random() * 8) + 16; h = Math.floor(Math.random() * 8) + 16; } // 16-24
+                
+                let c = Math.floor(Math.random() * (grid.cols - w));
+                let row = Math.floor(Math.random() * (grid.rows - h));
+                const duration = Math.floor(Math.random() * 150) + 50; 
+                const axis = Math.random() < 0.5 ? 0 : 1;
+                const expandAmount = Math.floor(Math.random() * w) + 2; 
+                
+                // Faster Speed modulated by setting
+                const userSpeed = this.c.get('crashSheetSpeed');
+                const speedScale = (Math.random() * 1.5 + 0.5) * userSpeed; 
+                
+                this.blackSheets.push({ 
+                    c, r: row, w, h, axis, expandAmount, age: 0, life: 99999, // Infinite life (roaming)
+                    posX: c, posY: row, 
+                    dx: (Math.random() - 0.5) * speedScale, 
+                    dy: (Math.random() - 0.5) * speedScale, 
+                    targetW: w, targetH: h, 
+                    flashFrames: 0, 
+                    maxAlpha: 0.85 + Math.random() * 0.15, // High alpha
+                    currentAlpha: 0.0, targetAlpha: 1.0 
+                });
+            }
         }
     }
 
@@ -388,7 +461,6 @@ void main() {
     _getCellColor(i) {
         const pIdx = this.g.paletteIndices[i];
         const palette = this.c.derived.paletteColorsStr;
-        // Use palette color if available, otherwise default stream color
         return (palette && palette[pIdx]) ? palette[pIdx] : this.c.derived.streamColorStr;
     }
 
@@ -428,10 +500,8 @@ void main() {
                 }
                 
                 if (isSmithPixel) {
-                    // Use the cell's actual color instead of a hardcoded green
                     const cellColor = this._getCellColor(i);
                     const fontName = this._getFontName(i);
-                    
                     this.snapshotOverlay.set(i, {
                         char: grid.getChar(i), 
                         color: cellColor, 
@@ -633,9 +703,9 @@ void main() {
         const col = i % grid.cols;
         const row = Math.floor(i / grid.cols);
 
-        // Always resolve the correct font for this cell
         const fontName = this._getFontName(i);
 
+        // Superman Effect (Highest Priority)
         if (this.supermanState.cells.has(i)) {
             return { char: grid.getChar(i), color: '#FFFFFF', font: fontName, alpha: 1.0, glow: 5, size: 0, solid: false, blend: true };
         }
@@ -647,6 +717,7 @@ void main() {
             }
         }
 
+        // Snapshots (Smith, White Blocks, etc)
         const snapshot = this.snapshotOverlay.get(i);
         if (snapshot) {
             if (snapshot.isSmith) {
@@ -655,21 +726,20 @@ void main() {
             return { char: snapshot.char, color: snapshot.color, font: snapshot.font || fontName, alpha: snapshot.alpha, glow: 8, size: 0, solid: false, blend: true };
         }
 
-        if (this.globalRevealAlpha < 0.05) return null; 
-
-        let totalAlpha = 0.0;
+        // --- GLOBAL FADE & BLACK SHEETS ---
         
+        // Calculate Total Blackness
+        let totalBlack = this.baseBlackLevel;
+        
+        // Add Sheets
         for (const s of this.blackSheets) {
             if (col >= s.c && col < s.c + s.w &&
                 row >= s.r && row < s.r + s.h) {
                 
                 let sheetAlpha = s.currentAlpha * s.maxAlpha;
-
-                // Edge Fading: Soften the edges of the rectangle
                 const nx = (col - s.posX) / s.w;
                 const ny = (row - s.posY) / s.h;
                 
-                // Linear fade on all sides (20% of width/height)
                 const fadeSize = 0.2;
                 const fadeL = nx < fadeSize ? nx / fadeSize : 1.0;
                 const fadeR = (1.0 - nx) < fadeSize ? (1.0 - nx) / fadeSize : 1.0;
@@ -677,33 +747,29 @@ void main() {
                 const fadeB = (1.0 - ny) < fadeSize ? (1.0 - ny) / fadeSize : 1.0;
                 
                 sheetAlpha *= Math.min(fadeL, fadeR, fadeT, fadeB);
-
-                // Accumulation: Allow slight darkening on overlap
-                // Base is Max, plus a small fraction of the product to simulate density without instant black
-                totalAlpha = Math.max(totalAlpha, sheetAlpha) + (sheetAlpha * 0.2); 
-                if (totalAlpha > 1.0) totalAlpha = 1.0;
+                
+                // Combine with existing blackness
+                totalBlack = Math.max(totalBlack, sheetAlpha);
             }
         }
         
-        if (totalAlpha > 0.01) {
-            if (this.globalRevealAlpha < 1.0) totalAlpha *= this.globalRevealAlpha;
-            
-            // Use the specific cell color instead of global stream color
-            // This fixes the "inconsistency" issue when using palettes
-            const dimColor = this._getCellColor(i);
-            
-            // Fix: Check if cell is active to prevent lighting up empty space
-            const isActive = this.g.alphas[i] > 0.05;
-            // Text fades out as sheet gets darker
-            const textAlpha = isActive ? Math.max(0, 1.0 - totalAlpha) : 0.0;
-            
-            return { 
+        // Cap at 1.0
+        if (totalBlack > 1.0) totalBlack = 1.0;
+        
+        // Apply to Rendering
+        if (totalBlack > 0.01) {
+             const isActive = this.g.alphas[i] > 0.05;
+             const dimColor = this._getCellColor(i);
+             // Inverse: Text Alpha is 1 - Blackness
+             const textAlpha = isActive ? Math.max(0, 1.0 - totalBlack) : 0.0;
+             
+             return { 
                 char: isActive ? grid.getChar(i) : '', 
                 color: dimColor, 
                 font: fontName,
                 alpha: textAlpha, 
                 solid: true, 
-                bgColor: `rgba(0, 0, 0, ${totalAlpha})`, // Pure Black
+                bgColor: `rgba(0, 0, 0, ${totalBlack})`, 
                 blend: false 
             };
         }

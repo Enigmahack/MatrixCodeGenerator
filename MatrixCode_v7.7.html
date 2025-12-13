@@ -623,7 +623,7 @@ const Utils = {
      */
     createRGBString: (color) => `rgb(${color.r},${color.g},${color.b})`,
     // List of available characters for random selection
-    CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲンワヲン',
+    CHARS: '012345789Z:<=>"*+-._!|⽇゠ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
     // Subset of Katakana characters for specific use cases
     KATAKANA_CHARS: 'ウエオカキクコサシスセソツテナニヌネハヒフホマミムメモヤラリワヲン',
     /**
@@ -769,29 +769,27 @@ class ConfigurationManager {
         return {
             "streamColor": "#65d778",
             "streamPalette": [
-              "#65d778",
-              "#169825",
-              "#3fab79"
+              "#29bc62"
             ],
             "paletteBias": 0,
-            "tracerColor": "#a2ecec",
-            "fontSize": 24,
-            "streamSpeed": 18,
-            "releaseInterval": 4,
-            "resolution": 1.6,
+            "tracerColor": "#d9f2f2",
+            "fontSize": 25,
+            "streamSpeed": 16,
+            "releaseInterval": 2,
+            "resolution": 1,
             "enableGlyphAtlas": true,
-            "smoothingEnabled": true,
-            "smoothingAmount": 0.6,
+            "smoothingEnabled": false,
+            "smoothingAmount": 0.1,
             "showFpsCounter": true,
             "fontFamily": "MatrixEmbedded",
             "fontWeight": "normal",
             "italicEnabled": false,
             "mirrorEnabled": false,
             "variableBrightnessEnabled": true,
-            "brightnessVariance": 54,
-            "overlapEnabled": true,
-            "overlapColor": "#f2df73",
-            "overlapDensity": 0.4,
+            "brightnessVariance": 20,
+            "overlapEnabled": false,
+            "overlapColor": "#FFD700",
+            "overlapDensity": 0.2,
             "overlapTarget": "all",
             "overlapShimmer": false,
             "dissolveEnabled": true,
@@ -799,117 +797,47 @@ class ConfigurationManager {
             "deteriorationEnabled": true,
             "deteriorationStrength": 4,
             "enableBloom": true,
-            "bloomStrength": 3,
-            "bloomOpacity": 0.8,
-            "tracerGlow": 6,
-            "clearAlpha": 0.6,
-            "horizontalSpacingFactor": 0.8,
-            "verticalSpacingFactor": 0.9,
+            "bloomStrength": 4,
+            "bloomOpacity": 0.45,
+            "tracerGlow": 12,
+            "clearAlpha": 0.7,
+            "horizontalSpacingFactor": 0.7,
+            "verticalSpacingFactor": 1,
             "fontOffsetX": 0,
-            "fontOffsetY": 0,
+            "fontOffsetY": 6,
             "stretchX": 1,
             "stretchY": 1.2,
-            "decayFadeDurationFrames": 70,
-            "streamSpawnCount": 5,
-            "eraserSpawnCount": 6,
-            "minStreamGap": 10,
-            "minEraserGap": 15,
-            "holeRate": 0,
+            "decayFadeDurationFrames": 23,
+            "streamSpawnCount": 6,
+            "eraserSpawnCount": 16,
+            "minStreamGap": 30,
+            "minEraserGap": 30,
+            "minGapTypes": 20,
+            "holeRate": 0.1,
             "desyncIntensity": 0,
-            "eraserStopChance": 0,
+            "eraserStopChance": 1,
             "tracerStopChance": 1,
             "tracerAttackFrames": 3,
             "tracerHoldFrames": 0,
             "tracerReleaseFrames": 5,
-            "invertedTracerEnabled": false,
+            "invertedTracerEnabled": true,
             "invertedTracerChance": 0.1,
             "rotatorEnabled": true,
             "rotatorChance": 0.13,
             "rotatorSyncToTracer": true,
-            "rotatorSyncMultiplier": 0.3,
-            "rotatorCycleFactor": 17,
-            "rotatorCrossfadeFrames": 4,
-            "shaderEnabled": true,
-            "customShader": `
-// Name: CRT Monitor
-precision mediump float;
-uniform sampler2D uTexture;
-uniform vec2 uResolution;
-uniform float uParameter;
-varying vec2 vTexCoord;
-// Change this value to make the lines denser!
-// It represents the WIDTH/HEIGHT of one grid cell in pixels.
-const float GRID_CELL_SIZE = 2.0; // Lower numbers = lines closer together, but line thickness is proportional
-const float LINE_THICKNESS = 0.3;
-const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
-const float GRID_OPACITY = 0.5;
-// CRT Color Shift (Chromatic Aberration) Settings
-const float SHIFT_AMOUNT = 0.01;       // Magnitude of the color fringe (very small)
-// Brightness Boost (Thresholding/Glow) Settings
-const float BRIGHTNESS_THRESHOLD = 0.3;  // Only pixels brighter than this will be boosted
-const float BRIGHTNESS_BOOST = 1.6;      // How much to multiply bright colors by
-// --- Barrel Distortion Settings ---
-const float BARREL_DISTORTION_AMOUNT = 1.0; // Controls the bulge magnitude (0.0 to 1.0)
-void main() {
-    // --- 1. CRT Barrel Distortion (Warp) ---
-    // A. Center coordinates: shifts vTexCoord from [0.0, 1.0] to [-0.5, 0.5]
-    vec2 centeredCoord = vTexCoord - 0.5;
-    // B. Calculate distance squared from center
-    // The distortion effect should be stronger in the corners than in the middle.
-    // dot(v, v) is a fast way to get length squared (r*r).
-    float r2 = dot(centeredCoord, centeredCoord); 
-    // C. Calculate the distortion factor
-    // The factor must be > 1.0 for a convex (bulging) look. 
-    // It's calculated by adding a fraction of the distance (r2) to 1.0.
-    float factor = 1.0 + r2 * (BARREL_DISTORTION_AMOUNT * uParameter * 0.25);
-    // D. Apply the factor and shift back to 0.0-1.0 range
-    // This coordinate will be our base for sampling the warped image.
-    vec2 warpedTexCoord = centeredCoord * factor + 0.5;
-    // --- Boundary Check ---
-    // If the warped coordinate is outside [0.0, 1.0], it's smeared/clipped.
-    // The 'any' function checks if any component (x or y) of the boolean vector is true.
-    if (any(lessThan(warpedTexCoord, vec2(0.0))) || any(greaterThan(warpedTexCoord, vec2(1.0)))) {
-        // If the coordinate is outside the bounds, output black (or transparent)
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return; // Exit the shader immediately to skip all further calculations
-    }
-    // --- 2. CRT Chromatic Shift (Red/Blue Fringing) ---
-    // The centerBias calculation remains based on the original vTexCoord 
-    // to keep the color shift aligned with the screen's surface.
-    vec2 pixelCoord = vTexCoord * uResolution.xy;
-    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
-    vec2 fractionalPart = fract(scaledCoord);
-    float centerBias = fractionalPart.x - 0.5; 
-    float shiftMagnitude = sin(centerBias * 3.14159265); 
-    // Sample the texture three times using the **warpedTexCoord** as the base
-    vec2 redCoord   = warpedTexCoord + vec2(-shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
-    vec2 blueCoord  = warpedTexCoord + vec2( shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
-    // Use the base warped coordinate for the green channel
-    float red   = texture2D(uTexture, redCoord).r;
-    float green = texture2D(uTexture, warpedTexCoord).g; 
-    float blue  = texture2D(uTexture, blueCoord).b;
-    vec4 finalColor = vec4(red, green, blue, 1.0);
-    // --- 3. Static Grid Overlay ---
-    // The grid lines are calculated using the original screen coordinate (vTexCoord)
-    // which simulates the grid being painted onto the curved glass.
-    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);
-    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);
-    float gridMask = min(verticalLine + horizontalLine, 1.0);
-    // Apply the grid
-    vec3 blendedColor = mix(finalColor.rgb, GRID_COLOR, gridMask);
-    finalColor.rgb = mix(finalColor.rgb, blendedColor, GRID_OPACITY);
-    // --- 4. Brightness Boost (Thresholding/Glow Effect) ---
-    float brightness = dot(finalColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);
-    float finalMultiplier = mix(1.0, BRIGHTNESS_BOOST, boostFactor);
-    finalColor.rgb *= finalMultiplier;
-    // 5. Output Final Color
-    gl_FragColor = finalColor;
-}
-`,
-            "pulseEnabled": false,
+            "rotatorSyncMultiplier": 0.5,
+            "rotatorCycleFactor": 20,
+            "rotatorCrossfadeFrames": 6,
+            "rotateDuringFade": false,
+            "rotatorDesyncEnabled": false,
+            "rotatorDesyncVariance": 0,
+            "shaderEnabled": false,
+            "customShader": null,
+            "shaderParameter": 0,
+            "pulseEnabled": true,
             "pulseFrequencySeconds": 300,
-            "pulseDurationSeconds": 1.8,
+            "pulseDelaySeconds": 0.7,
+            "pulseDurationSeconds": 1.2,
             "pulsePreserveSpaces": true,
             "pulseIgnoreTracers": true,
             "pulseDimming": 0.2,
@@ -918,16 +846,16 @@ void main() {
             "pulseRandomPosition": true,
             "pulseInstantStart": false,
             "pulseCircular": false,
-            "clearPulseEnabled": false,
+            "clearPulseEnabled": true,
             "clearPulseFrequencySeconds": 235,
-            "clearPulseDurationSeconds": 1,
+            "clearPulseDurationSeconds": 0.7,
             "clearPulsePreserveSpaces": true,
             "clearPulseBlend": false,
-            "clearPulseWidth": 280,
+            "clearPulseWidth": 190,
             "clearPulseRandomPosition": true,
             "clearPulseInstantStart": false,
             "clearPulseCircular": false,
-            "miniPulseEnabled": false,
+            "miniPulseEnabled": true,
             "miniPulseFrequencySeconds": 450,
             "miniPulseDurationSeconds": 5,
             "miniPulsePreserveSpaces": true,
@@ -935,7 +863,7 @@ void main() {
             "miniPulseSpawnChance": 0.06,
             "miniPulseSpeed": 16,
             "miniPulseSize": 360,
-            "dejaVuEnabled": false,
+            "dejaVuEnabled": true,
             "dejaVuFrequencySeconds": 350,
             "dejaVuDurationSeconds": 5,
             "dejaVuMinRectHeight": 1,
@@ -945,7 +873,7 @@ void main() {
             "dejaVuIntensity": 0.1,
             "dejaVuBarDurationFrames": 28,
             "dejaVuVarianceFrames": 43,
-            "supermanEnabled": false,
+            "supermanEnabled": true,
             "supermanFrequencySeconds": 290,
             "supermanDurationSeconds": 6,
             "supermanIncludeColors": true,
@@ -956,6 +884,7 @@ void main() {
             "supermanWidth": 4,
             "supermanSpawnSpeed": 69,
             "starPowerEnabled": false,
+            "starPowerFreq": 100,
             "starPowerRainbowMode": "char",
             "starPowerSaturation": 100,
             "starPowerIntensity": 51,
@@ -963,7 +892,7 @@ void main() {
             "starPowerColorCycle": true,
             "starPowerCycleSpeed": 5,
             "rainbowStreamEnabled": false,
-            "rainbowStreamChance": 1,
+            "rainbowStreamChance": 0.5,
             "rainbowStreamIntensity": 50,
             "firewallEnabled": false,
             "firewallFrequencySeconds": 150,
@@ -974,15 +903,23 @@ void main() {
             "bootSequenceEnabled": false,
             "crashEnabled": false,
             "crashFrequencySeconds": 600,
-            "runBothInOrder": true,
+            "crashDurationSeconds": 30,
+            "crashSheetCount": 25,
+            "crashSheetSpeed": 1.0,
+            "crashFlashDelayMin": 3,
+            "crashFlashDelayMax": 6,
+            "crashEnableSmith": true,
+            "crashEnableSuperman": true,
+            "crashEnableFlash": true,
+            "runBothInOrder": false,
             "keyBindings": {
-              "Pulse": "q",
+              "Pulse": "p",
               "ClearPulse": "w",
               "MiniPulse": "e",
               "DejaVu": "r",
               "Superman": "t",
               "Firewall": "y",
-              "ToggleUI": "h",
+              "ToggleUI": " ",
               "BootSequence": "b",
               "CrashSequence": "x",
               "BootCrashSequence": "c"
@@ -990,14 +927,15 @@ void main() {
             "hideMenuIcon": true,
             "fontSettings": {
               "MatrixEmbedded": {
-                "active": false,
+                "active": true,
                 "useCustomChars": false,
                 "customCharacters": ""
               },
               "CustomFont_5e2697679380fc43": {
-                "active": true,
+                "active": false,
                 "useCustomChars": true,
-                "customCharacters": "~}|{z!\"#$%&amp;'()*43210.-,+56789:;&lt;=&gt;HGFEDCBA@?IJKLMNOPQR\\[ZYXWVUTS]^_`abcdefpoyxnmwvlkutjisrhgq/"
+                "customCharacters": "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕ",
+                "useAllChars": false
               }
             },
             "deteriorationType": "ghost",
@@ -1005,19 +943,12 @@ void main() {
             "supermanProb": 4,
             "dejaVuAutoMode": true,
             "clearPulseIgnoreTracers": true,
-            "clearPulseCircular": false,
-            "clearPulseInstantStart": false,
             "dejaVuPerformanceMode": false,
             "pulseDelayFrames": 60,
-            "overlapShimmer": false,
-            "minGapTypes": 20,
-            "rotateDuringFade": false,
-            "rotatorDesyncEnabled": false,
-            "rotatorDesyncVariance": 0,
             "suppressToasts": false,
             "ttlMinSeconds": 1,
             "ttlMaxSeconds": 8
-          };
+        };
     }
     /**
      * Deep clone utility to minimize allocations and handle future structuredClone availability.
@@ -1283,21 +1214,27 @@ void main() {
             tracerColorStr: Utils.createRGBString(tracerRgb),
             fontBaseStr: `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${s.fontSize}px ${s.fontFamily}`
         };
-        // Active Fonts Logic (avoid allocations where possible)
+        // Active Fonts Logic
         const fontSettings = s.fontSettings || {};
         const activeFonts = [];
         for (const name in fontSettings) {
             if (!Object.prototype.hasOwnProperty.call(fontSettings, name)) continue;
             const conf = fontSettings[name];
             if (conf && conf.active) {
-                let chars = Utils.CHARS;
-                if (conf.useCustomChars && conf.customCharacters) {
-                    const clean = conf.customCharacters.replace(/\s+/g, '');
-                    if (clean.length > 0) chars = clean;
+                let chars;
+                if (conf.useCustomChars) {
+                    // Respect user's setting, even if empty (clean slate).
+                    // Fallback to " " (space) if effectively empty to prevent simulation errors.
+                    const clean = (conf.customCharacters || "").replace(/\s+/g, '');
+                    chars = clean.length > 0 ? clean : " ";
+                } else {
+                    // Use Default
+                    chars = Utils.CHARS;
                 }
                 activeFonts.push({ name, chars });
             }
         }
+        // Fallback if no fonts are active
         if (activeFonts.length === 0) activeFonts.push({ name: 'MatrixEmbedded', chars: Utils.CHARS });
         this.derived.activeFonts = activeFonts;
     }
@@ -1456,12 +1393,25 @@ class EffectRegistry {
             update() { this.effects.forEach(e => e.update()); }
             getOverride(i) { for(const fx of this.effects) { const o = fx.getOverride(i); if(o) return o; } return null; }
             hasActiveEffects() { return this.effects.some(e => e.active); }
+            getActiveIndices() {
+                if (!this.hasActiveEffects()) return new Set();
+                const combined = new Set();
+                for (const fx of this.effects) {
+                    if (fx.active) {
+                        const indices = fx.getActiveIndices();
+                        if (indices === null) return null;
+                        for (const idx of indices) combined.add(idx);
+                    }
+                }
+                return combined;
+            }
         }
         class AbstractEffect {
             constructor(g, c) { this.g = g; this.c = c; this.name = "Base"; }
             trigger() { return false; }
             update() {}
             getOverride(i) { return null; }
+            getActiveIndices() { return null; }
         }
 // --- BootEffect.js ---
 class BootEffect extends AbstractEffect {
@@ -1885,7 +1835,7 @@ class CrashEffect extends AbstractEffect {
         this.name = "CrashSequence";
         this.active = false;
         this.startTime = 0;
-        this.durationSeconds = 30; 
+        this.durationSeconds = this.c.get('crashDurationSeconds') || 30; 
         this.originalShader = null;
         this.originalShaderEnabled = false;
         this.originalShaderParameter = 0.5;
@@ -1912,19 +1862,29 @@ class CrashEffect extends AbstractEffect {
             duration: 0
         };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
-        this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
-        this.chaosState = {
-            activeCount: 0,
-            breakTimer: 0,
-            nextBreak: 180 
+        // Refactored State for Flash/Fade
+        this.flashState = {
+            active: false,
+            timer: 0,
+            duration: 40, 
+            nextFlash: 60, 
+            cycleDuration: 240
         };
+        // Max opacity for the black overlay (never fully 1.0)
+        this.MAX_BLACK_LEVEL = 0.5; 
+        this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
+        this.endFlashTriggered = false;
     }
     trigger() {
         if (this.active) return false;
         this.originalShaderEnabled = this.c.state.shaderEnabled;
         this.originalShader = this.c.state.customShader;
         this.originalShaderParameter = this.c.state.shaderParameter;
+        // Get Stream Color for the Splash
+        const colorStr = this.c.derived.streamColorStr || '#00FF00';
+        const rgb = Utils.hexToRgb(colorStr);
+        const vec3Color = `vec3(${rgb.r/255.0}, ${rgb.g/255.0}, ${rgb.b/255.0})`;
         this.c.set('shaderEnabled', true);
         this.c.set('customShader', `
 precision mediump float;
@@ -1934,16 +1894,56 @@ uniform float uTime;
 uniform vec2 uMouse;
 uniform float uParameter; 
 varying vec2 vTexCoord;
+// --- UTILS ---
 float random(float n) { return fract(sin(n) * 43758.5453123); }
 float rect(vec2 uv, vec2 pos, vec2 size) {
     vec2 d = abs(uv - pos) - size;
     return 1.0 - step(0.0, max(d.x, d.y));
+}
+float noise(float p) {
+    float i = floor(p);
+    float f = fract(p);
+    return mix(random(i), random(i + 1.0), f * f * (3.0 - 2.0 * f));
+}
+float scannerSheet(vec2 uv, vec2 center, vec2 size, float blur, int axis) {
+    vec2 pos = uv - center;
+    float jagged = 0.0;
+    if (axis == 1) { jagged = (noise(uv.x * 50.0) - 0.5) * 0.005; pos.y += jagged; } 
+    else if (axis == 2) { jagged = (noise(uv.y * 50.0) - 0.5) * 0.005; pos.x += jagged; }
+    vec2 d = abs(pos) - size;
+    float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+    return 1.0 - smoothstep(0.0, blur, dist);
+}
+vec3 getScannerScene(int pattern, vec2 uv) {
+    vec3 col = vec3(1.0); 
+    if (pattern == 0) {
+        float top = scannerSheet(uv, vec2(0.5, 0.75), vec2(1.0, 0.25), 0.02, 1);
+        float bot = scannerSheet(uv, vec2(0.5, 0.25), vec2(1.0, 0.25), 0.02, 1);
+        col = mix(vec3(0.9), vec3(1.0), bot);
+        col = mix(col, vec3(0.85, 0.9, 0.95), top);
+    }
+    return col;
 }
 void main() {
     vec2 uv = vTexCoord;
     float phase_idx = floor(uParameter + 0.001);
     float progress = fract(uParameter); 
     vec4 finalColor = texture2D(uTexture, uv);
+    vec3 splashColor = ${vec3Color};
+    // --- PHASE 10: SPLASH EFFECT ---
+    if (phase_idx == 10.0) {
+         // INSTANT FLASH: Starts at 1.0, fades out
+         float t = progress; 
+         float bar = scannerSheet(uv, vec2(0.5, 0.5), vec2(1.0, 0.2), 0.3, 1);
+         // Instant attack (starts max), fast linear decay
+         // Fade out completely by t=0.6
+         float flashAlpha = bar * (1.0 - smoothstep(0.0, 0.6, t));
+         if (flashAlpha > 0.0) {
+            // Additive blend 
+            finalColor.rgb += splashColor * flashAlpha * 3.0; 
+         }
+    }
+    // --- EXISTING DISTORTIONS ---
     if (phase_idx == 2.0) {
         vec4 distColor = vec4(0.0);
         float active = 0.0;
@@ -1977,39 +1977,7 @@ void main() {
         if (active > 0.0) finalColor = mix(finalColor, distColor, 0.5 * active);
     }
     if (phase_idx == 3.0) {
-        for (float i = 0.0; i < 3.0; i++) {
-            float seed = i * 12.34;
-            float dur = 0.2 + random(seed)*0.3; 
-            float offset = random(seed + 1.0) * 10.0;
-            float localT = mod(uTime + offset, dur + 0.1); 
-            if (localT < dur) {
-                float prog = localT / dur;
-                float cycleIdx = floor((uTime + offset) / (dur + 0.1));
-                float subSeed = seed + cycleIdx * 7.89;
-                vec2 pos = vec2(random(subSeed), random(subSeed + 1.0));
-                float type = random(subSeed + 2.0); 
-                if (type < 0.6) { 
-                    vec2 size = vec2(0.3 + random(subSeed)*0.5, 0.05 + random(subSeed)*0.1);
-                    if (rect(uv, pos, size) > 0.0) {
-                        float smearX = (uv.x - pos.x) * 0.5 + pos.x; 
-                        finalColor = mix(finalColor, texture2D(uTexture, vec2(smearX, uv.y)), 0.8);
-                    }
-                } else if (type < 0.8) { 
-                    vec2 size = vec2(0.2 + random(subSeed)*0.3, 0.005); 
-                    if (rect(uv, pos, size) > 0.0) {
-                        float gray = dot(finalColor.rgb, vec3(0.299, 0.587, 0.114));
-                        finalColor.rgb = vec3(gray * 2.0); 
-                    }
-                } else { 
-                    vec2 size = vec2(0.02, 0.5 + random(subSeed)*0.5); 
-                    if (size.y < 1.0) size.y = 1.0; 
-                    if (rect(uv, pos, size) > 0.0) {
-                        float fade = 1.0 - prog; 
-                        finalColor = mix(finalColor, vec4(1.0), fade * 0.8);
-                    }
-                }
-            }
-        }
+        if (random(uTime) > 0.9) finalColor.rgb = mix(finalColor.rgb, vec3(0.0), 0.2);
     }
     if (phase_idx == 7.0) {
         float startY = 0.45;
@@ -2019,9 +1987,6 @@ void main() {
         if (uv.y <= startY && uv.y >= currentTop) {
             float alpha = 1.0 - smoothstep(0.1, 0.4, progress);
             finalColor = mix(finalColor, vec4(0.0, 0.0, 0.0, 1.0), alpha);
-        }
-        if (progress > 0.3 && progress < 0.35) {
-             if (abs(uv.y - 0.2) < 0.02) finalColor = texture2D(uTexture, vec2(0.5, 0.2)) * 2.0;
         }
     }
     if (phase_idx == 8.0) {
@@ -2055,12 +2020,13 @@ void main() {
         this.supermanState = { active: false, axis: 0, cells: new Set(), fluxTriangles: [], flickerTimer: 0, initialBranches: [], burstTimer: 0, isBursting: false, cooldown: 0, edgeType: 0, isMirrored: false };
         this.shaderState = { activeId: 0, timer: 0, duration: 0 };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
-        this.burstCount = 0;
-        this.globalRevealAlpha = 1.0;
         this.sheetState = { spawning: true, timer: 600 };
-        this.chaosState = { activeCount: 0, breakTimer: 0, nextBreak: 180 };
         this.endFlashTriggered = false;
-        // console.log("CrashEffect Triggered");
+        this.flashState.active = false;
+        this.flashState.nextFlash = 30; 
+        // Use Max Black Level if Flash is enabled, otherwise full visibility (0.0)
+        this.MAX_BLACK_LEVEL = 0.5;
+        this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
         return true;
     }
     update() {
@@ -2080,143 +2046,176 @@ void main() {
             this.snapshotOverlay.clear();
             this.blackSheets = [];
             this.supermanState.cells.clear();
-            // console.log("CrashEffect Finished");
             return;
         }
-        // --- CHAOS LOGIC ---
-        if (this.chaosState.breakTimer > 0) {
-            this.chaosState.breakTimer--;
-            this.globalRevealAlpha = 0.0; 
-            this.c.set('shaderParameter', 0.0); 
-            return; 
-        } else {
-            this.chaosState.nextBreak--;
-            if (this.chaosState.nextBreak <= 0) {
-                this.chaosState.breakTimer = 60; 
-                this.chaosState.nextBreak = 180 + Math.random() * 180; 
-                this.chaosState.activeCount = 0;
-                return;
-            }
-        }
-        if (this.globalRevealAlpha < 1.0) this.globalRevealAlpha += 0.1;
-        this.chaosState.activeCount = 0;
-        if (this.supermanState.active) this.chaosState.activeCount++;
-        if (this.shaderState.activeId !== 0) this.chaosState.activeCount++;
-        if (this.snapshotOverlay.size > 0) this.chaosState.activeCount++; 
-        const canSpawn = this.chaosState.activeCount < 2;
-        this.sheetState.timer--;
-        if (this.sheetState.timer <= 0) {
-            this.sheetState.spawning = !this.sheetState.spawning;
-            this.sheetState.timer = this.sheetState.spawning ? 600 : 300; 
-        }
-        if (this.sheetState.spawning) this._updateBlackSheets();
-        else {
-            for (let i = this.blackSheets.length - 1; i >= 0; i--) {
-                const s = this.blackSheets[i];
-                s.age++;
-                if (s.age >= s.life) this.blackSheets.splice(i, 1);
-                s.posX += s.dx; s.posY += s.dy;
-                s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-                s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
-            }
-        }
-        for (const s of this.blackSheets) {
-            if (Math.random() < 0.01) s.targetAlpha = (s.targetAlpha > 0.5) ? 0.0 : s.maxAlpha;
-            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
-            s.posX += s.dx; s.posY += s.dy;
-            if (Math.random() < 0.02) { s.targetW = Math.max(2, s.targetW + (Math.random() - 0.5) * 4); s.targetH = Math.max(2, s.targetH + (Math.random() - 0.5) * 4); }
-            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
-        }
-        this._updateSnapshots();
-        if (this.supermanState.active) {
-            this._updateSuperman();
-            this.supermanState.globalTimer--;
-            if (this.supermanState.globalTimer <= 0) {
-                this.supermanState.active = false;
-                this.supermanState.cells.clear();
-                this.supermanState.fluxTriangles = [];
-            }
-        } else if (canSpawn) {
-            if (Math.random() < 0.03) {
-                const type = Math.random() < 0.6 ? 0 : 1; 
-                this._triggerSuperman(type);
-            }
-        }
-        if (canSpawn && Math.random() < 0.04) this._triggerWhiteBlock(); 
-        if (canSpawn && Math.random() < 0.03) this._triggerColumnBurst(); 
-        if (!this.smithState.triggered && canSpawn && Math.random() < 0.005) { 
-            this._triggerSmith();
-        }
-        if (this.smithState.active) {
-            this.smithState.timer--;
-            if (this.smithState.timer <= 0) this.smithState.active = false;
-        }
-        if (this.registry && canSpawn) { 
-            if (Math.random() < 0.002) this.registry.trigger('ClearPulse');
-            // Removed MiniPulse
-        }
-        if (this.shaderState.activeId === 0) {
-            if (canSpawn && Math.random() < 0.02) {
-                const r = Math.random();
-                let id = 0;
-                let dur = 0;
-                if (r < 0.15) { id = 2; dur = 60; } 
-                else if (r < 0.50) { id = 3; dur = 45; } 
-                else if (r < 0.70) { id = 7; dur = 60; } 
-                else if (r < 0.85) { id = 8; dur = 30; } 
-                else { id = 9; dur = 45; } 
-                this.shaderState.activeId = id;
-                this.shaderState.duration = dur;
-                this.shaderState.timer = 0;
-            }
-        } else {
-            this.shaderState.timer++;
-            if (this.shaderState.timer >= this.shaderState.duration) {
-                this.shaderState.activeId = 0;
-                this.c.set('shaderParameter', 0.0);
+        // --- FLASH & FADE LOGIC ---
+        const enableFlash = this.c.get('crashEnableFlash');
+        if (enableFlash) {
+            if (this.flashState.active) {
+                this.flashState.timer++;
+                // Run Phase 10 (Splash)
+                const p = Math.min(1.0, this.flashState.timer / this.flashState.duration);
+                this.c.set('shaderParameter', 10.0 + p);
+                // INSTANT REVEAL at start of flash
+                if (this.flashState.timer === 1) {
+                    this.baseBlackLevel = 0.0; 
+                }
+                // Start fading out code halfway through flash
+                if (p > 0.5) {
+                    // Linear fade from 0.0 to MAX_BLACK_LEVEL
+                    const fadeP = (p - 0.5) * 2.0; 
+                    this.baseBlackLevel = fadeP * this.MAX_BLACK_LEVEL;
+                } else {
+                    this.baseBlackLevel = 0.0; 
+                }
+                if (this.flashState.timer >= this.flashState.duration) {
+                    this.flashState.active = false;
+                    this.c.set('shaderParameter', 0.0);
+                    this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
+                }
             } else {
-                const p = this.shaderState.timer / this.shaderState.duration;
-                this.c.set('shaderParameter', this.shaderState.activeId + p);
+                // Not flashing - Keep at Max Black Level
+                if (this.baseBlackLevel < this.MAX_BLACK_LEVEL) {
+                    this.baseBlackLevel += 0.05; 
+                    if (this.baseBlackLevel > this.MAX_BLACK_LEVEL) this.baseBlackLevel = this.MAX_BLACK_LEVEL;
+                } else {
+                    this.baseBlackLevel = this.MAX_BLACK_LEVEL;
+                }
+                // Trigger Next Flash
+                this.flashState.nextFlash--;
+                if (this.flashState.nextFlash <= 0) {
+                    this._triggerFlash();
+                }
             }
+        } else {
+            this.baseBlackLevel = 0.0;
+            this.c.set('shaderParameter', 0.0);
         }
-    }
-    _updateBlackSheets() {
-        if (this.blackSheets.length < 1000) { 
-            // Spawn multiple sheets per frame for denser coverage
-            for (let k = 0; k < 3; k++) {
-                if (Math.random() < 0.6) { 
-                    const grid = this.g;
+        // --- OTHER SHADERS ---
+        // Only run chaos shaders if flash is not active
+        if (!this.flashState.active) {
+            if (this.shaderState.activeId === 0) {
+                 if (Math.random() < 0.01) {
                     const r = Math.random();
-                    let w, h;
-                    if (r < 0.4) { w = Math.floor(Math.random() * 4) + 1; h = Math.floor(Math.random() * 4) + 1; } 
-                    else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 5; h = Math.floor(Math.random() * 8) + 5; } 
-                    else { w = Math.floor(Math.random() * 13) + 13; h = Math.floor(Math.random() * 13) + 13; }
-                    let c;
-                    if (Math.random() < 0.8) { 
-                        if (Math.random() < 0.5) c = Math.floor(Math.random() * (grid.cols * 0.2)); 
-                        else c = Math.floor(grid.cols * 0.8 + Math.random() * (grid.cols * 0.2)) - w; 
-                        if (c < 0) c = 0; 
-                    } else { c = Math.floor(Math.random() * (grid.cols - w)); }
-                    const row = Math.floor(Math.random() * (grid.rows - h));
-                    const duration = Math.floor(Math.random() * 200) + 100; 
-                    const axis = Math.random() < 0.5 ? 0 : 1;
-                    const expandAmount = Math.floor(Math.random() * w) + 2; 
-                    const speedScale = Math.random() * 0.6 + 0.2;
-                    this.blackSheets.push({ 
-                        c, r: row, w, h, axis, expandAmount, age: 0, life: duration, 
-                        posX: c, posY: row, dx: (Math.random() - 0.5) * speedScale, dy: (Math.random() - 0.5) * speedScale, targetW: w, targetH: h, 
-                        flashFrames: 0, 
-                        maxAlpha: 0.75 + Math.random() * 0.2, 
-                        currentAlpha: 0.0, targetAlpha: 1.0 
-                    });
+                    let id = 0; let dur = 0;
+                    if (r < 0.3) { id = 3; dur = 20; }
+                    else if (r < 0.6) { id = 9; dur = 30; }
+                    else { id = 2; dur = 40; }
+                    this.shaderState.activeId = id;
+                    this.shaderState.duration = dur;
+                    this.shaderState.timer = 0;
+                 }
+            } else {
+                this.shaderState.timer++;
+                if (this.shaderState.timer >= this.shaderState.duration) {
+                    this.shaderState.activeId = 0;
+                    this.c.set('shaderParameter', 0.0);
+                } else {
+                    const p = this.shaderState.timer / this.shaderState.duration;
+                    this.c.set('shaderParameter', this.shaderState.activeId + p);
                 }
             }
         }
+        // --- BLACK SHEETS ---
+        const maxSheets = this.c.get('crashSheetCount');
+        this.sheetState.timer--;
+        if (this.sheetState.timer <= 0) {
+            this.sheetState.spawning = !this.sheetState.spawning;
+            this.sheetState.timer = this.sheetState.spawning ? 400 : 200; 
+        }
+        if (this.sheetState.spawning) this._updateBlackSheets(maxSheets);
+        // Adjust array size if user reduced count
+        if (this.blackSheets.length > maxSheets) {
+            this.blackSheets.splice(maxSheets);
+        }
+        // Update Sheets (Roaming/Bouncing)
         for (let i = this.blackSheets.length - 1; i >= 0; i--) {
             const s = this.blackSheets[i];
-            s.age++;
-            if (s.age >= s.life) this.blackSheets.splice(i, 1);
+            s.posX += s.dx; s.posY += s.dy;
+            // Bounce logic
+            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.dx *= -1;
+            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.dy *= -1;
+            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
+            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
+            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
+        }
+        // --- SUPERMAN & OTHER ELEMENTS ---
+        this._updateSnapshots();
+        if (this.c.get('crashEnableSuperman')) {
+            if (this.supermanState.active) {
+                this._updateSuperman();
+                this.supermanState.globalTimer--;
+                if (this.supermanState.globalTimer <= 0) {
+                    this.supermanState.active = false;
+                    this.supermanState.cells.clear();
+                    this.supermanState.fluxTriangles = [];
+                }
+            } else {
+                if (Math.random() < 0.02) {
+                    const type = Math.random() < 0.6 ? 0 : 1; 
+                    this._triggerSuperman(type);
+                }
+            }
+        } else {
+            // Cleanup if disabled mid-run
+            this.supermanState.active = false;
+            this.supermanState.cells.clear();
+        }
+        if (Math.random() < 0.02) this._triggerWhiteBlock(); 
+        if (Math.random() < 0.02) this._triggerColumnBurst(); 
+        if (this.c.get('crashEnableSmith')) {
+            if (!this.smithState.triggered && Math.random() < 0.005) { 
+                this._triggerSmith();
+            }
+            if (this.smithState.active) {
+                this.smithState.timer--;
+                if (this.smithState.timer <= 0) this.smithState.active = false;
+            }
+        }
+        if (this.registry) { 
+            if (Math.random() < 0.001) this.registry.trigger('ClearPulse');
+        }
+    }
+    _triggerFlash() {
+        this.flashState.active = true;
+        this.flashState.timer = 0;
+        this.flashState.duration = 40; 
+        // Calculate delay based on settings (Seconds -> Frames)
+        const minS = this.c.get('crashFlashDelayMin');
+        const maxS = this.c.get('crashFlashDelayMax');
+        const delayFrames = (minS + Math.random() * (maxS - minS)) * 60;
+        this.flashState.nextFlash = delayFrames; 
+    }
+    _updateBlackSheets(maxSheets) {
+        if (this.blackSheets.length < maxSheets) { 
+            // Spawn fewer but bigger/faster
+            if (Math.random() < 0.4) { 
+                const grid = this.g;
+                const r = Math.random();
+                let w, h;
+                // Revised Sizes: Smaller overall, Max ~24
+                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 4; h = Math.floor(Math.random() * 4) + 4; } // 4-8
+                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 8; h = Math.floor(Math.random() * 8) + 8; } // 8-16
+                else { w = Math.floor(Math.random() * 8) + 16; h = Math.floor(Math.random() * 8) + 16; } // 16-24
+                let c = Math.floor(Math.random() * (grid.cols - w));
+                let row = Math.floor(Math.random() * (grid.rows - h));
+                const duration = Math.floor(Math.random() * 150) + 50; 
+                const axis = Math.random() < 0.5 ? 0 : 1;
+                const expandAmount = Math.floor(Math.random() * w) + 2; 
+                // Faster Speed modulated by setting
+                const userSpeed = this.c.get('crashSheetSpeed');
+                const speedScale = (Math.random() * 1.5 + 0.5) * userSpeed; 
+                this.blackSheets.push({ 
+                    c, r: row, w, h, axis, expandAmount, age: 0, life: 99999, // Infinite life (roaming)
+                    posX: c, posY: row, 
+                    dx: (Math.random() - 0.5) * speedScale, 
+                    dy: (Math.random() - 0.5) * speedScale, 
+                    targetW: w, targetH: h, 
+                    flashFrames: 0, 
+                    maxAlpha: 0.85 + Math.random() * 0.15, // High alpha
+                    currentAlpha: 0.0, targetAlpha: 1.0 
+                });
+            }
         }
     }
     _getFontName(i) {
@@ -2227,7 +2226,6 @@ void main() {
     _getCellColor(i) {
         const pIdx = this.g.paletteIndices[i];
         const palette = this.c.derived.paletteColorsStr;
-        // Use palette color if available, otherwise default stream color
         return (palette && palette[pIdx]) ? palette[pIdx] : this.c.derived.streamColorStr;
     }
     _triggerSmith() {
@@ -2263,7 +2261,6 @@ void main() {
                     else brightness = 0.2; 
                 }
                 if (isSmithPixel) {
-                    // Use the cell's actual color instead of a hardcoded green
                     const cellColor = this._getCellColor(i);
                     const fontName = this._getFontName(i);
                     this.snapshotOverlay.set(i, {
@@ -2453,8 +2450,8 @@ void main() {
         const grid = this.g;
         const col = i % grid.cols;
         const row = Math.floor(i / grid.cols);
-        // Always resolve the correct font for this cell
         const fontName = this._getFontName(i);
+        // Superman Effect (Highest Priority)
         if (this.supermanState.cells.has(i)) {
             return { char: grid.getChar(i), color: '#FFFFFF', font: fontName, alpha: 1.0, glow: 5, size: 0, solid: false, blend: true };
         }
@@ -2464,6 +2461,7 @@ void main() {
                 return { char: grid.getChar(i), color: fluxColor, font: fontName, alpha: 1.0, glow: 2, solid: true, bgColor: '#000000', blend: true };
             }
         }
+        // Snapshots (Smith, White Blocks, etc)
         const snapshot = this.snapshotOverlay.get(i);
         if (snapshot) {
             if (snapshot.isSmith) {
@@ -2471,44 +2469,41 @@ void main() {
             }
             return { char: snapshot.char, color: snapshot.color, font: snapshot.font || fontName, alpha: snapshot.alpha, glow: 8, size: 0, solid: false, blend: true };
         }
-        if (this.globalRevealAlpha < 0.05) return null; 
-        let totalAlpha = 0.0;
+        // --- GLOBAL FADE & BLACK SHEETS ---
+        // Calculate Total Blackness
+        let totalBlack = this.baseBlackLevel;
+        // Add Sheets
         for (const s of this.blackSheets) {
             if (col >= s.c && col < s.c + s.w &&
                 row >= s.r && row < s.r + s.h) {
                 let sheetAlpha = s.currentAlpha * s.maxAlpha;
-                // Edge Fading: Soften the edges of the rectangle
                 const nx = (col - s.posX) / s.w;
                 const ny = (row - s.posY) / s.h;
-                // Linear fade on all sides (20% of width/height)
                 const fadeSize = 0.2;
                 const fadeL = nx < fadeSize ? nx / fadeSize : 1.0;
                 const fadeR = (1.0 - nx) < fadeSize ? (1.0 - nx) / fadeSize : 1.0;
                 const fadeT = ny < fadeSize ? ny / fadeSize : 1.0;
                 const fadeB = (1.0 - ny) < fadeSize ? (1.0 - ny) / fadeSize : 1.0;
                 sheetAlpha *= Math.min(fadeL, fadeR, fadeT, fadeB);
-                // Accumulation: Allow slight darkening on overlap
-                // Base is Max, plus a small fraction of the product to simulate density without instant black
-                totalAlpha = Math.max(totalAlpha, sheetAlpha) + (sheetAlpha * 0.2); 
-                if (totalAlpha > 1.0) totalAlpha = 1.0;
+                // Combine with existing blackness
+                totalBlack = Math.max(totalBlack, sheetAlpha);
             }
         }
-        if (totalAlpha > 0.01) {
-            if (this.globalRevealAlpha < 1.0) totalAlpha *= this.globalRevealAlpha;
-            // Use the specific cell color instead of global stream color
-            // This fixes the "inconsistency" issue when using palettes
-            const dimColor = this._getCellColor(i);
-            // Fix: Check if cell is active to prevent lighting up empty space
-            const isActive = this.g.alphas[i] > 0.05;
-            // Text fades out as sheet gets darker
-            const textAlpha = isActive ? Math.max(0, 1.0 - totalAlpha) : 0.0;
-            return { 
+        // Cap at 1.0
+        if (totalBlack > 1.0) totalBlack = 1.0;
+        // Apply to Rendering
+        if (totalBlack > 0.01) {
+             const isActive = this.g.alphas[i] > 0.05;
+             const dimColor = this._getCellColor(i);
+             // Inverse: Text Alpha is 1 - Blackness
+             const textAlpha = isActive ? Math.max(0, 1.0 - totalBlack) : 0.0;
+             return { 
                 char: isActive ? grid.getChar(i) : '', 
                 color: dimColor, 
                 font: fontName,
                 alpha: textAlpha, 
                 solid: true, 
-                bgColor: `rgba(0, 0, 0, ${totalAlpha})`, // Pure Black
+                bgColor: `rgba(0, 0, 0, ${totalBlack})`, 
                 blend: false 
             };
         }
@@ -2609,6 +2604,19 @@ class DejaVuEffect extends AbstractEffect {
                 this._retObj.glow = 0;
                 this._retObj.size = 2;
                 return this._retObj;
+            }
+            getActiveIndices() {
+                if (!this.active || !this.map) return new Set();
+                const indices = new Set();
+                for (let y = 0; y < this.g.rows; y++) {
+                    if (this.map[y] === 1) {
+                        const rowOffset = y * this.g.cols;
+                        for (let x = 0; x < this.g.cols; x++) {
+                            indices.add(rowOffset + x);
+                        }
+                    }
+                }
+                return indices;
             }
         }
 // --- FirewallEffect.js ---
@@ -2879,6 +2887,27 @@ class MiniPulseEffect extends AbstractEffect {
                     };
                 }
                 return null;
+            }
+            getActiveIndices() {
+                if (!this.active || this.renderPulses.length === 0) return new Set();
+                const s = this.c.state;
+                const d = this.c.derived;
+                const cW = d.cellWidth * s.stretchX;
+                const cH = d.cellHeight * s.stretchY;
+                const indices = new Set();
+                for (const p of this.renderPulses) {
+                    const startCol = Math.max(0, Math.floor(p.minX / cW));
+                    const endCol = Math.min(this.g.cols, Math.ceil(p.maxX / cW));
+                    const startRow = Math.max(0, Math.floor(p.minY / cH));
+                    const endRow = Math.min(this.g.rows, Math.ceil(p.maxY / cH));
+                    for (let y = startRow; y < endRow; y++) {
+                        const rowOffset = y * this.g.cols;
+                        for (let x = startCol; x < endCol; x++) {
+                            indices.add(rowOffset + x);
+                        }
+                    }
+                }
+                return indices;
             }
         }
 // --- PulseEffect.js ---
@@ -3247,6 +3276,26 @@ class PulseEffect extends AbstractEffect {
                 }
                 return result;
             }
+            getActiveIndices() {
+                if (!this.active || !this.renderData) return null;
+                const s = this.c.state;
+                const d = this.c.derived;
+                const rd = this.renderData;
+                const cW = d.cellWidth * s.stretchX;
+                const cH = d.cellHeight * s.stretchY;
+                const startCol = Math.max(0, Math.floor(rd.minX / cW));
+                const endCol = Math.min(this.g.cols, Math.ceil(rd.maxX / cW));
+                const startRow = Math.max(0, Math.floor(rd.minY / cH));
+                const endRow = Math.min(this.g.rows, Math.ceil(rd.maxY / cH));
+                const indices = new Set();
+                for (let y = startRow; y < endRow; y++) {
+                    const rowOffset = y * this.g.cols;
+                    for (let x = startCol; x < endCol; x++) {
+                        indices.add(rowOffset + x);
+                    }
+                }
+                return indices;
+            }
         }
 // --- SupermanEffect.js ---
 class SupermanEffect extends AbstractEffect {
@@ -3368,6 +3417,10 @@ class SupermanEffect extends AbstractEffect {
                 }
                 return null;
             }
+            getActiveIndices() {
+                if ((!this.active && this.afterimages.size === 0)) return new Set();
+                return this.afterimages.keys();
+            }
         }
     // =========================================================================
     // 7.0 CANVAS RENDERER
@@ -3429,6 +3482,8 @@ class CanvasRenderer {
         // Per-cell center positions (base without offsets; recomputed on resize)
         this.cellCenterX = null; // Float32Array
         this.cellCenterY = null; // Float32Array
+        // Performance counters
+        this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
     }
     _resetStateCache() {
         this._lastFont = null;
@@ -3479,6 +3534,15 @@ class CanvasRenderer {
             this.bloomCtx.globalAlpha = alpha;
             this._lastBloomGlobalAlpha = alpha;
         }
+    }
+    /**
+     * Clears the internal glyph atlas cache to force regeneration.
+     * Call this when fonts are added, removed, or changed.
+     */
+    handleFontChange() {
+        this.glyphAtlases.clear();
+        // Force a re-render of atlases on next frame
+        this._resetStateCache();
     }
     _setupMouseTracking() {
         const updateMouse = (e) => {
@@ -3823,19 +3887,51 @@ class CanvasRenderer {
         this._setCtxFillStyle(defaultColor, bloomEnabled);
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
-        const useActiveSet = !this.effects.hasActiveEffects();
+        const grid = this.grid;
+        // --- SMART FIX: Sparse Effect Rendering ---
+        // Instead of defaulting to full scan on ANY effect, we ask effects for their specific indices.
+        // Returns Set of indices, or null if full scan is required (e.g., global shader/filter).
+        const effectIndices = this.effects.getActiveIndices();
+        let renderSet = null;
+        if (effectIndices !== null) {
+            if (effectIndices.size === 0) {
+                // No effect indices, just use grid active set
+                renderSet = grid.activeIndices;
+            } else {
+                // Merge sets. 
+                // Creating a new Set is fast for typical counts (2k-3k items).
+                renderSet = new Set(grid.activeIndices);
+                for (const idx of effectIndices) {
+                    renderSet.add(idx);
+                }
+            }
+        }
+        // If effectIndices is null, renderSet remains null -> triggers full scan
         const useAtlas = s.enableGlyphAtlas;
         const activeFonts = d.activeFonts;
-        const grid = this.grid;
-        if (useActiveSet) {
-            for (const i of grid.activeIndices) {
+        let cellsDrawn = 0; // Perf Counter
+        if (renderSet) {
+            for (const i of renderSet) {
                 this._processCellRender(i, d, s, frame, bloomEnabled, defaultColor, xOff, yOff, useAtlas, activeFonts);
+                cellsDrawn++;
             }
         } else {
+            // Fallback: Full Grid Scan (Legacy Mode / Heavy Effects)
             const total = grid.cols * grid.rows;
             for (let i = 0; i < total; i++) {
                 this._processCellRender(i, d, s, frame, bloomEnabled, defaultColor, xOff, yOff, useAtlas, activeFonts);
+                cellsDrawn++;
             }
+        }
+        // --- PERF METRICS ---
+        this.perf.frames++;
+        this.perf.totalCells += cellsDrawn;
+        if (cellsDrawn < this.perf.min) this.perf.min = cellsDrawn;
+        if (cellsDrawn > this.perf.max) this.perf.max = cellsDrawn;
+        if (this.perf.frames >= 60) {
+            const avg = Math.round(this.perf.totalCells / this.perf.frames);
+            console.log(`[Perf] Avg Cells/Frame: ${avg} | Min: ${this.perf.min} | Max: ${this.perf.max} | Strategy: ${renderSet ? 'SPARSE' : 'FULL SCAN'}`);
+            this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
         }
         this._drawTracers(d, s, frame, bloomEnabled, xOff, yOff);
         this.ctx.restore();
@@ -3863,25 +3959,64 @@ class CanvasRenderer {
         if (pIdx >= d.paletteColorsStr.length) pIdx = 0;
         const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
         const style = grid.complexStyles.get(i);
+        let complexColor = null;
+        let rainbowIndex = -1;
         if (style) {
-            color = this._getCellColor(style, frame);
+            // "Star Power" / Glitter Optimization
+            // Instead of computing exact RGB and forcing fillText, check if we can use Rainbow Atlas
+            if (useAtlas) {
+                // Determine current Hue
+                let h = style.h;
+                if (style.cycle) h = (h + (frame * style.speed)) % 360;
+                if (h < 0) h += 360;
+                // Quantize to 24 steps (360 / 24 = 15 deg per step)
+                // 0-15 -> Index 0, 15-30 -> Index 1, etc.
+                rainbowIndex = Math.floor(h / 15) % 24;
+                // Set flag to use this atlas block
+                // (We don't need 'color' string for Atlas draw, just index)
+            } else {
+                // Fallback for non-atlas mode
+                complexColor = this._getCellColor(style, frame);
+            }
+        }
+        if (complexColor) color = complexColor;
+        else if (style && useAtlas) {
+            // We are using the atlas logic, so color string matters less, 
+            // but we need to ensure 'canUseAtlas' passes or we handle it explicitly.
+            // We'll handle it explicitly.
         } else {
             color = paletteColor;
         }
-        const canUseAtlas = useAtlas && (color === paletteColor);
-        this._setCtxFillStyle(color, bloomEnabled);
+        // Logic check:
+        // 1. Standard Palette (useAtlas && color === paletteColor)
+        // 2. Rainbow Atlas (useAtlas && rainbowIndex >= 0)
+        // 3. Fallback fillText (Everything else)
+        const isStandardAtlas = useAtlas && (color === paletteColor) && (rainbowIndex === -1);
+        const isRainbowAtlas = useAtlas && (rainbowIndex !== -1);
         // Resolve Font
         const fontIdx = grid.getFont(i);
         const fontData = activeFonts[fontIdx] || activeFonts[0];
         const currentFontName = fontData.name;
-        if (canUseAtlas) {
+        let drawnWithAtlas = false;
+        if (isStandardAtlas || isRainbowAtlas) {
             const atlas = this.glyphAtlases.get(currentFontName);
-            if (atlas) {
-                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx, atlas);
-            } else {
-                this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
+            // Check if atlas exists AND if it supports rainbow (if needed)
+            if (atlas && (!isRainbowAtlas || atlas.rainbowSupported)) {
+                let blockIndex = 0;
+                if (isRainbowAtlas) {
+                    const paletteLen = d.paletteColorsStr.length;
+                    blockIndex = paletteLen + 1 + rainbowIndex;
+                } else {
+                    blockIndex = pIdx;
+                }
+                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas);
+                drawnWithAtlas = true;
             }
-        } else {
+        }
+        if (!drawnWithAtlas) {
+            // Fallback
+            const drawColor = complexColor || color;
+            this._setCtxFillStyle(drawColor, bloomEnabled);
             this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
         }
         if (override && override.blend) {
@@ -4086,6 +4221,20 @@ class GlyphAtlas {
         this._lastCharListKey = '';
         this._lastMaxSize = 0;
         this._lastPadding = 0;
+        // Optimization: Pre-rendered Rainbow Palette (24 steps)
+        // Used for "Star Power" / Glitter / Rainbow effects to avoid fillText
+        this.rainbowColors = [];
+        const rainbowSteps = 24;
+        for (let i = 0; i < rainbowSteps; i++) {
+            const hue = (i / rainbowSteps) * 360;
+            this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
+        }
+        // Cached block offset for rainbow section
+        this.rainbowOffsetStart = 0; 
+        // Safety flags
+        this.rainbowSupported = true;
+        this.valid = true;
+        this.MAX_HEIGHT = 8192; // Common safe limit for mobile/desktop
     }
     /**
      * Initializes or updates the atlas if configuration has changed.
@@ -4093,6 +4242,7 @@ class GlyphAtlas {
     update() {
         const s = this.config.state;
         const d = this.config.derived;
+        // ... existing change detection ...
         // Determine font and chars to use
         const fontFamily = this.fontName || s.fontFamily;
         const charList = this.customChars || Utils.CHARS; // string or array-like string
@@ -4102,129 +4252,117 @@ class GlyphAtlas {
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
         const paletteStr = d.paletteColorsStr.join(',');
         const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
-        // Early exit if nothing changed and no pending update
-        if (this.currentFont === fontBase &&
-            this.currentPalette === fullConfigStr &&
-            !this.needsUpdate) {
+        if (this.currentFont === fontBase && this.currentPalette === fullConfigStr && !this.needsUpdate) {
             return;
         }
-        // Update tracked keys
         const paletteChanged = this.currentPalette !== fullConfigStr;
         const fontChanged = this.currentFont !== fontBase;
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
         this.needsUpdate = false;
-        // Compute layout-affecting values
         const padding = Math.max(s.tracerGlow, 10) * 2;
         const layoutChanged =
             fontChanged ||
             this._lastMaxSize !== maxSize ||
             this._lastPadding !== padding ||
             this._lastCharListKey !== (charList.length + ':' + charList);
-        // If layout changed, recompute grid and resize canvas if needed
         if (layoutChanged) {
             this.cellSize = Math.ceil(maxSize + padding);
             this.halfCell = this.cellSize / 2;
-            // Calculate atlas grid
             const cols = Math.ceil(Math.sqrt(charList.length));
             const rows = Math.ceil(charList.length / cols);
             this._lastCols = cols;
             this._lastRows = rows;
-            // Dimensions per color block
             const newAtlasWidth = cols * this.cellSize;
             const newBlockHeight = rows * this.cellSize;
-            // Total height = Palette Colors + 1 Overlap Color
-            const blocksCount = (d.paletteColorsStr?.length || 0) + 1;
-            const newAtlasHeight = newBlockHeight * blocksCount;
-            // Resize canvas only if dimensions changed (avoid resetting context unnecessarily)
+            const paletteLen = d.paletteColorsStr?.length || 0;
+            // --- SAFETY CHECK ---
+            // Calculate height with rainbow
+            let totalBlocks = paletteLen + 1 + this.rainbowColors.length;
+            let requiredHeight = newBlockHeight * totalBlocks;
+            if (requiredHeight > this.MAX_HEIGHT) {
+                console.warn(`[GlyphAtlas] Texture too large (${requiredHeight}px). Disabling Rainbow Optimization.`);
+                this.rainbowSupported = false;
+                // Recalculate without rainbow
+                totalBlocks = paletteLen + 1;
+                requiredHeight = newBlockHeight * totalBlocks;
+                if (requiredHeight > this.MAX_HEIGHT) {
+                    console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
+                    this.valid = false;
+                    return; // Abort
+                }
+            } else {
+                this.rainbowSupported = true;
+            }
+            this.valid = true;
+            const newAtlasHeight = requiredHeight;
             if (this.canvas.width !== newAtlasWidth || this.canvas.height !== newAtlasHeight) {
                 this.canvas.width = newAtlasWidth;
                 this.canvas.height = newAtlasHeight;
             }
-            // Update stored dimensions
             this.atlasWidth = newAtlasWidth;
             this.blockHeight = newBlockHeight;
             this.atlasHeight = newAtlasHeight;
-            // Context state (must be set after resize because resize resets state)
+            this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
             this.ctx.font = fontBase;
             this.ctx.textBaseline = 'middle';
             this.ctx.textAlign = 'center';
-            // Clear and rebuild char map (only needed when layout changes)
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
             this.charMap.clear();
-            // Draw characters for palette blocks + overlap, and build charMap for the first block
-            const paletteLen = d.paletteColorsStr?.length || 0;
-            // Draw palette blocks
-            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-                const yOffset = pIdx * this.blockHeight;
-                for (let i = 0; i < charList.length; i++) {
-                    const char = charList[i];
-                    const col = i % this._lastCols;
-                    const row = (i / this._lastCols) | 0;
-                    const x = col * this.cellSize + this.halfCell;
-                    const y = row * this.cellSize + this.halfCell + yOffset;
-                    this.ctx.fillText(char, x, y);
-                    // Store map ONLY for the first block; rects same for other blocks
-                    if (pIdx === 0) {
-                        this.charMap.set(char, {
-                            x: col * this.cellSize,
-                            y: row * this.cellSize,
-                            w: this.cellSize,
-                            h: this.cellSize
-                        });
-                    }
-                }
-            }
-            // Draw overlap color block (final block)
-            this.ctx.fillStyle = s.overlapColor;
-            const overlapYOffset = paletteLen * this.blockHeight;
+            this._redrawAll(d, s, charList, paletteLen);
             for (let i = 0; i < charList.length; i++) {
                 const char = charList[i];
                 const col = i % this._lastCols;
                 const row = (i / this._lastCols) | 0;
-                const x = col * this.cellSize + this.halfCell;
-                const y = row * this.cellSize + this.halfCell + overlapYOffset;
-                this.ctx.fillText(char, x, y);
+                this.charMap.set(char, {
+                    x: col * this.cellSize,
+                    y: row * this.cellSize,
+                    w: this.cellSize,
+                    h: this.cellSize
+                });
             }
-            // Update layout caches
             this._lastMaxSize = maxSize;
             this._lastPadding = padding;
             this._lastCharListKey = charList.length + ':' + charList;
         } else {
-            // Layout unchanged: only colors or shader-related visual aspects changed
-            // We redraw the atlas (fast) without rebuilding charMap or recomputing layout.
-            // Keep existing dimensions; ensure context state is valid
+            // Layout unchanged: fast repaint
+            if (!this.valid) return;
             this.ctx.font = fontBase;
             this.ctx.textBaseline = 'middle';
             this.ctx.textAlign = 'center';
-            // Clear whole atlas and repaint with new colors
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
             const paletteLen = d.paletteColorsStr?.length || 0;
-            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-                const yOffset = pIdx * this.blockHeight;
-                for (let i = 0; i < charList.length; i++) {
-                    const char = charList[i];
-                    const col = i % this._lastCols;
-                    const row = (i / this._lastCols) | 0;
-                    const x = col * this.cellSize + this.halfCell;
-                    const y = row * this.cellSize + this.halfCell + yOffset;
-                    this.ctx.fillText(char, x, y);
-                }
+            this._redrawAll(d, s, charList, paletteLen);
+        }
+    }
+    _redrawAll(d, s, charList, paletteLen) {
+        // 1. Palette Blocks
+        for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
+            this.ctx.fillStyle = d.paletteColorsStr[pIdx];
+            const yOffset = pIdx * this.blockHeight;
+            this._drawBlock(charList, yOffset);
+        }
+        // 2. Overlap Color Block
+        this.ctx.fillStyle = s.overlapColor;
+        const overlapYOffset = paletteLen * this.blockHeight;
+        this._drawBlock(charList, overlapYOffset);
+        // 3. Rainbow Blocks (only if supported)
+        if (this.rainbowSupported) {
+            for (let rIdx = 0; rIdx < this.rainbowColors.length; rIdx++) {
+                this.ctx.fillStyle = this.rainbowColors[rIdx];
+                const yOffset = this.rainbowOffsetStart + (rIdx * this.blockHeight);
+                this._drawBlock(charList, yOffset);
             }
-            // Overlap block repaint
-            this.ctx.fillStyle = s.overlapColor;
-            const overlapYOffset = paletteLen * this.blockHeight;
-            for (let i = 0; i < charList.length; i++) {
-                const char = charList[i];
-                const col = i % this._lastCols;
-                const row = (i / this._lastCols) | 0;
-                const x = col * this.cellSize + this.halfCell;
-                const y = row * this.cellSize + this.halfCell + overlapYOffset;
-                this.ctx.fillText(char, x, y);
-            }
-            // Note: charMap remains valid since layout did not change.
+        }
+    }
+    _drawBlock(charList, yOffset) {
+        for (let i = 0; i < charList.length; i++) {
+            const char = charList[i];
+            const col = i % this._lastCols;
+            const row = (i / this._lastCols) | 0;
+            const x = col * this.cellSize + this.halfCell;
+            const y = row * this.cellSize + this.halfCell + yOffset;
+            this.ctx.fillText(char, x, y);
         }
     }
     /**
@@ -5922,6 +6060,16 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
             { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', warning: "Photosensitivity Warning: Enabling this effect will cause pulsing lights and strobing effects that could be disruptive to those more sensitive to flashing lights. Please be aware of the impact this may have to those around you." },
             { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 60, max: 600, step: 10, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Visuals', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashSheetCount', type: 'range', label: 'Glitch Density', min: 0, max: 50, step: 1, dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashSheetSpeed', type: 'range', label: 'Glitch Speed', min: 0.1, max: 3.0, step: 0.1, dep: 'crashEnabled', transform: v=>v+'x' },
+            { cat: 'Effects', id: 'crashFlashDelayMin', type: 'range', label: 'Flash Delay Min', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashFlashDelayMax', type: 'range', label: 'Flash Delay Max', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled' },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Features', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashEnableSmith', type: 'checkbox', label: 'Enable Agent', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashEnableSuperman', type: 'checkbox', label: 'Enable Code Bolts', dep: 'crashEnabled' },
+            { cat: 'Effects', id: 'crashEnableFlash', type: 'checkbox', label: 'Enable Flash/Fade', dep: 'crashEnabled' },
             { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
             { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
@@ -5968,9 +6116,9 @@ class UIManager {
     _generateSystemTab() {
         return [
             { cat: 'System', type: 'accordion_header', label: 'Configuration' },
-            { cat: 'System', type: 'slot', idx: 0 },
-            { cat: 'System', type: 'slot', idx: 1 },
-            { cat: 'System', type: 'slot', idx: 2 },
+            { cat: 'System', type: 'slot', idx: 0, id: 'slot_0' },
+            { cat: 'System', type: 'slot', idx: 1, id: 'slot_1' },
+            { cat: 'System', type: 'slot', idx: 2, id: 'slot_2' },
             { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
             { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
@@ -6259,6 +6407,19 @@ class UIManager {
         reader.readAsText(file);
     }
     /**
+     * Updates the slot name inputs from the current configuration.
+     */
+    updateSlotNames() {
+        if (this.c.slots) {
+            this.c.slots.forEach((slot, i) => {
+                const slotInput = document.getElementById(`slot-input-${i}`);
+                if (slotInput) {
+                    slotInput.value = slot.name;
+                }
+            });
+        }
+    }
+    /**
      * Handles the import of a JSON configuration file.
      * @private
      * @param {Event} event - The change event from the file input.
@@ -6276,6 +6437,7 @@ class UIManager {
                 if (data.savedPresets) {
                     this.c.slots = data.savedPresets;
                     this.c.saveSlots();
+                    this.updateSlotNames(); // Force update immediately
                 }
                 this.c.updateDerivedValues();
                 this.c.save();
@@ -6798,6 +6960,8 @@ class UIManager {
         try {
             if(key === 'ALL') { 
                 this.defs.forEach(d => { if(d.id) this.refresh(d.id); }); 
+                // Refresh Slot Names
+                this.updateSlotNames();
                 this.refresh('fontFamily'); // Special refresh for font list
                 this.dom.content.querySelectorAll('.accordion-content').forEach(accordionBody => {
                     const allDepRows = accordionBody.querySelectorAll('[data-dep]');
@@ -7096,6 +7260,12 @@ class MatrixKernel {
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
+        // Subscribe to font changes to invalidate rendering caches
+        this.fontMgr.subscribe(() => {
+            if (this.renderer) {
+                this.renderer.handleFontChange();
+            }
+        });
         // Initialize font manager and await its completion
         await this.fontMgr.init();
         // Safety: Reset Shader State on Reload

@@ -696,6 +696,20 @@ class UIManager {
     }
 
     /**
+     * Updates the slot name inputs from the current configuration.
+     */
+    updateSlotNames() {
+        if (this.c.slots) {
+            this.c.slots.forEach((slot, i) => {
+                const slotInput = document.getElementById(`slot-input-${i}`);
+                if (slotInput) {
+                    slotInput.value = slot.name;
+                }
+            });
+        }
+    }
+
+    /**
      * Handles the import of a JSON configuration file.
      * @private
      * @param {Event} event - The change event from the file input.
@@ -715,6 +729,7 @@ class UIManager {
                 if (data.savedPresets) {
                     this.c.slots = data.savedPresets;
                     this.c.saveSlots();
+                    this.updateSlotNames(); // Force update immediately
                 }
 
                 this.c.updateDerivedValues();
@@ -1311,12 +1326,7 @@ class UIManager {
                 this.defs.forEach(d => { if(d.id) this.refresh(d.id); }); 
                 
                 // Refresh Slot Names
-                if (this.c.slots) {
-                    this.c.slots.forEach((slot, i) => {
-                        const slotInput = document.getElementById(`slot-input-${i}`);
-                        if (slotInput) slotInput.value = slot.name;
-                    });
-                }
+                this.updateSlotNames();
 
                 this.refresh('fontFamily'); // Special refresh for font list
                 this.dom.content.querySelectorAll('.accordion-content').forEach(accordionBody => {
