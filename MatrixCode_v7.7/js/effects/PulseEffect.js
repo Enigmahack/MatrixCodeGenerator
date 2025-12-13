@@ -111,7 +111,11 @@ class PulseEffect extends AbstractEffect {
                 if(this.state === 'WAITING') { 
                     if(--this.timer <= 0) { this.state = 'EXPANDING'; this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; }
                 } else {
-                    this.radius += this.speed; const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+                    const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+                    // Recalculate speed for realtime updates
+                    this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+                    
+                    this.radius += this.speed; 
                     if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
                 }
 

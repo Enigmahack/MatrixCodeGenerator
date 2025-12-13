@@ -52,6 +52,9 @@ class CrashEffect extends AbstractEffect {
         this.MAX_BLACK_LEVEL = 0.5; 
         this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
         this.endFlashTriggered = false;
+
+        // Fade value for sheets during flash (0.0 = invisible, 1.0 = normal)
+        this.sheetFadeVal = 1.0;
     }
 
     trigger() {
@@ -218,6 +221,7 @@ void main() {
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
         this.sheetState = { spawning: true, timer: 600 };
         this.endFlashTriggered = false;
+        this.sheetFadeVal = 1.0;
         
         this.flashState.active = false;
         this.flashState.nextFlash = 30; 
@@ -235,11 +239,55 @@ void main() {
         this.frame++; 
 
         const elapsedTime = (performance.now() - this.startTime) / 1000;
+        
+        // Dynamic Duration
+        this.durationSeconds = this.c.get('crashDurationSeconds') || 30;
         const progress = elapsedTime / this.durationSeconds;
+
+        // Recover Sheet Fade (approx 0.75s)
+        this.sheetFadeVal = Math.min(1.0, this.sheetFadeVal + (1.0 / 45.0));
+        
+        // Live Update of Opacity
+        const sheetOpacity = this.c.get('crashSheetOpacity');
+        // Ensure background fade doesn't overpower sheets if opacity is low
+        this.MAX_BLACK_LEVEL = Math.min(0.5, sheetOpacity); 
+        
+        // Update existing sheets for real-time slider response
+        const userSpeed = this.c.get('crashSheetSpeed');
+        for (const s of this.blackSheets) {
+            s.maxAlpha = sheetOpacity * this.sheetFadeVal;
+            
+            // Recalculate movement based on current speed setting
+            // Use baseDx/baseDy if available, otherwise fallback/init
+            if (s.baseDx === undefined) {
+                 // Migration for existing sheets (shouldn't happen often but safe)
+                 s.baseDx = s.dx; s.baseDy = s.dy;
+            }
+            
+            const moveX = s.baseDx * userSpeed;
+            const moveY = s.baseDy * userSpeed;
+            
+            s.posX += moveX; 
+            s.posY += moveY;
+            
+            // Bounce logic - reverse base velocity
+            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.baseDx *= -1;
+            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.baseDy *= -1;
+
+            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
+            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
+            
+            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
+        }
 
         if (progress > 0.92 && !this.endFlashTriggered) {
             this.endFlashTriggered = true;
-            if (this.registry) this.registry.trigger('Pulse');
+            if (this.registry) {
+                const originalPulseDelay = this.c.get('pulseDelaySeconds');
+                this.c.set('pulseDelaySeconds', 0.1);
+                this.registry.trigger('Pulse');
+                this.c.set('pulseDelaySeconds', originalPulseDelay);
+            }
         }
 
         if (progress >= 1.0) {
@@ -256,6 +304,13 @@ void main() {
         // --- FLASH & FADE LOGIC ---
         const enableFlash = this.c.get('crashEnableFlash');
         
+        // Sync Base Black Level with Sheet Fade
+        if (enableFlash) {
+            this.baseBlackLevel = this.MAX_BLACK_LEVEL * this.sheetFadeVal;
+        } else {
+            this.baseBlackLevel = 0.0;
+        }
+        
         if (enableFlash) {
             if (this.flashState.active) {
                 this.flashState.timer++;
@@ -263,34 +318,16 @@ void main() {
                 const p = Math.min(1.0, this.flashState.timer / this.flashState.duration);
                 this.c.set('shaderParameter', 10.0 + p);
                 
-                // INSTANT REVEAL at start of flash
+                // Start Fade at beginning of flash
                 if (this.flashState.timer === 1) {
-                    this.baseBlackLevel = 0.0; 
-                }
-                
-                // Start fading out code halfway through flash
-                if (p > 0.5) {
-                    // Linear fade from 0.0 to MAX_BLACK_LEVEL
-                    const fadeP = (p - 0.5) * 2.0; 
-                    this.baseBlackLevel = fadeP * this.MAX_BLACK_LEVEL;
-                } else {
-                    this.baseBlackLevel = 0.0; 
+                    this.sheetFadeVal = 0.0; 
                 }
                 
                 if (this.flashState.timer >= this.flashState.duration) {
                     this.flashState.active = false;
                     this.c.set('shaderParameter', 0.0);
-                    this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
                 }
             } else {
-                // Not flashing - Keep at Max Black Level
-                if (this.baseBlackLevel < this.MAX_BLACK_LEVEL) {
-                    this.baseBlackLevel += 0.05; 
-                    if (this.baseBlackLevel > this.MAX_BLACK_LEVEL) this.baseBlackLevel = this.MAX_BLACK_LEVEL;
-                } else {
-                    this.baseBlackLevel = this.MAX_BLACK_LEVEL;
-                }
-                
                 // Trigger Next Flash
                 this.flashState.nextFlash--;
                 if (this.flashState.nextFlash <= 0) {
@@ -298,7 +335,6 @@ void main() {
                 }
             }
         } else {
-            this.baseBlackLevel = 0.0;
             this.c.set('shaderParameter', 0.0);
         }
         
@@ -435,17 +471,18 @@ void main() {
                 const expandAmount = Math.floor(Math.random() * w) + 2; 
                 
                 // Faster Speed modulated by setting
-                const userSpeed = this.c.get('crashSheetSpeed');
-                const speedScale = (Math.random() * 1.5 + 0.5) * userSpeed; 
+                // const userSpeed = this.c.get('crashSheetSpeed'); // Calculated in update() now
+                const speedScale = (Math.random() * 1.5 + 0.5); 
                 
                 this.blackSheets.push({ 
                     c, r: row, w, h, axis, expandAmount, age: 0, life: 99999, // Infinite life (roaming)
                     posX: c, posY: row, 
-                    dx: (Math.random() - 0.5) * speedScale, 
-                    dy: (Math.random() - 0.5) * speedScale, 
+                    baseDx: (Math.random() - 0.5) * speedScale, 
+                    baseDy: (Math.random() - 0.5) * speedScale, 
+                    dx: 0, dy: 0, // Deprecated, kept for shape consistency if needed
                     targetW: w, targetH: h, 
                     flashFrames: 0, 
-                    maxAlpha: 0.85 + Math.random() * 0.15, // High alpha
+                    maxAlpha: this.c.get('crashSheetOpacity'), 
                     currentAlpha: 0.0, targetAlpha: 1.0 
                 });
             }
