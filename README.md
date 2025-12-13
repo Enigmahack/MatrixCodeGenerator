@@ -1,5 +1,5 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.6.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.7.html
 
 **Note: 
 The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
@@ -8,7 +8,7 @@ https://github.com/Rezmason/matrix
 
 
 #
-💻 Matrix Digital Rain Simulation v7.5
+💻 Matrix Digital Rain Simulation v7.7
 
 The quest for the "perfect" rain continues. v7.5 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate both the original trilogy as well as the new Matrix Resurrections.
 
@@ -21,6 +21,10 @@ The quest for the "perfect" rain continues. v7.5 represents a massive leap forwa
 <img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
 <img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/71adcfee-d368-4ebc-ad31-5b0bb58c75a5" />
 <img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
+
+#
+🚀 What's New in v7.7
+This update brings the codebase to version 7.7, including configuration updates and general improvements.
 
 #
 🚀 What's New in v7.5
