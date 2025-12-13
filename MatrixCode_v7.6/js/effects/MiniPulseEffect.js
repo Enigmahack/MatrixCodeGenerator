@@ -150,4 +150,28 @@ class MiniPulseEffect extends AbstractEffect {
                 }
                 return null;
             }
+
+            getActiveIndices() {
+                if (!this.active || this.renderPulses.length === 0) return new Set();
+                const s = this.c.state;
+                const d = this.c.derived;
+                const cW = d.cellWidth * s.stretchX;
+                const cH = d.cellHeight * s.stretchY;
+                
+                const indices = new Set();
+                for (const p of this.renderPulses) {
+                    const startCol = Math.max(0, Math.floor(p.minX / cW));
+                    const endCol = Math.min(this.g.cols, Math.ceil(p.maxX / cW));
+                    const startRow = Math.max(0, Math.floor(p.minY / cH));
+                    const endRow = Math.min(this.g.rows, Math.ceil(p.maxY / cH));
+
+                    for (let y = startRow; y < endRow; y++) {
+                        const rowOffset = y * this.g.cols;
+                        for (let x = startCol; x < endCol; x++) {
+                            indices.add(rowOffset + x);
+                        }
+                    }
+                }
+                return indices;
+            }
         }

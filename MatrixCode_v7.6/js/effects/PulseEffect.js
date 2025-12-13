@@ -412,4 +412,28 @@ class PulseEffect extends AbstractEffect {
                 
                 return result;
             }
+
+            getActiveIndices() {
+                if (!this.active || !this.renderData) return null;
+                const s = this.c.state;
+                const d = this.c.derived;
+                const rd = this.renderData;
+
+                const cW = d.cellWidth * s.stretchX;
+                const cH = d.cellHeight * s.stretchY;
+
+                const startCol = Math.max(0, Math.floor(rd.minX / cW));
+                const endCol = Math.min(this.g.cols, Math.ceil(rd.maxX / cW));
+                const startRow = Math.max(0, Math.floor(rd.minY / cH));
+                const endRow = Math.min(this.g.rows, Math.ceil(rd.maxY / cH));
+
+                const indices = new Set();
+                for (let y = startRow; y < endRow; y++) {
+                    const rowOffset = y * this.g.cols;
+                    for (let x = startCol; x < endCol; x++) {
+                        indices.add(rowOffset + x);
+                    }
+                }
+                return indices;
+            }
         }

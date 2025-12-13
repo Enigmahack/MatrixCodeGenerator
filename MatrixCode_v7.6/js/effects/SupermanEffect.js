@@ -141,6 +141,11 @@ class SupermanEffect extends AbstractEffect {
                 }
                 return null;
             }
+
+            getActiveIndices() {
+                if ((!this.active && this.afterimages.size === 0)) return new Set();
+                return this.afterimages.keys();
+            }
         }
 
 

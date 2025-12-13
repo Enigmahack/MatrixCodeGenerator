@@ -5,6 +5,19 @@ class EffectRegistry {
             update() { this.effects.forEach(e => e.update()); }
             getOverride(i) { for(const fx of this.effects) { const o = fx.getOverride(i); if(o) return o; } return null; }
             hasActiveEffects() { return this.effects.some(e => e.active); }
+
+            getActiveIndices() {
+                if (!this.hasActiveEffects()) return new Set();
+                const combined = new Set();
+                for (const fx of this.effects) {
+                    if (fx.active) {
+                        const indices = fx.getActiveIndices();
+                        if (indices === null) return null;
+                        for (const idx of indices) combined.add(idx);
+                    }
+                }
+                return combined;
+            }
         }
 
         class AbstractEffect {
@@ -12,4 +25,5 @@ class EffectRegistry {
             trigger() { return false; }
             update() {}
             getOverride(i) { return null; }
+            getActiveIndices() { return null; }
         }

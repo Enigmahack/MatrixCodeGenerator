@@ -69,6 +69,9 @@ class CanvasRenderer {
         // Per-cell center positions (base without offsets; recomputed on resize)
         this.cellCenterX = null; // Float32Array
         this.cellCenterY = null; // Float32Array
+
+        // Performance counters
+        this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
     }
 
     _resetStateCache() {
@@ -545,21 +548,58 @@ class CanvasRenderer {
         const xOff = s.fontOffsetX;
         const yOff = s.fontOffsetY;
         
-        const useActiveSet = !this.effects.hasActiveEffects();
-        const useAtlas = s.enableGlyphAtlas;
-
-        const activeFonts = d.activeFonts;
         const grid = this.grid;
 
-        if (useActiveSet) {
-            for (const i of grid.activeIndices) {
+        // --- SMART FIX: Sparse Effect Rendering ---
+        // Instead of defaulting to full scan on ANY effect, we ask effects for their specific indices.
+        // Returns Set of indices, or null if full scan is required (e.g., global shader/filter).
+        const effectIndices = this.effects.getActiveIndices();
+        let renderSet = null;
+
+        if (effectIndices !== null) {
+            if (effectIndices.size === 0) {
+                // No effect indices, just use grid active set
+                renderSet = grid.activeIndices;
+            } else {
+                // Merge sets. 
+                // Creating a new Set is fast for typical counts (2k-3k items).
+                renderSet = new Set(grid.activeIndices);
+                for (const idx of effectIndices) {
+                    renderSet.add(idx);
+                }
+            }
+        }
+        // If effectIndices is null, renderSet remains null -> triggers full scan
+
+        const useAtlas = s.enableGlyphAtlas;
+        const activeFonts = d.activeFonts;
+
+        let cellsDrawn = 0; // Perf Counter
+
+        if (renderSet) {
+            for (const i of renderSet) {
                 this._processCellRender(i, d, s, frame, bloomEnabled, defaultColor, xOff, yOff, useAtlas, activeFonts);
+                cellsDrawn++;
             }
         } else {
+            // Fallback: Full Grid Scan (Legacy Mode / Heavy Effects)
             const total = grid.cols * grid.rows;
             for (let i = 0; i < total; i++) {
                 this._processCellRender(i, d, s, frame, bloomEnabled, defaultColor, xOff, yOff, useAtlas, activeFonts);
+                cellsDrawn++;
             }
+        }
+        
+        // --- PERF METRICS ---
+        this.perf.frames++;
+        this.perf.totalCells += cellsDrawn;
+        if (cellsDrawn < this.perf.min) this.perf.min = cellsDrawn;
+        if (cellsDrawn > this.perf.max) this.perf.max = cellsDrawn;
+
+        if (this.perf.frames >= 60) {
+            const avg = Math.round(this.perf.totalCells / this.perf.frames);
+            console.log(`[Perf] Avg Cells/Frame: ${avg} | Min: ${this.perf.min} | Max: ${this.perf.max} | Strategy: ${renderSet ? 'SPARSE' : 'FULL SCAN'}`);
+            this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
         }
 
         this._drawTracers(d, s, frame, bloomEnabled, xOff, yOff);
@@ -595,28 +635,75 @@ class CanvasRenderer {
         const paletteColor = d.paletteColorsStr[pIdx] || defaultColor;
 
         const style = grid.complexStyles.get(i);
+        let complexColor = null;
+        let rainbowIndex = -1;
+
         if (style) {
-            color = this._getCellColor(style, frame);
+            // "Star Power" / Glitter Optimization
+            // Instead of computing exact RGB and forcing fillText, check if we can use Rainbow Atlas
+            if (useAtlas) {
+                // Determine current Hue
+                let h = style.h;
+                if (style.cycle) h = (h + (frame * style.speed)) % 360;
+                if (h < 0) h += 360;
+
+                // Quantize to 24 steps (360 / 24 = 15 deg per step)
+                // 0-15 -> Index 0, 15-30 -> Index 1, etc.
+                rainbowIndex = Math.floor(h / 15) % 24;
+                
+                // Set flag to use this atlas block
+                // (We don't need 'color' string for Atlas draw, just index)
+            } else {
+                // Fallback for non-atlas mode
+                complexColor = this._getCellColor(style, frame);
+            }
+        }
+
+        if (complexColor) color = complexColor;
+        else if (style && useAtlas) {
+            // We are using the atlas logic, so color string matters less, 
+            // but we need to ensure 'canUseAtlas' passes or we handle it explicitly.
+            // We'll handle it explicitly.
         } else {
             color = paletteColor;
         }
 
-        const canUseAtlas = useAtlas && (color === paletteColor);
-        this._setCtxFillStyle(color, bloomEnabled);
+        // Logic check:
+        // 1. Standard Palette (useAtlas && color === paletteColor)
+        // 2. Rainbow Atlas (useAtlas && rainbowIndex >= 0)
+        // 3. Fallback fillText (Everything else)
 
+        const isStandardAtlas = useAtlas && (color === paletteColor) && (rainbowIndex === -1);
+        const isRainbowAtlas = useAtlas && (rainbowIndex !== -1);
+        
         // Resolve Font
         const fontIdx = grid.getFont(i);
         const fontData = activeFonts[fontIdx] || activeFonts[0];
         const currentFontName = fontData.name;
 
-        if (canUseAtlas) {
+        let drawnWithAtlas = false;
+
+        if (isStandardAtlas || isRainbowAtlas) {
             const atlas = this.glyphAtlases.get(currentFontName);
-            if (atlas) {
-                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, pIdx, atlas);
-            } else {
-                this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
+            // Check if atlas exists AND if it supports rainbow (if needed)
+            if (atlas && (!isRainbowAtlas || atlas.rainbowSupported)) {
+                let blockIndex = 0;
+                if (isRainbowAtlas) {
+                    const paletteLen = d.paletteColorsStr.length;
+                    blockIndex = paletteLen + 1 + rainbowIndex;
+                } else {
+                    blockIndex = pIdx;
+                }
+
+                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas);
+                drawnWithAtlas = true;
             }
-        } else {
+        }
+        
+        if (!drawnWithAtlas) {
+            // Fallback
+            const drawColor = complexColor || color;
+            this._setCtxFillStyle(drawColor, bloomEnabled);
             this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
         }
 

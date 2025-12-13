@@ -31,6 +31,22 @@ class GlyphAtlas {
         this._lastCharListKey = '';
         this._lastMaxSize = 0;
         this._lastPadding = 0;
+
+        // Optimization: Pre-rendered Rainbow Palette (24 steps)
+        // Used for "Star Power" / Glitter / Rainbow effects to avoid fillText
+        this.rainbowColors = [];
+        const rainbowSteps = 24;
+        for (let i = 0; i < rainbowSteps; i++) {
+            const hue = (i / rainbowSteps) * 360;
+            this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
+        }
+        // Cached block offset for rainbow section
+        this.rainbowOffsetStart = 0; 
+        
+        // Safety flags
+        this.rainbowSupported = true;
+        this.valid = true;
+        this.MAX_HEIGHT = 8192; // Common safe limit for mobile/desktop
     }
 
     /**
@@ -40,6 +56,7 @@ class GlyphAtlas {
         const s = this.config.state;
         const d = this.config.derived;
 
+        // ... existing change detection ...
         // Determine font and chars to use
         const fontFamily = this.fontName || s.fontFamily;
         const charList = this.customChars || Utils.CHARS; // string or array-like string
@@ -51,22 +68,16 @@ class GlyphAtlas {
         const paletteStr = d.paletteColorsStr.join(',');
         const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
 
-        // Early exit if nothing changed and no pending update
-        if (this.currentFont === fontBase &&
-            this.currentPalette === fullConfigStr &&
-            !this.needsUpdate) {
+        if (this.currentFont === fontBase && this.currentPalette === fullConfigStr && !this.needsUpdate) {
             return;
         }
 
-        // Update tracked keys
         const paletteChanged = this.currentPalette !== fullConfigStr;
         const fontChanged = this.currentFont !== fontBase;
-
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
         this.needsUpdate = false;
 
-        // Compute layout-affecting values
         const padding = Math.max(s.tracerGlow, 10) * 2;
         const layoutChanged =
             fontChanged ||
@@ -74,139 +85,125 @@ class GlyphAtlas {
             this._lastPadding !== padding ||
             this._lastCharListKey !== (charList.length + ':' + charList);
 
-        // If layout changed, recompute grid and resize canvas if needed
         if (layoutChanged) {
             this.cellSize = Math.ceil(maxSize + padding);
             this.halfCell = this.cellSize / 2;
 
-            // Calculate atlas grid
             const cols = Math.ceil(Math.sqrt(charList.length));
             const rows = Math.ceil(charList.length / cols);
             this._lastCols = cols;
             this._lastRows = rows;
 
-            // Dimensions per color block
             const newAtlasWidth = cols * this.cellSize;
             const newBlockHeight = rows * this.cellSize;
+            const paletteLen = d.paletteColorsStr?.length || 0;
 
-            // Total height = Palette Colors + 1 Overlap Color
-            const blocksCount = (d.paletteColorsStr?.length || 0) + 1;
-            const newAtlasHeight = newBlockHeight * blocksCount;
+            // --- SAFETY CHECK ---
+            // Calculate height with rainbow
+            let totalBlocks = paletteLen + 1 + this.rainbowColors.length;
+            let requiredHeight = newBlockHeight * totalBlocks;
 
-            // Resize canvas only if dimensions changed (avoid resetting context unnecessarily)
+            if (requiredHeight > this.MAX_HEIGHT) {
+                console.warn(`[GlyphAtlas] Texture too large (${requiredHeight}px). Disabling Rainbow Optimization.`);
+                this.rainbowSupported = false;
+                
+                // Recalculate without rainbow
+                totalBlocks = paletteLen + 1;
+                requiredHeight = newBlockHeight * totalBlocks;
+                
+                if (requiredHeight > this.MAX_HEIGHT) {
+                    console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
+                    this.valid = false;
+                    return; // Abort
+                }
+            } else {
+                this.rainbowSupported = true;
+            }
+            this.valid = true;
+
+            const newAtlasHeight = requiredHeight;
+
             if (this.canvas.width !== newAtlasWidth || this.canvas.height !== newAtlasHeight) {
                 this.canvas.width = newAtlasWidth;
                 this.canvas.height = newAtlasHeight;
             }
 
-            // Update stored dimensions
             this.atlasWidth = newAtlasWidth;
             this.blockHeight = newBlockHeight;
             this.atlasHeight = newAtlasHeight;
+            this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
 
-            // Context state (must be set after resize because resize resets state)
             this.ctx.font = fontBase;
             this.ctx.textBaseline = 'middle';
             this.ctx.textAlign = 'center';
 
-            // Clear and rebuild char map (only needed when layout changes)
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
             this.charMap.clear();
 
-            // Draw characters for palette blocks + overlap, and build charMap for the first block
-            const paletteLen = d.paletteColorsStr?.length || 0;
-
-            // Draw palette blocks
-            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-                const yOffset = pIdx * this.blockHeight;
-
-                for (let i = 0; i < charList.length; i++) {
-                    const char = charList[i];
-                    const col = i % this._lastCols;
-                    const row = (i / this._lastCols) | 0;
-
-                    const x = col * this.cellSize + this.halfCell;
-                    const y = row * this.cellSize + this.halfCell + yOffset;
-
-                    this.ctx.fillText(char, x, y);
-
-                    // Store map ONLY for the first block; rects same for other blocks
-                    if (pIdx === 0) {
-                        this.charMap.set(char, {
-                            x: col * this.cellSize,
-                            y: row * this.cellSize,
-                            w: this.cellSize,
-                            h: this.cellSize
-                        });
-                    }
-                }
-            }
-
-            // Draw overlap color block (final block)
-            this.ctx.fillStyle = s.overlapColor;
-            const overlapYOffset = paletteLen * this.blockHeight;
-
+            this._redrawAll(d, s, charList, paletteLen);
+            
             for (let i = 0; i < charList.length; i++) {
                 const char = charList[i];
                 const col = i % this._lastCols;
                 const row = (i / this._lastCols) | 0;
-
-                const x = col * this.cellSize + this.halfCell;
-                const y = row * this.cellSize + this.halfCell + overlapYOffset;
-
-                this.ctx.fillText(char, x, y);
+                this.charMap.set(char, {
+                    x: col * this.cellSize,
+                    y: row * this.cellSize,
+                    w: this.cellSize,
+                    h: this.cellSize
+                });
             }
 
-            // Update layout caches
             this._lastMaxSize = maxSize;
             this._lastPadding = padding;
             this._lastCharListKey = charList.length + ':' + charList;
         } else {
-            // Layout unchanged: only colors or shader-related visual aspects changed
-            // We redraw the atlas (fast) without rebuilding charMap or recomputing layout.
-
-            // Keep existing dimensions; ensure context state is valid
+            // Layout unchanged: fast repaint
+            if (!this.valid) return;
+            
             this.ctx.font = fontBase;
             this.ctx.textBaseline = 'middle';
             this.ctx.textAlign = 'center';
-
-            // Clear whole atlas and repaint with new colors
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
 
             const paletteLen = d.paletteColorsStr?.length || 0;
+            this._redrawAll(d, s, charList, paletteLen);
+        }
+    }
 
-            for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-                this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-                const yOffset = pIdx * this.blockHeight;
+    _redrawAll(d, s, charList, paletteLen) {
+        // 1. Palette Blocks
+        for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
+            this.ctx.fillStyle = d.paletteColorsStr[pIdx];
+            const yOffset = pIdx * this.blockHeight;
+            this._drawBlock(charList, yOffset);
+        }
 
-                for (let i = 0; i < charList.length; i++) {
-                    const char = charList[i];
-                    const col = i % this._lastCols;
-                    const row = (i / this._lastCols) | 0;
+        // 2. Overlap Color Block
+        this.ctx.fillStyle = s.overlapColor;
+        const overlapYOffset = paletteLen * this.blockHeight;
+        this._drawBlock(charList, overlapYOffset);
 
-                    const x = col * this.cellSize + this.halfCell;
-                    const y = row * this.cellSize + this.halfCell + yOffset;
-
-                    this.ctx.fillText(char, x, y);
-                }
+        // 3. Rainbow Blocks (only if supported)
+        if (this.rainbowSupported) {
+            for (let rIdx = 0; rIdx < this.rainbowColors.length; rIdx++) {
+                this.ctx.fillStyle = this.rainbowColors[rIdx];
+                const yOffset = this.rainbowOffsetStart + (rIdx * this.blockHeight);
+                this._drawBlock(charList, yOffset);
             }
+        }
+    }
 
-            // Overlap block repaint
-            this.ctx.fillStyle = s.overlapColor;
-            const overlapYOffset = paletteLen * this.blockHeight;
+    _drawBlock(charList, yOffset) {
+        for (let i = 0; i < charList.length; i++) {
+            const char = charList[i];
+            const col = i % this._lastCols;
+            const row = (i / this._lastCols) | 0;
 
-            for (let i = 0; i < charList.length; i++) {
-                const char = charList[i];
-                const col = i % this._lastCols;
-                const row = (i / this._lastCols) | 0;
+            const x = col * this.cellSize + this.halfCell;
+            const y = row * this.cellSize + this.halfCell + yOffset;
 
-                const x = col * this.cellSize + this.halfCell;
-                const y = row * this.cellSize + this.halfCell + overlapYOffset;
-
-                this.ctx.fillText(char, x, y);
-            }
-            // Note: charMap remains valid since layout did not change.
+            this.ctx.fillText(char, x, y);
         }
     }
 

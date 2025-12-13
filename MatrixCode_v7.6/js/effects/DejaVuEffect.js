@@ -110,4 +110,18 @@ class DejaVuEffect extends AbstractEffect {
                 
                 return this._retObj;
             }
+
+            getActiveIndices() {
+                if (!this.active || !this.map) return new Set();
+                const indices = new Set();
+                for (let y = 0; y < this.g.rows; y++) {
+                    if (this.map[y] === 1) {
+                        const rowOffset = y * this.g.cols;
+                        for (let x = 0; x < this.g.cols; x++) {
+                            indices.add(rowOffset + x);
+                        }
+                    }
+                }
+                return indices;
+            }
         }
