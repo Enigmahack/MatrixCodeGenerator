@@ -695,13 +695,17 @@ class CanvasRenderer {
                     blockIndex = pIdx;
                 }
 
-                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas);
-                drawnWithAtlas = true;
+                if (this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas)) {
+                    drawnWithAtlas = true;
+                }
             }
         }
         
         if (!drawnWithAtlas) {
             // Fallback
+            if (style && !complexColor) {
+                complexColor = this._getCellColor(style, frame);
+            }
             const drawColor = complexColor || color;
             this._setCtxFillStyle(drawColor, bloomEnabled);
             this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
@@ -716,7 +720,7 @@ class CanvasRenderer {
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
         const sprite = atlas.get(char);
-        if (!sprite) return; 
+        if (!sprite) return false; 
 
         const yOffset = (pIdx || 0) * atlas.blockHeight;
 
@@ -738,7 +742,7 @@ class CanvasRenderer {
                     this.bloomCtx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                 }
             }
-            return;
+            return true;
         }
 
         let scale = 1.0;
@@ -762,6 +766,7 @@ class CanvasRenderer {
         if (bloomEnabled && alpha >= 0.2) {
             this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
+        return true;
     }
 
     _getCellColor(style, frame) {
