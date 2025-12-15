@@ -21,21 +21,36 @@ const Utils = {
     randomFloat: (min, max) => min + Math.random() * (max - min),
 
     /**
-     * Converts a 6-character hex color code (e.g., "#RRGGBB") to an { r, g, b } object format.
-     * @param {string} hex - The hex color string.
+     * Converts a color string (Hex "#RRGGBB" or "rgb(r,g,b)") to an { r, g, b } object.
+     * @param {string} input - The color string.
      * @returns {{r: number, g: number, b: number}} An object with red, green, and blue components.
      */
-    hexToRgb: (hex) => {
-        if (typeof hex !== "string" || !/^#?([A-Fa-f0-9]{6})$/.test(hex)) {
-            // Default to a valid fallback RGB value
-            return { r: 0, g: 255, b: 0 }; // Default green
+    hexToRgb: (input) => {
+        if (typeof input !== "string") return { r: 0, g: 255, b: 0 };
+
+        // Handle Hex (6 or 8 digits)
+        const hexMatch = input.match(/^#?([A-Fa-f0-9]{6})([A-Fa-f0-9]{2})?$/);
+        if (hexMatch) {
+            const value = parseInt(hexMatch[1], 16);
+            return {
+                r: (value >> 16) & 0xFF,
+                g: (value >> 8) & 0xFF,
+                b: value & 0xFF
+            };
         }
-        const value = parseInt(hex.replace(/^#/, ''), 16);
-        return {
-            r: (value >> 16) & 0xFF,
-            g: (value >> 8) & 0xFF,
-            b: value & 0xFF
-        };
+
+        // Handle RGB / RGBA
+        const match = input.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+            return {
+                r: parseInt(match[1], 10),
+                g: parseInt(match[2], 10),
+                b: parseInt(match[3], 10)
+            };
+        }
+
+        // Fallback
+        return { r: 0, g: 255, b: 0 }; 
     },
 
     /**

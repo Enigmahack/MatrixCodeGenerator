@@ -76,9 +76,6 @@ class UIManager {
      */
     _generateDefinitions() {
         return [
-            { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
-            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
-            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             ...this._generateGlobalSettings(),
 
             // APPEARANCE TAB
@@ -102,6 +99,12 @@ class UIManager {
      */
     _generateGlobalSettings() {
         return [
+            { cat: 'Global', type: 'accordion_header', label: 'Rendering Engine' },
+            { cat: 'Global', id: 'renderingEngine', type: 'select', label: 'Renderer', options: [{label:'Canvas 2D Rendering', value:'canvas'}, {label:'WebGL 3D Rendering', value:'webgl'}], description: "Select the rendering backend. WebGL offers better performance for large resolutions but might differ slightly in visuals." },
+
+            { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
+            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
+            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
@@ -113,6 +116,7 @@ class UIManager {
             { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'] },
         ];
     }
+
 
     /**
      * Generates definitions for the 'Appearance' settings category.
@@ -126,7 +130,6 @@ class UIManager {
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
-            { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
             { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
         
@@ -347,6 +350,9 @@ class UIManager {
             { cat: 'Effects', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
             { cat: 'Effects', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
             
+            { cat: 'Effects', type: 'accordion_header', label: 'Time Manipulation' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Reverse Time', action: 'reverse_time', class: 'btn-warn' },
+
             { cat: 'Effects', type: 'header', label: 'Post Processing' },
             { cat: 'Effects', type: 'accordion_header', label: 'Shader' },
             { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
@@ -384,6 +390,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
+            { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
         
             { cat: 'System', type: 'accordion_header', label: 'System Reset' },
@@ -835,8 +842,6 @@ class UIManager {
      */
     _getFonts() {
         return [
-            {label:'Gothic (Win)', value:'"MS Gothic", monospace'},
-            {label:'Console', value:'Consolas, monaco, monospace'},
             ...this.fonts.loadedFonts.map(f => ({label:f.display, value:f.name, custom:true}))
         ];
     }
@@ -1313,8 +1318,8 @@ class UIManager {
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
-        if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); 
-        }
+        if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); }
+        if(action === 'reverse_time') { if(this.effects.trigger('ReverseEffect')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
     }
 
     /**

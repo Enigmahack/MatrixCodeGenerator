@@ -1,4 +1,3 @@
-
 class CanvasRenderer {
     constructor(canvasId, grid, config, effects) {
         this.cvs = document.getElementById(canvasId);
@@ -74,6 +73,20 @@ class CanvasRenderer {
         this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
     }
 
+    dispose() {
+        if (this._mouseMoveHandler) {
+            window.removeEventListener('mousemove', this._mouseMoveHandler);
+        }
+        if (this._touchMoveHandler) {
+            window.removeEventListener('touchmove', this._touchMoveHandler);
+        }
+        if (this.postProcessor && this.postProcessor.canvas && this.postProcessor.canvas.parentNode) {
+            this.postProcessor.canvas.parentNode.removeChild(this.postProcessor.canvas);
+        }
+        // Clear canvases to free memory? JS GC should handle it if references are dropped.
+        this.ctx.clearRect(0, 0, this.cvs.width, this.cvs.height);
+    }
+
     _resetStateCache() {
         this._lastFont = null;
         this._lastFillStyle = null;
@@ -141,7 +154,7 @@ class CanvasRenderer {
     }
 
     _setupMouseTracking() {
-        const updateMouse = (e) => {
+        this._mouseMoveHandler = (e) => {
             const rect = this.cvs.getBoundingClientRect();
             // Normalize to 0..1
             this.mouseX = (e.clientX - rect.left) / rect.width;
@@ -152,10 +165,12 @@ class CanvasRenderer {
             if (this.mouseY < 0) this.mouseY = 0; else if (this.mouseY > 1) this.mouseY = 1;
         };
 
-        window.addEventListener('mousemove', updateMouse);
-        window.addEventListener('touchmove', (e) => {
-            if (e.touches.length > 0) updateMouse(e.touches[0]);
-        }, { passive: true });
+        this._touchMoveHandler = (e) => {
+            if (e.touches.length > 0) this._mouseMoveHandler(e.touches[0]);
+        };
+
+        window.addEventListener('mousemove', this._mouseMoveHandler);
+        window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
     }
 
     resize() {
@@ -747,18 +762,23 @@ class CanvasRenderer {
 
         let scale = 1.0;
         const decay = this.grid.decays[i];
+        let prog = 0;
+        
+        if (decay >= 2) {
+             prog = (decay - 2) / s.decayFadeDurationFrames;
+        }
+
         if (s.dissolveEnabled && decay >= 2) {
-            const prog = (decay - 2) / s.decayFadeDurationFrames;
             const minRatio = s.dissolveMinSize / s.fontSize;
             scale = 1.0 - (prog * (1.0 - minRatio));
             if (scale < 0.1) scale = 0.1;
+        }
 
-            if (s.deteriorationEnabled) {
-                const off = s.deteriorationStrength * prog;
-                this._setCtxGlobalAlpha(alpha * 0.4 * prog, false); // ghosting only on main ctx as before
-                this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-                this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-            }
+        if (s.deteriorationEnabled && decay >= 2) {
+            const off = s.deteriorationStrength * prog;
+                this._setCtxGlobalAlpha(alpha * 0.8 * prog, false); // ghosting only on main ctx as before
+            this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
 
         this._setCtxGlobalAlpha(alpha, bloomEnabled);
@@ -781,11 +801,13 @@ class CanvasRenderer {
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
         
-        const fontSize = s.fontSize;
-        const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
-        this._setCtxFont(fontBase, bloomEnabled);
-
+        // Base Font
+        let fontSize = s.fontSize;
+        
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
+            const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
+            this._setCtxFont(fontBase, bloomEnabled);
+            
             const p = rotProg / s.rotatorCrossfadeFrames;
             this._setCtxGlobalAlpha(alpha * (1 - p), bloomEnabled);
             this.ctx.fillText(char, px, py);
@@ -803,31 +825,33 @@ class CanvasRenderer {
             }
         } else {
             const decay = this.grid.decays[i];
-            if (s.dissolveEnabled && decay >= 2) {
-                const prog = (decay - 2) / s.decayFadeDurationFrames;
-                const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${fontName}`;
-                this._setCtxFont(font, false);
-                if (bloomEnabled) this.bloomCtx.font = font;
+            let prog = 0;
+            
+            if (decay >= 2) {
+                prog = (decay - 2) / s.decayFadeDurationFrames;
+            }
 
-                if (s.deteriorationEnabled) {
-                    const off = s.deteriorationStrength * prog;
-                    this._setCtxGlobalAlpha(alpha * 0.4 * prog, false);
-                    this.ctx.fillText(char, px, py - off);
-                    this.ctx.fillText(char, px, py + off);
-                }
-                
-                this._setCtxGlobalAlpha(alpha, bloomEnabled);
-                this.ctx.fillText(char, px, py);
-                if (bloomEnabled && alpha >= 0.2) {
-                    this.bloomCtx.fillText(char, px, py);
-                }
-            } else {
-                this._setCtxGlobalAlpha(alpha, bloomEnabled);
-                this.ctx.fillText(char, px, py);
-                if (bloomEnabled && alpha >= 0.2) {
-                    this.bloomCtx.fillText(char, px, py);
-                }
+            if (s.dissolveEnabled && decay >= 2) {
+                const minRatio = s.dissolveMinSize / s.fontSize;
+                const scale = 1.0 - (prog * (1.0 - minRatio));
+                fontSize = Math.max(1, s.fontSize * scale);
+            }
+            
+            const font = `${s.italicEnabled ? 'italic ' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
+            this._setCtxFont(font, false);
+            if (bloomEnabled) this.bloomCtx.font = font;
+
+            if (s.deteriorationEnabled && decay >= 2) {
+                const off = s.deteriorationStrength * prog;
+                    this._setCtxGlobalAlpha(alpha * 0.8 * prog, false);
+                this.ctx.fillText(char, px, py - off);
+                this.ctx.fillText(char, px, py + off);
+            }
+            
+            this._setCtxGlobalAlpha(alpha, bloomEnabled);
+            this.ctx.fillText(char, px, py);
+            if (bloomEnabled && alpha >= 0.2) {
+                this.bloomCtx.fillText(char, px, py);
             }
         }
     }
@@ -915,4 +939,3 @@ class CanvasRenderer {
         }
     }
 }
-``

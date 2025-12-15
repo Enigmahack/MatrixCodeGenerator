@@ -18,6 +18,18 @@ class FontManager {
     this._facePromises = new Map(); // key: fontName -> Promise<void>
     this._defaultCanvasPx = 20;     // used for document.fonts.load exact-size readiness
     this._loadTimeoutMs = 8000;     // defensive timeout for font loads
+
+    // Listen for config resets to re-inject custom font entries
+    this.config.subscribe((key) => this._onConfigChange(key));
+  }
+
+  _onConfigChange(key) {
+    if (key === 'ALL' || key === 'fontSettings') {
+        // Re-ensure all loaded fonts exist in the new settings
+        this.loadedFonts.forEach(f => {
+            this._ensureFontConfig(f.name);
+        });
+    }
   }
 
   /** Initialize: inject embedded font (if present) + open DB + load stored fonts. */

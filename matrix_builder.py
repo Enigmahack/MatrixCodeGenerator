@@ -45,6 +45,7 @@ CODE_MAP = {
     
     # Rendering
     'CanvasRenderer': 'js/rendering/CanvasRenderer.js',
+    'WebGLRenderer': 'js/rendering/WebGLRenderer.js',
     'GlyphAtlas': 'js/rendering/GlyphAtlas.js'
 }
 

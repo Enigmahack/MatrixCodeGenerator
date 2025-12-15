@@ -14,6 +14,9 @@ class SimulationSystem {
         // Reusable columns pool to avoid per-spawn allocation
         this._columnsPool = new Array(this.grid.cols);
         for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
+
+        // Global Time Dilation (1.0 = normal, 0.0 = pause, <0 = reverse)
+        this.timeScale = 1.0;
     }
 
     _initializeModes(config) {
@@ -30,7 +33,16 @@ class SimulationSystem {
             this._resetColumns();
         }
 
-        this._manageStreams(frame);
+        // Only spawn new streams if time is moving forward normally
+        // (Or we could allow spawning in reverse? Nah, simpler to stop.)
+        if (this.timeScale > 0) {
+            this._manageStreams(frame);
+        } else if (this.timeScale < 0) {
+            // In reverse, we just process existing streams backwards
+            this._processActiveStreams(frame);
+        }
+        // If timeScale == 0, we pause (no updates to streams)
+
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
         
@@ -224,6 +236,16 @@ class SimulationSystem {
         const cellLocks = grid.cellLocks;
         const decays = grid.decays;
 
+        // Apply global time scale to probability of movement
+        // We use probabilistic movement for partial speeds (e.g. 0.5)
+        // For reverse, we treat magnitude as speed.
+        
+        // Skip if paused
+        if (Math.abs(this.timeScale) < 0.01) return;
+
+        const isReverse = this.timeScale < 0;
+        const speedMult = Math.abs(this.timeScale);
+
         for (let i = this.activeStreams.length - 1; i >= 0; i--) {
             const stream = this.activeStreams[i];
             if (!stream.active) {
@@ -244,52 +266,76 @@ class SimulationSystem {
             }
 
             // Decrement tick timer for movement
-            stream.tickTimer--;
+            // Adjust decrement based on speedMult
+            stream.tickTimer -= speedMult;
+            
             if (stream.tickTimer > 0) {
                 continue; // Not time to move yet
             }
             
-            // Reset timer
+            // Reset timer (accumulate remainder for smooth speed changes?)
+            // Simple reset for now:
             stream.tickTimer = stream.tickInterval;
 
-            // Eraser Random Drop-off
-            if (stream.isEraser) {
-                const stopChance = this.config.state.eraserStopChance;
-                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+            if (isReverse) {
+                // --- REVERSE LOGIC ---
+                // Move Head UP
+                stream.y--;
+                
+                // If head goes off screen top (or becomes too "young"?)
+                // Actually, just moving head up is enough. 
+                // We write a NEW head at the new Y. 
+                // The old head (at Y+1) is abandoned and starts decaying naturally via _updateCell.
+                // Boundaries:
+                if (stream.y < -5) { // Arbitrary buffer
                     stream.active = false;
                     continue;
                 }
-            } else {                    
-                // Tracer Random Drop-Off
-                const stopChance = this.config.state.tracerStopChance;
-                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
-                    stream.active = false;
-                    continue;
-                }
-
-                // Tracer Collision Detection
-                const nextY = stream.y + 1;
-                if (nextY < rows) {
-                    const nextIdx = grid.getIndex(stream.x, nextY);
-                    // If next cell is occupied (decay > 0)
-                    if (nextIdx !== -1 && decays[nextIdx] > 0) {
-                        // Collision! Stop stream.
-                        stream.active = false;
-                        continue; 
-                    }
-                }
-            } 
-
-            stream.age++;
-
-            if (stream.age >= stream.visibleLen) {
-                this._handleStreamCompletion(stream);
-                continue;
-            }
-
-            if (stream.y < stream.len) {
-                stream.y++;
+                
                 this._writeHead(stream, frame);
+
+            } else {
+                // --- FORWARD LOGIC ---
+
+                // Eraser Random Drop-off
+                if (stream.isEraser) {
+                    const stopChance = this.config.state.eraserStopChance;
+                    if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+                        stream.active = false;
+                        continue;
+                    }
+                } else {                    
+                    // Tracer Random Drop-Off
+                    const stopChance = this.config.state.tracerStopChance;
+                    if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+                        stream.active = false;
+                        continue;
+                    }
+
+                    // Tracer Collision Detection
+                    const nextY = stream.y + 1;
+                    if (nextY < rows) {
+                        const nextIdx = grid.getIndex(stream.x, nextY);
+                        // If next cell is occupied (decay > 0)
+                        if (nextIdx !== -1 && decays[nextIdx] > 0) {
+                            // Collision! Stop stream.
+                            stream.active = false;
+                            continue; 
+                        }
+                    }
+                } 
+
+                stream.age++;
+
+                if (stream.age >= stream.visibleLen) {
+                    this._handleStreamCompletion(stream);
+                    continue;
+                }
+
+                if (stream.y < stream.len) {
+                    stream.y++;
+                    this._writeHead(stream, frame);
+                }
             }
         }
     }

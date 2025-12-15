@@ -1,3 +1,4 @@
+
 class PulseEffect extends AbstractEffect {
             constructor(g, c) { 
                 super(g, c); this.name = "Pulse"; 
@@ -339,7 +340,7 @@ class PulseEffect extends AbstractEffect {
                          result.alpha = snAlpha;
                          result.glow = s.tracerGlow;
                          result.size = s.tracerSizeIncrease;
-                         result.solid = true;
+                         result.solid = false;
                          result.bgColor = '#000000';
                     } else if (isGap) {
                          result = gapReturn;
@@ -350,7 +351,7 @@ class PulseEffect extends AbstractEffect {
                          result.alpha = snAlpha * s.pulseDimming;
                          result.glow = 0;
                          result.size = 0;
-                         result.solid = true;
+                         result.solid = false;
                          result.bgColor = '#000000';
                     }
                 } else {
@@ -361,7 +362,7 @@ class PulseEffect extends AbstractEffect {
                         
                         let actualCharAlpha = 1.0;
                         let actualBgAlpha = 1.0;
-                        let actualSolid = true; 
+                        let actualSolid = false; 
                         let actualBlend = false; // Default: Don't blend (draws opaque over grid)
                         let actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
         
@@ -379,7 +380,7 @@ class PulseEffect extends AbstractEffect {
                             actualCharAlpha = fadeProgress;
                             actualBgAlpha = fadeProgress; 
                             
-                            actualSolid = true;             // Draw the background rect (which will be semi-transparent)
+                            actualSolid = false;             // Draw the background rect (which will be semi-transparent)
                             actualBlend = true;             // ENABLE BLEND: Draw standard grid underneath so we crossfade
                             
                             actualGlow *= actualCharAlpha;  

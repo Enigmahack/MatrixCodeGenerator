@@ -60,6 +60,8 @@ class GlyphAtlas {
         this.usedChars = []; // List of characters currently in atlas
         this.capacity = 0;   // Current max characters
         this.minCapacity = 256; // Starting capacity
+        this.hasChanges = false;
+        this.fontReady = false;
     }
 
     /**
@@ -82,14 +84,22 @@ class GlyphAtlas {
         const paletteStr = d.paletteColorsStr.join(',');
         const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + fontBase + '|' + padding;
 
-        if (this.currentFont === fontBase && this.currentPalette === fullConfigStr && !this.needsUpdate) {
+        const isFontReady = document.fonts.check(fontBase);
+
+        if (this.currentFont === fontBase && 
+            this.currentPalette === fullConfigStr && 
+            this.fontReady === isFontReady && 
+            !this.needsUpdate) {
             return;
         }
 
         // Configuration changed: Reset everything
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
-        this.needsUpdate = false;
+        this.fontReady = isFontReady;
+        
+        // If font isn't ready, we force a retry next frame
+        this.needsUpdate = !isFontReady;
         
         this.cellSize = Math.ceil(maxSize + padding);
         this.halfCell = this.cellSize / 2;
@@ -115,28 +125,59 @@ class GlyphAtlas {
         const newBlockHeight = rows * this.cellSize;
         const paletteLen = d.paletteColorsStr?.length || 0;
 
-        // Safety Check
-        let totalBlocks = paletteLen + 1 + this.rainbowColors.length;
+        // Safety Check & Dynamic Rainbow Optimization
+        let rainbowSteps = 24; 
+        let totalBlocks = paletteLen + 1 + rainbowSteps;
         let requiredHeight = newBlockHeight * totalBlocks;
 
-            if (requiredHeight > this.MAX_HEIGHT) {
+        if (requiredHeight > this.MAX_HEIGHT) {
+            // Try reducing rainbow steps to fit
+            const attempts = [12, 8, 4]; // Degrade quality
+            let found = false;
+            for (const s of attempts) {
+                const h = newBlockHeight * (paletteLen + 1 + s);
+                if (h <= this.MAX_HEIGHT) {
+                    console.log(`[GlyphAtlas] Optimizing: Reducing rainbow to ${s} steps to fit atlas limit.`);
+                    rainbowSteps = s;
+                    totalBlocks = paletteLen + 1 + s;
+                    requiredHeight = h;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
                 // Info log instead of warning, as this is an expected optimization fallback
-                console.log(`[GlyphAtlas] Atlas height (${requiredHeight}px) exceeds limit (${this.MAX_HEIGHT}px). Disabling Rainbow optimization (Effect will still render via fallback).`);
+                console.log(`[GlyphAtlas] Atlas height (${requiredHeight}px) exceeds limit (${this.MAX_HEIGHT}px). Disabling Rainbow optimization.`);
                 this.rainbowSupported = false;
+                rainbowSteps = 0;
                 
                 // Recalculate without rainbow
                 totalBlocks = paletteLen + 1;
                 requiredHeight = newBlockHeight * totalBlocks;
-                
-                if (requiredHeight > this.MAX_HEIGHT) {
-                    console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
-                    this.valid = false;
-                    return; // Abort
-                }
             } else {
+                this.rainbowSupported = true;
+            }
+        } else {
             this.rainbowSupported = true;
         }
+
+        if (requiredHeight > this.MAX_HEIGHT) {
+            console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
+            this.valid = false;
+            return; // Abort
+        }
+        
         this.valid = true;
+
+        // Regenerate Rainbow Colors for current step count
+        if (this.rainbowSupported) {
+            this.rainbowColors = [];
+            for (let i = 0; i < rainbowSteps; i++) {
+                const hue = (i / rainbowSteps) * 360;
+                this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
+            }
+        }
 
         this.atlasWidth = newAtlasWidth;
         this.atlasHeight = requiredHeight;
@@ -230,6 +271,7 @@ class GlyphAtlas {
             h: this.cellSize
         };
         this.charMap.set(char, rect);
+        this.hasChanges = true;
 
         // 1. Palette Blocks
         for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
@@ -251,6 +293,10 @@ class GlyphAtlas {
                 this.ctx.fillText(char, x, y);
             }
         }
+    }
+
+    resetChanges() {
+        this.hasChanges = false;
     }
 
     /**

@@ -50,6 +50,7 @@ class ConfigurationManager {
     _initializeDefaults() {
         return {
             "streamColor": "#65d778",
+            "renderingEngine": "canvas",
             "streamPalette": [
               "#29bc62"
             ],
@@ -202,6 +203,7 @@ class ConfigurationManager {
               "DejaVu": "r",
               "Superman": "t",
               "Firewall": "y",
+              "ReverseTime": "u",
               "ToggleUI": " ",
               "BootSequence": "b",
               "CrashSequence": "x",
@@ -385,6 +387,33 @@ class ConfigurationManager {
                 // Clear stored previous values
                 this._previousSmoothingEnabled = undefined;
                 this._previousSmoothingAmount = undefined;
+            }
+        }
+
+        // Special handling for fontFamily: Enforce single active font in settings
+        if (key === 'fontFamily') {
+            const settings = this.state.fontSettings; // Reference current settings
+            if (settings && settings[value]) {
+                let changed = false;
+                // Create a new settings object to trigger reactivity if needed, or mutate copy
+                // We'll mutate deeper objects but clone the top level to be safe/clean
+                const newSettings = { ...settings };
+                
+                for (const fName in newSettings) {
+                    if (Object.prototype.hasOwnProperty.call(newSettings, fName)) {
+                        const isActive = (fName === value);
+                        if (newSettings[fName].active !== isActive) {
+                            // Clone the specific font config to avoid mutation side-effects
+                            newSettings[fName] = { ...newSettings[fName], active: isActive };
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (changed) {
+                    this.state.fontSettings = newSettings;
+                    this.notify('fontSettings');
+                }
             }
         }
         

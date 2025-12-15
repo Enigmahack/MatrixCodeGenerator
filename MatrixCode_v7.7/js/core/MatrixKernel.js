@@ -65,11 +65,12 @@ class MatrixKernel {
             DejaVuEffect,
             SupermanEffect,
             FirewallEffect,
+            ReverseEffect,
             BootEffect,
             CrashEffect
         ];
         effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
+            if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
             } else {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config));
@@ -82,7 +83,13 @@ class MatrixKernel {
      * @private
      */
     async _initializeRendererAndUI() {
-        this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        const engine = this.config.get('renderingEngine') || 'canvas';
+        if (engine === 'webgl' && typeof WebGLRenderer !== 'undefined') {
+             this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        } else {
+             this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        }
+
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
@@ -102,6 +109,50 @@ class MatrixKernel {
             this.config.set('shaderEnabled', false);
             this.config.set('customShader', null);
             // console.log("Resetting stuck shader state on init.");
+        }
+    }
+
+    _switchRenderer(engine) {
+        if (this.renderer) {
+            if (this.renderer.dispose) this.renderer.dispose();
+        }
+        
+        // Slight delay to allow DOM to clear/reset if needed? Not strictly necessary for same-canvas swap
+        // But we might need to reset the canvas context attributes.
+        // Actually, getting a '2d' context after 'webgl' on the same canvas element is problematic in some browsers.
+        // It is safer to replace the canvas element itself.
+        
+        const oldCanvas = document.getElementById('matrixCanvas');
+        const newCanvas = oldCanvas.cloneNode(true);
+        // Remove old context-bound canvas and replace with fresh one
+        oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+        
+        // Re-instantiate
+        try {
+            if (engine === 'webgl' && typeof WebGLRenderer !== 'undefined') {
+                this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.notifications.show('Switched to WebGL Renderer', 'success');
+            } else {
+                this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.notifications.show('Switched to Canvas Renderer', 'success');
+            }
+            // Trigger resize to setup buffers
+            this.renderer.resize();
+            // Sync fonts
+            this.renderer.handleFontChange();
+            
+        } catch (e) {
+            console.error("Renderer switch failed:", e);
+            this.notifications.show('Renderer switch failed: ' + e.message, 'error');
+            // Fallback to Canvas if WebGL failed
+            if (engine === 'webgl') {
+                this.config.set('renderingEngine', 'canvas'); // Update state back
+                // We rely on the subscription to trigger this again, OR we manually recover:
+                // Let's manually recover to avoid infinite loops if canvas also fails (unlikely)
+                this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.renderer.resize();
+                this.renderer.handleFontChange();
+            }
         }
     }
 
@@ -174,7 +225,21 @@ class MatrixKernel {
             'smoothingAmount'
         ]);
 
+        const atlasTriggers = new Set([
+            'fontWeight',
+            'italicEnabled',
+            'tracerSizeIncrease',
+            'tracerGlow',
+            'overlapColor',
+            'streamPalette',
+            'tracerColor'
+        ]);
+
         this.config.subscribe((key) => {
+            if (key === 'renderingEngine') {
+                this._switchRenderer(this.config.state.renderingEngine);
+            }
+
             // Resize the canvas and grid on resolution-related changes
             if (resizeTriggers.has(key) || key === 'ALL') {
                 this._resize();
@@ -183,6 +248,11 @@ class MatrixKernel {
             // Update renderer when smoothing settings change
             if (smoothingTriggers.has(key)) {
                 this.renderer.updateSmoothing();
+            }
+
+            // Update Atlas if appearance changes (WebGL optimization)
+            if ((atlasTriggers.has(key) || key === 'ALL') && this.renderer && this.renderer.handleAppearanceChange) {
+                this.renderer.handleAppearanceChange();
             }
 
             const autoEffects = [
