@@ -663,9 +663,7 @@ class SimulationSystem {
 
     _calculateAlpha(idx, age, decay, fadeDurationFrames) {
         const b = this.grid.brightness[idx];
-               if (age > 0) {
-            return 1.0;
-        } else if (decay === 1) {
+        if (age > 0 || decay === 1) {
             return 0.95 * b;
         } else if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;

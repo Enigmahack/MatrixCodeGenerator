@@ -534,7 +534,1255 @@ textarea.char-input:focus { outline: none; border-color: var(--accent); }
             <p id="globalStatus" class="status-msg"></p>
         </footer>
     </aside>
-    <script>
+<script type="x-shader/x-fragment" id="BASETEMPLATE.glsl">
+// base_template.glsl
+precision highp float;                    // highp for desktop; switch to mediump for mobile if needed
+uniform sampler2D uTexture;
+uniform vec2      uResolution;            // (width, height)
+uniform float     uTime;                  // seconds
+uniform vec2      uMouse;                 // normalized [0..1]
+uniform float     uParameter;             // UI slider [0..1]
+varying vec2      vTexCoord;
+void main() {
+    vec4 base = texture2D(uTexture, vTexCoord);
+    gl_FragColor = base;                  // start from base; 
+}
+</script>
+<script type="x-shader/x-fragment" id="crt_monitor.glsl">
+// Name: CRT Monitor
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uParameter;
+varying vec2 vTexCoord;
+// Change this value to make the lines denser!
+// It represents the WIDTH/HEIGHT of one grid cell in pixels.
+const float GRID_CELL_SIZE = 2.0; // Lower numbers = lines closer together, but line thickness is proportional
+const float LINE_THICKNESS = 0.3;
+const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
+const float GRID_OPACITY = 0.5;
+// CRT Color Shift (Chromatic Aberration) Settings
+const float SHIFT_AMOUNT = 0.01;       // Magnitude of the color fringe (very small)
+// Brightness Boost (Thresholding/Glow) Settings
+const float BRIGHTNESS_THRESHOLD = 0.3;  // Only pixels brighter than this will be boosted
+const float BRIGHTNESS_BOOST = 1.6;      // How much to multiply bright colors by
+// --- Barrel Distortion Settings ---
+const float BARREL_DISTORTION_AMOUNT = 1.0; // Controls the bulge magnitude (0.0 to 1.0)
+void main() {
+    // --- 1. CRT Barrel Distortion (Warp) ---
+    // A. Center coordinates: shifts vTexCoord from [0.0, 1.0] to [-0.5, 0.5]
+    vec2 centeredCoord = vTexCoord - 0.5;
+    // B. Calculate distance squared from center
+    // The distortion effect should be stronger in the corners than in the middle.
+    // dot(v, v) is a fast way to get length squared (r*r).
+    float r2 = dot(centeredCoord, centeredCoord); 
+    // C. Calculate the distortion factor
+    // The factor must be > 1.0 for a convex (bulging) look. 
+    // It's calculated by adding a fraction of the distance (r2) to 1.0.
+    float factor = 1.0 + r2 * (BARREL_DISTORTION_AMOUNT * uParameter * 0.25);
+    // D. Apply the factor and shift back to 0.0-1.0 range
+    // This coordinate will be our base for sampling the warped image.
+    vec2 warpedTexCoord = centeredCoord * factor + 0.5;
+    // --- Boundary Check ---
+    // If the warped coordinate is outside [0.0, 1.0], it's smeared/clipped.
+    // The 'any' function checks if any component (x or y) of the boolean vector is true.
+    if (any(lessThan(warpedTexCoord, vec2(0.0))) || any(greaterThan(warpedTexCoord, vec2(1.0)))) {
+        // If the coordinate is outside the bounds, output black (or transparent)
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return; // Exit the shader immediately to skip all further calculations
+    }
+    // --- 2. CRT Chromatic Shift (Red/Blue Fringing) ---
+    // The centerBias calculation remains based on the original vTexCoord 
+    // to keep the color shift aligned with the screen's surface.
+    vec2 pixelCoord = vTexCoord * uResolution.xy;
+    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
+    vec2 fractionalPart = fract(scaledCoord);
+    float centerBias = fractionalPart.x - 0.5; 
+    float shiftMagnitude = sin(centerBias * 3.14159265); 
+    // Sample the texture three times using the **warpedTexCoord** as the base
+    vec2 redCoord   = warpedTexCoord + vec2(-shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
+    vec2 blueCoord  = warpedTexCoord + vec2( shiftMagnitude * SHIFT_AMOUNT * uParameter, 0.0);
+    // Use the base warped coordinate for the green channel
+    float red   = texture2D(uTexture, redCoord).r;
+    float green = texture2D(uTexture, warpedTexCoord).g; 
+    float blue  = texture2D(uTexture, blueCoord).b;
+    vec4 finalColor = vec4(red, green, blue, 1.0);
+    // --- 3. Static Grid Overlay ---
+    // The grid lines are calculated using the original screen coordinate (vTexCoord)
+    // which simulates the grid being painted onto the curved glass.
+    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);
+    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);
+    float gridMask = min(verticalLine + horizontalLine, 1.0);
+    // Apply the grid
+    vec3 blendedColor = mix(finalColor.rgb, GRID_COLOR, gridMask);
+    finalColor.rgb = mix(finalColor.rgb, blendedColor, GRID_OPACITY);
+    // --- 4. Brightness Boost (Thresholding/Glow Effect) ---
+    float brightness = dot(finalColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);
+    float finalMultiplier = mix(1.0, BRIGHTNESS_BOOST, boostFactor);
+    finalColor.rgb *= finalMultiplier;
+    // 5. Output Final Color
+    gl_FragColor = finalColor;
+}
+</script>
+<script type="x-shader/x-fragment" id="dirty_LCD.glsl">
+// Name: Dirty LCD Monitor
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uParameter;
+varying vec2 vTexCoord;
+// Change this value to make the lines denser!
+// It represents the WIDTH/HEIGHT of one grid cell in pixels.
+const float GRID_CELL_SIZE = 2.0; // Lower numbers = More lines, but thickness is proportional
+const float LINE_THICKNESS = 0.4;
+const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
+const float GRID_OPACITY = 0.5;
+// Adding grain dirtyness to the screen
+const float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable
+// Random graininess
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
+// Boosting Pixel Brightness
+const float BRIGHTNESS_THRESHOLD = 0.4; // Only pixels brighter than this will be boosted
+const float BRIGHTNESS_BOOST = 1.6;     // How much to multiply the existing bright colors by
+void main() {
+    vec4 color = texture2D(uTexture, vTexCoord);
+    vec2 pixelCoord = vTexCoord * uResolution.xy;
+    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
+    vec2 fractionalPart = fract(scaledCoord);
+    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);
+    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);
+    float gridMask = min(verticalLine + horizontalLine, 1.0);
+    vec3 blendedColor = mix(color.rgb, GRID_COLOR, gridMask);
+    color.rgb = mix(color.rgb, blendedColor, GRID_OPACITY);
+    // 1. Calculate the final grid-processed color's overall brightness (Luminance).
+    float brightness = dot(color.rgb, vec3(0.1126, 0.7152, 0.0522));
+    // 2. Determine the boost factor
+    // The 'step' function returns 1.0 if the condition is true, 0.0 if false.
+    // If the pixel's brightness is above the threshold, this 'boostFactor' will be 1.0.
+    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);
+    // 3. Apply the boost to the color channels.
+    // We mix between a base factor of 1.0 (no change) and the desired BRIGHTNESS_BOOST.
+    // mix(Color A, Color B, Factor)
+    // If boostFactor is 0.0: returns 1.0 (color.rgb * 1.0)
+    // If boostFactor is 1.0: returns BRIGHTNESS_BOOST (color.rgb * 1.2)
+    float finalMultiplier = mix(uParameter + 1.0, BRIGHTNESS_BOOST, boostFactor * uParameter);
+    color.rgb *= finalMultiplier;
+    // 5. Calculate static noise    
+    float noiseValue = random(vTexCoord);
+    // Map the random value from [0.0, 1.0] to a useful noise range, e.g., [-1.0, 1.0]
+    // (noiseValue - 0.5) shifts the range to [-0.5, 0.5]
+    // * 2.0 expands the range to [-1.0, 1.0]
+    float finalNoise = (noiseValue - 0.5) * 2.0;
+    // 6. Apply grain to the color
+    // We only apply the noise to the Red, Green, and Blue channels (.rgb).
+    // The noise value is scaled by the GRAIN_AMOUNT.
+    // A negative noise makes the pixel darker, a positive noise makes it brighter.
+    color.rgb += finalNoise * GRAIN_AMOUNT;
+    // 7. Output final color
+    gl_FragColor = color;
+}
+</script>
+<script type="x-shader/x-fragment" id="double_vision.glsl">
+// Name: Double Vision
+precision mediump float;
+// Inputs provided by the application
+uniform sampler2D uTexture;
+uniform float uTime;
+uniform float uParameter;
+varying vec2 vTexCoord;
+// Configuration for the effect
+const float BLUR_SAMPLES = 2.0; // How many times to sample the texture (higher = smoother but slower)
+const float BLUR_AMOUNT = 0.0001; // How intense the blur is
+void main() {
+    // 1. Center the coordinates
+    // We shift vTexCoord (0.0 to 1.0) so that the center of the screen is (0.0, 0.0).
+    vec2 center = vec2(0.5, 0.5); // The blur's origin point (center of the screen)
+    vec2 direction = vTexCoord - center; // Vector pointing from center to the current pixel
+    // 2. Initialize the final color
+    // We start with a black color (vec4(0.0))
+    vec4 finalColor = vec4(0.0);
+    // 3. Loop through samples
+    for (float i = 0.0; i < BLUR_SAMPLES; i++) {
+        // Calculate the current step along the blur ray.
+        // The 'mix' function smoothly interpolates (mixes) between two values.
+        // It's used here to define a position along the ray from 0.0 (center) to 1.0 (current pixel).
+        float step = i / (BLUR_SAMPLES - 1.0);
+        // Calculate the new coordinate for this sample.
+        // This coordinate is closer to the center than the original vTexCoord.
+        vec2 sampleCoord = mix(vTexCoord, center, step * BLUR_AMOUNT * (uParameter * 10.0) * 100.0);
+        // --- IMPORTANT LOGIC EXPLAINED BELOW ---
+        // 'mix(A, B, t)' returns A*(1-t) + B*t. 
+        // We use 'step * BLUR_AMOUNT * 100.0' to control how much to mix towards the center.
+        // The factor of 100.0 turns the small BLUR_AMOUNT (e.g., 0.005) into a more usable ratio (e.g., 0.5).
+        // Sample the color at the new, shifted coordinate
+        vec4 sampledColor = texture2D(uTexture, sampleCoord);
+        // Add the sampled color to our final average
+        finalColor += sampledColor;
+    }
+    // 4. Calculate the average color
+    // Divide the accumulated colors by the number of samples taken.
+    gl_FragColor = finalColor / BLUR_SAMPLES;
+}
+</script>
+<script type="x-shader/x-fragment" id="edge_glow_sobel.glsl">
+// Name: Edge Glow (Sobel)
+precision highp float;
+uniform sampler2D uTexture;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform vec2      uMouse;
+uniform float     uParameter;
+varying vec2      vTexCoord;
+void main() {
+    vec2 uv = vTexCoord;
+    vec2 px = 1.0 / uResolution;          // per‑pixel offsets
+    // Luma samples
+    float tl = dot(texture2D(uTexture, uv + px*vec2(-1,  1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float  l = dot(texture2D(uTexture, uv + px*vec2(-1,  0)).rgb, vec3(0.2126,0.7152,0.0722));
+    float bl = dot(texture2D(uTexture, uv + px*vec2(-1, -1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float  t = dot(texture2D(uTexture, uv + px*vec2( 0,  1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float  b = dot(texture2D(uTexture, uv + px*vec2( 0, -1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float tr = dot(texture2D(uTexture, uv + px*vec2( 1,  1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float  r = dot(texture2D(uTexture, uv + px*vec2( 1,  0)).rgb, vec3(0.2126,0.7152,0.0722));
+    float br = dot(texture2D(uTexture, uv + px*vec2( 1, -1)).rgb, vec3(0.2126,0.7152,0.0722));
+    float gx = -tl - 2.0*l - bl + tr + 2.0*r + br;
+    float gy =  tl + 2.0*t + tr - bl - 2.0*b - br;
+    float edge = sqrt(gx*gx + gy*gy);
+    vec4 base = texture2D(uTexture, uv);
+    float glowAmt = mix(0.0, 0.6, uParameter);
+    base.rgb += edge * glowAmt;
+    gl_FragColor = clamp(base, 0.0, 1.0);
+}
+</script>
+<script type="x-shader/x-fragment" id="film_grain.glsl">
+// Name: Dirty Film Grain
+precision mediump float;
+// Uniforms provided by PostProcessor.js
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform float uParameter;
+// Use vTexCoord from Vertex Shader for correct orientation
+varying vec2 vTexCoord;
+// Shader Configuration
+const float GRAIN_AMOUNT = 0.1; // Intensity of the grain (0.0 to 1.0)
+const bool ANIMATED = true;      // Whether the grain dances (true) or is static (false)
+const float SPEED = 2.2;         // Speed of grain animation
+// Random function
+float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
+void main() {
+    // Sample the original texture using standard texture coordinates
+    vec4 color = texture2D(uTexture, vTexCoord);
+    // Calculate noise
+    // We can use gl_FragCoord or vTexCoord for noise seed
+    float t = ANIMATED ? uTime * SPEED : 0.0;
+    // Generate random noise value [-1.0, 1.0]
+    float noise = (random(vTexCoord + t) - 0.5) * 2.0;
+    // Apply grain
+    color.rgb += noise * ((uParameter - 0.1) + GRAIN_AMOUNT);
+    // Output final color
+    gl_FragColor = color;
+}
+</script>
+<script type="x-shader/x-fragment" id="hue_shift.glsl">
+// Name: Hue Shift
+precision highp float;
+uniform sampler2D uTexture;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform vec2      uMouse;
+uniform float     uParameter;
+varying vec2      vTexCoord;
+vec3 rgb2hsv(vec3 c){
+    vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.x, p.y, p.w, c.r), vec4(c.r, p.y, p.z, p.x), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y)/(6.0*d + e)), d/(q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c){
+    vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0/3.0, 1.0/3.0))*6.0 - 3.0);
+    return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+}
+void main() {
+    vec3 rgb = texture2D(uTexture, vTexCoord).rgb;
+    vec3 hsv = rgb2hsv(rgb);
+    hsv.x = fract(hsv.x + uTime * 0.05 * (0.2 + 0.8*uParameter));           // animate hue
+    hsv.y *= mix(1.0, 0.35, uParameter);                                    // desaturate
+    vec3 outc = hsv2rgb(hsv);
+    gl_FragColor = vec4(outc, 1.0);
+}
+</script>
+<script type="x-shader/x-fragment" id="mouse_ripple.glsl">
+// Name: Mouse Lens Ripple
+precision highp float;
+uniform sampler2D uTexture;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform vec2      uMouse;
+uniform float     uParameter;
+varying vec2      vTexCoord;
+void main() {
+    vec2 uv = vTexCoord;
+    vec2 center = vec2(uMouse.x, 1.0 - uMouse.y);
+    float radius = mix(0.02, 0.60, uParameter);
+    float dist = distance(uv, center);
+    float mask = smoothstep(radius, 0.0, dist);
+    // Dynamic ripple offset
+    float wave = sin(24.0*dist - 4.0*uTime) * 0.003 * uParameter;
+    vec2 dir = normalize(uv - center);
+    uv += dir * wave * mask;
+    // Mild magnification inside the lens
+    float magnify = mix(1.0, 1.15, uParameter);
+    uv = mix(uv, center + (uv - center)/magnify, mask);
+    gl_FragColor = texture2D(uTexture, uv);
+}
+</script>
+<script type="x-shader/x-fragment" id="pixelate.glsl">
+// Name: Pixelate
+precision highp float;
+uniform sampler2D uTexture;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform vec2      uMouse;
+uniform float     uParameter;
+varying vec2      vTexCoord;
+void main() {
+    float scale = mix(1.0, 0.15, uParameter);      // 1.0 no pixelate; 0.15 heavy
+    vec2 grid = floor(vTexCoord * uResolution * scale) / (uResolution * scale);
+    vec4 color = texture2D(uTexture, grid);
+    gl_FragColor = color;
+}
+</script>
+<script type="x-shader/x-fragment" id="screen_door.glsl">
+// Name: Screen Door
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uParameter;
+varying vec2 vTexCoord;
+// Change this value to make the lines denser!
+// It represents the WIDTH/HEIGHT of one grid cell in pixels.
+const float GRID_CELL_SIZE = 2.0; // Lower numbers = More lines, but thickness is proportional
+const float LINE_THICKNESS = 0.4;
+const vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);
+const float GRID_OPACITY = 0.5;
+// Boosting Pixel Brightness
+const float BRIGHTNESS_THRESHOLD = 0.4; // Only pixels brighter than this will be boosted
+const float BRIGHTNESS_BOOST = 1.6;     // How much to multiply the existing bright colors by
+void main() {
+    vec4 color = texture2D(uTexture, vTexCoord);
+    vec2 pixelCoord = vTexCoord * uResolution.xy;
+    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;
+    vec2 fractionalPart = fract(scaledCoord * uParameter);
+    float verticalLine = step(fractionalPart.x, LINE_THICKNESS * uParameter + 0.1);
+    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS * uParameter + 0.1);
+    float gridMask = min(verticalLine + horizontalLine, 1.0);
+    vec3 blendedColor = mix(color.rgb, GRID_COLOR, gridMask);
+    color.rgb = mix(color.rgb, blendedColor, GRID_OPACITY * uParameter);
+    // 1. Calculate the final grid-processed color's overall brightness (Luminance).
+    float brightness = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+    // 2. Determine the boost factor
+    // The 'step' function returns 1.0 if the condition is true, 0.0 if false.
+    // If the pixel's brightness is above the threshold, this 'boostFactor' will be 1.0.
+    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);
+    // 3. Apply the boost to the color channels.
+    // We mix between a base factor of 1.0 (no change) and the desired BRIGHTNESS_BOOST.
+    // mix(Color A, Color B, Factor)
+    // If boostFactor is 0.0: returns 1.0 (color.rgb * 1.0)
+    // If boostFactor is 1.0: returns BRIGHTNESS_BOOST (color.rgb * 1.2)
+    float finalMultiplier = mix(1.0, BRIGHTNESS_BOOST, boostFactor);
+    color.rgb *= finalMultiplier;
+    gl_FragColor = color;
+}
+</script>
+<script type="x-shader/x-fragment" id="smear_LCDgrid.glsl">
+// Name: Vertical Smear + LED Grid
+// Vertical Smear (upwards only) + LED Matrix Grid (faded, brightness-aware)
+// Uniforms: uTexture, uResolution, uTime, uMouse, uParameter, vTexCoord
+// uParameter drives the smear length in pixels: 0.0 = none, 1.0 = MAX_SMEAR_PX
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2      uResolution;
+uniform float     uTime;
+uniform vec2      uMouse;
+uniform float     uParameter;
+varying vec2      vTexCoord;
+// ------------------- Tunables -------------------
+// If the smear still goes the wrong way, flip this sign to -1.0.
+// +1.0 means "sample from above" when vTexCoord.y increases toward the top.
+// -1.0 means "sample from below".
+const float Y_SIGN            = +1.0;
+const float MAX_SMEAR_PX      = 48.0;   // max smear length (pixels) at uParameter=1
+const float SMEAR_DECAY       = 0.30;   // exponential falloff per tap (higher = faster decay)
+const int   SMEAR_TAPS_COUNT  = 8;      // unrolled taps count (do not change in code block)
+// Smear applies more strongly to bright glyphs.
+// Raise or lower the range to taste.
+const float SMEAR_LUMA_MIN    = 0.30;   // start applying smear above this luma
+const float SMEAR_LUMA_MAX    = 0.85;   // full smear by this luma
+// LED grid parameters
+const float GRID_SPACING_PX   = 8.0;    // cell size (pixels)
+const float GRID_THICKNESS_PX = 1.0;    // seam thickness (pixels)
+const float GRID_FADE_MAX     = 0.15;   // max darkening on grid lines
+const float GRID_CROSS_GLOW   = 0.02;   // tiny highlight at intersections
+const float GRID_LUMA_POWER   = 1.2;    // tie grid visibility to luma (>=1.0 less persistent in dark)
+// ------------------- Helpers -------------------
+float luma(vec3 c) {
+    // Rec.709 luma
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+// Sample along vertical with Y_SIGN and clamp to [0,1] range.
+vec3 sampleVertical(vec2 uv, float offsetPx, vec2 px) {
+    float y = clamp(uv.y + Y_SIGN * offsetPx * px.y, 0.0, 1.0);
+    return texture2D(uTexture, vec2(uv.x, y)).rgb;
+}
+// Upward-only smear via unrolled taps for WebGL1 stability.
+vec3 smearUp(vec2 uv, float smearLenPx, float brightnessFactor) {
+    // brightnessFactor scales how much we mix the smear in (from 0..1)
+    vec2  px    = 1.0 / uResolution;
+    float stepPx= smearLenPx / float(SMEAR_TAPS_COUNT);
+    vec3 accum  = texture2D(uTexture, uv).rgb;
+    float wsum  = 1.0;
+    // Unrolled 8 taps with exponential weights
+    {
+        float w1 = exp(-1.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 1.0, px) * w1;
+        wsum  += w1;
+        float w2 = exp(-2.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 2.0, px) * w2;
+        wsum  += w2;
+        float w3 = exp(-3.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 3.0, px) * w3;
+        wsum  += w3;
+        float w4 = exp(-4.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 4.0, px) * w4;
+        wsum  += w4;
+        float w5 = exp(-5.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 5.0, px) * w5;
+        wsum  += w5;
+        float w6 = exp(-6.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 6.0, px) * w6;
+        wsum  += w6;
+        float w7 = exp(-7.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 7.0, px) * w7;
+        wsum  += w7;
+        float w8 = exp(-8.0 * SMEAR_DECAY);
+        accum += sampleVertical(uv, stepPx * 8.0, px) * w8;
+        wsum  += w8;
+    }
+    vec3 smeared = accum / wsum;
+    // Mix based on glyph brightness so darker glyphs retain less shadow,
+    // matching your observation.
+    vec3 base    = texture2D(uTexture, uv).rgb;
+    float lum    = luma(base);
+    float mixAmt = brightnessFactor * smoothstep(SMEAR_LUMA_MIN, SMEAR_LUMA_MAX, lum);
+    return mix(base, smeared, mixAmt);
+}
+// LED grid mask in pixel space (gl_FragCoord).
+// Returns line intensity in 0..1.
+float gridMask(vec2 frag) {
+    float modX  = mod(frag.x, GRID_SPACING_PX);
+    float distX = min(modX, GRID_SPACING_PX - modX);
+    float modY  = mod(frag.y, GRID_SPACING_PX);
+    float distY = min(modY, GRID_SPACING_PX - modY);
+    float lineX = 1.0 - smoothstep(GRID_THICKNESS_PX, GRID_THICKNESS_PX + 1.0, distX);
+    float lineY = 1.0 - smoothstep(GRID_THICKNESS_PX, GRID_THICKNESS_PX + 1.0, distY);
+    return max(lineX, lineY);
+}
+void main() {
+    vec2 uv         = vTexCoord;
+    vec4 base4      = texture2D(uTexture, uv);
+    vec3 base       = base4.rgb;
+    vec2 frag       = gl_FragCoord.xy;
+    // Smear length driven by uParameter (pixels)
+    float smearLenPx = clamp(uParameter, 0.0, 1.0) * MAX_SMEAR_PX;
+    // Smear strength factor (independent of luma ramp)
+    float smearStrength = 1.0; // keep 1.0; you can expose a second uniform if desired
+    // Upward-only smear with brightness-aware mixing
+    vec3 color = smearUp(uv, smearLenPx, smearStrength);
+    // LED grid faded by brightness so it is less persistent in dark regions
+    float gridI   = gridMask(frag);
+    float lum     = pow(luma(color), GRID_LUMA_POWER); // make grid respond more to bright glyphs
+    float fadeAmt = GRID_FADE_MAX * lum;               // reduce grid visibility in dark areas
+    color *= mix(1.0, 1.0 - fadeAmt, gridI);
+    // Tiny intersection glow (also brightness-aware)
+    if (GRID_CROSS_GLOW > 0.0) {
+        float modX  = mod(frag.x, GRID_SPACING_PX);
+        float distX = min(modX, GRID_SPACING_PX - modX);
+        float lineX = 1.0 - smoothstep(GRID_THICKNESS_PX, GRID_THICKNESS_PX + 1.0, distX);
+        float modY  = mod(frag.y, GRID_SPACING_PX);
+        float distY = min(modY, GRID_SPACING_PX - modY);
+        float lineY = 1.0 - smoothstep(GRID_THICKNESS_PX, GRID_THICKNESS_PX + 1.0, distY);
+        color += vec3(GRID_CROSS_GLOW) * (lineX * lineY) * lum;
+    }
+    gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+}
+</script>
+<script type="x-shader/x-fragment" id="static_grain.glsl">
+// Name: Static Grain
+precision mediump float;
+// Inputs provided by the application
+uniform sampler2D uTexture;
+uniform float uParameter;
+// uniform float uTime; // NOT needed for static grain
+varying vec2 vTexCoord;
+// Shader Configuration
+const float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable
+// 1. Random function
+// Generates a seemingly random float based on the input coordinate 'st'.
+float random(vec2 st) {
+    // This uses a "magic" dot product and large number to generate noise.
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
+void main() {
+    // 2. Sample the original texture
+    vec4 color = texture2D(uTexture, vTexCoord);
+    // 3. Calculate static noise
+    // The key here is to pass only the coordinate (vTexCoord) to the random function.
+    // We are NOT using 'uTime', so the result for any given coordinate is always the same.
+    float noiseValue = random(vTexCoord);
+    // Map the random value from [0.0, 1.0] to a useful noise range, e.g., [-1.0, 1.0]
+    // (noiseValue - 0.5) shifts the range to [-0.5, 0.5]
+    // * 2.0 expands the range to [-1.0, 1.0]
+    float finalNoise = (noiseValue - 0.5) * 2.0;
+    // 4. Apply grain to the color
+    // We only apply the noise to the Red, Green, and Blue channels (.rgb).
+    // The noise value is scaled by the GRAIN_AMOUNT.
+    // A negative noise makes the pixel darker, a positive noise makes it brighter.
+    color.rgb += finalNoise * (uParameter * 0.5);
+    // 5. Output final color
+    gl_FragColor = color;
+}
+</script>
+<script type="application/json" id="matrix_conf_v7.7_Presets.json">
+{
+  "version": "7.7",
+  "state": {
+    "streamColor": "#65d778",
+    "streamPalette": [
+      "#1cc427",
+      "#4fba64",
+      "#7bd279"
+    ],
+    "paletteBias": 0,
+    "tracerColor": "#cfe8ce",
+    "fontSize": 33,
+    "streamSpeed": 18,
+    "releaseInterval": 4,
+    "resolution": 1,
+    "enableGlyphAtlas": true,
+    "smoothingEnabled": false,
+    "smoothingAmount": 0.1,
+    "showFpsCounter": true,
+    "fontFamily": "CustomFont_5e2697679380fc43",
+    "fontWeight": "normal",
+    "italicEnabled": false,
+    "mirrorEnabled": false,
+    "variableBrightnessEnabled": true,
+    "brightnessVariance": 11,
+    "overlapEnabled": true,
+    "overlapColor": "#d4f339",
+    "overlapDensity": 0.1,
+    "overlapTarget": "stream",
+    "overlapShimmer": false,
+    "dissolveEnabled": false,
+    "dissolveMinSize": 20,
+    "deteriorationEnabled": false,
+    "deteriorationStrength": 3,
+    "enableBloom": true,
+    "bloomStrength": 4,
+    "bloomOpacity": 0.6,
+    "tracerGlow": 30,
+    "clearAlpha": 0.65,
+    "horizontalSpacingFactor": 0.85,
+    "verticalSpacingFactor": 0.95,
+    "fontOffsetX": 0,
+    "fontOffsetY": 0,
+    "stretchX": 1,
+    "stretchY": 1,
+    "decayFadeDurationFrames": 55,
+    "streamSpawnCount": 2,
+    "eraserSpawnCount": 18,
+    "minStreamGap": 2,
+    "minEraserGap": 2,
+    "holeRate": 0,
+    "desyncIntensity": 0.3,
+    "eraserStopChance": 0,
+    "tracerStopChance": 0,
+    "tracerAttackFrames": 0,
+    "tracerHoldFrames": 2,
+    "tracerReleaseFrames": 8,
+    "invertedTracerEnabled": true,
+    "invertedTracerChance": 0.1,
+    "rotatorEnabled": true,
+    "rotatorChance": 0.5,
+    "rotatorSyncToTracer": true,
+    "rotatorSyncMultiplier": 0.1,
+    "rotatorCycleFactor": 20,
+    "rotatorCrossfadeFrames": 2,
+    "shaderEnabled": true,
+    "customShader": "// Name: Static Grain\nprecision mediump float;\n\n// Inputs provided by the application\nuniform sampler2D uTexture;\nuniform float uParameter;\n\n// uniform float uTime; // NOT needed for static grain\nvarying vec2 vTexCoord;\n\n// Shader Configuration\nconst float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable\n\n// 1. Random function\n// Generates a seemingly random float based on the input coordinate 'st'.\nfloat random(vec2 st) {\n    // This uses a \"magic\" dot product and large number to generate noise.\n    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);\n}\n\nvoid main() {\n    // 2. Sample the original texture\n    vec4 color = texture2D(uTexture, vTexCoord);\n    \n    // 3. Calculate static noise\n    // The key here is to pass only the coordinate (vTexCoord) to the random function.\n    // We are NOT using 'uTime', so the result for any given coordinate is always the same.\n    float noiseValue = random(vTexCoord);\n    \n    // Map the random value from [0.0, 1.0] to a useful noise range, e.g., [-1.0, 1.0]\n    // (noiseValue - 0.5) shifts the range to [-0.5, 0.5]\n    // * 2.0 expands the range to [-1.0, 1.0]\n    float finalNoise = (noiseValue - 0.5) * 2.0;\n\n    // 4. Apply grain to the color\n    // We only apply the noise to the Red, Green, and Blue channels (.rgb).\n    // The noise value is scaled by the GRAIN_AMOUNT.\n    // A negative noise makes the pixel darker, a positive noise makes it brighter.\n    color.rgb += finalNoise * (uParameter * 0.5);\n    \n    // 5. Output final color\n    gl_FragColor = color;\n}",
+    "pulseEnabled": false,
+    "pulseFrequencySeconds": 300,
+    "pulseDurationSeconds": 1.2,
+    "pulsePreserveSpaces": true,
+    "pulseIgnoreTracers": true,
+    "pulseDimming": 0.2,
+    "pulseBlend": false,
+    "pulseWidth": 130,
+    "pulseRandomPosition": true,
+    "pulseInstantStart": false,
+    "pulseCircular": false,
+    "clearPulseEnabled": false,
+    "clearPulseFrequencySeconds": 235,
+    "clearPulseDurationSeconds": 0.7,
+    "clearPulsePreserveSpaces": true,
+    "clearPulseBlend": false,
+    "clearPulseWidth": 190,
+    "clearPulseRandomPosition": true,
+    "clearPulseInstantStart": false,
+    "clearPulseCircular": false,
+    "miniPulseEnabled": false,
+    "miniPulseFrequencySeconds": 450,
+    "miniPulseDurationSeconds": 5,
+    "miniPulsePreserveSpaces": true,
+    "miniPulseThickness": 100,
+    "miniPulseSpawnChance": 0.06,
+    "miniPulseSpeed": 16,
+    "miniPulseSize": 360,
+    "dejaVuEnabled": false,
+    "dejaVuFrequencySeconds": 350,
+    "dejaVuDurationSeconds": 5,
+    "dejaVuMinRectHeight": 1,
+    "dejaVuMaxRectHeight": 10,
+    "dejaVuHoleBrightness": 0.02,
+    "dejaVuRandomizeColors": false,
+    "dejaVuIntensity": 0.1,
+    "dejaVuBarDurationFrames": 28,
+    "dejaVuVarianceFrames": 43,
+    "supermanEnabled": false,
+    "supermanFrequencySeconds": 290,
+    "supermanDurationSeconds": 6,
+    "supermanIncludeColors": true,
+    "supermanFadeSpeed": 6,
+    "supermanGlow": 4,
+    "supermanBoltThickness": 5,
+    "supermanFlickerRate": 2,
+    "supermanWidth": 4,
+    "supermanSpawnSpeed": 69,
+    "starPowerEnabled": false,
+    "starPowerRainbowMode": "char",
+    "starPowerSaturation": 100,
+    "starPowerIntensity": 51,
+    "starPowerGlitter": false,
+    "starPowerColorCycle": true,
+    "starPowerCycleSpeed": 5,
+    "rainbowStreamEnabled": false,
+    "rainbowStreamChance": 0.5,
+    "rainbowStreamIntensity": 50,
+    "firewallEnabled": false,
+    "firewallFrequencySeconds": 150,
+    "firewallRandomColorEnabled": true,
+    "firewallColor": "#00ff00",
+    "firewallReverseDurationFrames": 20,
+    "firewallEraseDurationFrames": 50,
+    "bootSequenceEnabled": false,
+    "crashEnabled": false,
+    "crashFrequencySeconds": 600,
+    "runBothInOrder": false,
+    "keyBindings": {
+      "Pulse": "p",
+      "ClearPulse": "w",
+      "MiniPulse": "e",
+      "DejaVu": "r",
+      "Superman": "t",
+      "Firewall": "y",
+      "ToggleUI": " ",
+      "BootSequence": "b",
+      "CrashSequence": "x",
+      "BootCrashSequence": "c"
+    },
+    "hideMenuIcon": true,
+    "fontSettings": {
+      "MatrixEmbedded": {
+        "active": false,
+        "useCustomChars": false,
+        "customCharacters": "!\"*+-.012345789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi|"
+      },
+      "CustomFont_5e2697679380fc43": {
+        "active": true,
+        "useCustomChars": true,
+        "customCharacters": "'()*+-./0123456789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZ\\^_`cfgnt!\"#$%&,;?@[]abmxlkjihedopqrsuvw~}{zy",
+        "useAllChars": false
+      }
+    },
+    "deteriorationType": "ghost",
+    "tracerSizeIncrease": 1,
+    "supermanProb": 4,
+    "dejaVuAutoMode": true,
+    "clearPulseIgnoreTracers": true,
+    "dejaVuPerformanceMode": false,
+    "pulseDelayFrames": 60,
+    "minGapTypes": 1,
+    "rotateDuringFade": true,
+    "rotatorDesyncEnabled": true,
+    "rotatorDesyncVariance": 60,
+    "suppressToasts": false,
+    "ttlMinSeconds": 1,
+    "ttlMaxSeconds": 8,
+    "shaderParameter": 0.14,
+    "pulseDelaySeconds": 0.7,
+    "starPowerFreq": 100
+  },
+  "savedPresets": [
+    {
+      "name": "Trilogy",
+      "data": {
+        "streamColor": "#65d778",
+        "streamPalette": [
+          "#29bc62"
+        ],
+        "paletteBias": 0,
+        "tracerColor": "#d9f2f2",
+        "fontSize": 25,
+        "streamSpeed": 16,
+        "releaseInterval": 2,
+        "resolution": 1,
+        "enableGlyphAtlas": true,
+        "smoothingEnabled": true,
+        "smoothingAmount": 0.4,
+        "showFpsCounter": true,
+        "fontFamily": "MatrixEmbedded",
+        "fontWeight": "normal",
+        "italicEnabled": false,
+        "mirrorEnabled": false,
+        "variableBrightnessEnabled": true,
+        "brightnessVariance": 20,
+        "overlapEnabled": false,
+        "overlapColor": "#FFD700",
+        "overlapDensity": 0.2,
+        "overlapTarget": "all",
+        "overlapShimmer": false,
+        "dissolveEnabled": true,
+        "dissolveMinSize": 18,
+        "deteriorationEnabled": true,
+        "deteriorationStrength": 4,
+        "enableBloom": true,
+        "bloomStrength": 3,
+        "bloomOpacity": 0.35,
+        "tracerGlow": 19,
+        "clearAlpha": 0.65,
+        "horizontalSpacingFactor": 0.7,
+        "verticalSpacingFactor": 1,
+        "fontOffsetX": 0,
+        "fontOffsetY": 6,
+        "stretchX": 1,
+        "stretchY": 1.2,
+        "decayFadeDurationFrames": 23,
+        "streamSpawnCount": 6,
+        "eraserSpawnCount": 16,
+        "minStreamGap": 30,
+        "minEraserGap": 30,
+        "holeRate": 0.1,
+        "desyncIntensity": 0,
+        "eraserStopChance": 1,
+        "tracerStopChance": 1,
+        "tracerAttackFrames": 3,
+        "tracerHoldFrames": 0,
+        "tracerReleaseFrames": 5,
+        "invertedTracerEnabled": true,
+        "invertedTracerChance": 0.1,
+        "rotatorEnabled": true,
+        "rotatorChance": 0.13,
+        "rotatorSyncToTracer": true,
+        "rotatorSyncMultiplier": 0.5,
+        "rotatorCycleFactor": 20,
+        "rotatorCrossfadeFrames": 6,
+        "shaderEnabled": false,
+        "customShader": "// Name: Dirty LCD Monitor\nprecision mediump float;\n\nuniform sampler2D uTexture;\nuniform vec2 uResolution;\nuniform float uParameter;\nvarying vec2 vTexCoord;\n\n// Change this value to make the lines denser!\n// It represents the WIDTH/HEIGHT of one grid cell in pixels.\nconst float GRID_CELL_SIZE = 2.0; // Lower numbers = More lines, but thickness is proportional\nconst float LINE_THICKNESS = 0.4;\nconst vec3 GRID_COLOR = vec3(0.0, 0.0, 0.0);\nconst float GRID_OPACITY = 0.5;\n\n// Adding grain dirtyness to the screen\nconst float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable\n\n// Random graininess\nfloat random(vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);\n}\n\n// Boosting Pixel Brightness\nconst float BRIGHTNESS_THRESHOLD = 0.4; // Only pixels brighter than this will be boosted\nconst float BRIGHTNESS_BOOST = 1.6;     // How much to multiply the existing bright colors by\n\n\nvoid main() {\n    vec4 color = texture2D(uTexture, vTexCoord);\n\n    vec2 pixelCoord = vTexCoord * uResolution.xy;\n    vec2 scaledCoord = pixelCoord / GRID_CELL_SIZE;\n    vec2 fractionalPart = fract(scaledCoord);\n    float verticalLine = step(fractionalPart.x, LINE_THICKNESS);\n    float horizontalLine = step(fractionalPart.y, LINE_THICKNESS);\n    float gridMask = min(verticalLine + horizontalLine, 1.0);\n    vec3 blendedColor = mix(color.rgb, GRID_COLOR, gridMask);\n    color.rgb = mix(color.rgb, blendedColor, GRID_OPACITY);\n\n\n    // 1. Calculate the final grid-processed color's overall brightness (Luminance).\n    float brightness = dot(color.rgb, vec3(0.1126, 0.7152, 0.0522));\n\n    // 2. Determine the boost factor\n    // The 'step' function returns 1.0 if the condition is true, 0.0 if false.\n    // If the pixel's brightness is above the threshold, this 'boostFactor' will be 1.0.\n    float boostFactor = step(BRIGHTNESS_THRESHOLD, brightness);\n    \n    // 3. Apply the boost to the color channels.\n    // We mix between a base factor of 1.0 (no change) and the desired BRIGHTNESS_BOOST.\n    // mix(Color A, Color B, Factor)\n    // If boostFactor is 0.0: returns 1.0 (color.rgb * 1.0)\n    // If boostFactor is 1.0: returns BRIGHTNESS_BOOST (color.rgb * 1.2)\n    float finalMultiplier = mix(uParameter + 1.0, BRIGHTNESS_BOOST, boostFactor * uParameter);\n    \n    color.rgb *= finalMultiplier;\n    \n    // 5. Calculate static noise    \n    float noiseValue = random(vTexCoord);\n    \n    // Map the random value from [0.0, 1.0] to a useful noise range, e.g., [-1.0, 1.0]\n    // (noiseValue - 0.5) shifts the range to [-0.5, 0.5]\n    // * 2.0 expands the range to [-1.0, 1.0]\n    float finalNoise = (noiseValue - 0.5) * 2.0;\n\n    // 6. Apply grain to the color\n    // We only apply the noise to the Red, Green, and Blue channels (.rgb).\n    // The noise value is scaled by the GRAIN_AMOUNT.\n    // A negative noise makes the pixel darker, a positive noise makes it brighter.\n    color.rgb += finalNoise * GRAIN_AMOUNT;\n    \n    // 7. Output final color\n    gl_FragColor = color;\n}",
+        "pulseEnabled": true,
+        "pulseFrequencySeconds": 300,
+        "pulseDurationSeconds": 1.2,
+        "pulsePreserveSpaces": true,
+        "pulseIgnoreTracers": true,
+        "pulseDimming": 0.2,
+        "pulseBlend": false,
+        "pulseWidth": 130,
+        "pulseRandomPosition": true,
+        "pulseInstantStart": false,
+        "pulseCircular": false,
+        "clearPulseEnabled": true,
+        "clearPulseFrequencySeconds": 235,
+        "clearPulseDurationSeconds": 1.1,
+        "clearPulsePreserveSpaces": true,
+        "clearPulseBlend": false,
+        "clearPulseWidth": 190,
+        "clearPulseRandomPosition": true,
+        "clearPulseInstantStart": false,
+        "clearPulseCircular": false,
+        "miniPulseEnabled": true,
+        "miniPulseFrequencySeconds": 450,
+        "miniPulseDurationSeconds": 5,
+        "miniPulsePreserveSpaces": true,
+        "miniPulseThickness": 100,
+        "miniPulseSpawnChance": 0.06,
+        "miniPulseSpeed": 16,
+        "miniPulseSize": 360,
+        "dejaVuEnabled": true,
+        "dejaVuFrequencySeconds": 350,
+        "dejaVuDurationSeconds": 5,
+        "dejaVuMinRectHeight": 1,
+        "dejaVuMaxRectHeight": 10,
+        "dejaVuHoleBrightness": 0.02,
+        "dejaVuRandomizeColors": false,
+        "dejaVuIntensity": 0.1,
+        "dejaVuBarDurationFrames": 28,
+        "dejaVuVarianceFrames": 43,
+        "supermanEnabled": true,
+        "supermanFrequencySeconds": 290,
+        "supermanDurationSeconds": 6,
+        "supermanIncludeColors": true,
+        "supermanFadeSpeed": 6,
+        "supermanGlow": 4,
+        "supermanBoltThickness": 5,
+        "supermanFlickerRate": 2,
+        "supermanWidth": 4,
+        "supermanSpawnSpeed": 69,
+        "starPowerEnabled": false,
+        "starPowerRainbowMode": "char",
+        "starPowerSaturation": 100,
+        "starPowerIntensity": 51,
+        "starPowerGlitter": false,
+        "starPowerColorCycle": true,
+        "starPowerCycleSpeed": 3,
+        "rainbowStreamEnabled": false,
+        "rainbowStreamChance": 0.5,
+        "rainbowStreamIntensity": 50,
+        "firewallEnabled": false,
+        "firewallFrequencySeconds": 150,
+        "firewallRandomColorEnabled": true,
+        "firewallColor": "#00ff00",
+        "firewallReverseDurationFrames": 20,
+        "firewallEraseDurationFrames": 50,
+        "bootSequenceEnabled": false,
+        "crashEnabled": false,
+        "crashFrequencySeconds": 600,
+        "runBothInOrder": false,
+        "keyBindings": {
+          "Pulse": "p",
+          "ClearPulse": "w",
+          "MiniPulse": "e",
+          "DejaVu": "r",
+          "Superman": "t",
+          "Firewall": "y",
+          "ToggleUI": " ",
+          "BootSequence": "b",
+          "CrashSequence": "x",
+          "BootCrashSequence": "c"
+        },
+        "hideMenuIcon": true,
+        "fontSettings": {
+          "MatrixEmbedded": {
+            "active": true,
+            "useCustomChars": false,
+            "customCharacters": ""
+          },
+          "CustomFont_5e2697679380fc43": {
+            "active": false,
+            "useCustomChars": true,
+            "customCharacters": "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕ",
+            "useAllChars": false
+          }
+        },
+        "deteriorationType": "ghost",
+        "tracerSizeIncrease": 1,
+        "supermanProb": 4,
+        "dejaVuAutoMode": true,
+        "clearPulseIgnoreTracers": true,
+        "dejaVuPerformanceMode": false,
+        "pulseDelayFrames": 60,
+        "minGapTypes": 20,
+        "rotateDuringFade": false,
+        "rotatorDesyncEnabled": false,
+        "rotatorDesyncVariance": 0,
+        "suppressToasts": false,
+        "ttlMinSeconds": 1,
+        "ttlMaxSeconds": 8,
+        "shaderParameter": 0.58,
+        "pulseDelaySeconds": 0.7,
+        "starPowerFreq": 100
+      }
+    },
+    {
+      "name": "Neo Code",
+      "data": {
+        "streamColor": "#65d778",
+        "streamPalette": [
+          "#1cc427",
+          "#20a73b",
+          "#1a8118"
+        ],
+        "paletteBias": 0,
+        "tracerColor": "#aadaa9",
+        "fontSize": 24,
+        "streamSpeed": 17,
+        "releaseInterval": 4,
+        "resolution": 1,
+        "enableGlyphAtlas": true,
+        "smoothingEnabled": false,
+        "smoothingAmount": 0.1,
+        "showFpsCounter": true,
+        "fontFamily": "CustomFont_5e2697679380fc43",
+        "fontWeight": "normal",
+        "italicEnabled": false,
+        "mirrorEnabled": false,
+        "variableBrightnessEnabled": true,
+        "brightnessVariance": 20,
+        "overlapEnabled": false,
+        "overlapColor": "#FFD700",
+        "overlapDensity": 0.2,
+        "overlapTarget": "all",
+        "overlapShimmer": false,
+        "dissolveEnabled": false,
+        "dissolveMinSize": 18,
+        "deteriorationEnabled": false,
+        "deteriorationStrength": 4,
+        "enableBloom": true,
+        "bloomStrength": 4,
+        "bloomOpacity": 0.6,
+        "tracerGlow": 32,
+        "clearAlpha": 0.35,
+        "horizontalSpacingFactor": 0.85,
+        "verticalSpacingFactor": 0.95,
+        "fontOffsetX": 0,
+        "fontOffsetY": 0,
+        "stretchX": 1,
+        "stretchY": 1,
+        "decayFadeDurationFrames": 72,
+        "streamSpawnCount": 2,
+        "eraserSpawnCount": 18,
+        "minStreamGap": 2,
+        "minEraserGap": 2,
+        "holeRate": 0,
+        "desyncIntensity": 0.3,
+        "eraserStopChance": 0,
+        "tracerStopChance": 0,
+        "tracerAttackFrames": 0,
+        "tracerHoldFrames": 2,
+        "tracerReleaseFrames": 8,
+        "invertedTracerEnabled": true,
+        "invertedTracerChance": 0.1,
+        "rotatorEnabled": true,
+        "rotatorChance": 1,
+        "rotatorSyncToTracer": true,
+        "rotatorSyncMultiplier": 0.1,
+        "rotatorCycleFactor": 20,
+        "rotatorCrossfadeFrames": 2,
+        "shaderEnabled": false,
+        "customShader": null,
+        "pulseEnabled": false,
+        "pulseFrequencySeconds": 300,
+        "pulseDurationSeconds": 1.2,
+        "pulsePreserveSpaces": true,
+        "pulseIgnoreTracers": true,
+        "pulseDimming": 0.2,
+        "pulseBlend": false,
+        "pulseWidth": 130,
+        "pulseRandomPosition": true,
+        "pulseInstantStart": false,
+        "pulseCircular": false,
+        "clearPulseEnabled": false,
+        "clearPulseFrequencySeconds": 235,
+        "clearPulseDurationSeconds": 0.7,
+        "clearPulsePreserveSpaces": true,
+        "clearPulseBlend": false,
+        "clearPulseWidth": 190,
+        "clearPulseRandomPosition": true,
+        "clearPulseInstantStart": false,
+        "clearPulseCircular": false,
+        "miniPulseEnabled": false,
+        "miniPulseFrequencySeconds": 450,
+        "miniPulseDurationSeconds": 5,
+        "miniPulsePreserveSpaces": true,
+        "miniPulseThickness": 100,
+        "miniPulseSpawnChance": 0.06,
+        "miniPulseSpeed": 16,
+        "miniPulseSize": 360,
+        "dejaVuEnabled": false,
+        "dejaVuFrequencySeconds": 350,
+        "dejaVuDurationSeconds": 5,
+        "dejaVuMinRectHeight": 1,
+        "dejaVuMaxRectHeight": 10,
+        "dejaVuHoleBrightness": 0.02,
+        "dejaVuRandomizeColors": false,
+        "dejaVuIntensity": 0.1,
+        "dejaVuBarDurationFrames": 28,
+        "dejaVuVarianceFrames": 43,
+        "supermanEnabled": false,
+        "supermanFrequencySeconds": 290,
+        "supermanDurationSeconds": 6,
+        "supermanIncludeColors": true,
+        "supermanFadeSpeed": 6,
+        "supermanGlow": 4,
+        "supermanBoltThickness": 5,
+        "supermanFlickerRate": 2,
+        "supermanWidth": 4,
+        "supermanSpawnSpeed": 69,
+        "starPowerEnabled": false,
+        "starPowerRainbowMode": "char",
+        "starPowerSaturation": 100,
+        "starPowerIntensity": 51,
+        "starPowerGlitter": false,
+        "starPowerColorCycle": true,
+        "starPowerCycleSpeed": 5,
+        "rainbowStreamEnabled": false,
+        "rainbowStreamChance": 0.5,
+        "rainbowStreamIntensity": 50,
+        "firewallEnabled": false,
+        "firewallFrequencySeconds": 150,
+        "firewallRandomColorEnabled": true,
+        "firewallColor": "#00ff00",
+        "firewallReverseDurationFrames": 20,
+        "firewallEraseDurationFrames": 50,
+        "bootSequenceEnabled": false,
+        "crashEnabled": false,
+        "crashFrequencySeconds": 600,
+        "runBothInOrder": false,
+        "keyBindings": {
+          "Pulse": "p",
+          "ClearPulse": "w",
+          "MiniPulse": "e",
+          "DejaVu": "r",
+          "Superman": "t",
+          "Firewall": "y",
+          "ToggleUI": " ",
+          "BootSequence": "b",
+          "CrashSequence": "x",
+          "BootCrashSequence": "c"
+        },
+        "hideMenuIcon": true,
+        "fontSettings": {
+          "MatrixEmbedded": {
+            "active": false,
+            "useCustomChars": false,
+            "customCharacters": "!\"*+-.012345789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi|"
+          },
+          "CustomFont_5e2697679380fc43": {
+            "active": true,
+            "useCustomChars": true,
+            "customCharacters": "'()*+-./0123456789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZ\\^_`cfgnt!\"#$%&,;?@[]abmxlkjihedopqrsuvw~}{zy",
+            "useAllChars": false
+          }
+        },
+        "deteriorationType": "ghost",
+        "tracerSizeIncrease": 1,
+        "supermanProb": 4,
+        "dejaVuAutoMode": true,
+        "clearPulseIgnoreTracers": true,
+        "dejaVuPerformanceMode": false,
+        "pulseDelayFrames": 60,
+        "minGapTypes": 1,
+        "rotateDuringFade": true,
+        "rotatorDesyncEnabled": true,
+        "rotatorDesyncVariance": 60,
+        "suppressToasts": false,
+        "ttlMinSeconds": 1,
+        "ttlMaxSeconds": 8,
+        "shaderParameter": 0.08,
+        "pulseDelaySeconds": 0.7,
+        "starPowerFreq": 100
+      }
+    },
+    {
+      "name": "Trinity Code",
+      "data": {
+        "streamColor": "#65d778",
+        "streamPalette": [
+          "#1cc427",
+          "#4fba64",
+          "#7bd279"
+        ],
+        "paletteBias": 0,
+        "tracerColor": "#cfe8ce",
+        "fontSize": 33,
+        "streamSpeed": 18,
+        "releaseInterval": 4,
+        "resolution": 1,
+        "enableGlyphAtlas": true,
+        "smoothingEnabled": false,
+        "smoothingAmount": 0.1,
+        "showFpsCounter": true,
+        "fontFamily": "CustomFont_5e2697679380fc43",
+        "fontWeight": "normal",
+        "italicEnabled": false,
+        "mirrorEnabled": false,
+        "variableBrightnessEnabled": true,
+        "brightnessVariance": 11,
+        "overlapEnabled": true,
+        "overlapColor": "#d4f339",
+        "overlapDensity": 0.1,
+        "overlapTarget": "stream",
+        "overlapShimmer": false,
+        "dissolveEnabled": false,
+        "dissolveMinSize": 20,
+        "deteriorationEnabled": false,
+        "deteriorationStrength": 3,
+        "enableBloom": true,
+        "bloomStrength": 4,
+        "bloomOpacity": 0.6,
+        "tracerGlow": 30,
+        "clearAlpha": 0.65,
+        "horizontalSpacingFactor": 0.85,
+        "verticalSpacingFactor": 0.95,
+        "fontOffsetX": 0,
+        "fontOffsetY": 0,
+        "stretchX": 1,
+        "stretchY": 1,
+        "decayFadeDurationFrames": 55,
+        "streamSpawnCount": 2,
+        "eraserSpawnCount": 18,
+        "minStreamGap": 2,
+        "minEraserGap": 2,
+        "holeRate": 0,
+        "desyncIntensity": 0.3,
+        "eraserStopChance": 0,
+        "tracerStopChance": 0,
+        "tracerAttackFrames": 0,
+        "tracerHoldFrames": 2,
+        "tracerReleaseFrames": 8,
+        "invertedTracerEnabled": true,
+        "invertedTracerChance": 0.1,
+        "rotatorEnabled": true,
+        "rotatorChance": 0.5,
+        "rotatorSyncToTracer": true,
+        "rotatorSyncMultiplier": 0.1,
+        "rotatorCycleFactor": 20,
+        "rotatorCrossfadeFrames": 2,
+        "shaderEnabled": true,
+        "customShader": "// Name: Static Grain\nprecision mediump float;\n\n// Inputs provided by the application\nuniform sampler2D uTexture;\nuniform float uParameter;\n\n// uniform float uTime; // NOT needed for static grain\nvarying vec2 vTexCoord;\n\n// Shader Configuration\nconst float GRAIN_AMOUNT = 0.05; // Increase this value (0.0 to 1.0) to make the grain more noticeable\n\n// 1. Random function\n// Generates a seemingly random float based on the input coordinate 'st'.\nfloat random(vec2 st) {\n    // This uses a \"magic\" dot product and large number to generate noise.\n    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);\n}\n\nvoid main() {\n    // 2. Sample the original texture\n    vec4 color = texture2D(uTexture, vTexCoord);\n    \n    // 3. Calculate static noise\n    // The key here is to pass only the coordinate (vTexCoord) to the random function.\n    // We are NOT using 'uTime', so the result for any given coordinate is always the same.\n    float noiseValue = random(vTexCoord);\n    \n    // Map the random value from [0.0, 1.0] to a useful noise range, e.g., [-1.0, 1.0]\n    // (noiseValue - 0.5) shifts the range to [-0.5, 0.5]\n    // * 2.0 expands the range to [-1.0, 1.0]\n    float finalNoise = (noiseValue - 0.5) * 2.0;\n\n    // 4. Apply grain to the color\n    // We only apply the noise to the Red, Green, and Blue channels (.rgb).\n    // The noise value is scaled by the GRAIN_AMOUNT.\n    // A negative noise makes the pixel darker, a positive noise makes it brighter.\n    color.rgb += finalNoise * (uParameter * 0.5);\n    \n    // 5. Output final color\n    gl_FragColor = color;\n}",
+        "pulseEnabled": false,
+        "pulseFrequencySeconds": 300,
+        "pulseDurationSeconds": 1.2,
+        "pulsePreserveSpaces": true,
+        "pulseIgnoreTracers": true,
+        "pulseDimming": 0.2,
+        "pulseBlend": false,
+        "pulseWidth": 130,
+        "pulseRandomPosition": true,
+        "pulseInstantStart": false,
+        "pulseCircular": false,
+        "clearPulseEnabled": false,
+        "clearPulseFrequencySeconds": 235,
+        "clearPulseDurationSeconds": 0.7,
+        "clearPulsePreserveSpaces": true,
+        "clearPulseBlend": false,
+        "clearPulseWidth": 190,
+        "clearPulseRandomPosition": true,
+        "clearPulseInstantStart": false,
+        "clearPulseCircular": false,
+        "miniPulseEnabled": false,
+        "miniPulseFrequencySeconds": 450,
+        "miniPulseDurationSeconds": 5,
+        "miniPulsePreserveSpaces": true,
+        "miniPulseThickness": 100,
+        "miniPulseSpawnChance": 0.06,
+        "miniPulseSpeed": 16,
+        "miniPulseSize": 360,
+        "dejaVuEnabled": false,
+        "dejaVuFrequencySeconds": 350,
+        "dejaVuDurationSeconds": 5,
+        "dejaVuMinRectHeight": 1,
+        "dejaVuMaxRectHeight": 10,
+        "dejaVuHoleBrightness": 0.02,
+        "dejaVuRandomizeColors": false,
+        "dejaVuIntensity": 0.1,
+        "dejaVuBarDurationFrames": 28,
+        "dejaVuVarianceFrames": 43,
+        "supermanEnabled": false,
+        "supermanFrequencySeconds": 290,
+        "supermanDurationSeconds": 6,
+        "supermanIncludeColors": true,
+        "supermanFadeSpeed": 6,
+        "supermanGlow": 4,
+        "supermanBoltThickness": 5,
+        "supermanFlickerRate": 2,
+        "supermanWidth": 4,
+        "supermanSpawnSpeed": 69,
+        "starPowerEnabled": false,
+        "starPowerRainbowMode": "char",
+        "starPowerSaturation": 100,
+        "starPowerIntensity": 51,
+        "starPowerGlitter": false,
+        "starPowerColorCycle": true,
+        "starPowerCycleSpeed": 5,
+        "rainbowStreamEnabled": false,
+        "rainbowStreamChance": 0.5,
+        "rainbowStreamIntensity": 50,
+        "firewallEnabled": false,
+        "firewallFrequencySeconds": 150,
+        "firewallRandomColorEnabled": true,
+        "firewallColor": "#00ff00",
+        "firewallReverseDurationFrames": 20,
+        "firewallEraseDurationFrames": 50,
+        "bootSequenceEnabled": false,
+        "crashEnabled": false,
+        "crashFrequencySeconds": 600,
+        "runBothInOrder": false,
+        "keyBindings": {
+          "Pulse": "p",
+          "ClearPulse": "w",
+          "MiniPulse": "e",
+          "DejaVu": "r",
+          "Superman": "t",
+          "Firewall": "y",
+          "ToggleUI": " ",
+          "BootSequence": "b",
+          "CrashSequence": "x",
+          "BootCrashSequence": "c"
+        },
+        "hideMenuIcon": true,
+        "fontSettings": {
+          "MatrixEmbedded": {
+            "active": false,
+            "useCustomChars": false,
+            "customCharacters": "!\"*+-.012345789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi|"
+          },
+          "CustomFont_5e2697679380fc43": {
+            "active": true,
+            "useCustomChars": true,
+            "customCharacters": "'()*+-./0123456789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZ\\^_`cfgnt!\"#$%&,;?@[]abmxlkjihedopqrsuvw~}{zy",
+            "useAllChars": false
+          }
+        },
+        "deteriorationType": "ghost",
+        "tracerSizeIncrease": 1,
+        "supermanProb": 4,
+        "dejaVuAutoMode": true,
+        "clearPulseIgnoreTracers": true,
+        "dejaVuPerformanceMode": false,
+        "pulseDelayFrames": 60,
+        "minGapTypes": 1,
+        "rotateDuringFade": true,
+        "rotatorDesyncEnabled": true,
+        "rotatorDesyncVariance": 60,
+        "suppressToasts": false,
+        "ttlMinSeconds": 1,
+        "ttlMaxSeconds": 8,
+        "shaderParameter": 0.14,
+        "pulseDelaySeconds": 0.7,
+        "starPowerFreq": 100
+      }
+    }
+  ]
+}
+</script>
+<script>
 // --- Utils.js ---
 const APP_VERSION = "7.7"; // Updated version
 // =========================================================================
@@ -556,21 +1804,33 @@ const Utils = {
      */
     randomFloat: (min, max) => min + Math.random() * (max - min),
     /**
-     * Converts a 6-character hex color code (e.g., "#RRGGBB") to an { r, g, b } object format.
-     * @param {string} hex - The hex color string.
+     * Converts a color string (Hex "#RRGGBB" or "rgb(r,g,b)") to an { r, g, b } object.
+     * @param {string} input - The color string.
      * @returns {{r: number, g: number, b: number}} An object with red, green, and blue components.
      */
-    hexToRgb: (hex) => {
-        if (typeof hex !== "string" || !/^#?([A-Fa-f0-9]{6})$/.test(hex)) {
-            // Default to a valid fallback RGB value
-            return { r: 0, g: 255, b: 0 }; // Default green
+    hexToRgb: (input) => {
+        if (typeof input !== "string") return { r: 0, g: 255, b: 0 };
+        // Handle Hex (6 or 8 digits)
+        const hexMatch = input.match(/^#?([A-Fa-f0-9]{6})([A-Fa-f0-9]{2})?$/);
+        if (hexMatch) {
+            const value = parseInt(hexMatch[1], 16);
+            return {
+                r: (value >> 16) & 0xFF,
+                g: (value >> 8) & 0xFF,
+                b: value & 0xFF
+            };
         }
-        const value = parseInt(hex.replace(/^#/, ''), 16);
-        return {
-            r: (value >> 16) & 0xFF,
-            g: (value >> 8) & 0xFF,
-            b: value & 0xFF
-        };
+        // Handle RGB / RGBA
+        const match = input.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+            return {
+                r: parseInt(match[1], 10),
+                g: parseInt(match[2], 10),
+                b: parseInt(match[3], 10)
+            };
+        }
+        // Fallback
+        return { r: 0, g: 255, b: 0 }; 
     },
     /**
      * Packs 3 RGB components (r, g, b) into a single 24-bit integer.
@@ -768,6 +2028,7 @@ class ConfigurationManager {
     _initializeDefaults() {
         return {
             "streamColor": "#65d778",
+            "renderingEngine": "canvas",
             "streamPalette": [
               "#29bc62"
             ],
@@ -920,6 +2181,7 @@ class ConfigurationManager {
               "DejaVu": "r",
               "Superman": "t",
               "Firewall": "y",
+              "ReverseTime": "u",
               "ToggleUI": " ",
               "BootSequence": "b",
               "CrashSequence": "x",
@@ -1089,6 +2351,30 @@ class ConfigurationManager {
                 // Clear stored previous values
                 this._previousSmoothingEnabled = undefined;
                 this._previousSmoothingAmount = undefined;
+            }
+        }
+        // Special handling for fontFamily: Enforce single active font in settings
+        if (key === 'fontFamily') {
+            const settings = this.state.fontSettings; // Reference current settings
+            if (settings && settings[value]) {
+                let changed = false;
+                // Create a new settings object to trigger reactivity if needed, or mutate copy
+                // We'll mutate deeper objects but clone the top level to be safe/clean
+                const newSettings = { ...settings };
+                for (const fName in newSettings) {
+                    if (Object.prototype.hasOwnProperty.call(newSettings, fName)) {
+                        const isActive = (fName === value);
+                        if (newSettings[fName].active !== isActive) {
+                            // Clone the specific font config to avoid mutation side-effects
+                            newSettings[fName] = { ...newSettings[fName], active: isActive };
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed) {
+                    this.state.fontSettings = newSettings;
+                    this.notify('fontSettings');
+                }
             }
         }
         this.state[key] = value; // Update the actual key's value
@@ -3239,7 +4525,7 @@ class PulseEffect extends AbstractEffect {
                          result.alpha = snAlpha;
                          result.glow = s.tracerGlow;
                          result.size = s.tracerSizeIncrease;
-                         result.solid = true;
+                         result.solid = false;
                          result.bgColor = '#000000';
                     } else if (isGap) {
                          result = gapReturn;
@@ -3250,7 +4536,7 @@ class PulseEffect extends AbstractEffect {
                          result.alpha = snAlpha * s.pulseDimming;
                          result.glow = 0;
                          result.size = 0;
-                         result.solid = true;
+                         result.solid = false;
                          result.bgColor = '#000000';
                     }
                 } else {
@@ -3260,7 +4546,7 @@ class PulseEffect extends AbstractEffect {
                         const rel = Math.max(0, Math.min(1, (this.radius - dist) / (s.pulseWidth * 2)));
                         let actualCharAlpha = 1.0;
                         let actualBgAlpha = 1.0;
-                        let actualSolid = true; 
+                        let actualSolid = false; 
                         let actualBlend = false; // Default: Don't blend (draws opaque over grid)
                         let actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
                         // Calculate where the inner edge of the fade zone begins
@@ -3274,7 +4560,7 @@ class PulseEffect extends AbstractEffect {
                             // FIX: Fade IN the snapshot from 0 (inner edge) to 1 (wave body).
                             actualCharAlpha = fadeProgress;
                             actualBgAlpha = fadeProgress; 
-                            actualSolid = true;             // Draw the background rect (which will be semi-transparent)
+                            actualSolid = false;             // Draw the background rect (which will be semi-transparent)
                             actualBlend = true;             // ENABLE BLEND: Draw standard grid underneath so we crossfade
                             actualGlow *= actualCharAlpha;  
                         } else if (dist <= innerBoundaryDist) {
@@ -3328,6 +4614,130 @@ class PulseEffect extends AbstractEffect {
                 return indices;
             }
         }
+// --- ReverseEffect.js ---
+class ReverseEffect extends AbstractEffect {
+    constructor(grid, config, effectRegistry) {
+        super(grid, config);
+        this.name = "Reverse";
+        this.effectRegistry = effectRegistry;
+        this.active = false;
+        // Sequence phases
+        // 0: Idle
+        // 1: Slow Down
+        // 2: Stop
+        // 3: Reverse (Rewind)
+        // 4: Reset (Pulse)
+        this.phase = 0;
+        this.timer = 0;
+        // Configuration (Could be moved to ConfigManager later)
+        this.durationSlow = 120; // Frames to slow down
+        this.durationStop = 60;  // Frames to hold stop
+        this.durationRewind = 180; // Frames to rewind
+        this.rewindSpeed = -2.0;   // Rewind speed multiplier
+        // Store original speed to restore later (though we manipulate timeScale directly)
+    }
+    trigger() {
+        return this.start();
+    }
+    getOverride(i) {
+        return null;
+    }
+    getActiveIndices() {
+        return null;
+    }
+    start() {
+        if (this.active) return false;
+        this.active = true;
+        this.phase = 1;
+        this.timer = 0;
+        // Access Simulation System directly via global or passed reference
+        // Ideally EffectRegistry should pass simulation, but currently it passes grid/config.
+        // We can access it via window.matrix.simulation as a fallback or hack.
+        // Or better: The MatrixKernel passes 'effectRegistry' which has 'grid'.
+        // Wait, EffectRegistry doesn't store SimulationSystem.
+        // Let's assume window.matrix is available as per MatrixKernel.js: "window.matrix = kernel;"
+        this.sim = window.matrix ? window.matrix.simulation : null;
+        if (!this.sim) {
+            console.error("ReverseEffect: SimulationSystem not found.");
+            this.active = false;
+            return false;
+        }
+        return true;
+    }
+    update() {
+        if (!this.active || !this.sim) return;
+        this.timer++;
+        switch (this.phase) {
+            case 1: // SLOW DOWN
+                {
+                    const progress = this.timer / this.durationSlow;
+                    // Lerp timeScale from 1.0 to 0.0
+                    // Ease out cubic
+                    const t = 1.0 - Math.pow(1 - progress, 3); 
+                    this.sim.timeScale = 1.0 - t;
+                    if (this.timer >= this.durationSlow) {
+                        this.sim.timeScale = 0;
+                        this.phase = 2;
+                        this.timer = 0;
+                    }
+                }
+                break;
+            case 2: // STOP (HOLD)
+                {
+                    this.sim.timeScale = 0;
+                    if (this.timer >= this.durationStop) {
+                        this.phase = 3;
+                        this.timer = 0;
+                    }
+                }
+                break;
+            case 3: // REWIND
+                {
+                    const progress = this.timer / this.durationRewind;
+                    // Accelerate rewind? Or constant?
+                    // Constant is clearer.
+                    // Ramp up rewind speed
+                    if (this.timer < 60) {
+                        const t = this.timer / 60;
+                        this.sim.timeScale = -t * Math.abs(this.rewindSpeed);
+                    } else {
+                        this.sim.timeScale = this.rewindSpeed;
+                    }
+                    if (this.timer >= this.durationRewind) {
+                        this.phase = 4;
+                        this.timer = 0;
+                    }
+                }
+                break;
+            case 4: // PULSE RESET
+                {
+                    // Trigger a massive Clear Pulse
+                    if (this.timer === 0) {
+                        this.sim.timeScale = 0; // Pause during blast init
+                        // Force a ClearPulse manually or via registry
+                        // We want a fast, strong pulse.
+                        const pulse = this.effectRegistry.get('ClearPulse');
+                        if (pulse) {
+                            // Override pulse settings for this specific blast?
+                            // Difficult without dirtying config. 
+                            // Just trigger it and restore speed immediately.
+                            pulse.trigger();
+                        }
+                    }
+                    // Quickly restore speed
+                    if (this.timer > 30) {
+                        this.sim.timeScale = 1.0;
+                        this.active = false;
+                        this.phase = 0;
+                    } else {
+                        // Ramp up speed from 0 to 1
+                        this.sim.timeScale = this.timer / 30;
+                    }
+                }
+                break;
+        }
+    }
+}
 // --- SupermanEffect.js ---
 class SupermanEffect extends AbstractEffect {
             constructor(g, c) { 
@@ -3516,6 +4926,19 @@ class CanvasRenderer {
         // Performance counters
         this.perf = { frames: 0, totalCells: 0, min: 999999, max: 0 };
     }
+    dispose() {
+        if (this._mouseMoveHandler) {
+            window.removeEventListener('mousemove', this._mouseMoveHandler);
+        }
+        if (this._touchMoveHandler) {
+            window.removeEventListener('touchmove', this._touchMoveHandler);
+        }
+        if (this.postProcessor && this.postProcessor.canvas && this.postProcessor.canvas.parentNode) {
+            this.postProcessor.canvas.parentNode.removeChild(this.postProcessor.canvas);
+        }
+        // Clear canvases to free memory? JS GC should handle it if references are dropped.
+        this.ctx.clearRect(0, 0, this.cvs.width, this.cvs.height);
+    }
     _resetStateCache() {
         this._lastFont = null;
         this._lastFillStyle = null;
@@ -3576,7 +4999,7 @@ class CanvasRenderer {
         this._resetStateCache();
     }
     _setupMouseTracking() {
-        const updateMouse = (e) => {
+        this._mouseMoveHandler = (e) => {
             const rect = this.cvs.getBoundingClientRect();
             // Normalize to 0..1
             this.mouseX = (e.clientX - rect.left) / rect.width;
@@ -3585,10 +5008,11 @@ class CanvasRenderer {
             if (this.mouseX < 0) this.mouseX = 0; else if (this.mouseX > 1) this.mouseX = 1;
             if (this.mouseY < 0) this.mouseY = 0; else if (this.mouseY > 1) this.mouseY = 1;
         };
-        window.addEventListener('mousemove', updateMouse);
-        window.addEventListener('touchmove', (e) => {
-            if (e.touches.length > 0) updateMouse(e.touches[0]);
-        }, { passive: true });
+        this._touchMoveHandler = (e) => {
+            if (e.touches.length > 0) this._mouseMoveHandler(e.touches[0]);
+        };
+        window.addEventListener('mousemove', this._mouseMoveHandler);
+        window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
     }
     resize() {
         const scale = this.config.state.resolution;
@@ -4040,12 +5464,16 @@ class CanvasRenderer {
                 } else {
                     blockIndex = pIdx;
                 }
-                this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas);
-                drawnWithAtlas = true;
+                if (this._drawCellCharAtlas(i, px, py, gridAlpha, s, bloomEnabled, blockIndex, atlas)) {
+                    drawnWithAtlas = true;
+                }
             }
         }
         if (!drawnWithAtlas) {
             // Fallback
+            if (style && !complexColor) {
+                complexColor = this._getCellColor(style, frame);
+            }
             const drawColor = complexColor || color;
             this._setCtxFillStyle(drawColor, bloomEnabled);
             this._drawCellChar(i, px, py, gridAlpha, tState, d, s, bloomEnabled, currentFontName);
@@ -4058,7 +5486,7 @@ class CanvasRenderer {
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
         const sprite = atlas.get(char);
-        if (!sprite) return; 
+        if (!sprite) return false; 
         const yOffset = (pIdx || 0) * atlas.blockHeight;
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
             const p = rotProg / s.rotatorCrossfadeFrames;
@@ -4076,27 +5504,31 @@ class CanvasRenderer {
                     this.bloomCtx.drawImage(atlas.canvas, nextSprite.x, nextSprite.y + yOffset, nextSprite.w, nextSprite.h, px - nextSprite.w/2, py - nextSprite.h/2, nextSprite.w, nextSprite.h);
                 }
             }
-            return;
+            return true;
         }
         let scale = 1.0;
         const decay = this.grid.decays[i];
+        let prog = 0;
+        if (decay >= 2) {
+             prog = (decay - 2) / s.decayFadeDurationFrames;
+        }
         if (s.dissolveEnabled && decay >= 2) {
-            const prog = (decay - 2) / s.decayFadeDurationFrames;
             const minRatio = s.dissolveMinSize / s.fontSize;
             scale = 1.0 - (prog * (1.0 - minRatio));
             if (scale < 0.1) scale = 0.1;
-            if (s.deteriorationEnabled) {
-                const off = s.deteriorationStrength * prog;
-                this._setCtxGlobalAlpha(alpha * 0.4 * prog, false); // ghosting only on main ctx as before
-                this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-                this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
-            }
+        }
+        if (s.deteriorationEnabled && decay >= 2) {
+            const off = s.deteriorationStrength * prog;
+                this._setCtxGlobalAlpha(alpha * 0.8 * prog, false); // ghosting only on main ctx as before
+            this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py - off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
+            this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, (py + off) - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
         this._setCtxGlobalAlpha(alpha, bloomEnabled);
         this.ctx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         if (bloomEnabled && alpha >= 0.2) {
             this.bloomCtx.drawImage(atlas.canvas, sprite.x, sprite.y + yOffset, sprite.w, sprite.h, px - (sprite.w*scale)/2, py - (sprite.h*scale)/2, sprite.w*scale, sprite.h*scale);
         }
+        return true;
     }
     _getCellColor(style, frame) {
         if (style.glitter && Math.random() < 0.02) return '#ffffff';
@@ -4108,10 +5540,11 @@ class CanvasRenderer {
     _drawCellChar(i, px, py, alpha, tState, d, s, bloomEnabled, fontName) {
         const rotProg = this.grid.rotatorProg[i];
         const char = this.grid.getChar(i);
-        const fontSize = s.fontSize;
-        const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
-        this._setCtxFont(fontBase, bloomEnabled);
+        // Base Font
+        let fontSize = s.fontSize;
         if (rotProg > 0 && s.rotatorCrossfadeFrames > 2) {
+            const fontBase = `${s.italicEnabled ? 'italic ' : ''}${s.fontWeight} ${fontSize}px ${fontName}`;
+            this._setCtxFont(fontBase, bloomEnabled);
             const p = rotProg / s.rotatorCrossfadeFrames;
             this._setCtxGlobalAlpha(alpha * (1 - p), bloomEnabled);
             this.ctx.fillText(char, px, py);
@@ -4128,29 +5561,28 @@ class CanvasRenderer {
             }
         } else {
             const decay = this.grid.decays[i];
+            let prog = 0;
+            if (decay >= 2) {
+                prog = (decay - 2) / s.decayFadeDurationFrames;
+            }
             if (s.dissolveEnabled && decay >= 2) {
-                const prog = (decay - 2) / s.decayFadeDurationFrames;
-                const size = Math.max(1, s.fontSize - ((s.fontSize - s.dissolveMinSize) * prog));
-                const font = `${s.italicEnabled ? 'italic' : ''} ${s.fontWeight} ${size}px ${fontName}`;
-                this._setCtxFont(font, false);
-                if (bloomEnabled) this.bloomCtx.font = font;
-                if (s.deteriorationEnabled) {
-                    const off = s.deteriorationStrength * prog;
-                    this._setCtxGlobalAlpha(alpha * 0.4 * prog, false);
-                    this.ctx.fillText(char, px, py - off);
-                    this.ctx.fillText(char, px, py + off);
-                }
-                this._setCtxGlobalAlpha(alpha, bloomEnabled);
-                this.ctx.fillText(char, px, py);
-                if (bloomEnabled && alpha >= 0.2) {
-                    this.bloomCtx.fillText(char, px, py);
-                }
-            } else {
-                this._setCtxGlobalAlpha(alpha, bloomEnabled);
-                this.ctx.fillText(char, px, py);
-                if (bloomEnabled && alpha >= 0.2) {
-                    this.bloomCtx.fillText(char, px, py);
-                }
+                const minRatio = s.dissolveMinSize / s.fontSize;
+                const scale = 1.0 - (prog * (1.0 - minRatio));
+                fontSize = Math.max(1, s.fontSize * scale);
+            }
+            const font = `${s.italicEnabled ? 'italic ' : ''} ${s.fontWeight} ${fontSize}px ${fontName}`;
+            this._setCtxFont(font, false);
+            if (bloomEnabled) this.bloomCtx.font = font;
+            if (s.deteriorationEnabled && decay >= 2) {
+                const off = s.deteriorationStrength * prog;
+                    this._setCtxGlobalAlpha(alpha * 0.8 * prog, false);
+                this.ctx.fillText(char, px, py - off);
+                this.ctx.fillText(char, px, py + off);
+            }
+            this._setCtxGlobalAlpha(alpha, bloomEnabled);
+            this.ctx.fillText(char, px, py);
+            if (bloomEnabled && alpha >= 0.2) {
+                this.bloomCtx.fillText(char, px, py);
             }
         }
     }
@@ -4224,7 +5656,6 @@ class CanvasRenderer {
         }
     }
 }
-``
 // --- GlyphAtlas.js ---
 class GlyphAtlas {
     constructor(config, fontName = null, customChars = null) {
@@ -4266,143 +5697,280 @@ class GlyphAtlas {
         this.rainbowSupported = true;
         this.valid = true;
         this.MAX_HEIGHT = 8192; // Common safe limit for mobile/desktop
+        // Glyph Cache Optimization: Filter unsupported characters
+        this.testCanvas = document.createElement('canvas');
+        this.testCanvas.width = 20;
+        this.testCanvas.height = 20;
+        this.testCtx = this.testCanvas.getContext('2d', { willReadFrequently: true });
+        this._cachedFilteredChars = null;
+        this._cachedFilterKey = '';
+        // Lazy Loading State
+        this.usedChars = []; // List of characters currently in atlas
+        this.capacity = 0;   // Current max characters
+        this.minCapacity = 256; // Starting capacity
+        this.hasChanges = false;
+        this.fontReady = false;
     }
     /**
-     * Initializes or updates the atlas if configuration has changed.
+     * Initializes or updates the atlas configuration.
+     * Clears the atlas and resets state to allow lazy loading.
      */
     update() {
         const s = this.config.state;
         const d = this.config.derived;
-        // ... existing change detection ...
-        // Determine font and chars to use
+        // Determine font info (but NOT the full char list anymore for pre-fill)
         const fontFamily = this.fontName || s.fontFamily;
-        const charList = this.customChars || Utils.CHARS; // string or array-like string
-        // Build dependency keys
+        // Check sizing dependencies
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
+        const padding = 10 * 2; // Fixed padding, decoupled from tracerGlow
         const paletteStr = d.paletteColorsStr.join(',');
-        const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + charList.length + charList;
-        if (this.currentFont === fontBase && this.currentPalette === fullConfigStr && !this.needsUpdate) {
+        const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + fontBase + '|' + padding;
+        const isFontReady = document.fonts.check(fontBase);
+        if (this.currentFont === fontBase && 
+            this.currentPalette === fullConfigStr && 
+            this.fontReady === isFontReady && 
+            !this.needsUpdate) {
             return;
         }
-        const paletteChanged = this.currentPalette !== fullConfigStr;
-        const fontChanged = this.currentFont !== fontBase;
+        // Configuration changed: Reset everything
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
-        this.needsUpdate = false;
-        const padding = Math.max(s.tracerGlow, 10) * 2;
-        const layoutChanged =
-            fontChanged ||
-            this._lastMaxSize !== maxSize ||
-            this._lastPadding !== padding ||
-            this._lastCharListKey !== (charList.length + ':' + charList);
-        if (layoutChanged) {
-            this.cellSize = Math.ceil(maxSize + padding);
-            this.halfCell = this.cellSize / 2;
-            const cols = Math.ceil(Math.sqrt(charList.length));
-            const rows = Math.ceil(charList.length / cols);
-            this._lastCols = cols;
-            this._lastRows = rows;
-            const newAtlasWidth = cols * this.cellSize;
-            const newBlockHeight = rows * this.cellSize;
-            const paletteLen = d.paletteColorsStr?.length || 0;
-            // --- SAFETY CHECK ---
-            // Calculate height with rainbow
-            let totalBlocks = paletteLen + 1 + this.rainbowColors.length;
-            let requiredHeight = newBlockHeight * totalBlocks;
-            if (requiredHeight > this.MAX_HEIGHT) {
-                console.warn(`[GlyphAtlas] Texture too large (${requiredHeight}px). Disabling Rainbow Optimization.`);
+        this.fontReady = isFontReady;
+        // If font isn't ready, we force a retry next frame
+        this.needsUpdate = !isFontReady;
+        this.cellSize = Math.ceil(maxSize + padding);
+        this.halfCell = this.cellSize / 2;
+        // Reset dynamic state
+        this.usedChars = [];
+        this.charMap.clear();
+        this.capacity = this.minCapacity;
+        // Initial sizing (empty)
+        this._resizeAtlas(d);
+    }
+    _resizeAtlas(d) {
+        // Calculate grid for current capacity
+        const cols = Math.ceil(Math.sqrt(this.capacity));
+        const rows = Math.ceil(this.capacity / cols);
+        this._lastCols = cols;
+        this._lastRows = rows;
+        const newAtlasWidth = cols * this.cellSize;
+        const newBlockHeight = rows * this.cellSize;
+        const paletteLen = d.paletteColorsStr?.length || 0;
+        // Safety Check & Dynamic Rainbow Optimization
+        let rainbowSteps = 24; 
+        let totalBlocks = paletteLen + 1 + rainbowSteps;
+        let requiredHeight = newBlockHeight * totalBlocks;
+        if (requiredHeight > this.MAX_HEIGHT) {
+            // Try reducing rainbow steps to fit
+            const attempts = [12, 8, 4]; // Degrade quality
+            let found = false;
+            for (const s of attempts) {
+                const h = newBlockHeight * (paletteLen + 1 + s);
+                if (h <= this.MAX_HEIGHT) {
+                    console.log(`[GlyphAtlas] Optimizing: Reducing rainbow to ${s} steps to fit atlas limit.`);
+                    rainbowSteps = s;
+                    totalBlocks = paletteLen + 1 + s;
+                    requiredHeight = h;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                // Info log instead of warning, as this is an expected optimization fallback
+                console.log(`[GlyphAtlas] Atlas height (${requiredHeight}px) exceeds limit (${this.MAX_HEIGHT}px). Disabling Rainbow optimization.`);
                 this.rainbowSupported = false;
+                rainbowSteps = 0;
                 // Recalculate without rainbow
                 totalBlocks = paletteLen + 1;
                 requiredHeight = newBlockHeight * totalBlocks;
-                if (requiredHeight > this.MAX_HEIGHT) {
-                    console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
-                    this.valid = false;
-                    return; // Abort
-                }
             } else {
                 this.rainbowSupported = true;
             }
-            this.valid = true;
-            const newAtlasHeight = requiredHeight;
-            if (this.canvas.width !== newAtlasWidth || this.canvas.height !== newAtlasHeight) {
-                this.canvas.width = newAtlasWidth;
-                this.canvas.height = newAtlasHeight;
-            }
-            this.atlasWidth = newAtlasWidth;
-            this.blockHeight = newBlockHeight;
-            this.atlasHeight = newAtlasHeight;
-            this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
-            this.ctx.font = fontBase;
-            this.ctx.textBaseline = 'middle';
-            this.ctx.textAlign = 'center';
-            this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
-            this.charMap.clear();
-            this._redrawAll(d, s, charList, paletteLen);
-            for (let i = 0; i < charList.length; i++) {
-                const char = charList[i];
-                const col = i % this._lastCols;
-                const row = (i / this._lastCols) | 0;
-                this.charMap.set(char, {
-                    x: col * this.cellSize,
-                    y: row * this.cellSize,
-                    w: this.cellSize,
-                    h: this.cellSize
-                });
-            }
-            this._lastMaxSize = maxSize;
-            this._lastPadding = padding;
-            this._lastCharListKey = charList.length + ':' + charList;
         } else {
-            // Layout unchanged: fast repaint
-            if (!this.valid) return;
-            this.ctx.font = fontBase;
-            this.ctx.textBaseline = 'middle';
-            this.ctx.textAlign = 'center';
+            this.rainbowSupported = true;
+        }
+        if (requiredHeight > this.MAX_HEIGHT) {
+            console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
+            this.valid = false;
+            return; // Abort
+        }
+        this.valid = true;
+        // Regenerate Rainbow Colors for current step count
+        if (this.rainbowSupported) {
+            this.rainbowColors = [];
+            for (let i = 0; i < rainbowSteps; i++) {
+                const hue = (i / rainbowSteps) * 360;
+                this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
+            }
+        }
+        this.atlasWidth = newAtlasWidth;
+        this.atlasHeight = requiredHeight;
+        this.blockHeight = newBlockHeight;
+        this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
+        // Resize Canvas (clears content)
+        if (this.canvas.width !== this.atlasWidth || this.canvas.height !== this.atlasHeight) {
+            this.canvas.width = this.atlasWidth;
+            this.canvas.height = this.atlasHeight;
+        } else {
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
-            const paletteLen = d.paletteColorsStr?.length || 0;
-            this._redrawAll(d, s, charList, paletteLen);
+        }
+        // Setup Context
+        this.ctx.font = this.currentFont;
+        this.ctx.textBaseline = 'middle';
+        this.ctx.textAlign = 'center';
+    }
+    /**
+     * Adds a character to the atlas if space permits, expanding if necessary.
+     */
+    addChar(char) {
+        if (!this.valid) return null;
+        // Check if supported first
+        // Note: We use a simplified check here or rely on the caller?
+        // Let's do the check here to avoid polluting atlas with tofu.
+        // But we need to cache the check.
+        // Using _getCharSignature is slightly expensive per-frame if hit often.
+        // We'll trust that 'char' is unique and not in map.
+        // Verify support
+        const checkFont = this.currentFont.replace(/\d+px/, '16px'); 
+        const sig = this._getCharSignature(checkFont, char);
+        const emptySig = this._getCharSignature(checkFont, '\uFFFF');
+        if (!sig || sig === emptySig) {
+            // Unsupported, do not add
+            return null;
+        }
+        this.usedChars.push(char);
+        if (this.usedChars.length > this.capacity) {
+            this._expandAtlas();
+        } else {
+            // Just draw the new char at the end
+            const index = this.usedChars.length - 1;
+            this._drawSingleChar(char, index);
+        }
+        // Return the new mapping
+        return this.charMap.get(char);
+    }
+    _expandAtlas() {
+        // Double capacity
+        this.capacity *= 2;
+        // Re-calculate dimensions and resize canvas
+        // Warning: Resizing clears the canvas! We must redraw EVERYTHING.
+        const oldUsed = [...this.usedChars];
+        const d = this.config.derived; // Need palette info
+        this._resizeAtlas(d);
+        // Re-add all characters to map and draw them
+        this.charMap.clear();
+        for (let i = 0; i < oldUsed.length; i++) {
+            this._drawSingleChar(oldUsed[i], i);
         }
     }
-    _redrawAll(d, s, charList, paletteLen) {
+    _drawSingleChar(char, index) {
+        const d = this.config.derived;
+        const s = this.config.state;
+        const paletteLen = d.paletteColorsStr?.length || 0;
+        const col = index % this._lastCols;
+        const row = (index / this._lastCols) | 0;
+        const x = col * this.cellSize + this.halfCell;
+        const baseY = row * this.cellSize + this.halfCell;
+        const rect = {
+            x: col * this.cellSize,
+            y: row * this.cellSize,
+            w: this.cellSize,
+            h: this.cellSize
+        };
+        this.charMap.set(char, rect);
+        this.hasChanges = true;
         // 1. Palette Blocks
         for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
             this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-            const yOffset = pIdx * this.blockHeight;
-            this._drawBlock(charList, yOffset);
+            const y = baseY + (pIdx * this.blockHeight);
+            this.ctx.fillText(char, x, y);
         }
         // 2. Overlap Color Block
         this.ctx.fillStyle = s.overlapColor;
-        const overlapYOffset = paletteLen * this.blockHeight;
-        this._drawBlock(charList, overlapYOffset);
-        // 3. Rainbow Blocks (only if supported)
+        const overlapY = baseY + (paletteLen * this.blockHeight);
+        this.ctx.fillText(char, x, overlapY);
+        // 3. Rainbow Blocks
         if (this.rainbowSupported) {
             for (let rIdx = 0; rIdx < this.rainbowColors.length; rIdx++) {
                 this.ctx.fillStyle = this.rainbowColors[rIdx];
-                const yOffset = this.rainbowOffsetStart + (rIdx * this.blockHeight);
-                this._drawBlock(charList, yOffset);
+                const y = baseY + this.rainbowOffsetStart + (rIdx * this.blockHeight);
+                this.ctx.fillText(char, x, y);
             }
         }
     }
-    _drawBlock(charList, yOffset) {
-        for (let i = 0; i < charList.length; i++) {
-            const char = charList[i];
-            const col = i % this._lastCols;
-            const row = (i / this._lastCols) | 0;
-            const x = col * this.cellSize + this.halfCell;
-            const y = row * this.cellSize + this.halfCell + yOffset;
-            this.ctx.fillText(char, x, y);
-        }
+    resetChanges() {
+        this.hasChanges = false;
     }
     /**
      * Returns the source coordinates for a character.
+     * Lazily adds the character if not present.
      * @param {string} char 
          * @returns {Object|null} Source rect {x,y,w,h} or null
      */
     get(char) {
-        return this.charMap.get(char);
+        const rect = this.charMap.get(char);
+        if (rect) return rect;
+        // Lazy Load
+        return this.addChar(char);
+    }
+    /**
+     * Filters the character list to only include those supported by the font.
+     * Caches the result to avoid expensive re-scans.
+     */
+    _getFilteredChars(rawList, font) {
+        // Use a key that includes the font (with size replaced by standard) and the raw list
+        // Note: We use the full fontBase as key because if size changes significantly, 
+        // we might want to re-check (though unlikely to change support).
+        const key = font + '::' + rawList.length + ':' + rawList;
+        if (this._cachedFilteredChars !== null && this._cachedFilterKey === key) {
+            return this._cachedFilteredChars;
+        }
+        const filtered = [];
+        // Pre-calculate empty signature (tofu)
+        // We use a fixed size for checking to avoid large canvas requirements
+        const checkFont = font.replace(/\d+px/, '16px'); 
+        const emptySig = this._getCharSignature(checkFont, '\uFFFF');
+        for (let i = 0; i < rawList.length; i++) {
+            const char = rawList[i];
+            const sig = this._getCharSignature(checkFont, char);
+            // If signature exists and is different from tofu, it's supported.
+            // (We assume space ' ' is either not in list or handled by renderer if empty)
+            if (sig && sig !== emptySig) {
+                filtered.push(char);
+            }
+        }
+        // If we filtered out everything (e.g. font not loaded yet), 
+        // fall back to raw list to avoid complete invisibility, 
+        // or return empty string? 
+        // Returning empty string means nothing draws.
+        // Returning raw list means we might draw boxes.
+        // Let's return filtered. If font loads later, update() should be triggered by something?
+        // Actually, GlyphAtlas doesn't auto-update on font load unless triggered externally.
+        // But usually FontManager triggers a re-render/update.
+        this._cachedFilteredChars = (typeof rawList === 'string') ? filtered.join('') : filtered;
+        this._cachedFilterKey = key;
+        // console.log(`[GlyphAtlas] Filtered chars: ${rawList.length} -> ${filtered.length}`);
+        return this._cachedFilteredChars;
+    }
+    /**
+     * Computes a simple pixel sum signature for a character to detect 'tofu'.
+     */
+    _getCharSignature(font, char) {
+        this.testCtx.clearRect(0, 0, 20, 20);
+        this.testCtx.font = font;
+        this.testCtx.textBaseline = 'middle';
+        this.testCtx.textAlign = 'center';
+        this.testCtx.fillStyle = '#fff';
+        this.testCtx.fillText(char, 10, 10);
+        const data = this.testCtx.getImageData(5, 5, 10, 10).data;
+        let sum = 0;
+        // Check alpha channel
+        for(let i = 3; i < data.length; i += 4) {
+            sum += data[i];
+        }
+        return sum;
     }
 }
 // --- PostProcessor.js ---
@@ -4525,6 +6093,1036 @@ class PostProcessor {
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
 }
+// --- WebGLRenderer.js ---
+class WebGLRenderer {
+    constructor(canvasId, grid, config, effects) {
+        this.cvs = document.getElementById(canvasId);
+        // Attempt WebGL2, fallback to WebGL1
+        this.gl = this.cvs.getContext('webgl2', { alpha: false, preserveDrawingBuffer: false });
+        this.isWebGL2 = !!this.gl;
+        if (!this.gl) {
+            this.gl = this.cvs.getContext('webgl', { alpha: false, preserveDrawingBuffer: false });
+        }
+        if (!this.gl) {
+            console.error("WebGLRenderer: Hardware acceleration not supported.");
+            throw new Error("WebGL not supported");
+        }
+        // WebGL1 Extension for Instancing
+        if (!this.isWebGL2) {
+            const ext = this.gl.getExtension('ANGLE_instanced_arrays');
+            if (!ext) {
+                console.error("WebGLRenderer: ANGLE_instanced_arrays not supported.");
+                throw new Error("WebGL Instancing not supported");
+            }
+            // Polyfill methods onto gl context for uniform usage
+            this.gl.vertexAttribDivisor = ext.vertexAttribDivisorANGLE.bind(ext);
+            this.gl.drawArraysInstanced = ext.drawArraysInstancedANGLE.bind(ext);
+            this.gl.createVertexArray = () => { return this.gl.createExtension('OES_vertex_array_object')?.createVertexArrayOES(); };
+            this.gl.bindVertexArray = (vao) => { return this.gl.createExtension('OES_vertex_array_object')?.bindVertexArrayOES(vao); };
+            this.gl.deleteVertexArray = (vao) => { return this.gl.createExtension('OES_vertex_array_object')?.deleteVertexArrayOES(vao); };
+            // Note: Vertex Arrays (VAO) are also an extension in WebGL1 (OES_vertex_array_object)
+            // We need that too for _setupVAO to work unmodified.
+            const vaoExt = this.gl.getExtension('OES_vertex_array_object');
+            if(vaoExt) {
+                this.gl.createVertexArray = vaoExt.createVertexArrayOES.bind(vaoExt);
+                this.gl.bindVertexArray = vaoExt.bindVertexArrayOES.bind(vaoExt);
+                this.gl.deleteVertexArray = vaoExt.deleteVertexArrayOES.bind(vaoExt);
+            } else {
+                 // Fallback without VAOs is painful; strict requirement for now?
+                 console.warn("WebGLRenderer: OES_vertex_array_object not supported. Performance may degrade.");
+                 // Minimal shim to prevent crashes, though logic might fail if we rely on VAO state.
+                 this.gl.createVertexArray = () => null;
+                 this.gl.bindVertexArray = () => {}; 
+                 this.gl.deleteVertexArray = () => {};
+            }
+        }
+        this.grid = grid;
+        this.config = config;
+        this.effects = effects;
+        this.glyphAtlases = new Map();
+        // --- Core WebGL State ---
+        this.program = null;       // Main Matrix Shader
+        this.bloomProgram = null;  // Bloom/Blur Shader
+        this.colorProgram = null;  // Solid Color Shader
+        this.atlasTexture = null;  // Font Texture
+        this.vao = null;           // Vertex Array Object
+        // --- Buffers ---
+        // Capacity: Total number of cells. 
+        // Layout per instance: [x, y, charIndex, r, g, b, a, scale] (8 floats)
+        this.instanceCapacity = 0; 
+        this.instanceData = null; 
+        this.instanceBuffer = null;
+        // --- Framebuffers for Bloom ---
+        this.fboA = null; // Main Render Target
+        this.fboB = null; // Ping-Pong Target
+        this.texA = null; // Texture for FBO A
+        this.texB = null; // Texture for FBO B
+        this.bloomWidth = 0;
+        this.bloomHeight = 0;
+        // --- State Tracking ---
+        this.w = 0;
+        this.h = 0;
+        this.needsAtlasUpdate = true;
+        this.smoothingValue = 0;
+        // Mouse tracking (kept for parity with CanvasRenderer, though mostly used by PostProcessor)
+        this.mouseX = 0.5;
+        this.mouseY = 0.5;
+        this._setupMouseTracking();
+        // Performance / Cache
+        this._tracerStateObj = { alpha: 0, phase: 'none' };
+        // Initialize
+        this._initShaders();
+        this._initBuffers();
+        this._initBloomBuffers();
+        console.log("Rendering Engine: WebGL");
+        // --- Post Processor Integration ---
+        if (typeof PostProcessor !== 'undefined') {
+            this.postProcessor = new PostProcessor(config);
+            this.postProcessor.canvas.id = 'shaderCanvas';
+            this.postProcessor.canvas.style.position = 'absolute';
+            this.postProcessor.canvas.style.top = '0';
+            this.postProcessor.canvas.style.left = '0';
+            this.postProcessor.canvas.style.zIndex = '2'; 
+            this.postProcessor.canvas.style.display = 'none'; 
+            // Insert after main canvas
+            if (this.cvs.parentNode) {
+                this.cvs.parentNode.insertBefore(this.postProcessor.canvas, this.cvs.nextSibling);
+            }
+            this.lastShaderSource = null;
+        }
+    }
+    dispose() {
+        if (this._mouseMoveHandler) {
+            window.removeEventListener('mousemove', this._mouseMoveHandler);
+        }
+        if (this._touchMoveHandler) {
+            window.removeEventListener('touchmove', this._touchMoveHandler);
+        }
+        // Remove PostProcessor canvas
+        if (this.postProcessor && this.postProcessor.canvas && this.postProcessor.canvas.parentNode) {
+            this.postProcessor.canvas.parentNode.removeChild(this.postProcessor.canvas);
+        }
+        // WebGL Cleanup could involve deleting buffers/textures, but usually optional if context is lost.
+        // For good measure:
+        if (this.gl) {
+            // Simple cleanup attempt
+            if (this.program) this.gl.deleteProgram(this.program);
+            if (this.bloomProgram) this.gl.deleteProgram(this.bloomProgram);
+            if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);
+            if (this.atlasTexture) this.gl.deleteTexture(this.atlasTexture);
+            // We don't destroy the context or canvas, just reset.
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        }
+    }
+    _setupMouseTracking() {
+        this._mouseMoveHandler = (e) => {
+            const rect = this.cvs.getBoundingClientRect();
+            this.mouseX = (e.clientX - rect.left) / rect.width;
+            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+        };
+        this._touchMoveHandler = (e) => {
+            if (e.touches.length > 0) this._mouseMoveHandler(e.touches[0]);
+        };
+        window.addEventListener('mousemove', this._mouseMoveHandler);
+        window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
+    }
+    // 1. SHADER COMPILATION AND SETUP
+    _createShader(type, source) {
+        const shader = this.gl.createShader(type);
+        this.gl.shaderSource(shader, source);
+        this.gl.compileShader(shader);
+        if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+            console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+            this.gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+    _createProgram(vsSource, fsSource) {
+        const vs = this._createShader(this.gl.VERTEX_SHADER, vsSource);
+        const fs = this._createShader(this.gl.FRAGMENT_SHADER, fsSource);
+        const prog = this.gl.createProgram();
+        this.gl.attachShader(prog, vs);
+        this.gl.attachShader(prog, fs);
+        this.gl.linkProgram(prog);
+        if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
+            console.error('Program link error:', this.gl.getProgramInfoLog(prog));
+            return null;
+        }
+        return prog;
+    }
+    _initShaders() {
+        // --- Main Matrix Shader (Instanced) ---
+        const version = this.isWebGL2 ? '#version 300 es' : '';
+        const attribute = this.isWebGL2 ? 'in' : 'attribute';
+        const varying = this.isWebGL2 ? 'out' : 'varying';
+        const varyingIn = this.isWebGL2 ? 'in' : 'varying';
+        const texture2D = this.isWebGL2 ? 'texture' : 'texture2D';
+        const outColor = this.isWebGL2 ? 'out vec4 fragColor;' : '';
+        const setFragColor = this.isWebGL2 ? 'fragColor' : 'gl_FragColor';
+        const matrixVS = `${version}
+            layout(location=0) ${attribute} vec2 a_position;   // Quad vertex (0..1)
+            layout(location=1) ${attribute} vec2 a_offset;     // Cell pixel position
+            layout(location=2) ${attribute} float a_charIdx;   // Character Index in Atlas
+            layout(location=3) ${attribute} vec4 a_color;      // RGBA
+            layout(location=4) ${attribute} float a_scale;     // Scale factor
+            uniform vec2 u_resolution;
+            uniform vec2 u_atlasSize;   // Texture dimensions
+            uniform float u_cellSize;   // Size of one cell in texture (px)
+            uniform float u_cols;       // Columns in atlas
+            uniform float u_mirror;     // 1.0 or -1.0 for mirroring
+            uniform vec2 u_stretch;     // Stretch factors (x, y)
+            ${varying} vec2 v_uv;
+            ${varying} vec4 v_color;
+            ${varying} float v_isSolid;
+            void main() {
+                // 1. Calculate Screen Position
+                vec2 centerPos = (a_position - 0.5) * u_cellSize * a_scale;
+                vec2 stretchedPos = (a_offset + centerPos) * u_stretch;
+                if (u_mirror < 0.0) {
+                    stretchedPos.x = u_resolution.x - stretchedPos.x;
+                }
+                vec2 clip = (stretchedPos / u_resolution) * 2.0 - 1.0;
+                clip.y = -clip.y; 
+                gl_Position = vec4(clip, 0.0, 1.0);
+                // 2. Calculate Atlas UVs or Solid Mode
+                v_color = a_color;
+                if (a_charIdx < -0.5) {
+                    v_isSolid = 1.0;
+                    v_uv = vec2(0.0);
+                } else {
+                    v_isSolid = 0.0;
+                    float row = floor(a_charIdx / u_cols);
+                    float col = mod(a_charIdx, u_cols);
+                    vec2 uvBase = vec2(col, row) * u_cellSize;
+                    vec2 uvPixel = uvBase + (a_position * u_cellSize);
+                    v_uv = uvPixel / u_atlasSize;
+                }
+            }
+        `;
+        let finalMatrixVS = matrixVS;
+        if (!this.isWebGL2) {
+             finalMatrixVS = `
+                attribute vec2 a_position;
+                attribute vec2 a_offset;
+                attribute float a_charIdx;
+                attribute vec4 a_color;
+                attribute float a_scale;
+                uniform vec2 u_resolution;
+                uniform vec2 u_atlasSize;
+                uniform float u_cellSize;
+                uniform float u_cols;
+                uniform float u_mirror;
+                uniform vec2 u_stretch;
+                varying vec2 v_uv;
+                varying vec4 v_color;
+                varying float v_isSolid;
+                void main() {
+                    vec2 centerPos = (a_position - 0.5) * u_cellSize * a_scale;
+                    vec2 stretchedPos = (a_offset + centerPos) * u_stretch;
+                    if (u_mirror < 0.0) { stretchedPos.x = u_resolution.x - stretchedPos.x; }
+                    vec2 clip = (stretchedPos / u_resolution) * 2.0 - 1.0;
+                    clip.y = -clip.y;
+                    gl_Position = vec4(clip, 0.0, 1.0);
+                    v_color = a_color;
+                    if (a_charIdx < -0.5) {
+                        v_isSolid = 1.0;
+                        v_uv = vec2(0.0);
+                    } else {
+                        v_isSolid = 0.0;
+                        float row = floor(a_charIdx / u_cols);
+                        float col = mod(a_charIdx, u_cols);
+                        vec2 uvBase = vec2(col, row) * u_cellSize;
+                        vec2 uvPixel = uvBase + (a_position * u_cellSize);
+                        v_uv = uvPixel / u_atlasSize;
+                    }
+                }
+             `;
+        }
+        const matrixFS = `${version}
+            precision mediump float;
+            ${varyingIn} vec2 v_uv;
+            ${varyingIn} vec4 v_color;
+            ${varyingIn} float v_isSolid;
+            uniform sampler2D u_texture;
+            ${outColor}
+            void main() {
+                if (v_isSolid > 0.5) {
+                    ${setFragColor} = v_color;
+                } else {
+                    vec4 tex = ${texture2D}(u_texture, v_uv);
+                    if (tex.a < 0.1) discard;
+                    ${setFragColor} = vec4(v_color.rgb, v_color.a * tex.a);
+                }
+            }
+        `;
+        this.program = this._createProgram(finalMatrixVS, matrixFS);
+        // --- Bloom/Blur Shader (Post Process Quad) ---
+        const bloomVS = `${version}
+            layout(location=0) ${attribute} vec2 a_position;
+            ${varying} vec2 v_uv;
+            void main() {
+                v_uv = a_position * 0.5 + 0.5; // Map -1..1 to 0..1
+                gl_Position = vec4(a_position, 0.0, 1.0);
+            }
+        `;
+        let finalBloomVS = bloomVS;
+        if(!this.isWebGL2) {
+            finalBloomVS = `attribute vec2 a_position; varying vec2 v_uv; void main(){ v_uv=a_position*0.5+0.5; gl_Position=vec4(a_position, 0.0, 1.0); }`;
+        }
+        // Gaussian Blur (9-tap) with Spread
+        const bloomFS = `${version}
+            precision mediump float;
+            ${varyingIn} vec2 v_uv;
+            uniform sampler2D u_image;
+            uniform bool u_horizontal;
+            uniform float u_weight[5];
+            uniform float u_spread;
+            ${outColor}
+            void main() {
+                vec2 tex_offset = (1.0 / vec2(textureSize(u_image, 0))) * u_spread; 
+                vec3 result = ${texture2D}(u_image, v_uv).rgb * u_weight[0]; 
+                if(u_horizontal) {
+                    for(int i = 1; i < 5; ++i) {
+                        result += ${texture2D}(u_image, v_uv + vec2(tex_offset.x * float(i), 0.0)).rgb * u_weight[i];
+                        result += ${texture2D}(u_image, v_uv - vec2(tex_offset.x * float(i), 0.0)).rgb * u_weight[i];
+                    }
+                } else {
+                    for(int i = 1; i < 5; ++i) {
+                        result += ${texture2D}(u_image, v_uv + vec2(0.0, tex_offset.y * float(i))).rgb * u_weight[i];
+                        result += ${texture2D}(u_image, v_uv - vec2(0.0, tex_offset.y * float(i))).rgb * u_weight[i];
+                    }
+                }
+                ${setFragColor} = vec4(result, 1.0);
+            }
+        `;
+        let finalBloomFS = bloomFS;
+        if (!this.isWebGL2) {
+             finalBloomFS = `
+                precision mediump float;
+                varying vec2 v_uv;
+                uniform sampler2D u_image;
+                uniform bool u_horizontal;
+                uniform float u_weight[5];
+                uniform float u_spread;
+                uniform vec2 u_texSize;
+                void main() {
+                    vec2 tex_offset = (1.0 / u_texSize) * u_spread;
+                    vec3 result = texture2D(u_image, v_uv).rgb * u_weight[0];
+                    if(u_horizontal) {
+                        for(int i = 1; i < 5; ++i) {
+                            result += texture2D(u_image, v_uv + vec2(tex_offset.x * float(i), 0.0)).rgb * u_weight[i];
+                            result += texture2D(u_image, v_uv - vec2(tex_offset.x * float(i), 0.0)).rgb * u_weight[i];
+                        }
+                    } else {
+                        for(int i = 1; i < 5; ++i) {
+                            result += texture2D(u_image, v_uv + vec2(0.0, tex_offset.y * float(i))).rgb * u_weight[i];
+                            result += texture2D(u_image, v_uv - vec2(0.0, tex_offset.y * float(i))).rgb * u_weight[i];
+                        }
+                    }
+                    gl_FragColor = vec4(result, 1.0);
+                }
+             `;
+        }
+        this.bloomProgram = this._createProgram(finalBloomVS, finalBloomFS);
+        // --- Solid Color Shader (Fade/Overlay) ---
+        const colorVS = `${version}
+            layout(location=0) ${attribute} vec2 a_position;
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+            }
+        `;
+        const colorFS = `${version}
+            precision mediump float;
+            uniform vec4 u_color;
+            ${outColor}
+            void main() {
+                ${setFragColor} = u_color;
+            }
+        `;
+        let finalColorVS = colorVS;
+        let finalColorFS = colorFS;
+        if (!this.isWebGL2) {
+             finalColorVS = `attribute vec2 a_position; void main(){ gl_Position = vec4(a_position, 0.0, 1.0); }`;
+             finalColorFS = `precision mediump float; uniform vec4 u_color; void main(){ gl_FragColor = u_color; }`;
+        }
+        this.colorProgram = this._createProgram(finalColorVS, finalColorFS);
+    }
+    _initBuffers() {
+        // --- Main Quad (Unit Square) ---
+        // Used for both instanced cells and full-screen bloom passes
+        const quadVerts = new Float32Array([
+            0, 0,  1, 0,  0, 1,
+            0, 1,  1, 0,  1, 1
+        ]); // 0..1 quad
+        // We also need a -1..1 quad for the full screen passes
+        const screenQuadVerts = new Float32Array([
+            -1, -1,  1, -1,  -1, 1,
+            -1, 1,   1, -1,   1, 1
+        ]);
+        this.quadBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, quadVerts, this.gl.STATIC_DRAW);
+        this.screenQuadBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, screenQuadVerts, this.gl.STATIC_DRAW);
+        // --- Instance Buffer (Dynamic) ---
+        // Created in resize() based on grid size
+    }
+    _initBloomBuffers() {
+        // Create Framebuffers and Textures for Bloom Ping-Pong
+        // Sizes will be set in resize()
+        this.fboA = this.gl.createFramebuffer();
+        this.texA = this.gl.createTexture();
+        this.fboB = this.gl.createFramebuffer();
+        this.texB = this.gl.createTexture();
+    }
+    _configureFramebuffer(fbo, tex, width, height) {
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fbo);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, tex, 0);
+        const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
+        if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
+            console.error("WebGLRenderer: Framebuffer incomplete! Status:", status);
+        }
+        // Unbind
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    }
+    // 2. PUBLIC API (CanvasRenderer Replacement)
+    handleFontChange() {
+        this.glyphAtlases.clear();
+        this.needsAtlasUpdate = true;
+    }
+    handleAppearanceChange() {
+        this.needsAtlasUpdate = true;
+    }
+    updateSmoothing() {
+        // In WebGL, smoothing is handled via the Bloom/Blur shaders or texture filtering.
+        this.smoothingValue = this.config.state.smoothingEnabled ? this.config.state.smoothingAmount : 0;
+    }
+    resize() {
+        const s = this.config.state;
+        const d = this.config.derived;
+        const scale = s.resolution;
+        // Trigger atlas update on resize (font size usually changes here)
+        this.handleAppearanceChange();
+        // Logical Size
+        this.w = window.innerWidth;
+        this.h = window.innerHeight;
+        // Physical Size
+        const pw = Math.floor(this.w * scale);
+        const ph = Math.floor(this.h * scale);
+        if (this.cvs.width !== pw || this.cvs.height !== ph) {
+            this.cvs.width = pw;
+            this.cvs.height = ph;
+            this.gl.viewport(0, 0, pw, ph);
+        }
+        // FBO A: FULL Resolution (Stores the sharp scene + trails)
+        // FBO B: HALF Resolution (Used for blur pass)
+        if (this.fboWidth !== pw || this.fboHeight !== ph) {
+            this.fboWidth = pw;
+            this.fboHeight = ph;
+            this.bloomWidth = Math.floor(pw * 0.5);
+            this.bloomHeight = Math.floor(ph * 0.5);
+            if (pw > 0 && ph > 0) {
+                // Resize FBO A (Full Res)
+                this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
+                // Resize FBO B (Half Res)
+                this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
+            }
+        }
+        // Resize Post Processor
+        if (this.postProcessor) {
+            this.postProcessor.resize(pw, ph);
+            this.postProcessor.canvas.style.width = `${this.w}px`;
+            this.postProcessor.canvas.style.height = `${this.h}px`;
+        }
+        // Reallocate Instance Buffer if grid size grew significantly
+        // Layout: x, y, charIdx, r, g, b, a, scale (8 floats)
+        const totalCells = this.grid.cols * this.grid.rows;
+        // Add buffer for Main + Overlap + Tracer layers (worst case: 3x cells)
+        const capacity = totalCells * 6; 
+        if (capacity > this.instanceCapacity) {
+            this.instanceCapacity = capacity;
+            this.instanceData = new Float32Array(capacity * 8);
+            if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
+            this.instanceBuffer = this.gl.createBuffer();
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, this.instanceData.byteLength, this.gl.DYNAMIC_DRAW);
+            // Rebuild VAO
+            this._setupVAO();
+        }
+    }
+    _setupVAO() {
+        if (this.vao) this.gl.deleteVertexArray(this.vao);
+        this.vao = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.vao);
+        // 1. Quad Geometry (Not Instanced)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+        this.gl.enableVertexAttribArray(0);
+        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+        // 2. Instance Data (Instanced)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+        const stride = 8 * 4; // 8 floats * 4 bytes
+        // Offset (vec2)
+        this.gl.enableVertexAttribArray(1);
+        this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, stride, 0);
+        this.gl.vertexAttribDivisor(1, 1);
+        // CharIdx (float)
+        this.gl.enableVertexAttribArray(2);
+        this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, stride, 2 * 4);
+        this.gl.vertexAttribDivisor(2, 1);
+        // Color (vec4)
+        this.gl.enableVertexAttribArray(3);
+        this.gl.vertexAttribPointer(3, 4, this.gl.FLOAT, false, stride, 3 * 4);
+        this.gl.vertexAttribDivisor(3, 1);
+        // Scale (float)
+        this.gl.enableVertexAttribArray(4);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, stride, 7 * 4);
+        this.gl.vertexAttribDivisor(4, 1);
+        this.gl.bindVertexArray(null);
+    }
+    _getTracerState(index, state, out) {
+        // Reset defaults
+        out.alpha = 0;
+        out.phase = 'none';
+        // Guard: If all tracer durations are zero, disable tracer visual entirely
+        if ((state.tracerAttackFrames + state.tracerHoldFrames + state.tracerReleaseFrames) <= 0) {
+            return out;
+        }
+        const age = this.grid.ages[index];
+        const decay = this.grid.decays[index];
+        if (age <= 0 || decay >= 2) return out;
+        const type = this.grid.types[index];
+        // Use local constants or globals if available. 
+        // Fallback to 2 (Tracer) and 3 (Rotator) if CELL_TYPE is missing.
+        const C_TRACER = (typeof CELL_TYPE !== 'undefined') ? CELL_TYPE.TRACER : 2;
+        const C_ROTATOR = (typeof CELL_TYPE !== 'undefined') ? CELL_TYPE.ROTATOR : 3;
+        if (type !== C_TRACER && type !== C_ROTATOR) return out;
+        const activeTime = age - 1;
+        const attack = state.tracerAttackFrames;
+        const hold = state.tracerHoldFrames;
+        const release = state.tracerReleaseFrames;
+        if (activeTime <= attack) {
+            out.alpha = (attack > 0) ? (activeTime / attack) : 1.0;
+            out.phase = 'attack';
+        } else if (activeTime <= attack + hold) {
+            out.alpha = 1.0;
+            out.phase = 'hold';
+        } else if (activeTime < attack + hold + release + 1) {
+            const relTime = activeTime - (attack + hold);
+            out.alpha = 1.0 - (relTime / release);
+            out.phase = 'release';
+        }
+        return out;
+    }
+    _bindInstanceAttributes(offset) {
+        const stride = 32; // 8 floats * 4 bytes
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+        // Attrib 1: Offset (vec2)
+        this.gl.enableVertexAttribArray(1);
+        this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, stride, offset);
+        this.gl.vertexAttribDivisor(1, 1);
+        // Attrib 2: CharIdx (float)
+        this.gl.enableVertexAttribArray(2);
+        this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, stride, offset + 8);
+        this.gl.vertexAttribDivisor(2, 1);
+        // Attrib 3: Color (vec4)
+        this.gl.enableVertexAttribArray(3);
+        this.gl.vertexAttribPointer(3, 4, this.gl.FLOAT, false, stride, offset + 12);
+        this.gl.vertexAttribDivisor(3, 1);
+        // Attrib 4: Scale (float)
+        this.gl.enableVertexAttribArray(4);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, stride, offset + 28);
+        this.gl.vertexAttribDivisor(4, 1);
+    }
+    _drawFullscreenColor(r, g, b, a) {
+        if (!this.colorProgram) return;
+        this.gl.useProgram(this.colorProgram);
+        // Bind Screen Quad ( -1..1 )
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        const locPos = this.gl.getAttribLocation(this.colorProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        const locColor = this.gl.getUniformLocation(this.colorProgram, 'u_color');
+        this.gl.uniform4f(locColor, r, g, b, a);
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+    _drawFullscreenTexture(texture, opacity, blurAmt) {
+        if (!this.bloomProgram) return;
+        this.gl.useProgram(this.bloomProgram);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        const locPos = this.gl.getAttribLocation(this.bloomProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+        // Weights for Identity (No blur)
+        const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
+        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), 0.0);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), 1);
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+    _runBlur(sourceTex, horizontal, strength, width, height) {
+        if (!this.bloomProgram) return;
+        this.gl.useProgram(this.bloomProgram);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer); // -1..1
+        const locPos = this.gl.getAttribLocation(this.bloomProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+        // Standard Gaussian Weights
+        const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
+        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), strength);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
+        if (!this.isWebGL2) {
+             this.gl.uniform2f(this.gl.getUniformLocation(this.bloomProgram, 'u_texSize'), width, height);
+        }
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+    render(frame) {
+        if (!this.instanceData) return;
+        // Wait for resize
+        if (this.fboWidth === 0 || this.fboHeight === 0) return;
+        const { state: s, derived: d } = this.config;
+        const grid = this.grid;
+        // Ensure GlyphAtlas class is available
+        if (typeof GlyphAtlas === 'undefined') return;
+        const activeFonts = d.activeFonts;
+        if (!activeFonts || activeFonts.length === 0) return;
+        // Update Atlases Logic (Inline)
+        // We iterate active fonts to ensure they are generated/updated
+        for (let fi = 0; fi < activeFonts.length; fi++) {
+            const font = activeFonts[fi];
+            let atlas = this.glyphAtlases.get(font.name);
+            if (!atlas) {
+                atlas = new GlyphAtlas(this.config, font.name, font.chars);
+                this.glyphAtlases.set(font.name, atlas);
+            } else {
+                atlas.fontName = font.name;
+                atlas.customChars = font.chars;
+            }
+            if (this.needsAtlasUpdate || atlas.needsUpdate) {
+                atlas.update();
+            }
+        }
+        this.needsAtlasUpdate = false;
+        const xOff = s.fontOffsetX;
+        const yOff = s.fontOffsetY;
+        const cw = d.cellWidth;
+        const ch = d.cellHeight;
+        // Prepare Constants
+        const paletteNorm = d.paletteRgbs.map(rgb => [rgb.r/255, rgb.g/255, rgb.b/255]);
+        const tracerRgb = d.tracerRgb;
+        const tracerColor = [tracerRgb.r/255, tracerRgb.g/255, tracerRgb.b/255];
+        const oc = Utils.hexToRgb(s.overlapColor || '#ffffff');
+        const overlapColor = [oc.r/255, oc.g/255, oc.b/255];
+        const C_TRACER = (typeof CELL_TYPE !== 'undefined') ? CELL_TYPE.TRACER : 2;
+        const C_ROTATOR = (typeof CELL_TYPE !== 'undefined') ? CELL_TYPE.ROTATOR : 3;
+        // --- PREPARE FBO ---
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA);
+        this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+        // Clear FBO A once at the start
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        this._drawFullscreenColor(0, 0, 0, s.clearAlpha);
+        // --- FONT LOOP ---
+        for (let fIdx = 0; fIdx < activeFonts.length; fIdx++) {
+            const fontData = activeFonts[fIdx];
+            const atlas = this.glyphAtlases.get(fontData.name);
+            if (!atlas) continue;
+            // --- TEXTURE MANAGEMENT ---
+            let glTexture = atlas.glTexture;
+            let textureNeedsUpload = false;
+            if (!glTexture) {
+                glTexture = this.gl.createTexture();
+                atlas.glTexture = glTexture;
+                this.gl.bindTexture(this.gl.TEXTURE_2D, glTexture);
+                this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+                textureNeedsUpload = true;
+            } else {
+                this.gl.bindTexture(this.gl.TEXTURE_2D, glTexture);
+                if (atlas.hasChanges) {
+                    textureNeedsUpload = true;
+                }
+            }
+            if (textureNeedsUpload) {
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
+                atlas.resetChanges();
+            }
+            // --- PASS 1: COUNT INSTANCES FOR THIS FONT ---
+            let nMain = 0;
+            let nOverlap = 0;
+            let nTracer = 0;
+            for (const i of grid.activeIndices) {
+                // Determine effective font
+                const cellFontIdx = grid.getFont(i);
+                let effectiveFontName = (activeFonts[cellFontIdx] || activeFonts[0]).name;
+                const override = this.effects.getOverride(i);
+                if (override && override.font) {
+                    effectiveFontName = override.font;
+                }
+                if (effectiveFontName !== fontData.name) continue;
+                // Main Count
+                const gridAlpha0 = grid.alphas[i];
+                let gridAlpha = gridAlpha0;
+                const tState = this._getTracerState(i, s, this._tracerStateObj);
+                // Removed: if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
+                if (override) {
+                     if (override.solid) nMain++; 
+                     if (override.alpha !== undefined) gridAlpha = override.alpha;
+                }
+                if (gridAlpha > 0.01) {
+                    nMain++;
+                    // Rotator Crossfade Reservation
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001) {
+                        if (grid.nextChars && grid.nextChars.has(i)) {
+                            nMain++;
+                        }
+                    }
+                    // Ghost Logic (Count)
+                    if (s.deteriorationEnabled) {
+                        const decay = grid.decays[i];
+                        if (decay >= 2) nMain += 2; // Add 2 ghosts
+                    }
+                }
+                // Overlap Count
+                if (s.overlapEnabled && grid.overlapChars) {
+                    const ovCode = grid.overlapChars[i];
+                    if (ovCode > 0 && gridAlpha > 0.05) {
+                        const type = grid.types[i];
+                        const overlapTarget = s.overlapTarget || 'stream';
+                        let allowOverlap = true;
+                        if (overlapTarget === 'stream' && type !== C_TRACER && type !== C_ROTATOR) allowOverlap = false;
+                        const style = grid.complexStyles.get(i);
+                        if (style && style.isEffect) allowOverlap = false;
+                        if (allowOverlap) nOverlap++;
+                    }
+                }
+                // Tracer Count
+                if (tState.phase !== 'none' && tState.alpha > 0.01) nTracer++;
+            }
+            // --- SETUP POINTERS ---
+            let ptrMain = 0;
+            let ptrOverlap = nMain * 8;
+            let ptrTracer = (nMain + nOverlap) * 8;
+            // --- PASS 2: FILL BUFFER ---
+            for (const i of grid.activeIndices) {
+                // Font Check (Repeat)
+                const cellFontIdx = grid.getFont(i);
+                let effectiveFontName = (activeFonts[cellFontIdx] || activeFonts[0]).name;
+                const override = this.effects.getOverride(i);
+                if (override && override.font) effectiveFontName = override.font;
+                if (effectiveFontName !== fontData.name) continue;
+                const gridAlpha0 = grid.alphas[i];
+                const tState = this._getTracerState(i, s, this._tracerStateObj);
+                let gridAlpha = gridAlpha0;
+                // Removed: if (tState.phase === 'attack' || tState.phase === 'hold') { gridAlpha = 0.0; }
+                // Size Logic (Override + Dissolve)
+                let drawScale = 1.0;
+                if (override && override.size) {
+                    drawScale = 1.0 + (override.size / s.fontSize);
+                } else if (s.dissolveEnabled) {
+                    const decay = grid.decays[i];
+                    if (decay >= 2) {
+                        const prog = (decay - 2) / s.decayFadeDurationFrames;
+                        const minRatio = s.dissolveMinSize / s.fontSize;
+                        drawScale = Math.max(0.1, 1.0 - (prog * (1.0 - minRatio)));
+                    }
+                }
+                const age = grid.ages[i];
+                const type = grid.types[i];
+                let r=0, g=1, b=0; 
+                let pIdx = grid.paletteIndices[i];
+                if (pIdx >= paletteNorm.length) pIdx = 0;
+                const pc = paletteNorm[pIdx];
+                r = pc[0]; g = pc[1]; b = pc[2];
+                const style = grid.complexStyles.get(i);
+                if (style) {
+                    if (style.glitter && Math.random() < 0.02) { r=1; g=1; b=1; }
+                    else {
+                        let h = style.h;
+                        if (style.cycle) h = (h + (frame * style.speed)) % 360;
+                        const rgb = Utils.hslToRgb(h, style.s, style.l);
+                        r=rgb.r/255; g=rgb.g/255; b=rgb.b/255;
+                    }
+                }
+                let charCode = grid.chars[i];
+                const px = (i % grid.cols) * cw + cw * 0.5 + xOff;
+                const py = Math.floor(i / grid.cols) * ch + ch * 0.5 + yOff;
+                if (override) {
+                     if (override.solid) {
+                         const bg = Utils.hexToRgb(override.bgColor || '#000000');
+                         this.instanceData[ptrMain++] = px;
+                         this.instanceData[ptrMain++] = py;
+                         this.instanceData[ptrMain++] = -1.0; 
+                         this.instanceData[ptrMain++] = bg.r/255;
+                         this.instanceData[ptrMain++] = bg.g/255;
+                         this.instanceData[ptrMain++] = bg.b/255;
+                         this.instanceData[ptrMain++] = 1.0; 
+                         this.instanceData[ptrMain++] = 1.1; 
+                     }
+                     if (override.alpha !== undefined) gridAlpha = override.alpha;
+                     if (override.char) charCode = override.char.charCodeAt(0);
+                     if (override.color) {
+                         const c = Utils.hexToRgb(override.color);
+                         r = c.r/255; g = c.g/255; b = c.b/255;
+                     }
+                }
+                // 1. MAIN CHAR & ROTATOR CROSSFADE
+                if (gridAlpha > 0.01) {
+                    // Check Rotator State
+                    let mainAlpha = gridAlpha;
+                    let nextAlpha = 0.0;
+                    let nextCharCode = -1;
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001) {
+                         if (grid.nextChars && grid.nextChars.has(i)) {
+                             // Normalize progress (frame count -> 0..1)
+                             const maxFrames = s.rotatorCrossfadeFrames > 0 ? s.rotatorCrossfadeFrames : 1;
+                             const prog = Math.min(1.0, grid.rotatorProg[i] / maxFrames);
+                             const nc = grid.nextChars.get(i);
+                             nextCharCode = (typeof nc === 'string') ? nc.charCodeAt(0) : nc;
+                             // Crossfade: Current fades out, Next fades in
+                             mainAlpha = gridAlpha * (1.0 - prog);
+                             nextAlpha = gridAlpha * prog;
+                         }
+                    }
+                    // Draw Current Char
+                    if (mainAlpha > 0.01) {
+                        const charStr = String.fromCharCode(charCode);
+                        const sprite = atlas.get(charStr);
+                        if (sprite) {
+                            const col = Math.round(sprite.x / atlas.cellSize);
+                            const row = Math.round(sprite.y / atlas.cellSize);
+                            const charIdx = (row * atlas._lastCols) + col;
+                            this.instanceData[ptrMain++] = px;
+                            this.instanceData[ptrMain++] = py;
+                            this.instanceData[ptrMain++] = charIdx;
+                            this.instanceData[ptrMain++] = r;
+                            this.instanceData[ptrMain++] = g;
+                            this.instanceData[ptrMain++] = b;
+                            this.instanceData[ptrMain++] = mainAlpha;
+                            this.instanceData[ptrMain++] = drawScale;
+                        } else {
+                             // Reserved but no sprite? Write dummy.
+                             this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                        }
+                    } else {
+                         // Low alpha, write dummy to keep alignment
+                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                    }
+                    // Draw Next Char (Crossfade) - Check Pass 1 condition
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001 && grid.nextChars && grid.nextChars.has(i)) {
+                        let written = false;
+                        if (nextAlpha > 0.01 && nextCharCode !== -1) {
+                            const charStr = String.fromCharCode(nextCharCode);
+                            const sprite = atlas.get(charStr);
+                            if (sprite) {
+                                const col = Math.round(sprite.x / atlas.cellSize);
+                                const row = Math.round(sprite.y / atlas.cellSize);
+                                const charIdx = (row * atlas._lastCols) + col;
+                                this.instanceData[ptrMain++] = px;
+                                this.instanceData[ptrMain++] = py;
+                                this.instanceData[ptrMain++] = charIdx;
+                                this.instanceData[ptrMain++] = r;
+                                this.instanceData[ptrMain++] = g;
+                                this.instanceData[ptrMain++] = b;
+                                this.instanceData[ptrMain++] = nextAlpha;
+                                this.instanceData[ptrMain++] = drawScale;
+                                written = true;
+                            }
+                        }
+                        if (!written) {
+                             // Reserved but not drawn? Write dummy.
+                             this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                        }
+                    }
+                    // Ghost Logic (Fill) - Uses gridAlpha (base alpha)
+                    if (s.deteriorationEnabled) {
+                        const decay = grid.decays[i];
+                        if (decay >= 2) {
+                                 const prog = (decay - 2) / s.decayFadeDurationFrames;
+                                 const off = s.deteriorationStrength * prog;
+                                 const ghostAlpha = gridAlpha * 0.8 * prog;
+                                 // Use main char for ghosts (simplification)
+                                 const charStr = String.fromCharCode(charCode);
+                                 const sprite = atlas.get(charStr);
+                                 if (sprite && ghostAlpha > 0.01) {
+                                     const col = Math.round(sprite.x / atlas.cellSize);
+                                     const row = Math.round(sprite.y / atlas.cellSize);
+                                     const charIdx = (row * atlas._lastCols) + col;
+                                     // Ghost 1 (Up)
+                                     this.instanceData[ptrMain++] = px;
+                                     this.instanceData[ptrMain++] = py - off;
+                                     this.instanceData[ptrMain++] = charIdx;
+                                     this.instanceData[ptrMain++] = r; this.instanceData[ptrMain++] = g; this.instanceData[ptrMain++] = b;
+                                     this.instanceData[ptrMain++] = ghostAlpha;
+                                     this.instanceData[ptrMain++] = drawScale;
+                                     // Ghost 2 (Down)
+                                     this.instanceData[ptrMain++] = px;
+                                     this.instanceData[ptrMain++] = py + off;
+                                     this.instanceData[ptrMain++] = charIdx;
+                                     this.instanceData[ptrMain++] = r; this.instanceData[ptrMain++] = g; this.instanceData[ptrMain++] = b;
+                                     this.instanceData[ptrMain++] = ghostAlpha;
+                                     this.instanceData[ptrMain++] = drawScale;
+                                 } else {
+                                     if (ghostAlpha <= 0.01) {
+                                         // Write dummy to keep alignment
+                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                                     }
+                                 }
+                            }
+                        }
+                }
+                // 2. OVERLAP
+                if (s.overlapEnabled && grid.overlapChars) {
+                    const ovCode = grid.overlapChars[i];
+                    if (ovCode > 0 && gridAlpha > 0.05) {
+                         const overlapTarget = s.overlapTarget || 'stream';
+                         let allowOverlap = true;
+                         if (overlapTarget === 'stream' && type !== C_TRACER && type !== C_ROTATOR) allowOverlap = false;
+                         if (style && style.isEffect) allowOverlap = false; 
+                         if (allowOverlap) {
+                             const ovChar = String.fromCharCode(ovCode);
+                             const ovSprite = atlas.get(ovChar);
+                             if (ovSprite) {
+                                const col = Math.round(ovSprite.x / atlas.cellSize);
+                                const row = Math.round(ovSprite.y / atlas.cellSize);
+                                const charIdx = (row * atlas._lastCols) + col;
+                                this.instanceData[ptrOverlap++] = px;
+                                this.instanceData[ptrOverlap++] = py;
+                                this.instanceData[ptrOverlap++] = charIdx;
+                                this.instanceData[ptrOverlap++] = overlapColor[0];
+                                this.instanceData[ptrOverlap++] = overlapColor[1];
+                                this.instanceData[ptrOverlap++] = overlapColor[2];
+                                this.instanceData[ptrOverlap++] = gridAlpha; 
+                                this.instanceData[ptrOverlap++] = drawScale; 
+                             }
+                         }
+                    }
+                }
+                // 3. TRACER
+                if (tState.phase !== 'none' && tState.alpha > 0.01) {
+                     const charStr = String.fromCharCode(charCode);
+                     const sprite = atlas.get(charStr);
+                     if (sprite) {
+                         const col = Math.round(sprite.x / atlas.cellSize);
+                         const row = Math.round(sprite.y / atlas.cellSize);
+                         const charIdx = (row * atlas._lastCols) + col;
+                         this.instanceData[ptrTracer++] = px;
+                         this.instanceData[ptrTracer++] = py;
+                         this.instanceData[ptrTracer++] = charIdx;
+                         this.instanceData[ptrTracer++] = tracerColor[0];
+                         this.instanceData[ptrTracer++] = tracerColor[1];
+                         this.instanceData[ptrTracer++] = tracerColor[2];
+                         this.instanceData[ptrTracer++] = tState.alpha;
+                         this.instanceData[ptrTracer++] = 1.0 + (s.tracerSizeIncrease / s.fontSize); 
+                     }
+                }
+            }
+            const totalFloats = ptrTracer; 
+            // --- DRAW CALLS FOR THIS FONT ---
+            if (totalFloats > 0) {
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+                // Safe upload for WebGL 1/2
+                this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData.subarray(0, totalFloats));
+                this.gl.useProgram(this.program);
+                const locRes = this.gl.getUniformLocation(this.program, 'u_resolution');
+                const locAtlasSize = this.gl.getUniformLocation(this.program, 'u_atlasSize');
+                const locCellSize = this.gl.getUniformLocation(this.program, 'u_cellSize');
+                const locCols = this.gl.getUniformLocation(this.program, 'u_cols');
+                const locMirror = this.gl.getUniformLocation(this.program, 'u_mirror');
+                const locStretch = this.gl.getUniformLocation(this.program, 'u_stretch');
+                this.gl.uniform2f(locRes, this.w, this.h);
+                this.gl.uniform2f(locAtlasSize, atlas.canvas.width, atlas.canvas.height);
+                this.gl.uniform1f(locCellSize, atlas.cellSize);
+                this.gl.uniform1f(locCols, atlas._lastCols);
+                this.gl.uniform1f(locMirror, s.mirrorEnabled ? -1.0 : 1.0);
+                this.gl.uniform2f(locStretch, s.stretchX, s.stretchY);
+                this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_texture'), 0);
+                this.gl.bindVertexArray(this.vao);
+                if (nMain > 0) {
+                    this._bindInstanceAttributes(0);
+                    this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                    this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, nMain);
+                }
+                if (nOverlap > 0) {
+                    this._bindInstanceAttributes(nMain * 32); 
+                    this.gl.blendFunc(this.gl.DST_ALPHA, this.gl.ZERO);
+                    this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, nOverlap);
+                }
+                if (nTracer > 0) {
+                     this._bindInstanceAttributes((nMain + nOverlap) * 32);
+                     this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                     this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, nTracer);
+                }
+                this.gl.bindVertexArray(null); 
+            }
+        } // End Font Loop
+        // 2. Composite to Screen
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        this.gl.clearColor(0, 0, 0, 1);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+        const blurAmt = s.smoothingEnabled ? s.smoothingAmount : 0;
+        this._drawFullscreenTexture(this.texA, 1.0, blurAmt);
+        if (s.enableBloom) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
+            this.gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
+            this._runBlur(this.texA, true, s.bloomStrength, this.fboWidth, this.fboHeight); 
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+            this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
+            this._runBlur(this.texB, false, s.bloomStrength, this.bloomWidth, this.bloomHeight);
+        }
+        // Post Processor
+        if (this.postProcessor && s.shaderEnabled) {
+            const currentShader = s.customShader;
+            if (currentShader && currentShader !== this.lastShaderSource) {
+                this.postProcessor.compileShader(currentShader);
+                this.lastShaderSource = currentShader;
+            }
+            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
+            this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
+            if (this.postProcessor.canvas.style.display === 'none') {
+                this.postProcessor.canvas.style.display = 'block';
+                this.cvs.style.opacity = '0'; 
+            }
+        } else {
+            if (this.postProcessor && this.postProcessor.canvas.style.display !== 'none') {
+                this.postProcessor.canvas.style.display = 'none';
+                this.cvs.style.opacity = '1';
+            }
+        }
+    }
+}
 // --- SimulationSystem.js ---
 class SimulationSystem {
     constructor(grid, config) {
@@ -4540,6 +7138,8 @@ class SimulationSystem {
         // Reusable columns pool to avoid per-spawn allocation
         this._columnsPool = new Array(this.grid.cols);
         for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
+        // Global Time Dilation (1.0 = normal, 0.0 = pause, <0 = reverse)
+        this.timeScale = 1.0;
     }
     _initializeModes(config) {
         return {
@@ -4553,7 +7153,15 @@ class SimulationSystem {
         if (this.lastStreamInColumn.length !== this.grid.cols) {
             this._resetColumns();
         }
-        this._manageStreams(frame);
+        // Only spawn new streams if time is moving forward normally
+        // (Or we could allow spawning in reverse? Nah, simpler to stop.)
+        if (this.timeScale > 0) {
+            this._manageStreams(frame);
+        } else if (this.timeScale < 0) {
+            // In reverse, we just process existing streams backwards
+            this._processActiveStreams(frame);
+        }
+        // If timeScale == 0, we pause (no updates to streams)
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
         // Clear locks for the next frame (locks are set during rendering)
@@ -4714,6 +7322,13 @@ class SimulationSystem {
         const rows = grid.rows;
         const cellLocks = grid.cellLocks;
         const decays = grid.decays;
+        // Apply global time scale to probability of movement
+        // We use probabilistic movement for partial speeds (e.g. 0.5)
+        // For reverse, we treat magnitude as speed.
+        // Skip if paused
+        if (Math.abs(this.timeScale) < 0.01) return;
+        const isReverse = this.timeScale < 0;
+        const speedMult = Math.abs(this.timeScale);
         for (let i = this.activeStreams.length - 1; i >= 0; i--) {
             const stream = this.activeStreams[i];
             if (!stream.active) {
@@ -4731,46 +7346,65 @@ class SimulationSystem {
                 continue;
             }
             // Decrement tick timer for movement
-            stream.tickTimer--;
+            // Adjust decrement based on speedMult
+            stream.tickTimer -= speedMult;
             if (stream.tickTimer > 0) {
                 continue; // Not time to move yet
             }
-            // Reset timer
+            // Reset timer (accumulate remainder for smooth speed changes?)
+            // Simple reset for now:
             stream.tickTimer = stream.tickInterval;
-            // Eraser Random Drop-off
-            if (stream.isEraser) {
-                const stopChance = this.config.state.eraserStopChance;
-                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+            if (isReverse) {
+                // --- REVERSE LOGIC ---
+                // Move Head UP
+                stream.y--;
+                // If head goes off screen top (or becomes too "young"?)
+                // Actually, just moving head up is enough. 
+                // We write a NEW head at the new Y. 
+                // The old head (at Y+1) is abandoned and starts decaying naturally via _updateCell.
+                // Boundaries:
+                if (stream.y < -5) { // Arbitrary buffer
                     stream.active = false;
                     continue;
                 }
-            } else {                    
-                // Tracer Random Drop-Off
-                const stopChance = this.config.state.tracerStopChance;
-                if (stopChance > 0 && Math.random() < (stopChance / 100)) {
-                    stream.active = false;
-                    continue;
-                }
-                // Tracer Collision Detection
-                const nextY = stream.y + 1;
-                if (nextY < rows) {
-                    const nextIdx = grid.getIndex(stream.x, nextY);
-                    // If next cell is occupied (decay > 0)
-                    if (nextIdx !== -1 && decays[nextIdx] > 0) {
-                        // Collision! Stop stream.
-                        stream.active = false;
-                        continue; 
-                    }
-                }
-            } 
-            stream.age++;
-            if (stream.age >= stream.visibleLen) {
-                this._handleStreamCompletion(stream);
-                continue;
-            }
-            if (stream.y < stream.len) {
-                stream.y++;
                 this._writeHead(stream, frame);
+            } else {
+                // --- FORWARD LOGIC ---
+                // Eraser Random Drop-off
+                if (stream.isEraser) {
+                    const stopChance = this.config.state.eraserStopChance;
+                    if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+                        stream.active = false;
+                        continue;
+                    }
+                } else {                    
+                    // Tracer Random Drop-Off
+                    const stopChance = this.config.state.tracerStopChance;
+                    if (stopChance > 0 && Math.random() < (stopChance / 100)) {
+                        stream.active = false;
+                        continue;
+                    }
+                    // Tracer Collision Detection
+                    const nextY = stream.y + 1;
+                    if (nextY < rows) {
+                        const nextIdx = grid.getIndex(stream.x, nextY);
+                        // If next cell is occupied (decay > 0)
+                        if (nextIdx !== -1 && decays[nextIdx] > 0) {
+                            // Collision! Stop stream.
+                            stream.active = false;
+                            continue; 
+                        }
+                    }
+                } 
+                stream.age++;
+                if (stream.age >= stream.visibleLen) {
+                    this._handleStreamCompletion(stream);
+                    continue;
+                }
+                if (stream.y < stream.len) {
+                    stream.y++;
+                    this._writeHead(stream, frame);
+                }
             }
         }
     }
@@ -5045,9 +7679,7 @@ class SimulationSystem {
     }
     _calculateAlpha(idx, age, decay, fadeDurationFrames) {
         const b = this.grid.brightness[idx];
-               if (age > 0) {
-            return 1.0;
-        } else if (decay === 1) {
+        if (age > 0 || decay === 1) {
             return 0.95 * b;
         } else if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;
@@ -5415,6 +8047,16 @@ class FontManager {
     this._facePromises = new Map(); // key: fontName -> Promise<void>
     this._defaultCanvasPx = 20;     // used for document.fonts.load exact-size readiness
     this._loadTimeoutMs = 8000;     // defensive timeout for font loads
+    // Listen for config resets to re-inject custom font entries
+    this.config.subscribe((key) => this._onConfigChange(key));
+  }
+  _onConfigChange(key) {
+    if (key === 'ALL' || key === 'fontSettings') {
+        // Re-ensure all loaded fonts exist in the new settings
+        this.loadedFonts.forEach(f => {
+            this._ensureFontConfig(f.name);
+        });
+    }
   }
   /** Initialize: inject embedded font (if present) + open DB + load stored fonts. */
   async init() {
@@ -5892,9 +8534,6 @@ class UIManager {
      */
     _generateDefinitions() {
         return [
-            { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
-            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
-            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             ...this._generateGlobalSettings(),
             // APPEARANCE TAB
             ...this._generateAppearanceSettings(),
@@ -5913,6 +8552,11 @@ class UIManager {
      */
     _generateGlobalSettings() {
         return [
+            { cat: 'Global', type: 'accordion_header', label: 'Rendering Engine' },
+            { cat: 'Global', id: 'renderingEngine', type: 'select', label: 'Renderer', options: [{label:'Canvas 2D Rendering', value:'canvas'}, {label:'WebGL 3D Rendering', value:'webgl'}], description: "Select the rendering backend. WebGL offers better performance for large resolutions but might differ slightly in visuals." },
+            { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
+            { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
+            { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
@@ -5935,7 +8579,6 @@ class UIManager {
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
             { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info' },
-            { cat: 'Appearance', id: 'fontWeight', type: 'select', label: 'Weight', options: [{label:'Thin',value:'100'},{label:'Light',value:'300'},{label:'Normal',value:'normal'},{label:'Bold',value:'bold'},{label:'Heavy',value:'900'}] , description: "If font supported; Bold should work but light/thin may not, depending on the font."},
             { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize' },
             { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text' },
             { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' }, // Main Accordion Header
@@ -6131,6 +8774,8 @@ class UIManager {
             { cat: 'Effects', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
             { cat: 'Effects', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
             { cat: 'Effects', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Time Manipulation' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Reverse Time', action: 'reverse_time', class: 'btn-warn' },
             { cat: 'Effects', type: 'header', label: 'Post Processing' },
             { cat: 'Effects', type: 'accordion_header', label: 'Shader' },
             { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
@@ -6166,6 +8811,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
+            { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
             { cat: 'System', type: 'accordion_header', label: 'System Reset' },
             { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
@@ -6563,8 +9209,6 @@ class UIManager {
      */
     _getFonts() {
         return [
-            {label:'Gothic (Win)', value:'"MS Gothic", monospace'},
-            {label:'Console', value:'Consolas, monaco, monospace'},
             ...this.fonts.loadedFonts.map(f => ({label:f.display, value:f.name, custom:true}))
         ];
     }
@@ -6981,8 +9625,8 @@ class UIManager {
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
-        if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); 
-        }
+        if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); }
+        if(action === 'reverse_time') { if(this.effects.trigger('ReverseEffect')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
     }
     /**
      * Refreshes the UI to reflect current configuration settings.
@@ -7272,11 +9916,12 @@ class MatrixKernel {
             DejaVuEffect,
             SupermanEffect,
             FirewallEffect,
+            ReverseEffect,
             BootEffect,
             CrashEffect
         ];
         effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
+            if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
             } else {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config));
@@ -7288,7 +9933,12 @@ class MatrixKernel {
      * @private
      */
     async _initializeRendererAndUI() {
-        this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        const engine = this.config.get('renderingEngine') || 'canvas';
+        if (engine === 'webgl' && typeof WebGLRenderer !== 'undefined') {
+             this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        } else {
+             this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+        }
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
@@ -7305,6 +9955,45 @@ class MatrixKernel {
             this.config.set('shaderEnabled', false);
             this.config.set('customShader', null);
             // console.log("Resetting stuck shader state on init.");
+        }
+    }
+    _switchRenderer(engine) {
+        if (this.renderer) {
+            if (this.renderer.dispose) this.renderer.dispose();
+        }
+        // Slight delay to allow DOM to clear/reset if needed? Not strictly necessary for same-canvas swap
+        // But we might need to reset the canvas context attributes.
+        // Actually, getting a '2d' context after 'webgl' on the same canvas element is problematic in some browsers.
+        // It is safer to replace the canvas element itself.
+        const oldCanvas = document.getElementById('matrixCanvas');
+        const newCanvas = oldCanvas.cloneNode(true);
+        // Remove old context-bound canvas and replace with fresh one
+        oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+        // Re-instantiate
+        try {
+            if (engine === 'webgl' && typeof WebGLRenderer !== 'undefined') {
+                this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.notifications.show('Switched to WebGL Renderer', 'success');
+            } else {
+                this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.notifications.show('Switched to Canvas Renderer', 'success');
+            }
+            // Trigger resize to setup buffers
+            this.renderer.resize();
+            // Sync fonts
+            this.renderer.handleFontChange();
+        } catch (e) {
+            console.error("Renderer switch failed:", e);
+            this.notifications.show('Renderer switch failed: ' + e.message, 'error');
+            // Fallback to Canvas if WebGL failed
+            if (engine === 'webgl') {
+                this.config.set('renderingEngine', 'canvas'); // Update state back
+                // We rely on the subscription to trigger this again, OR we manually recover:
+                // Let's manually recover to avoid infinite loops if canvas also fails (unlikely)
+                this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                this.renderer.resize();
+                this.renderer.handleFontChange();
+            }
         }
     }
     /**
@@ -7368,7 +10057,19 @@ class MatrixKernel {
             'smoothingEnabled',
             'smoothingAmount'
         ]);
+        const atlasTriggers = new Set([
+            'fontWeight',
+            'italicEnabled',
+            'tracerSizeIncrease',
+            'tracerGlow',
+            'overlapColor',
+            'streamPalette',
+            'tracerColor'
+        ]);
         this.config.subscribe((key) => {
+            if (key === 'renderingEngine') {
+                this._switchRenderer(this.config.state.renderingEngine);
+            }
             // Resize the canvas and grid on resolution-related changes
             if (resizeTriggers.has(key) || key === 'ALL') {
                 this._resize();
@@ -7376,6 +10077,10 @@ class MatrixKernel {
             // Update renderer when smoothing settings change
             if (smoothingTriggers.has(key)) {
                 this.renderer.updateSmoothing();
+            }
+            // Update Atlas if appearance changes (WebGL optimization)
+            if ((atlasTriggers.has(key) || key === 'ALL') && this.renderer && this.renderer.handleAppearanceChange) {
+                this.renderer.handleAppearanceChange();
             }
             const autoEffects = [
                 { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },

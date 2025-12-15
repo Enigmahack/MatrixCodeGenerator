@@ -53,6 +53,7 @@ class WebGLRenderer {
         // --- Core WebGL State ---
         this.program = null;       // Main Matrix Shader
         this.bloomProgram = null;  // Bloom/Blur Shader
+        this.colorProgram = null;  // Solid Color Shader
         this.atlasTexture = null;  // Font Texture
         this.vao = null;           // Vertex Array Object
         
@@ -128,6 +129,7 @@ class WebGLRenderer {
             // Simple cleanup attempt
             if (this.program) this.gl.deleteProgram(this.program);
             if (this.bloomProgram) this.gl.deleteProgram(this.bloomProgram);
+            if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);
             if (this.atlasTexture) this.gl.deleteTexture(this.atlasTexture);
             // We don't destroy the context or canvas, just reset.
             this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
@@ -374,6 +376,30 @@ class WebGLRenderer {
         }
 
         this.bloomProgram = this._createProgram(finalBloomVS, finalBloomFS);
+
+        // --- Solid Color Shader (Fade/Overlay) ---
+        const colorVS = `${version}
+            layout(location=0) ${attribute} vec2 a_position;
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+            }
+        `;
+        const colorFS = `${version}
+            precision mediump float;
+            uniform vec4 u_color;
+            ${outColor}
+            void main() {
+                ${setFragColor} = u_color;
+            }
+        `;
+        
+        let finalColorVS = colorVS;
+        let finalColorFS = colorFS;
+        if (!this.isWebGL2) {
+             finalColorVS = `attribute vec2 a_position; void main(){ gl_Position = vec4(a_position, 0.0, 1.0); }`;
+             finalColorFS = `precision mediump float; uniform vec4 u_color; void main(){ gl_FragColor = u_color; }`;
+        }
+        this.colorProgram = this._createProgram(finalColorVS, finalColorFS);
     }
 
     _initBuffers() {
@@ -559,6 +585,11 @@ class WebGLRenderer {
         out.alpha = 0;
         out.phase = 'none';
 
+        // Guard: If all tracer durations are zero, disable tracer visual entirely
+        if ((state.tracerAttackFrames + state.tracerHoldFrames + state.tracerReleaseFrames) <= 0) {
+            return out;
+        }
+
         const age = this.grid.ages[index];
         const decay = this.grid.decays[index];
         if (age <= 0 || decay >= 2) return out;
@@ -576,13 +607,13 @@ class WebGLRenderer {
         const hold = state.tracerHoldFrames;
         const release = state.tracerReleaseFrames;
 
-        if (activeTime < attack) {
+        if (activeTime <= attack) {
             out.alpha = (attack > 0) ? (activeTime / attack) : 1.0;
             out.phase = 'attack';
-        } else if (activeTime < attack + hold) {
+        } else if (activeTime <= attack + hold) {
             out.alpha = 1.0;
             out.phase = 'hold';
-        } else if (activeTime < attack + hold + release) {
+        } else if (activeTime < attack + hold + release + 1) {
             const relTime = activeTime - (attack + hold);
             out.alpha = 1.0 - (relTime / release);
             out.phase = 'release';
@@ -613,6 +644,71 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(4);
         this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, stride, offset + 28);
         this.gl.vertexAttribDivisor(4, 1);
+    }
+
+    _drawFullscreenColor(r, g, b, a) {
+        if (!this.colorProgram) return;
+        this.gl.useProgram(this.colorProgram);
+        
+        // Bind Screen Quad ( -1..1 )
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        const locPos = this.gl.getAttribLocation(this.colorProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        
+        const locColor = this.gl.getUniformLocation(this.colorProgram, 'u_color');
+        this.gl.uniform4f(locColor, r, g, b, a);
+        
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+
+    _drawFullscreenTexture(texture, opacity, blurAmt) {
+        if (!this.bloomProgram) return;
+        this.gl.useProgram(this.bloomProgram);
+        
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        const locPos = this.gl.getAttribLocation(this.bloomProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+        
+        // Weights for Identity (No blur)
+        const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
+        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), 0.0);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), 1);
+        
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
+
+    _runBlur(sourceTex, horizontal, strength, width, height) {
+        if (!this.bloomProgram) return;
+        this.gl.useProgram(this.bloomProgram);
+        
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer); // -1..1
+        const locPos = this.gl.getAttribLocation(this.bloomProgram, 'a_position');
+        this.gl.enableVertexAttribArray(locPos);
+        this.gl.vertexAttribPointer(locPos, 2, this.gl.FLOAT, false, 0, 0);
+        
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+        
+        // Standard Gaussian Weights
+        const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
+        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), strength);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
+        
+        if (!this.isWebGL2) {
+             this.gl.uniform2f(this.gl.getUniformLocation(this.bloomProgram, 'u_texSize'), width, height);
+        }
+
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
 
     render(frame) {
@@ -725,7 +821,7 @@ class WebGLRenderer {
                 let gridAlpha = gridAlpha0;
                 const tState = this._getTracerState(i, s, this._tracerStateObj);
 
-                if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
+                // Removed: if (tState.phase === 'attack' || tState.phase === 'hold') gridAlpha = 0.0;
                 
                 if (override) {
                      if (override.solid) nMain++; 
@@ -733,6 +829,14 @@ class WebGLRenderer {
                 }
                 if (gridAlpha > 0.01) {
                     nMain++;
+                    
+                    // Rotator Crossfade Reservation
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001) {
+                        if (grid.nextChars && grid.nextChars.has(i)) {
+                            nMain++;
+                        }
+                    }
+
                     // Ghost Logic (Count)
                     if (s.deteriorationEnabled) {
                         const decay = grid.decays[i];
@@ -776,9 +880,7 @@ class WebGLRenderer {
                 const tState = this._getTracerState(i, s, this._tracerStateObj);
                 let gridAlpha = gridAlpha0;
 
-                if (tState.phase === 'attack' || tState.phase === 'hold') {
-                    gridAlpha = 0.0;
-                }
+                // Removed: if (tState.phase === 'attack' || tState.phase === 'hold') { gridAlpha = 0.0; }
 
                 // Size Logic (Override + Dissolve)
                 let drawScale = 1.0;
@@ -837,33 +939,106 @@ class WebGLRenderer {
                      }
                 }
 
-                // 1. MAIN CHAR
+                // 1. MAIN CHAR & ROTATOR CROSSFADE
                 if (gridAlpha > 0.01) {
-                    const charStr = String.fromCharCode(charCode);
-                    const sprite = atlas.get(charStr);
-                    if (sprite) {
-                        const col = Math.round(sprite.x / atlas.cellSize);
-                        const row = Math.round(sprite.y / atlas.cellSize);
-                        const charIdx = (row * atlas._lastCols) + col;
+                    // Check Rotator State
+                    let mainAlpha = gridAlpha;
+                    let nextAlpha = 0.0;
+                    let nextCharCode = -1;
+                    
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001) {
+                         if (grid.nextChars && grid.nextChars.has(i)) {
+                             // Normalize progress (frame count -> 0..1)
+                             const maxFrames = s.rotatorCrossfadeFrames > 0 ? s.rotatorCrossfadeFrames : 1;
+                             const prog = Math.min(1.0, grid.rotatorProg[i] / maxFrames);
+                             
+                             const nc = grid.nextChars.get(i);
+                             nextCharCode = (typeof nc === 'string') ? nc.charCodeAt(0) : nc;
+                             
+                             // Crossfade: Current fades out, Next fades in
+                             mainAlpha = gridAlpha * (1.0 - prog);
+                             nextAlpha = gridAlpha * prog;
+                         }
+                    }
 
-                        this.instanceData[ptrMain++] = px;
-                        this.instanceData[ptrMain++] = py;
-                        this.instanceData[ptrMain++] = charIdx;
-                        this.instanceData[ptrMain++] = r;
-                        this.instanceData[ptrMain++] = g;
-                        this.instanceData[ptrMain++] = b;
-                        this.instanceData[ptrMain++] = gridAlpha;
-                        this.instanceData[ptrMain++] = drawScale;
+                    // Draw Current Char
+                    if (mainAlpha > 0.01) {
+                        const charStr = String.fromCharCode(charCode);
+                        const sprite = atlas.get(charStr);
+                        if (sprite) {
+                            const col = Math.round(sprite.x / atlas.cellSize);
+                            const row = Math.round(sprite.y / atlas.cellSize);
+                            const charIdx = (row * atlas._lastCols) + col;
 
-                        // Ghost Logic (Fill)
-                        if (s.deteriorationEnabled) {
-                            const decay = grid.decays[i];
-                            if (decay >= 2) {
+                            this.instanceData[ptrMain++] = px;
+                            this.instanceData[ptrMain++] = py;
+                            this.instanceData[ptrMain++] = charIdx;
+                            this.instanceData[ptrMain++] = r;
+                            this.instanceData[ptrMain++] = g;
+                            this.instanceData[ptrMain++] = b;
+                            this.instanceData[ptrMain++] = mainAlpha;
+                            this.instanceData[ptrMain++] = drawScale;
+                        } else {
+                             // Reserved but no sprite? Write dummy.
+                             this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                        }
+                    } else {
+                         // Low alpha, write dummy to keep alignment
+                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                         this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                    }
+
+                    // Draw Next Char (Crossfade) - Check Pass 1 condition
+                    if (grid.rotatorProg && grid.rotatorProg[i] > 0.001 && grid.nextChars && grid.nextChars.has(i)) {
+                        let written = false;
+                        if (nextAlpha > 0.01 && nextCharCode !== -1) {
+                            const charStr = String.fromCharCode(nextCharCode);
+                            const sprite = atlas.get(charStr);
+                            if (sprite) {
+                                const col = Math.round(sprite.x / atlas.cellSize);
+                                const row = Math.round(sprite.y / atlas.cellSize);
+                                const charIdx = (row * atlas._lastCols) + col;
+
+                                this.instanceData[ptrMain++] = px;
+                                this.instanceData[ptrMain++] = py;
+                                this.instanceData[ptrMain++] = charIdx;
+                                this.instanceData[ptrMain++] = r;
+                                this.instanceData[ptrMain++] = g;
+                                this.instanceData[ptrMain++] = b;
+                                this.instanceData[ptrMain++] = nextAlpha;
+                                this.instanceData[ptrMain++] = drawScale;
+                                written = true;
+                            }
+                        }
+                        
+                        if (!written) {
+                             // Reserved but not drawn? Write dummy.
+                             this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                             this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
+                        }
+                    }
+
+                    // Ghost Logic (Fill) - Uses gridAlpha (base alpha)
+                    if (s.deteriorationEnabled) {
+                        const decay = grid.decays[i];
+                        if (decay >= 2) {
                                  const prog = (decay - 2) / s.decayFadeDurationFrames;
                                  const off = s.deteriorationStrength * prog;
                                  const ghostAlpha = gridAlpha * 0.8 * prog;
                                  
-                                 if (ghostAlpha > 0.01) {
+                                 // Use main char for ghosts (simplification)
+                                 const charStr = String.fromCharCode(charCode);
+                                 const sprite = atlas.get(charStr);
+                                 
+                                 if (sprite && ghostAlpha > 0.01) {
+                                     const col = Math.round(sprite.x / atlas.cellSize);
+                                     const row = Math.round(sprite.y / atlas.cellSize);
+                                     const charIdx = (row * atlas._lastCols) + col;
+                                     
                                      // Ghost 1 (Up)
                                      this.instanceData[ptrMain++] = px;
                                      this.instanceData[ptrMain++] = py - off;
@@ -880,46 +1055,19 @@ class WebGLRenderer {
                                      this.instanceData[ptrMain++] = ghostAlpha;
                                      this.instanceData[ptrMain++] = drawScale;
                                  } else {
-                                     // Counted but skipped due to low alpha, advance ptr to keep alignment?
-                                     // No, buffer is contiguous. Counted space can be unused if we strictly use subarray up to totalFloats.
-                                     // Wait, 'totalFloats' is calculated via 'ptrTracer'. 
-                                     // If we don't increment ptrMain here, 'ptrOverlap' calculation earlier will be wrong?
-                                     // NO. 'ptrOverlap' was pre-calculated: 'let ptrOverlap = nMain * 8'.
-                                     // IF we don't fill these slots, there will be gaps in the buffer.
-                                     // AND the overlap data will be written starting at 'ptrOverlap', overwriting whatever garbage is there.
-                                     // BUT if we counted them in 'nMain', we reserved space BEFORE 'ptrOverlap'.
-                                     // So if we skip writing, we leave gaps.
-                                     // Instanced draw uses 'count'.
-                                     // If we counted them, we told GL to draw 'nMain' instances.
-                                     // If we skip writing, we have uninitialized data.
-                                     // BETTER: Don't skip. Or write degenerate instances (alpha 0).
-                                     // Writing degenerate instances is safer.
-                                     
-                                     // Actually, my 'nMain' count logic in Pass 1 was strict:
-                                     // if (decay >= 2) nMain += 2;
-                                     // In Pass 2:
-                                     // if (decay >= 2) ... check ghostAlpha.
-                                     // ghostAlpha depends on prog.
-                                     // If ghostAlpha <= 0.01, we skip.
-                                     // So counts might mismatch!
-                                     // FIX: Write zero-alpha instances if ghostAlpha is too low, or match Pass 1 logic exactly.
-                                     // Pass 1 didn't check ghostAlpha.
-                                     // So I should just write them. The shader will discard if alpha is low or I can set alpha 0.
-                                     
                                      if (ghostAlpha <= 0.01) {
-                                         // Write dummy
-                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = charIdx;
+                                         // Write dummy to keep alignment
+                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
                                          this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
                                          this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
                                          
-                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = charIdx;
+                                         this.instanceData[ptrMain++] = px; this.instanceData[ptrMain++] = py; this.instanceData[ptrMain++] = -1;
                                          this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
                                          this.instanceData[ptrMain++] = 0; this.instanceData[ptrMain++] = 0;
                                      }
                                  }
                             }
                         }
-                    }
                 }
                 
                 // 2. OVERLAP
@@ -1066,3 +1214,4 @@ class WebGLRenderer {
             }
         }
     }
+}

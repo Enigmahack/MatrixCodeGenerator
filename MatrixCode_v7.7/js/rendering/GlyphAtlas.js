@@ -79,7 +79,7 @@ class GlyphAtlas {
         const maxSize = s.fontSize + s.tracerSizeIncrease;
         const style = s.italicEnabled ? 'italic ' : '';
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
-        const padding = Math.max(s.tracerGlow, 10) * 2;
+        const padding = 10 * 2; // Fixed padding, decoupled from tracerGlow
         
         const paletteStr = d.paletteColorsStr.join(',');
         const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + fontBase + '|' + padding;
