@@ -1,0 +1,32 @@
+# ----------------------------------------------------------------------
+# 1. macOS-Specific Files (Applicable to all directories)
+# ----------------------------------------------------------------------
+# Mac-specific files that contain custom attributes for a folder
+**/.DS_Store
+# Thumbnails and resource forks (legacy/metadata files)
+**/._*
+# Xcode/Finder/metadata files
+.Spotlight-V100
+.Trashes
+# History of commands for the Terminal
+.bash_history
+.localized
+
+# ----------------------------------------------------------------------
+# 2. Your Specific Exclusions
+# ----------------------------------------------------------------------
+# Ignore GEMINI.md files in all directories and subdirectories
+**/GEMINI.md
+
+
+# ----------------------------------------------------------------------
+# 3. Common Operating System & Editor Files (General Cleanup)
+# ----------------------------------------------------------------------
+# Thumbs.db (Windows-specific thumbnail cache)
+Thumbs.db
+# Recycle Bin files (Windows)
+$RECYCLE.BIN/
+# Swap files created by Vim and Emacs
+*~
+*.swp
+\#*

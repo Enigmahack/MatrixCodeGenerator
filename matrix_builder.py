@@ -18,7 +18,7 @@ CODE_MAP = {
     'ConfigurationManager': 'js/config/ConfigurationManager.js',
     
     # Data
-    'MatrixGrid': 'js/data/MatrixGrid.js',
+    'CellGrid': 'js/data/CellGrid.js',
     'DEFAULT_FONT_DATA': 'js/data/FontData.js',
     
     # Simulation
@@ -27,6 +27,7 @@ CODE_MAP = {
     'StarPowerMode': 'js/simulation/StreamModes.js',
     'RainbowMode': 'js/simulation/StreamModes.js',
     'SimulationSystem': 'js/simulation/SimulationSystem.js',
+    'StreamManager': 'js/simulation/StreamManager.js',
     
     # Effects
     'EffectRegistry': 'js/effects/EffectRegistry.js',
@@ -48,7 +49,6 @@ CODE_MAP = {
     'CharacterSelectorModal': 'js/ui/CharacterSelectorModal.js',
     
     # Rendering
-    'CanvasRenderer': 'js/rendering/CanvasRenderer.js',
     'WebGLRenderer': 'js/rendering/WebGLRenderer.js',
     'GlyphAtlas': 'js/rendering/GlyphAtlas.js',
     'PostProcessor': 'js/rendering/PostProcessor.js'
