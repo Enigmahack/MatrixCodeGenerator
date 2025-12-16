@@ -29,7 +29,24 @@ class DejaVuEffect extends AbstractEffect {
         if(Math.random() < s.dejaVuIntensity) {
             const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); 
             const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
-            this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
+            const duration = s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10);
+            
+            this.bars.push({ y, h, age: 0, maxAge: duration });
+
+            // Add Glow Effect
+            if (this.g.glowSystem) {
+                this.g.glowSystem.addRect(
+                    this.g.cols / 2, // Center X
+                    y + (h / 2),     // Center Y
+                    this.g.cols,     // Width
+                    h,               // Height
+                    2.0,             // Intensity
+                    0xFF00FF00,      // Green (0xAABBGGRR) -> 00(R) FF(G) 00(B) FF(A) -> 0xFF00FF00
+                    duration,
+                    'linear',
+                    4                // Soft Edge
+                );
+            }
         }
         
         const activeFonts = this.c.derived.activeFonts;
@@ -76,9 +93,10 @@ class DejaVuEffect extends AbstractEffect {
                             const rgb = Utils.hslToRgb(h, 90, 70);
                             color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
                             // Set complex style so SimulationSystem can maintain it (if desired)
-                            // or just set color directly for instant effect.
-                            // SimulationSystem overwrites color if complexStyle exists.
                             this.g.complexStyles.set(idx, { h, s: 90, l: 70, glitched: true });
+                            
+                            // Fix: Update baseColors so SimulationSystem doesn't overwrite it
+                            this.g.baseColors[idx] = color;
                         }
                         
                         this.g.setPrimary(idx, char, color, alpha, fontIdx, glow);
@@ -110,29 +128,18 @@ class DejaVuEffect extends AbstractEffect {
                     const i = rowOffset + x;
                     
                     const baseAlpha = grid.alphas[i];
+                    const char = grid.getChar(i);
+                    const fontIdx = grid.fontIndices[i];
                     
                     if (baseAlpha < 0.01) {
                         // INACTIVE CELL (Space)
                         // Light up based on Intensity (HoleBrightness)
                         if (holeBrightness > 0.01) {
-                            // Pick a random char to fill the void (stable per cell? No, glitchy is fine)
-                            // To be stable, we hash index.
-                            const charIdx = (i + y) % fallbackChars.length;
-                            const char = fallbackChars[charIdx];
-                            
                             grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
                         }
                     } else {
-                        // ACTIVE CELL
-                        // Overlay with Tracer Color? Or keep original?
-                        // Legacy: "alpha = baseAlpha < 0.1 ? hole : baseAlpha"
-                        // But also set Color = TracerColor.
-                        // So for active cells, we Override color to White.
-                        
-                        // We use the existing char
-                        const char = grid.getChar(i);
-                        const fontIdx = grid.fontIndices[i];
-                        
+                        // ACTIVE CELL (Stream)
+                        // Light up based on Tracer Color
                         grid.setOverride(i, char, tracerColor, baseAlpha, fontIdx, 0);
                     }
                 }

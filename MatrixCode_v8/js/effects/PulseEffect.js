@@ -169,9 +169,14 @@ class PulseEffect extends AbstractEffect {
             const isTracer = (this.snap.tracers[i] === 1);
             const isGap = (snAlpha <= 0.01);
 
-            if (isGap && !s.pulsePreserveSpaces) {
-                charCode = this.snap.fillChars[i];
-                fontIdx = this.snap.fillFonts[i];
+            if (isGap) {
+                if (!s.pulsePreserveSpaces) {
+                    charCode = this.snap.fillChars[i];
+                    fontIdx = this.snap.fillFonts[i];
+                    // Fix: If it was a gap, snap.colors is likely 0/black. 
+                    // Use stream color as target for blend.
+                    color = d.streamColorUint32; 
+                }
             }
 
             if (this.state === 'WAITING' || dist > rd.radius) {

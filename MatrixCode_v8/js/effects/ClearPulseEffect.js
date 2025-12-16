@@ -159,23 +159,25 @@ class ClearPulseEffect extends AbstractEffect {
 
             if (s.clearPulsePreserveSpaces && isGap) continue;
 
-            let charCode, fontIdx;
+            let charCode, fontIdx, color;
             if (isGap) {
                 charCode = this.snap.fillChars[i];
                 fontIdx = this.snap.fillFonts[i];
+                // Fix: Gaps need a valid target color for blending
+                color = d.streamColorUint32;
             } else {
                 charCode = grid.chars[i];
                 fontIdx = grid.fontIndices[i];
+                color = this.snap.colors[i];
             }
 
             const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
             
             let finalColor = tColorInt;
             if (s.clearPulseBlend) {
-                const snapColor = this.snap.colors[i];
-                const bR = snapColor & 0xFF;
-                const bG = (snapColor >> 8) & 0xFF;
-                const bB = (snapColor >> 16) & 0xFF;
+                const bR = color & 0xFF;
+                const bG = (color >> 8) & 0xFF;
+                const bB = (color >> 16) & 0xFF;
                 
                 const mR = Math.floor(tR + (bR - tR) * rel);
                 const mG = Math.floor(tG + (bG - tG) * rel);
