@@ -6,6 +6,11 @@ class DejaVuEffect extends AbstractEffect {
         this.autoTimer = c.state.dejaVuFrequencySeconds * 60; 
         this.map = null;
         this.bars = [];
+        
+        // Sub-effect states
+        this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
+        this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
+        this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
     }
     
     trigger() { 
@@ -14,6 +19,12 @@ class DejaVuEffect extends AbstractEffect {
         this.timer = this.c.state.dejaVuDurationSeconds * 60; 
         this.bars = []; 
         this.map = new Uint8Array(this.g.rows); 
+        
+        // Reset sub-effects
+        this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
+        this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
+        this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
+        
         return true; 
     }
     
@@ -25,6 +36,7 @@ class DejaVuEffect extends AbstractEffect {
         
         this.map.fill(0);
         
+        // --- 1. Update Existing Bars Logic ---
         // Spawn bars
         if(Math.random() < s.dejaVuIntensity) {
             const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); 
@@ -104,11 +116,65 @@ class DejaVuEffect extends AbstractEffect {
                 }
             }
         }
+
+        // --- 2. Update Sub-Effects ---
+        
+        // Vertical Glitch (Stripes)
+        if (this.vertGlitch.active) {
+            this.vertGlitch.timer--;
+            if (this.vertGlitch.timer <= 0) this.vertGlitch.active = false;
+        } else {
+            // Random Trigger: ~1-2% chance per frame?
+            if (Math.random() < 0.01) {
+                this.vertGlitch.active = true;
+                this.vertGlitch.timer = 15; // 0.25s at 60fps
+                this.vertGlitch.width = Utils.randomInt(4, 5);
+                this.vertGlitch.srcX = Utils.randomInt(0, this.g.cols - this.vertGlitch.width);
+            }
+        }
+
+        // Doubling Effect
+        if (this.doubleGlitch.active) {
+            this.doubleGlitch.timer--;
+            if (this.doubleGlitch.timer <= 0) this.doubleGlitch.active = false;
+        } else {
+            if (Math.random() < 0.015) {
+                this.doubleGlitch.active = true;
+                this.doubleGlitch.timer = Utils.randomInt(5, 15);
+                this.doubleGlitch.h = Math.floor(this.g.rows / 3);
+                this.doubleGlitch.startY = Utils.randomInt(0, this.g.rows - this.doubleGlitch.h);
+                this.doubleGlitch.shiftX = Utils.randomInt(5, 20) * (Math.random() < 0.5 ? 1 : -1);
+            }
+        }
+
+        // Horizontal Glitch (Flashy)
+        if (this.horizGlitch.active) {
+            this.horizGlitch.timer--;
+            if (this.horizGlitch.timer <= 0) this.horizGlitch.active = false;
+        } else {
+            if (Math.random() < 0.01) {
+                this.horizGlitch.active = true;
+                this.horizGlitch.timer = Utils.randomInt(5, 10);
+                this.horizGlitch.shift = Utils.randomInt(3, 10) * (Math.random() < 0.5 ? 1 : -1);
+                this.horizGlitch.flash = Math.random() < 0.5; // "Not all flashes"
+                
+                // Pick random rows (scattered)
+                this.horizGlitch.rows = [];
+                const count = Utils.randomInt(5, 20);
+                for(let i=0; i<count; i++) {
+                    this.horizGlitch.rows.push(Utils.randomInt(0, this.g.rows-1));
+                }
+            }
+        }
     }
     
     applyToGrid(grid) {
-        if(!this.active || !this.map) return;
+        if(!this.active) return; // map is valid if active (or cleared)
         
+        // If we are not active but update() was called before applyToGrid in the same frame
+        // (which shouldn't happen for logic step vs render step, but safe to check)
+        if (!this.map) return;
+
         const s = this.c.state; 
         const d = this.c.derived;
         const cols = grid.cols;
@@ -124,6 +190,7 @@ class DejaVuEffect extends AbstractEffect {
         // Use a stable time seed for slower updates (approx 6 updates/sec)
         const timeSeed = Math.floor(Date.now() / 150);
 
+        // 1. Standard Deja Vu Bars (The main effect)
         for (let y = 0; y < grid.rows; y++) {
             if (this.map[y] === 1) {
                 const rowOffset = y * cols;
@@ -153,6 +220,76 @@ class DejaVuEffect extends AbstractEffect {
                         // Light up based on Tracer Color
                         grid.setOverride(i, char, tracerColor, baseAlpha, fontIdx, 0);
                     }
+                }
+            }
+        }
+
+        // 2. Global Glitches (Overrides on top)
+        
+        // Vertical Glitch (Stripes)
+        if (this.vertGlitch.active) {
+            const { srcX, width } = this.vertGlitch;
+            for (let y = 0; y < grid.rows; y++) {
+                const rowOffset = y * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    const readX = srcX + (x % width);
+                    if (readX >= cols) continue;
+                    const readIdx = rowOffset + readX;
+                    const char = grid.getChar(readIdx);
+                    const alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    const color = grid.colors[readIdx];
+                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                }
+            }
+        }
+
+        // Doubling Glitch
+        if (this.doubleGlitch.active) {
+            const { startY, h, shiftX } = this.doubleGlitch;
+            const endY = Math.min(grid.rows, startY + h);
+            for (let y = startY; y < endY; y++) {
+                const rowOffset = y * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    let readX = x - shiftX;
+                    if (readX < 0) readX += cols;
+                    if (readX >= cols) readX -= cols;
+                    const readIdx = rowOffset + readX;
+                    const char = grid.getChar(readIdx);
+                    const alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    const color = grid.colors[readIdx];
+                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                }
+            }
+        }
+        
+        // Horizontal Glitch
+        if (this.horizGlitch.active) {
+            const { rows, shift, flash } = this.horizGlitch;
+            for (const r of rows) {
+                if (r >= grid.rows) continue;
+                const rowOffset = r * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    let readX = x - shift;
+                    if (readX < 0) readX += cols;
+                    if (readX >= cols) readX -= cols;
+                    const readIdx = rowOffset + readX;
+                    const char = grid.getChar(readIdx);
+                    let alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    let color = grid.colors[readIdx];
+                    let glow = grid.glows[readIdx];
+
+                    if (flash) {
+                        color = 0xFFFFFFFF; // White
+                        alpha = 1.0;
+                        glow = 5.0; 
+                    }
+                    grid.setOverride(i, char, color, alpha, fontIdx, glow);
                 }
             }
         }
