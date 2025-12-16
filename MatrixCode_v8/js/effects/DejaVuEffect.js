@@ -135,7 +135,13 @@ class DejaVuEffect extends AbstractEffect {
                         // INACTIVE CELL (Space)
                         // Light up based on Intensity (HoleBrightness)
                         if (holeBrightness > 0.01) {
-                            grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            // Use a random character instead of the fallback/empty one
+                            if (fallbackChars && fallbackChars.length > 0) {
+                                const rndIdx = (Math.random() * fallbackChars.length) | 0;
+                                grid.setOverride(i, fallbackChars[rndIdx], tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            } else {
+                                grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            }
                         }
                     } else {
                         // ACTIVE CELL (Stream)
