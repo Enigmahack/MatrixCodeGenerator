@@ -71,12 +71,7 @@ class FirewallEffect extends AbstractEffect {
                 // Deep clean the column so it is totally empty
                 for (let y = 0; y < this.g.rows; y++) {
                     const idx = this.g.getIndex(this.column, y);
-                    this.g.types[idx] = CELL_TYPE.EMPTY;
-                    this.g.alphas[idx] = 0;
-                    this.g.ages[idx] = 0;
-                    this.g.decays[idx] = 0;
-                    this.g.rotatorProg[idx] = 0;
-                    this.g.complexStyles.delete(idx);
+                    this.g.clearCell(idx);
                 }
             }
 

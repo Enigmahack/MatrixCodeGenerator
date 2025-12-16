@@ -3,6 +3,9 @@ class SimulationSystem {
         this.grid = grid;
         this.config = config;
         this.streamManager = new StreamManager(grid, config);
+        this.glowSystem = new GlowSystem(grid);
+        this.grid.glowSystem = this.glowSystem; // Expose to Effects via Grid
+        
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.timeScale = 1.0;
@@ -13,6 +16,11 @@ class SimulationSystem {
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
         
+        // Apply Glows (Additive)
+        if (this.grid.envGlows) this.grid.envGlows.fill(0);
+        this.glowSystem.update();
+        this.glowSystem.apply();
+
         if (this.grid.cellLocks) {
             this.grid.cellLocks.fill(0);
         }
@@ -61,6 +69,9 @@ class SimulationSystem {
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             const N = this.grid.secondaryChars.length;
             for (let i = 0; i < N; i++) {
+                // If cell is overridden (e.g. Pulse Freeze), do not change secondary char
+                if (this.grid.overrideActive[i] !== 0) continue;
+
                 if (Math.random() < currentDensity) {
                     setOverlapChar(i);
                 } else {
@@ -86,6 +97,8 @@ class SimulationSystem {
         const grid = this.grid;
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
+        // If an effect is overriding this cell, pause simulation updates (Freeze)
+        if (grid.overrideActive[idx] !== 0) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;
@@ -98,7 +111,8 @@ class SimulationSystem {
 
         // --- TRACER COLOR FADE ---
         // Transitions from Tracer Color -> Stream Color based on Age
-        if (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR) {
+        // Only apply if NOT decaying (Erasers trigger decay)
+        if (decay < 2 && (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR)) {
             const attack = s.tracerAttackFrames;
             const hold = s.tracerHoldFrames;
             const release = s.tracerReleaseFrames;
@@ -147,7 +161,8 @@ class SimulationSystem {
         }
 
         // Handle Rotator
-        if (s.rotatorEnabled && grid.types[idx] === CELL_TYPE.ROTATOR) {
+        // Allow rotator to finish its transition (mix > 0) even if subsequently disabled
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && grid.types[idx] === CELL_TYPE.ROTATOR) {
             this._handleRotator(idx, frame, s, d);
         }
 
@@ -171,6 +186,7 @@ class SimulationSystem {
             } else {
                 // Also enforce it in case we missed frame 2 (unlikely but safe)
                 grid.colors[idx] = grid.baseColors[idx];
+                grid.glows[idx] = 0;
             }
             
             grid.decays[idx]++;
@@ -196,7 +212,7 @@ class SimulationSystem {
 
         if (mix > 0) {
             this._progressRotator(idx, mix, s.rotatorCrossfadeFrames);
-        } else if (decay === 1 || (s.rotateDuringFade && decay > 1)) {
+        } else if (s.rotatorEnabled && (decay === 1 || (s.rotateDuringFade && decay > 1))) {
             this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames, s);
         }
     }
@@ -209,17 +225,18 @@ class SimulationSystem {
         if (newMix >= 1.0) {
             const target = grid.getRotatorTarget(idx, false); 
             if (target) {
-                grid.chars[idx] = target;
+                grid.chars[idx] = target.charCodeAt(0);
                 if (this.config.state.overlapEnabled) {
                     const ovTarget = grid.getRotatorTarget(idx, true);
                     if (ovTarget) {
-                        grid.secondaryChars[idx] = ovTarget;
+                        grid.secondaryChars[idx] = ovTarget.charCodeAt(0);
                     }
                 }
             }
             grid.mix[idx] = 0;
-            grid.nextChars.delete(idx);
-            grid.nextOverlapChars.delete(idx);
+            // Clear rotator targets
+            grid.nextChars[idx] = 0;
+            grid.nextOverlapChars[idx] = 0;
         } else {
             grid.mix[idx] = newMix;
         }
@@ -282,13 +299,24 @@ class SimulationSystem {
     }
 
     _calculateAlpha(idx, age, decay, fadeDurationFrames) {
+        const s = this.config.state;
         const b = this.grid.brightness[idx];
-        if (age > 0 || decay === 1) {
-            return 0.95 * b;
-        } else if (decay >= 2) {
+        
+        // Fading OUT
+        if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;
-            return 0.95 * (1 - ratio) * b;
+            // Use power curve for smoother perceived fade (starts fading sooner)
+            const fade = Math.pow(Math.max(0, 1.0 - ratio), 2.0);
+            return 0.95 * fade * b;
         }
-        return 0;
+        
+        // Fading IN
+        const attack = s.tracerAttackFrames;
+        if (age <= attack && attack > 0) {
+            return 0.95 * (age / attack) * b;
+        }
+
+        // Standard State
+        return 0.95 * b;
     }
 }

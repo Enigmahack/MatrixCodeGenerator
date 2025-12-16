@@ -106,6 +106,7 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
+            { cat: 'Global', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -138,7 +139,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_subheader', label: 'Stream Trails' },
             { cat: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit:'fr' },
             { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
-            { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
+            { cat: 'Appearance', id: 'dissolveScalePercent', type: 'range', label: 'Dissolve Scale', min: -100, max: 100, unit: '%', dep: 'dissolveEnabled', description: 'Percentage size change during dissolve. Negative values shrink, positive values grow.' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
             
@@ -152,7 +153,6 @@ class UIManager {
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
             { cat: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
             { cat: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
-            { cat: 'Appearance', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
             { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
         
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
@@ -187,6 +187,7 @@ class UIManager {
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
+            { cat: 'Behavior', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Erasers'},
             { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
@@ -255,7 +256,7 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 150, unit: 'px', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
