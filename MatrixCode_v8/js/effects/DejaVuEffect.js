@@ -124,11 +124,11 @@ class DejaVuEffect extends AbstractEffect {
             this.vertGlitch.timer--;
             if (this.vertGlitch.timer <= 0) this.vertGlitch.active = false;
         } else {
-            // Random Trigger: ~1-2% chance per frame?
-            if (Math.random() < 0.01) {
+            // Random Trigger: Slightly less often (was 0.01)
+            if (Math.random() < 0.005) {
                 this.vertGlitch.active = true;
                 this.vertGlitch.timer = 15; // 0.25s at 60fps
-                this.vertGlitch.width = Utils.randomInt(4, 5);
+                this.vertGlitch.width = Utils.randomInt(4, 7); // Wider stripes (was 4-5)
                 this.vertGlitch.srcX = Utils.randomInt(0, this.g.cols - this.vertGlitch.width);
             }
         }
@@ -170,9 +170,6 @@ class DejaVuEffect extends AbstractEffect {
     
     applyToGrid(grid) {
         if(!this.active) return; // map is valid if active (or cleared)
-        
-        // If we are not active but update() was called before applyToGrid in the same frame
-        // (which shouldn't happen for logic step vs render step, but safe to check)
         if (!this.map) return;
 
         const s = this.c.state; 
@@ -236,10 +233,14 @@ class DejaVuEffect extends AbstractEffect {
                     const readX = srcX + (x % width);
                     if (readX >= cols) continue;
                     const readIdx = rowOffset + readX;
+                    
                     const char = grid.getChar(readIdx);
                     const alpha = grid.alphas[readIdx];
                     const fontIdx = grid.fontIndices[readIdx];
-                    const color = grid.colors[readIdx];
+                    
+                    // Impose Deja Vu Color (Tracer Color) to show "rewriting"
+                    const color = tracerColor; 
+                    
                     grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
                 }
             }
@@ -257,10 +258,14 @@ class DejaVuEffect extends AbstractEffect {
                     if (readX < 0) readX += cols;
                     if (readX >= cols) readX -= cols;
                     const readIdx = rowOffset + readX;
+                    
                     const char = grid.getChar(readIdx);
                     const alpha = grid.alphas[readIdx];
                     const fontIdx = grid.fontIndices[readIdx];
-                    const color = grid.colors[readIdx];
+                    
+                    // Impose Deja Vu Color (Tracer Color)
+                    const color = tracerColor;
+
                     grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
                 }
             }
@@ -288,7 +293,14 @@ class DejaVuEffect extends AbstractEffect {
                         color = 0xFFFFFFFF; // White
                         alpha = 1.0;
                         glow = 5.0; 
+                    } else {
+                         // Optional: Impose Tracer Color here too for non-flashes?
+                         // "the deja vu block color should also impose across some effects"
+                         // I'll leave horizontal as-is (Crash style) or tint it slightly.
+                         // Let's force tracerColor for non-flash horizontal glitches too.
+                         color = tracerColor;
                     }
+                    
                     grid.setOverride(i, char, color, alpha, fontIdx, glow);
                 }
             }
