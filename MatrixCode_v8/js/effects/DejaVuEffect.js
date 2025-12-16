@@ -121,6 +121,9 @@ class DejaVuEffect extends AbstractEffect {
         const fallbackFontIdx = 0;
         const fallbackChars = activeFonts[0].chars;
 
+        // Use a stable time seed for slower updates (approx 6 updates/sec)
+        const timeSeed = Math.floor(Date.now() / 150);
+
         for (let y = 0; y < grid.rows; y++) {
             if (this.map[y] === 1) {
                 const rowOffset = y * cols;
@@ -137,7 +140,9 @@ class DejaVuEffect extends AbstractEffect {
                         if (holeBrightness > 0.01) {
                             // Use a random character instead of the fallback/empty one
                             if (fallbackChars && fallbackChars.length > 0) {
-                                const rndIdx = (Math.random() * fallbackChars.length) | 0;
+                                // Stable pseudo-random selection based on index and time window
+                                const hash = (i ^ timeSeed) * 2654435761;
+                                const rndIdx = (hash & 0x7FFFFFFF) % fallbackChars.length;
                                 grid.setOverride(i, fallbackChars[rndIdx], tracerColor, holeBrightness, fallbackFontIdx, 0);
                             } else {
                                 grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
