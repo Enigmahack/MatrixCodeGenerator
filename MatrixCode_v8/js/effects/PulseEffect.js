@@ -135,8 +135,6 @@ class PulseEffect extends AbstractEffect {
         
         for (let i = 0; i < total; i++) {
             // Optimization: Skip if we are waiting (Override whole screen efficiently)
-            // But we need coordinate check for Expanding.
-            
             let dist = 0;
             if (this.state === 'EXPANDING') {
                 const x = i % grid.cols; 
@@ -153,14 +151,16 @@ class PulseEffect extends AbstractEffect {
                     dist = Math.max(dx, dy * rd.ratio);
                 }
                 
-                // Inside the hole: Reveal (Do nothing)
-                if (dist < rd.innerEdge) continue;
+                // 1. HOLE (Inner Edge): Instant Reveal
+                if (dist < rd.innerEdge) {
+                    grid.clearEffectOverride(i); 
+                    continue;
+                }
             } else {
-                // WAITING: dist is effectively Infinity (outside radius 0)
-                dist = 999999;
+                dist = 999999; // Waiting state: effectively infinite distance
             }
 
-            // --- Override Logic ---
+            // --- Common Data Fetch ---
             const snAlpha = this.snap.alphas[i];
             let charCode = this.snap.chars[i];
             let fontIdx = this.snap.fontIndices[i];
@@ -169,42 +169,41 @@ class PulseEffect extends AbstractEffect {
             const isTracer = (this.snap.tracers[i] === 1);
             const isGap = (snAlpha <= 0.01);
 
-            if (isGap) {
-                if (!s.pulsePreserveSpaces) {
-                    charCode = this.snap.fillChars[i];
-                    fontIdx = this.snap.fillFonts[i];
-                    // Fix: If it was a gap, snap.colors is likely 0/black. 
-                    // Use stream color as target for blend.
-                    color = d.streamColorUint32; 
-                }
+            // Apply Gap Filling (Global)
+            if (isGap && !s.pulsePreserveSpaces) {
+                charCode = this.snap.fillChars[i];
+                fontIdx = this.snap.fillFonts[i];
             }
 
+            // 2. BACKGROUND (Dimmed)
+            // Condition: Waiting OR Outside Radius
             if (this.state === 'WAITING' || dist > rd.radius) {
-                // DIMMED SNAPSHOT
-                if (isTracer && s.pulseIgnoreTracers) {
-                    // Keep original tracer
-                    grid.setOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, s.tracerGlow);
-                } else if (isGap) {
-                     // Black gap
-                     grid.setOverride(i, '', 0, 0, 0, 0); // Override with empty
-                } else {
-                    // Dimmed
-                    grid.setOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
-                }
-            } else {
-                // WAVE EDGE
                 if (s.pulsePreserveSpaces && isGap) {
-                    grid.setOverride(i, '', 0, 0, 0);
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                } else if (isTracer && s.pulseIgnoreTracers) {
+                    // Keep original tracer
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, s.tracerGlow);
                 } else {
-                    const rel = Math.max(0, Math.min(1, (rd.radius - dist) / (s.pulseWidth * 2)));
-                    
-                    // Simple Logic: Bright Wave
-                    // We can't easily do the "Fade In" overlay logic without alpha blending.
-                    // We'll stick to Replacement.
+                    // Dimmed Snapshot
+                    if (snAlpha > 0.01 || !s.pulsePreserveSpaces) {
+                        grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0);
+                    } else {
+                        grid.clearEffectOverride(i);
+                    }
+                }
+            } 
+            // 3. WAVE BAND (Bright)
+            // Condition: We are here because dist >= innerEdge AND dist <= radius
+            else {
+                if (s.pulsePreserveSpaces && isGap) {
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                } else {
+                    // Calculate relative position (0.0 at outer edge, 1.0 at inner edge)
+                    // (radius - dist) is small at edge, large at inner
+                    const rel = Math.max(0, Math.min(1, (rd.radius - dist) / (s.pulseWidth * 1.25)));
                     
                     let finalColor = tColorInt;
                     if (s.pulseBlend) {
-                        // Blend snapshot color with tracer color
                         const bR = color & 0xFF;
                         const bG = (color >> 8) & 0xFF;
                         const bB = (color >> 16) & 0xFF;
@@ -216,7 +215,9 @@ class PulseEffect extends AbstractEffect {
                     }
                     
                     const actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
-                    grid.setOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, actualGlow);
+                    
+                    // Force alpha 1.0 for the wave
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0 , actualGlow);
                 }
             }
         }

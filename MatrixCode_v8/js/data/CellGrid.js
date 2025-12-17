@@ -56,6 +56,13 @@ class CellGrid {
         this.overrideGlows = null;  // Float32
         this.overrideFontIndices = null; // Uint8
 
+        // --- Passive Layer (Effects) ---
+        this.effectActive = null;   // Uint8
+        this.effectChars = null;    // Uint16
+        this.effectColors = null;   // Uint32
+        this.effectAlphas = null;   // Float32
+        this.effectGlows = null;    // Float32
+
         // --- Simulation Logic Storage ---
         this.types = null;      // Uint8 (Tracer, Rotator, Empty)
         this.decays = null;     // Uint8
@@ -68,8 +75,10 @@ class CellGrid {
         
         // Sparse Data (Maps for memory efficiency)
         this.complexStyles = new Map(); // Dynamic styling data
-        this.nextChars = new Map();     // Rotator targets for Primary
-        this.nextOverlapChars = new Map(); // Rotator targets for Secondary
+        
+        // Rotator Targets (Dense for GPU upload)
+        this.nextChars = null;     // Uint16Array
+        this.nextOverlapChars = null; // Uint16Array
     }
 
     /**
@@ -108,14 +117,15 @@ class CellGrid {
     setRotatorTarget(idx, charStr, isSecondary = false) {
         const code = charStr.charCodeAt(0);
         if (isSecondary) {
-            this.nextOverlapChars.set(idx, code);
+            this.nextOverlapChars[idx] = code;
         } else {
-            this.nextChars.set(idx, code);
+            this.nextChars[idx] = code;
         }
     }
 
     getRotatorTarget(idx, isSecondary = false) {
-        return isSecondary ? this.nextOverlapChars.get(idx) : this.nextChars.get(idx);
+        const code = isSecondary ? this.nextOverlapChars[idx] : this.nextChars[idx];
+        return (code > 0) ? String.fromCharCode(code) : null;
     }
     
     // --- Secondary Layer Modifiers ---
@@ -130,6 +140,7 @@ class CellGrid {
 
     // --- Override Layer Modifiers ---
 
+    // This is a 'permanent' or hard override - it directly changes state
     setOverride(idx, charStr, colorUint32, alpha, fontIndex = 0, glow = 0) {
         this.overrideChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
         this.overrideColors[idx] = colorUint32;
@@ -137,6 +148,15 @@ class CellGrid {
         this.overrideGlows[idx] = glow;
         this.overrideFontIndices[idx] = fontIndex;
         this.overrideActive[idx] = OVERRIDE_MODE.CHAR;
+    }
+
+    // This is a soft override - 
+    setEffectOverride(idx, charStr, colorUint32, alpha, glow) {
+        this.effectActive[idx] = 1;
+        this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
+        this.effectColors[idx] = colorUint32;
+        this.effectAlphas[idx] = alpha;
+        this.effectGlows[idx] = glow;
     }
 
     setSolidOverride(idx, colorUint32, alpha) {
@@ -150,10 +170,18 @@ class CellGrid {
         this.overrideActive[idx] = OVERRIDE_MODE.NONE;
     }
 
+    clearEffectOverride(idx) {
+        this.effectActive[idx] = 0;
+    }
+
     clearAllOverrides() {
         if (this.overrideActive) {
             this.overrideActive.fill(0);
         }
+    }
+
+    clearAllEffects(){
+        this.effectActive.fill(0);
     }
 
     // --- General State Management ---
@@ -179,13 +207,18 @@ class CellGrid {
         
         // Clear maps
         this.complexStyles.delete(idx);
-        this.nextChars.delete(idx);
-        this.nextOverlapChars.delete(idx);
+        this.nextChars[idx] = 0;
+        this.nextOverlapChars[idx] = 0;
     }
 
     getChar(idx) {
         // Helper for simulation reading
         return String.fromCharCode(this.chars[idx]);
+    }
+
+    getState(idx){
+        // Helper for getting cell state
+        return this.state[idx];
     }
 
     _resizeGrid(newCols, newRows) {
@@ -221,6 +254,13 @@ class CellGrid {
         this.overrideGlows = new Float32Array(total);
         this.overrideFontIndices = new Uint8Array(total);
 
+        // Effects
+        this.effectActive = new Uint8Array(total)
+        this.effectChars = new Uint16Array(total);
+        this.effectColors = new Uint32Array(total);
+        this.effectAlphas = new Float32Array(total);
+        this.effectGlows = new Float32Array(total);
+
         // Simulation
         this.types = new Uint8Array(total);
         this.decays = new Uint8Array(total);
@@ -228,6 +268,13 @@ class CellGrid {
         this.brightness = new Float32Array(total);
         this.rotatorOffsets = new Uint8Array(total);
         this.cellLocks = new Uint8Array(total);
+        
+        // Rotators
+        this.nextChars = new Uint16Array(total);
+        this.nextOverlapChars = new Uint16Array(total);
+
+        // Environmental Glows (Additive, per frame)
+        this.envGlows = new Float32Array(total);
 
         // Initialize static data
         for (let i = 0; i < total; i++) {
@@ -236,8 +283,6 @@ class CellGrid {
 
         this.activeIndices = new Set();
         this.complexStyles = new Map();
-        this.nextChars = new Map();
-        this.nextOverlapChars = new Map();
         
         this.cols = newCols;
         this.rows = newRows;

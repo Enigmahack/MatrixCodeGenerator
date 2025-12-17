@@ -15,7 +15,6 @@ class GlyphAtlas {
         this.cellSize = 0;
         this.atlasWidth = 0;
         this.atlasHeight = 0;
-        this.blockHeight = 0; // Height of one color set
         
         // State tracking for updates
         this.currentFont = '';
@@ -29,24 +28,13 @@ class GlyphAtlas {
         this._lastCols = 0;
         this._lastRows = 0;
         this._lastCharListKey = '';
-        this._lastMaxSize = 0;
-        this._lastPadding = 0;
-
-        // Optimization: Pre-rendered Rainbow Palette (24 steps)
-        // Used for "Star Power" / Glitter / Rainbow effects to avoid fillText
-        this.rainbowColors = [];
-        const rainbowSteps = 24;
-        for (let i = 0; i < rainbowSteps; i++) {
-            const hue = (i / rainbowSteps) * 360;
-            this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
-        }
-        // Cached block offset for rainbow section
-        this.rainbowOffsetStart = 0; 
         
         // Safety flags
-        this.rainbowSupported = true;
         this.valid = true;
         this.MAX_HEIGHT = 8192; // Common safe limit for mobile/desktop
+
+        // Fast Lookup for Renderer (CharCode -> AtlasID)
+        this.codeToId = new Int16Array(65536).fill(-1);
 
         // Glyph Cache Optimization: Filter unsupported characters
         this.testCanvas = document.createElement('canvas');
@@ -139,67 +127,17 @@ class GlyphAtlas {
         this._lastRows = rows;
         
         const newAtlasWidth = cols * this.cellSize;
-        const newBlockHeight = rows * this.cellSize;
-        const paletteLen = d.paletteColorsStr?.length || 0;
+        const newAtlasHeight = rows * this.cellSize;
 
-        // Safety Check & Dynamic Rainbow Optimization
-        let rainbowSteps = 24; 
-        let totalBlocks = paletteLen + 1 + rainbowSteps;
-        let requiredHeight = newBlockHeight * totalBlocks;
-
-        if (requiredHeight > this.MAX_HEIGHT) {
-            // Try reducing rainbow steps to fit
-            const attempts = [12, 8, 4]; // Degrade quality
-            let found = false;
-            for (const s of attempts) {
-                const h = newBlockHeight * (paletteLen + 1 + s);
-                if (h <= this.MAX_HEIGHT) {
-                    console.log(`[GlyphAtlas] Optimizing: Reducing rainbow to ${s} steps to fit atlas limit.`);
-                    rainbowSteps = s;
-                    totalBlocks = paletteLen + 1 + s;
-                    requiredHeight = h;
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                // Info log instead of warning, as this is an expected optimization fallback
-                console.log(`[GlyphAtlas] Atlas height (${requiredHeight}px) exceeds limit (${this.MAX_HEIGHT}px). Disabling Rainbow optimization.`);
-                this.rainbowSupported = false;
-                rainbowSteps = 0;
-                
-                // Recalculate without rainbow
-                totalBlocks = paletteLen + 1;
-                requiredHeight = newBlockHeight * totalBlocks;
-            } else {
-                this.rainbowSupported = true;
-            }
-        } else {
-            this.rainbowSupported = true;
+        if (newAtlasHeight > this.MAX_HEIGHT) {
+             console.error(`[GlyphAtlas] Texture Limit Exceeded.`);
+             this.valid = false;
+             return;
         }
-
-        if (requiredHeight > this.MAX_HEIGHT) {
-            console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
-            this.valid = false;
-            return; // Abort
-        }
-        
         this.valid = true;
 
-        // Regenerate Rainbow Colors for current step count
-        if (this.rainbowSupported) {
-            this.rainbowColors = [];
-            for (let i = 0; i < rainbowSteps; i++) {
-                const hue = (i / rainbowSteps) * 360;
-                this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
-            }
-        }
-
         this.atlasWidth = newAtlasWidth;
-        this.atlasHeight = requiredHeight;
-        this.blockHeight = newBlockHeight;
-        this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
+        this.atlasHeight = newAtlasHeight;
 
         // Resize Canvas (clears content)
         if (this.canvas.width !== this.atlasWidth || this.canvas.height !== this.atlasHeight) {
@@ -213,6 +151,10 @@ class GlyphAtlas {
         this.ctx.font = this.currentFont;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
+        this.ctx.fillStyle = '#FFFFFF';
+        
+        // Reset lookup
+        this.codeToId.fill(-1);
     }
 
     /**
@@ -222,13 +164,6 @@ class GlyphAtlas {
         if (!this.valid) return null;
         
         // Check if supported first
-        // Note: We use a simplified check here or rely on the caller?
-        // Let's do the check here to avoid polluting atlas with tofu.
-        // But we need to cache the check.
-        // Using _getCharSignature is slightly expensive per-frame if hit often.
-        // We'll trust that 'char' is unique and not in map.
-        
-        // Verify support
         const checkFont = this.currentFont.replace(/\d+px/, '16px'); 
         const sig = this._getCharSignature(checkFont, char);
         const emptySig = this._getCharSignature(checkFont, '\uFFFF');
@@ -257,9 +192,8 @@ class GlyphAtlas {
         this.capacity *= 2;
         
         // Re-calculate dimensions and resize canvas
-        // Warning: Resizing clears the canvas! We must redraw EVERYTHING.
         const oldUsed = [...this.usedChars];
-        const d = this.config.derived; // Need palette info
+        const d = this.config.derived; 
         
         this._resizeAtlas(d);
         
@@ -271,45 +205,29 @@ class GlyphAtlas {
     }
 
     _drawSingleChar(char, index) {
-        const d = this.config.derived;
-        const s = this.config.state;
-        const paletteLen = d.paletteColorsStr?.length || 0;
-        
         const col = index % this._lastCols;
         const row = (index / this._lastCols) | 0;
         
         const x = col * this.cellSize + this.halfCell;
-        const baseY = row * this.cellSize + this.halfCell;
+        const y = row * this.cellSize + this.halfCell;
         
         const rect = {
             x: col * this.cellSize,
             y: row * this.cellSize,
             w: this.cellSize,
-            h: this.cellSize
+            h: this.cellSize,
+            id: index // Store index for shader lookup
         };
         this.charMap.set(char, rect);
         this.hasChanges = true;
-
-        // 1. Palette Blocks
-        for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-            this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-            const y = baseY + (pIdx * this.blockHeight);
-            this.ctx.fillText(char, x, y);
+        
+        // Update fast lookup
+        const code = char.charCodeAt(0);
+        if (code < 65536) {
+            this.codeToId[code] = index;
         }
 
-        // 2. Overlap Color Block
-        this.ctx.fillStyle = s.overlapColor;
-        const overlapY = baseY + (paletteLen * this.blockHeight);
-        this.ctx.fillText(char, x, overlapY);
-
-        // 3. Rainbow Blocks
-        if (this.rainbowSupported) {
-            for (let rIdx = 0; rIdx < this.rainbowColors.length; rIdx++) {
-                this.ctx.fillStyle = this.rainbowColors[rIdx];
-                const y = baseY + this.rainbowOffsetStart + (rIdx * this.blockHeight);
-                this.ctx.fillText(char, x, y);
-            }
-        }
+        this.ctx.fillText(char, x, y);
     }
 
     resetChanges() {

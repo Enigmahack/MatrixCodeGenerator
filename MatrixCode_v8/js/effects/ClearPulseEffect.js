@@ -8,11 +8,16 @@ class ClearPulseEffect extends AbstractEffect {
         this.snap = null;
         this.autoTimer = c.state.clearPulseFrequencySeconds * 60;
         this.renderData = null;
+        // this.originalFade = 0;
     }
 
     trigger() {
         if (this.active) return false;
         
+        // Override Stream Fade
+        // this.originalFade = this.c.get('decayFadeDurationFrames');
+        // this.c.set('decayFadeDurationFrames', 0);
+
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
         const d = this.c.derived;
@@ -73,7 +78,13 @@ class ClearPulseEffect extends AbstractEffect {
         const d = this.c.derived;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
 
-        if (this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
+        if (this.radius > maxDim + 400) { 
+            this.active = false; 
+            this.snap = null; 
+            this.renderData = null; 
+            // this.c.set('decayFadeDurationFrames', this.originalFade);
+            return; 
+        }
 
         // --- Optimization Pre-calc ---
         const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX);
@@ -160,21 +171,31 @@ class ClearPulseEffect extends AbstractEffect {
             if (s.clearPulsePreserveSpaces && isGap) continue;
 
             let charCode, fontIdx, color;
+            
+            // Use LIVE grid data to prevent freezing
             if (isGap) {
+                // For gaps, use the snapshot fill data (or just random, but snapshot is stable)
                 charCode = this.snap.fillChars[i];
                 fontIdx = this.snap.fillFonts[i];
-                // Fix: Gaps need a valid target color for blending
                 color = d.streamColorUint32;
             } else {
                 charCode = grid.chars[i];
                 fontIdx = grid.fontIndices[i];
-                color = this.snap.colors[i];
+                color = grid.colors[i];
             }
 
             const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
             
-            let finalColor = tColorInt;
-            if (s.clearPulseBlend) {
+            let finalColor, glow;
+
+            if (!s.clearPulseBlend) {
+                // Blend OFF: Solid Tracer Color & Glow
+                finalColor = tColorInt;
+                glow = s.tracerGlow;
+            } else {
+                // Blend ON: Linear fade across the entire wave
+                
+                // Color Blend
                 const bR = color & 0xFF;
                 const bG = (color >> 8) & 0xFF;
                 const bB = (color >> 16) & 0xFF;
@@ -183,11 +204,13 @@ class ClearPulseEffect extends AbstractEffect {
                 const mG = Math.floor(tG + (bG - tG) * rel);
                 const mB = Math.floor(tB + (bB - tB) * rel);
                 finalColor = Utils.packAbgr(mR, mG, mB);
-            }
 
-            const glow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
+                // Glow Fade: Max -> 0
+                glow = 30 * (1.0 - rel);
+            }
             
-            grid.setOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
+            // Solid Alpha 1.0
+            grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
         }
     }
 }

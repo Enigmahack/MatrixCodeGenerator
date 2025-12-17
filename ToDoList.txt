@@ -4,15 +4,13 @@ Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 Bugs: 
-Deja Vu - The background characters are not random
-Superman - The diagonal lightning doesn't appear, nor do the black sheets
-Star Power - remove the glitter UI
-Fire Wall - WebGLRenderer.js:77 Rendering Engine: WebGL (v8 CellGrid Optimized Fixed)
-GlyphAtlas.js:157 [GlyphAtlas] Optimizing: Reducing rainbow to 4 steps to fit atlas limit.
-FirewallEffect.js:78 Uncaught TypeError: Cannot set properties of undefined (setting '39')
+Burst and Clear Burst: They illuminate both states at the same time instead of only the original/current - decide on one. 
+
+Behavior: 
 Reverse Time - Does nothing. (Address later on)
-Rotators - They should always complete their rotation and never be stuck half-way
-Trail Ghosting - Doesn't work
-Character Overlap - Well, it overlaps but it doesn't only show intersections. 
-Tracer Glow - introduces flicker at the bottom of the screen, and increases overall glow, not just tracer glow. 
-Code Glow - looks almost quantized, should be smoother. 
+
+Look: 
+Superman - Additional Glow + Voltage Glow does nothing, and Voltage glow should be put directly under Additional Glow and be called "Glow amount" instead of Voltage Glow. 
+
+Star Power - Make the glitter do something different, like a luminscent effect through the entire star power stream. Also, full stream mode doesn't work. 
+ 

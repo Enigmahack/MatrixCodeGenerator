@@ -175,7 +175,10 @@ class MatrixKernel {
             'stretchX',
             'stretchY',
             'fontSize',
-            'horizontalSpacingFactor'
+            'horizontalSpacingFactor',
+            'verticalSpacingFactor',
+            'fontOffsetX',
+            'fontOffsetY'
         ]);
 
         const smoothingTriggers = new Set([
@@ -268,7 +271,17 @@ class MatrixKernel {
 
             // 2. Update Display
             if (this.fpsDisplayElement) {
-                this.fpsDisplayElement.textContent = `FPS: ${Math.round(smoothedFps)}`;
+                let text = `FPS: ${Math.round(smoothedFps)}`;
+                if (this.config.state.debugEnabled) {
+                     if (performance.memory) {
+                         const used = Math.round(performance.memory.usedJSHeapSize / 1048576);
+                         text += ` | Mem: ${used}MB`;
+                     }
+                     if (this.grid && this.grid.activeIndices) {
+                         text += ` | Cells: ${this.grid.activeIndices.length}`;
+                     }
+                }
+                this.fpsDisplayElement.textContent = text;
                 this.fpsDisplayElement.style.display = 'block';
             }
         } else if (this.fpsDisplayElement) {

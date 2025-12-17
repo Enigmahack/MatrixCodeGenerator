@@ -2052,6 +2052,7 @@ class ConfigurationManager {
             "smoothingEnabled": false,
             "smoothingAmount": 0.1,
             "showFpsCounter": true,
+            "debugEnabled": false,
             "fontFamily": "MatrixEmbedded",
             "fontWeight": "normal",
             "italicEnabled": false,
@@ -2064,7 +2065,7 @@ class ConfigurationManager {
             "overlapTarget": "all",
             "overlapShimmer": false,
             "dissolveEnabled": true,
-            "dissolveMinSize": 18,
+            "dissolveScalePercent": -20,
             "deteriorationEnabled": true,
             "deteriorationStrength": 4,
             "enableBloom": true,
@@ -2697,8 +2698,9 @@ class CellGrid {
         this.cellLocks = null;  // Uint8 (Prevent updates)
         // Sparse Data (Maps for memory efficiency)
         this.complexStyles = new Map(); // Dynamic styling data
-        this.nextChars = new Map();     // Rotator targets for Primary
-        this.nextOverlapChars = new Map(); // Rotator targets for Secondary
+        // Rotator Targets (Dense for GPU upload)
+        this.nextChars = null;     // Uint16Array
+        this.nextOverlapChars = null; // Uint16Array
     }
     /**
      * Resizes the grid based on new width and height.
@@ -2730,13 +2732,14 @@ class CellGrid {
     setRotatorTarget(idx, charStr, isSecondary = false) {
         const code = charStr.charCodeAt(0);
         if (isSecondary) {
-            this.nextOverlapChars.set(idx, code);
+            this.nextOverlapChars[idx] = code;
         } else {
-            this.nextChars.set(idx, code);
+            this.nextChars[idx] = code;
         }
     }
     getRotatorTarget(idx, isSecondary = false) {
-        return isSecondary ? this.nextOverlapChars.get(idx) : this.nextChars.get(idx);
+        const code = isSecondary ? this.nextOverlapChars[idx] : this.nextChars[idx];
+        return (code > 0) ? String.fromCharCode(code) : null;
     }
     // --- Secondary Layer Modifiers ---
     setSecondary(idx, charStr, colorUint32, alpha, fontIndex = 0, glow = 0) {
@@ -2787,12 +2790,16 @@ class CellGrid {
         this.activeIndices.delete(idx);
         // Clear maps
         this.complexStyles.delete(idx);
-        this.nextChars.delete(idx);
-        this.nextOverlapChars.delete(idx);
+        this.nextChars[idx] = 0;
+        this.nextOverlapChars[idx] = 0;
     }
     getChar(idx) {
         // Helper for simulation reading
         return String.fromCharCode(this.chars[idx]);
+    }
+    getState(idx){
+        // Helper for getting cell state
+        return this.state[idx];
     }
     _resizeGrid(newCols, newRows) {
         const total = newCols * newRows;
@@ -2828,14 +2835,17 @@ class CellGrid {
         this.brightness = new Float32Array(total);
         this.rotatorOffsets = new Uint8Array(total);
         this.cellLocks = new Uint8Array(total);
+        // Rotators
+        this.nextChars = new Uint16Array(total);
+        this.nextOverlapChars = new Uint16Array(total);
+        // Environmental Glows (Additive, per frame)
+        this.envGlows = new Float32Array(total);
         // Initialize static data
         for (let i = 0; i < total; i++) {
             this.rotatorOffsets[i] = (Math.random() * 255) | 0;
         }
         this.activeIndices = new Set();
         this.complexStyles = new Map();
-        this.nextChars = new Map();
-        this.nextOverlapChars = new Map();
         this.cols = newCols;
         this.rows = newRows;
     }
@@ -3069,9 +3079,13 @@ class ClearPulseEffect extends AbstractEffect {
         this.snap = null;
         this.autoTimer = c.state.clearPulseFrequencySeconds * 60;
         this.renderData = null;
+        // this.originalFade = 0;
     }
     trigger() {
         if (this.active) return false;
+        // Override Stream Fade
+        // this.originalFade = this.c.get('decayFadeDurationFrames');
+        // this.c.set('decayFadeDurationFrames', 0);
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
         const d = this.c.derived;
@@ -3125,7 +3139,13 @@ class ClearPulseEffect extends AbstractEffect {
         this.radius += this.speed;
         const d = this.c.derived;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-        if (this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
+        if (this.radius > maxDim + 400) { 
+            this.active = false; 
+            this.snap = null; 
+            this.renderData = null; 
+            // this.c.set('decayFadeDurationFrames', this.originalFade);
+            return; 
+        }
         // --- Optimization Pre-calc ---
         const ox = Math.floor(this.origin.x * d.cellWidth * s.stretchX);
         const oy = Math.floor(this.origin.y * d.cellHeight * s.stretchY);
@@ -3196,27 +3216,38 @@ class ClearPulseEffect extends AbstractEffect {
             const alpha = grid.alphas[i];
             const isGap = (alpha <= 0.01);
             if (s.clearPulsePreserveSpaces && isGap) continue;
-            let charCode, fontIdx;
+            let charCode, fontIdx, color;
+            // Use LIVE grid data to prevent freezing
             if (isGap) {
+                // For gaps, use the snapshot fill data (or just random, but snapshot is stable)
                 charCode = this.snap.fillChars[i];
                 fontIdx = this.snap.fillFonts[i];
+                color = d.streamColorUint32;
             } else {
                 charCode = grid.chars[i];
                 fontIdx = grid.fontIndices[i];
+                color = grid.colors[i];
             }
             const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
-            let finalColor = tColorInt;
-            if (s.clearPulseBlend) {
-                const snapColor = this.snap.colors[i];
-                const bR = snapColor & 0xFF;
-                const bG = (snapColor >> 8) & 0xFF;
-                const bB = (snapColor >> 16) & 0xFF;
+            let finalColor, glow;
+            if (!s.clearPulseBlend) {
+                // Blend OFF: Solid Tracer Color & Glow
+                finalColor = tColorInt;
+                glow = s.tracerGlow;
+            } else {
+                // Blend ON: Linear fade across the entire wave
+                // Color Blend
+                const bR = color & 0xFF;
+                const bG = (color >> 8) & 0xFF;
+                const bB = (color >> 16) & 0xFF;
                 const mR = Math.floor(tR + (bR - tR) * rel);
                 const mG = Math.floor(tG + (bG - tG) * rel);
                 const mB = Math.floor(tB + (bB - tB) * rel);
                 finalColor = Utils.packAbgr(mR, mG, mB);
+                // Glow Fade: Max -> 0
+                glow = 30 * (1.0 - rel);
             }
-            const glow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
+            // Solid Alpha 1.0
             grid.setOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
         }
     }
@@ -3233,22 +3264,16 @@ class CrashEffect extends AbstractEffect {
         this.originalShader = null;
         this.originalShaderEnabled = false;
         this.originalShaderParameter = 0.5;
+        this.originalFade = 0; // To store/restore fade speed
         this.frame = 0;
         this.snapshotOverlay = new Map(); 
         this.blackSheets = []; 
         this.supermanState = {
             active: false,
             type: 0, 
-            axis: 0, 
             cells: new Set(), 
-            fluxTriangles: [], 
             flickerTimer: 0,
-            initialBranches: [],
-            burstTimer: 0, 
-            isBursting: false,
-            cooldown: 0,
-            edgeType: 0,
-            isMirrored: false
+            globalTimer: 0
         };
         this.shaderState = {
             activeId: 0, 
@@ -3257,7 +3282,6 @@ class CrashEffect extends AbstractEffect {
         };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
         this.sheetState = { spawning: true, timer: 600 };
-        // Refactored State for Flash/Fade
         this.flashState = {
             active: false,
             timer: 0,
@@ -3265,11 +3289,9 @@ class CrashEffect extends AbstractEffect {
             nextFlash: 60, 
             cycleDuration: 240
         };
-        // Max opacity for the black overlay (never fully 1.0)
         this.MAX_BLACK_LEVEL = 0.5; 
         this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
         this.endFlashTriggered = false;
-        // Fade value for sheets during flash (0.0 = invisible, 1.0 = normal)
         this.sheetFadeVal = 1.0;
     }
     trigger() {
@@ -3277,6 +3299,9 @@ class CrashEffect extends AbstractEffect {
         this.originalShaderEnabled = this.c.state.shaderEnabled;
         this.originalShader = this.c.state.customShader;
         this.originalShaderParameter = this.c.state.shaderParameter;
+        // OVERRIDE: Disable stream fade during crash (Fix #3)
+        this.originalFade = this.c.get('decayFadeDurationFrames');
+        this.c.set('decayFadeDurationFrames', 0);
         // Get Stream Color for the Splash
         const colorStr = this.c.derived.streamColorStr || '#00FF00';
         const rgb = Utils.hexToRgb(colorStr);
@@ -3296,29 +3321,11 @@ float rect(vec2 uv, vec2 pos, vec2 size) {
     vec2 d = abs(uv - pos) - size;
     return 1.0 - step(0.0, max(d.x, d.y));
 }
-float noise(float p) {
-    float i = floor(p);
-    float f = fract(p);
-    return mix(random(i), random(i + 1.0), f * f * (3.0 - 2.0 * f));
-}
 float scannerSheet(vec2 uv, vec2 center, vec2 size, float blur, int axis) {
     vec2 pos = uv - center;
-    float jagged = 0.0;
-    if (axis == 1) { jagged = (noise(uv.x * 50.0) - 0.5) * 0.005; pos.y += jagged; } 
-    else if (axis == 2) { jagged = (noise(uv.y * 50.0) - 0.5) * 0.005; pos.x += jagged; }
     vec2 d = abs(pos) - size;
     float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
     return 1.0 - smoothstep(0.0, blur, dist);
-}
-vec3 getScannerScene(int pattern, vec2 uv) {
-    vec3 col = vec3(1.0); 
-    if (pattern == 0) {
-        float top = scannerSheet(uv, vec2(0.5, 0.75), vec2(1.0, 0.25), 0.02, 1);
-        float bot = scannerSheet(uv, vec2(0.5, 0.25), vec2(1.0, 0.25), 0.02, 1);
-        col = mix(vec3(0.9), vec3(1.0), bot);
-        col = mix(col, vec3(0.85, 0.9, 0.95), top);
-    }
-    return col;
 }
 void main() {
     vec2 uv = vTexCoord;
@@ -3328,72 +3335,24 @@ void main() {
     vec3 splashColor = ${vec3Color};
     // --- PHASE 10: SPLASH EFFECT ---
     if (phase_idx == 10.0) {
-         // INSTANT FLASH: Starts at 1.0, fades out
          float t = progress; 
          float bar = scannerSheet(uv, vec2(0.5, 0.5), vec2(1.0, 0.2), 0.3, 1);
-         // Instant attack (starts max), fast linear decay
-         // Fade out completely by t=0.6
          float flashAlpha = bar * (1.0 - smoothstep(0.0, 0.6, t));
          if (flashAlpha > 0.0) {
-            // Additive blend 
             finalColor.rgb += splashColor * flashAlpha * 3.0; 
          }
     }
-    // --- EXISTING DISTORTIONS ---
+    // --- PHASE 2: DISTORTION ---
     if (phase_idx == 2.0) {
-        vec4 distColor = vec4(0.0);
-        float active = 0.0;
-        if (progress < 0.33) { 
-            if (uv.y < 0.25) { 
-                vec2 center = vec2(0.5, 0.125); 
-                vec2 dist = uv - center;
-                dist *= 0.6; dist.y *= 0.3; 
-                distColor = texture2D(uTexture, center + dist);
-                distColor.rgb *= 1.5;
-                active = 1.0;
-            }
-        } else if (progress < 0.66) { 
-            if (uv.y > 0.1 && uv.y < 0.225) { 
-                vec2 center = vec2(0.5, 0.1625); 
-                vec2 dist = uv - center;
-                dist *= 0.6; dist.y *= 0.1; 
-                distColor = texture2D(uTexture, center + dist);
-                distColor.rgb *= 1.5;
-                active = 1.0;
-            }
-        } else { 
-            vec2 center = vec2(0.5, 0.5);
-            vec2 dist = uv - center;
-            dist.y *= 0.02; 
-            distColor = texture2D(uTexture, center + dist);
-            distColor.rgb *= 1.5;
-            float localP = (progress - 0.66) / 0.34;
-            active = 1.0 - localP;
-        }
-        if (active > 0.0) finalColor = mix(finalColor, distColor, 0.5 * active);
-    }
-    if (phase_idx == 3.0) {
-        if (random(uTime) > 0.9) finalColor.rgb = mix(finalColor.rgb, vec3(0.0), 0.2);
-    }
-    if (phase_idx == 7.0) {
-        float startY = 0.45;
-        float initHeight = 0.05; 
-        float expand = min(progress / 0.2, 1.0); 
-        float currentTop = (startY - initHeight) - ((startY - initHeight) * expand); 
-        if (uv.y <= startY && uv.y >= currentTop) {
-            float alpha = 1.0 - smoothstep(0.1, 0.4, progress);
-            finalColor = mix(finalColor, vec4(0.0, 0.0, 0.0, 1.0), alpha);
-        }
-    }
-    if (phase_idx == 8.0) {
         vec2 center = vec2(0.5, 0.5);
         vec2 dist = uv - center;
-        dist.y *= 0.1; 
+        dist.y *= 0.02; 
         vec4 distColor = texture2D(uTexture, center + dist);
-        float alpha = 1.0 - smoothstep(0.0, 0.8, progress);
-        finalColor = mix(finalColor, distColor, alpha);
-        finalColor.rgb += vec3(alpha * 0.5); 
+        distColor.rgb *= 1.5;
+        float active = 1.0 - ((progress - 0.66) / 0.34);
+        if (active > 0.0) finalColor = mix(finalColor, distColor, 0.5 * active);
     }
+    // --- PHASE 9: STRETCH ---
     if (phase_idx == 9.0) {
         float sampleX = 0.3;
         vec4 stretchColor = texture2D(uTexture, vec2(sampleX, uv.y));
@@ -3409,11 +3368,10 @@ void main() {
         this.c.set('shaderParameter', 0.0); 
         this.active = true;
         this.startTime = performance.now();
-        this.currentPhase = 0;
         this.frame = 0;
         this.snapshotOverlay.clear(); 
         this.blackSheets = []; 
-        this.supermanState = { active: false, axis: 0, cells: new Set(), fluxTriangles: [], flickerTimer: 0, initialBranches: [], burstTimer: 0, isBursting: false, cooldown: 0, edgeType: 0, isMirrored: false };
+        this.supermanState = { active: false, type: 0, cells: new Set(), flickerTimer: 0, globalTimer: 0 };
         this.shaderState = { activeId: 0, timer: 0, duration: 0 };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
         this.sheetState = { spawning: true, timer: 600 };
@@ -3421,7 +3379,6 @@ void main() {
         this.sheetFadeVal = 1.0;
         this.flashState.active = false;
         this.flashState.nextFlash = 30; 
-        // Use Max Black Level if Flash is enabled, otherwise full visibility (0.0)
         this.MAX_BLACK_LEVEL = 0.5;
         this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
         return true;
@@ -3430,36 +3387,12 @@ void main() {
         if (!this.active) return;
         this.frame++; 
         const elapsedTime = (performance.now() - this.startTime) / 1000;
-        // Dynamic Duration
         this.durationSeconds = this.c.get('crashDurationSeconds') || 30;
         const progress = elapsedTime / this.durationSeconds;
-        // Recover Sheet Fade (approx 0.75s)
         this.sheetFadeVal = Math.min(1.0, this.sheetFadeVal + (1.0 / 45.0));
-        // Live Update of Opacity
         const sheetOpacity = this.c.get('crashSheetOpacity');
-        // Ensure background fade doesn't overpower sheets if opacity is low
         this.MAX_BLACK_LEVEL = Math.min(0.5, sheetOpacity); 
-        // Update existing sheets for real-time slider response
-        const userSpeed = this.c.get('crashSheetSpeed');
-        for (const s of this.blackSheets) {
-            s.maxAlpha = sheetOpacity * this.sheetFadeVal;
-            // Recalculate movement based on current speed setting
-            // Use baseDx/baseDy if available, otherwise fallback/init
-            if (s.baseDx === undefined) {
-                 // Migration for existing sheets (shouldn't happen often but safe)
-                 s.baseDx = s.dx; s.baseDy = s.dy;
-            }
-            const moveX = s.baseDx * userSpeed;
-            const moveY = s.baseDy * userSpeed;
-            s.posX += moveX; 
-            s.posY += moveY;
-            // Bounce logic - reverse base velocity
-            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.baseDx *= -1;
-            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.baseDy *= -1;
-            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
-            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
-        }
+        // Trigger End Pulse
         if (progress > 0.92 && !this.endFlashTriggered) {
             this.endFlashTriggered = true;
             if (this.registry) {
@@ -3469,11 +3402,13 @@ void main() {
                 this.c.set('pulseDelaySeconds', originalPulseDelay);
             }
         }
+        // --- END ---
         if (progress >= 1.0) {
             this.active = false;
             this.c.set('customShader', this.originalShader);
             this.c.set('shaderEnabled', this.originalShaderEnabled);
             this.c.set('shaderParameter', this.originalShaderParameter);
+            this.c.set('decayFadeDurationFrames', this.originalFade); // Restore Fade
             this.snapshotOverlay.clear();
             this.blackSheets = [];
             this.supermanState.cells.clear();
@@ -3481,49 +3416,39 @@ void main() {
         }
         // --- FLASH & FADE LOGIC ---
         const enableFlash = this.c.get('crashEnableFlash');
-        // Sync Base Black Level with Sheet Fade
         if (enableFlash) {
             this.baseBlackLevel = this.MAX_BLACK_LEVEL * this.sheetFadeVal;
-        } else {
-            this.baseBlackLevel = 0.0;
-        }
-        if (enableFlash) {
             if (this.flashState.active) {
                 this.flashState.timer++;
-                // Run Phase 10 (Splash)
                 const p = Math.min(1.0, this.flashState.timer / this.flashState.duration);
                 this.c.set('shaderParameter', 10.0 + p);
-                // Start Fade at beginning of flash
-                if (this.flashState.timer === 1) {
-                    this.sheetFadeVal = 0.0; 
-                }
+                if (this.flashState.timer === 1) this.sheetFadeVal = 0.0; 
                 if (this.flashState.timer >= this.flashState.duration) {
                     this.flashState.active = false;
                     this.c.set('shaderParameter', 0.0);
                 }
             } else {
-                // Trigger Next Flash
                 this.flashState.nextFlash--;
-                if (this.flashState.nextFlash <= 0) {
-                    this._triggerFlash();
-                }
+                if (this.flashState.nextFlash <= 0) this._triggerFlash();
             }
         } else {
+            this.baseBlackLevel = 0.0;
             this.c.set('shaderParameter', 0.0);
         }
-        // --- OTHER SHADERS ---
-        // Only run chaos shaders if flash is not active
+        // --- SHADERS ---
         if (!this.flashState.active) {
             if (this.shaderState.activeId === 0) {
                  if (Math.random() < 0.01) {
                     const r = Math.random();
                     let id = 0; let dur = 0;
-                    if (r < 0.3) { id = 3; dur = 20; }
-                    else if (r < 0.6) { id = 9; dur = 30; }
-                    else { id = 2; dur = 40; }
-                    this.shaderState.activeId = id;
-                    this.shaderState.duration = dur;
-                    this.shaderState.timer = 0;
+                    if (r < 0.3) { id = 3; dur = 20; } // These IDs need to match shader code or be unused
+                    else if (r < 0.6) { id = 9; dur = 30; } // Phase 9 is implemented
+                    else { id = 2; dur = 40; } // Phase 2 is implemented
+                    if (id === 2 || id === 9) {
+                        this.shaderState.activeId = id;
+                        this.shaderState.duration = dur;
+                        this.shaderState.timer = 0;
+                    }
                  }
             } else {
                 this.shaderState.timer++;
@@ -3544,43 +3469,44 @@ void main() {
             this.sheetState.timer = this.sheetState.spawning ? 400 : 200; 
         }
         if (this.sheetState.spawning) this._updateBlackSheets(maxSheets);
-        // Adjust array size if user reduced count
-        if (this.blackSheets.length > maxSheets) {
-            this.blackSheets.splice(maxSheets);
-        }
-        // Update Sheets (Roaming/Bouncing)
-        for (let i = this.blackSheets.length - 1; i >= 0; i--) {
-            const s = this.blackSheets[i];
-            s.posX += s.dx; s.posY += s.dy;
-            // Bounce logic
-            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.dx *= -1;
-            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.dy *= -1;
+        if (this.blackSheets.length > maxSheets) this.blackSheets.splice(maxSheets);
+        // Update Sheets
+        const userSpeed = this.c.get('crashSheetSpeed');
+        for (const s of this.blackSheets) {
+            s.maxAlpha = sheetOpacity * this.sheetFadeVal;
+            if (s.baseDx === undefined) { s.baseDx = s.dx; s.baseDy = s.dy; }
+            s.posX += s.baseDx * userSpeed; 
+            s.posY += s.baseDy * userSpeed;
+            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.baseDx *= -1;
+            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.baseDy *= -1;
             s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-            s.c = Math.floor(s.posX); s.r = Math.floor(s.posY);
             s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
         }
-        // --- SUPERMAN & OTHER ELEMENTS ---
-        this._updateSnapshots();
+        // --- SUPERMAN (Lightning) ---
         if (this.c.get('crashEnableSuperman')) {
             if (this.supermanState.active) {
-                this._updateSuperman();
                 this.supermanState.globalTimer--;
+                this.supermanState.flickerTimer++;
+                if (this.supermanState.flickerTimer > 2) {
+                    this._generateSupermanBolt();
+                    this.supermanState.flickerTimer = 0;
+                }
                 if (this.supermanState.globalTimer <= 0) {
                     this.supermanState.active = false;
                     this.supermanState.cells.clear();
-                    this.supermanState.fluxTriangles = [];
                 }
             } else {
+                // Random trigger
                 if (Math.random() < 0.02) {
-                    const type = Math.random() < 0.6 ? 0 : 1; 
+                    const type = Math.random() < 0.5 ? 0 : 1; 
                     this._triggerSuperman(type);
                 }
             }
         } else {
-            // Cleanup if disabled mid-run
             this.supermanState.active = false;
-            this.supermanState.cells.clear();
         }
+        // --- OTHER ELEMENTS ---
+        this._updateSnapshots();
         if (Math.random() < 0.02) this._triggerWhiteBlock(); 
         if (Math.random() < 0.02) this._triggerColumnBurst(); 
         if (this.c.get('crashEnableSmith')) {
@@ -3596,43 +3522,100 @@ void main() {
             if (Math.random() < 0.001) this.registry.trigger('ClearPulse');
         }
     }
+    applyToGrid(grid) {
+        if (!this.active) return;
+        const cols = grid.cols;
+        const rows = grid.rows;
+        // 1. Black Sheets (Fix #2: Rendering)
+        if (this.baseBlackLevel > 0.01 || this.blackSheets.length > 0) {
+            // Apply sheets
+            for (const s of this.blackSheets) {
+                 const minX = Math.floor(s.posX);
+                 const maxX = Math.floor(s.posX + s.w);
+                 const minY = Math.floor(s.posY);
+                 const maxY = Math.floor(s.posY + s.h);
+                 const sAlpha = s.currentAlpha * s.maxAlpha;
+                 if (sAlpha < 0.01) continue;
+                 // Clamp to grid
+                 const rMinX = Math.max(0, minX);
+                 const rMaxX = Math.min(cols, maxX);
+                 const rMinY = Math.max(0, minY);
+                 const rMaxY = Math.min(rows, maxY);
+                 for (let y = rMinY; y < rMaxY; y++) {
+                     const rowOffset = y * cols;
+                     const ny = (y - s.posY) / s.h; // normalized Y 0..1 in sheet
+                     for (let x = rMinX; x < rMaxX; x++) {
+                         const nx = (x - s.posX) / s.w; // normalized X 0..1
+                         // Edge Fade
+                         const edgeFade = Math.min(nx/0.2, (1-nx)/0.2, ny/0.2, (1-ny)/0.2, 1.0);
+                         const finalAlpha = sAlpha * edgeFade;
+                         if (finalAlpha > 0.01) {
+                            grid.setSolidOverride(rowOffset + x, 0xFF000000, finalAlpha);
+                         }
+                     }
+                 }
+            }
+            // Global Fade (during flash/flicker)
+            if (this.baseBlackLevel > 0.05) {
+                 for (let i = 0; i < grid.rows * grid.cols; i++) {
+                     // Check if already solidly overridden (optimization?)
+                     // Just overwrite with max alpha if needed, or blend?
+                     // setSolidOverride overwrites. 
+                     // We probably want to apply global fade only where no sheet is present?
+                     // Or just iterate and set.
+                     // A simple global loop:
+                     if (grid.overrideActive[i] === 0) { // Only affect non-overridden cells
+                        grid.setSolidOverride(i, 0xFF000000, this.baseBlackLevel);
+                     }
+                 }
+            }
+        }
+        // 2. Superman Lightning (Fix #1: Rendering & Logic)
+        if (this.supermanState.active && this.supermanState.cells.size > 0) {
+            for (const idx of this.supermanState.cells) {
+                // Bright White/Green Bolt
+                const char = grid.getChar(idx);
+                // 0xFFFFFFFF (White) or Greenish? User said "Superman effect".
+                // Superman usually uses White center, Green glow.
+                grid.setOverride(idx, char, 0xFFFFFFFF, 1.0, grid.fontIndices[idx], 5.0);
+            }
+        }
+        // 3. Snapshots (Smith / White Blocks)
+        for (const [idx, snap] of this.snapshotOverlay) {
+             if (snap.alpha <= 0.01) continue;
+             const char = snap.char;
+             const color = Utils.hexToRgb(snap.color); // Need packed
+             const packedColor = Utils.packAbgr(color.r, color.g, color.b);
+             // Snapshots are solid text overrides
+             grid.setOverride(idx, char, packedColor, snap.alpha, grid.fontIndices[idx], snap.isSmith ? 0 : 8.0);
+        }
+    }
     _triggerFlash() {
         this.flashState.active = true;
         this.flashState.timer = 0;
         this.flashState.duration = 40; 
-        // Calculate delay based on settings (Seconds -> Frames)
         const minS = this.c.get('crashFlashDelayMin');
         const maxS = this.c.get('crashFlashDelayMax');
-        const delayFrames = (minS + Math.random() * (maxS - minS)) * 60;
-        this.flashState.nextFlash = delayFrames; 
+        this.flashState.nextFlash = (minS + Math.random() * (maxS - minS)) * 60; 
     }
     _updateBlackSheets(maxSheets) {
         if (this.blackSheets.length < maxSheets) { 
-            // Spawn fewer but bigger/faster
             if (Math.random() < 0.4) { 
                 const grid = this.g;
                 const r = Math.random();
                 let w, h;
-                // Revised Sizes: Smaller overall, Max ~24
-                if (r < 0.4) { w = Math.floor(Math.random() * 4) + 4; h = Math.floor(Math.random() * 4) + 4; } // 4-8
-                else if (r < 0.8) { w = Math.floor(Math.random() * 8) + 8; h = Math.floor(Math.random() * 8) + 8; } // 8-16
-                else { w = Math.floor(Math.random() * 8) + 16; h = Math.floor(Math.random() * 8) + 16; } // 16-24
+                if (r < 0.4) { w = Utils.randomInt(4, 8); h = Utils.randomInt(4, 8); } 
+                else if (r < 0.8) { w = Utils.randomInt(8, 16); h = Utils.randomInt(8, 16); } 
+                else { w = Utils.randomInt(16, 24); h = Utils.randomInt(16, 24); }
                 let c = Math.floor(Math.random() * (grid.cols - w));
                 let row = Math.floor(Math.random() * (grid.rows - h));
-                const duration = Math.floor(Math.random() * 150) + 50; 
-                const axis = Math.random() < 0.5 ? 0 : 1;
-                const expandAmount = Math.floor(Math.random() * w) + 2; 
-                // Faster Speed modulated by setting
-                // const userSpeed = this.c.get('crashSheetSpeed'); // Calculated in update() now
                 const speedScale = (Math.random() * 1.5 + 0.5); 
                 this.blackSheets.push({ 
-                    c, r: row, w, h, axis, expandAmount, age: 0, life: 99999, // Infinite life (roaming)
+                    c, r: row, w, h,
                     posX: c, posY: row, 
                     baseDx: (Math.random() - 0.5) * speedScale, 
                     baseDy: (Math.random() - 0.5) * speedScale, 
-                    dx: 0, dy: 0, // Deprecated, kept for shape consistency if needed
                     targetW: w, targetH: h, 
-                    flashFrames: 0, 
                     maxAlpha: this.c.get('crashSheetOpacity'), 
                     currentAlpha: 0.0, targetAlpha: 1.0 
                 });
@@ -3643,13 +3626,6 @@ void main() {
         const fontIdx = this.g.fontIndices[i];
         const fonts = this.c.derived.activeFonts;
         return (fonts && fonts[fontIdx]) ? fonts[fontIdx].name : this.c.state.fontFamily;
-    }
-    _getCellColor(i) {
-        const c = this.g.colors[i];
-        const r = c & 0xFF;
-        const g = (c >> 8) & 0xFF;
-        const b = (c >> 16) & 0xFF;
-        return `rgb(${r},${g},${b})`;
     }
     _triggerSmith() {
         this.smithState.triggered = true;
@@ -3671,29 +3647,12 @@ void main() {
                 const headDist = (dx*dx)/(0.2*0.2) + (dy*dy)/(0.3*0.3);
                 let isSmithPixel = false;
                 let brightness = 0.0;
-                if (headDist < 1.0) {
-                    isSmithPixel = true;
-                    brightness = 0.5; 
-                    if (ny > 0.28 && ny < 0.34 && Math.abs(nx - 0.5) < 0.18) brightness = 0.0; 
-                    if (ny > 0.65) brightness = 0.2; 
-                    if (ny > 0.65 && Math.abs(nx - 0.5) < 0.04) brightness = 0.8; 
-                }
-                if (ny > 0.65 && Math.abs(nx - 0.5) < 0.45) {
-                    isSmithPixel = true;
-                    if (Math.abs(nx - 0.5) < 0.04) brightness = 0.8; 
-                    else brightness = 0.2; 
-                }
+                if (headDist < 1.0) { isSmithPixel = true; brightness = 0.5; if (ny > 0.28 && ny < 0.34 && Math.abs(nx - 0.5) < 0.18) brightness = 0.0; if (ny > 0.65) brightness = 0.2; if (ny > 0.65 && Math.abs(nx - 0.5) < 0.04) brightness = 0.8; }
+                if (ny > 0.65 && Math.abs(nx - 0.5) < 0.45) { isSmithPixel = true; if (Math.abs(nx - 0.5) < 0.04) brightness = 0.8; else brightness = 0.2; }
                 if (isSmithPixel) {
-                    const cellColor = this._getCellColor(i);
-                    const fontName = this._getFontName(i);
                     this.snapshotOverlay.set(i, {
-                        char: grid.getChar(i), 
-                        color: cellColor, 
-                        font: fontName,
-                        alpha: brightness, 
-                        endFrame: endFrame, 
-                        isFrozen: true, 
-                        isSmith: true
+                        char: grid.getChar(i), color: '#00FF00', // Simplified
+                        alpha: brightness, endFrame: endFrame, isSmith: true
                     });
                 }
             }
@@ -3702,113 +3661,60 @@ void main() {
     _triggerSuperman(type) {
         this.supermanState.active = true;
         this.supermanState.type = type; 
-        this.supermanState.axis = Math.random() < 0.5 ? 0 : 1;
-        this.supermanState.globalTimer = (type === 0) ? 60 : 150; 
+        this.supermanState.globalTimer = 60; // Short duration
         this.supermanState.flickerTimer = 0;
-        this.supermanState.isBursting = true; 
-        this.supermanState.burstTimer = 0;
-        this.supermanState.cooldown = 0;
-        if (type === 0) this._initializeSupermanBranches();
-    }
-    _initializeSupermanBranches() {
-        this.supermanState.initialBranches = [];
-        const grid = this.g;
-        const numBranches = Math.floor(Math.random() * 3) + 1; 
-        const isHorizEdge = Math.random() < 0.5;
-        this.supermanState.edgeType = isHorizEdge ? 0 : 1;
-        for (let i = 0; i < numBranches; i++) {
-            let targetX, targetY;
-            if (this.supermanState.axis === 0) { 
-                if (isHorizEdge) { targetX = Math.floor(grid.cols/2 + Math.random()*(grid.cols/2)); targetY = grid.rows - 1; }
-                else { targetX = grid.cols - 1; targetY = Math.floor(grid.rows/2 + Math.random()*(grid.rows/2)); }
-            } else { 
-                if (isHorizEdge) { targetX = Math.floor(Math.random()*(grid.cols/2)); targetY = grid.rows - 1; }
-                else { targetX = 0; targetY = Math.floor(grid.rows/2 + Math.random()*(grid.rows/2)); }
-            }
-            this.supermanState.initialBranches.push({ targetX, targetY, isHorizEdge });
-        }
-    }
-    _updateSuperman() {
-        const s = this.supermanState;
-        if (s.type === 0) { 
-            if (s.isBursting) s.burstTimer++;
-            const grid = this.g;
-            for (const branch of s.initialBranches) {
-                const speed = (Math.random() - 0.5) * 4.0;
-                if (branch.isHorizEdge) { branch.targetX += speed; } else { branch.targetY += speed; }
-            }
-        }
-        s.flickerTimer++;
-        if (s.flickerTimer >= 3) { s.flickerTimer = 0; this._generateSupermanBolt(); }
+        this._generateSupermanBolt();
     }
     _generateSupermanBolt() {
         const s = this.supermanState;
         s.cells.clear();
-        s.fluxTriangles = [];
         const grid = this.g;
-        const axis = s.axis;
-        const startX = axis === 0 ? 0 : grid.cols - 1;
-        const startY = 0;
-        const endX = axis === 0 ? grid.cols - 1 : 0;
-        const endY = grid.rows - 1;
-        if (s.type === 1) { 
-            this._drawDisplacedLine(startX, startY, endX, endY, 6.0, 5, s.cells);
-        } else { 
-            const tDiv = 0.4;
-            const divX = startX + (endX - startX) * tDiv;
-            const divY = startY + (endY - startY) * tDiv;
-            this._drawLine(startX, startY, endX, endY, s.cells, 2.0, 0.0);
-            for (const branch of s.initialBranches) {
-                this._drawLine(divX, divY, branch.targetX, branch.targetY, s.cells, 2.0, 0.0);
-                s.fluxTriangles.push({ p1: {x: divX, y: divY}, p2: {x: endX, y: endY}, p3: {x: branch.targetX, y: branch.targetY} });
+        const cx = Math.floor(grid.cols / 2);
+        const cy = Math.floor(grid.rows / 2);
+        // Fix #1: Diagonal Variations
+        if (s.type === 0) {
+            // Variation 1: Main Diagonal Bolt (just before center to axis/corner)
+            const dirX = Math.random() < 0.5 ? 1 : -1;
+            const dirY = Math.random() < 0.5 ? 1 : -1;
+            const startX = cx - (dirX * Utils.randomInt(2, 5));
+            const startY = cy - (dirY * Utils.randomInt(2, 5));
+            // Extend to edge
+            const endX = dirX > 0 ? grid.cols - 1 : 0;
+            const endY = dirY > 0 ? grid.rows - 1 : 0;
+            this._drawJaggedLine(startX, startY, endX, endY, s.cells);
+        } else {
+            // Variation 2: Branching from Center to Axis (constrained)
+            const axis = Math.floor(Math.random() * 4); // 0:Top, 1:Right, 2:Bot, 3:Left
+            const startX = cx;
+            const startY = cy;
+            const numBranches = Utils.randomInt(3, 6);
+            for(let k=0; k<numBranches; k++) {
+                const spread = 0.2 + (Math.random() * 0.6); // Spread along the target edge
+                let targetX, targetY;
+                if (axis === 0) { targetX = Math.floor(grid.cols * spread); targetY = 0; } 
+                else if (axis === 1) { targetX = grid.cols - 1; targetY = Math.floor(grid.rows * spread); }
+                else if (axis === 2) { targetX = Math.floor(grid.cols * spread); targetY = grid.rows - 1; }
+                else { targetX = 0; targetY = Math.floor(grid.rows * spread); }
+                this._drawJaggedLine(startX, startY, targetX, targetY, s.cells);
             }
         }
     }
-    _drawLine(x0, y0, x1, y1, set, jitterAmt = 2.0, thickness = 0.0) {
-        const dist = Math.sqrt((x1-x0)**2 + (y1-y0)**2);
-        const steps = Math.ceil(dist);
-        for (let i = 0; i <= steps; i++) {
-            const t = i / steps;
-            let x = x0 + (x1 - x0) * t;
-            let y = y0 + (y1 - y0) * t;
-            x += (Math.random() - 0.5) * jitterAmt; 
-            y += (Math.random() - 0.5) * jitterAmt;
-            if (thickness > 0) {
-                const r = Math.floor(thickness);
-                for (let dy = -r; dy <= r; dy++) {
-                    for (let dx = -r; dx <= r; dx++) {
-                        const ix = Math.floor(x + dx);
-                        const iy = Math.floor(y + dy);
-                        if (ix >= 0 && ix < this.g.cols && iy >= 0 && iy < this.g.rows) set.add(iy * this.g.cols + ix);
-                    }
-                }
-            } else {
-                const ix = Math.floor(x);
-                const iy = Math.floor(y);
-                if (ix >= 0 && ix < this.g.cols && iy >= 0 && iy < this.g.rows) set.add(iy * this.g.cols + ix);
+    _drawJaggedLine(x0, y0, x1, y1, set) {
+        const dist = Math.hypot(x1-x0, y1-y0);
+        const steps = Math.ceil(dist * 1.5); // More steps for continuity
+        const dx = (x1-x0) / steps;
+        const dy = (y1-y0) / steps;
+        let cx = x0; let cy = y0;
+        for(let i=0; i<=steps; i++) {
+            // Thin line (no thickness loop)
+            const jitter = (Math.random() - 0.5) * 1.5; 
+            const px = Math.floor(cx + jitter);
+            const py = Math.floor(cy + jitter);
+            if(px>=0 && px<this.g.cols && py>=0 && py<this.g.rows) {
+                set.add(py * this.g.cols + px);
             }
+            cx += dx; cy += dy;
         }
-    }
-    _drawDisplacedLine(x0, y0, x1, y1, jitter, depth, set) {
-        if (depth === 0) { this._drawLine(x0, y0, x1, y1, set, 0, 0); return; }
-        const mx = (x0 + x1) / 2;
-        const my = (y0 + y1) / 2;
-        const dx = x1 - x0;
-        const dy = y1 - y0;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        const nx = -dy / len;
-        const ny = dx / len;
-        const offset = (Math.random() - 0.5) * jitter * 2.0; 
-        const dmx = mx + nx * offset;
-        const dmy = my + ny * offset;
-        this._drawDisplacedLine(x0, y0, dmx, dmy, jitter * 0.6, depth - 1, set);
-        this._drawDisplacedLine(dmx, dmy, x1, y1, jitter * 0.6, depth - 1, set);
-    }
-    _pointInTriangle(px, py, p1, p2, p3) {
-        const area = 0.5 * (-p2.y * p3.x + p1.y * (-p2.x + p3.x) + p1.x * (p2.y - p3.y) + p2.x * p3.y);
-        const s = 1 / (2 * area) * (p1.y * p3.x - p1.x * p3.y + (p3.y - p1.y) * px + (p1.x - p3.x) * py);
-        const t = 1 / (2 * area) * (p1.x * p2.y - p1.y * p2.x + (p1.y - p2.y) * px + (p2.x - p1.x) * py);
-        return s > 0 && t > 0 && (1 - s - t) > 0;
     }
     _triggerWhiteBlock() {
         const grid = this.g;
@@ -3819,14 +3725,8 @@ void main() {
         for (let row = r; row < r + h; row++) {
             for (let col = 0; col < grid.cols; col++) {
                 const i = row * grid.cols + col;
-                const fontName = this._getFontName(i);
                 this.snapshotOverlay.set(i, { 
-                    char: grid.getChar(i), 
-                    color: '#FFFFFF', 
-                    font: fontName,
-                    alpha: 1.0, 
-                    endFrame: endFrame, 
-                    isFrozen: true 
+                    char: grid.getChar(i), color: '#FFFFFF', alpha: 1.0, endFrame: endFrame, isFrozen: true 
                 });
             }
         }
@@ -3841,14 +3741,8 @@ void main() {
         const endFrame = this.frame + duration;
         for (let r = startRow; r < startRow + height && r < grid.rows; r++) {
             const i = r * grid.cols + col;
-            const fontName = this._getFontName(i);
             this.snapshotOverlay.set(i, { 
-                char: Utils.getRandomChar(), 
-                color: '#FFFFFF', 
-                font: fontName,
-                alpha: 1.0, 
-                endFrame: endFrame, 
-                isFrozen: true 
+                char: Utils.getRandomChar(), color: '#FFFFFF', alpha: 1.0, endFrame: endFrame, isFrozen: true 
             });
         }
     }
@@ -3857,82 +3751,11 @@ void main() {
         for (const [index, snapshot] of this.snapshotOverlay.entries()) {
             if (currentFrame > snapshot.endFrame) this.snapshotOverlay.delete(index);
             else {
-                if (snapshot.isSmith) {
-                    const rem = snapshot.endFrame - currentFrame;
-                    if (rem < 30) snapshot.alpha = rem / 30.0;
-                } else {
-                    const rem = snapshot.endFrame - currentFrame;
-                    if (rem < 10) snapshot.alpha = rem / 10.0; 
-                }
+                const rem = snapshot.endFrame - currentFrame;
+                if (snapshot.isSmith) { if (rem < 30) snapshot.alpha = rem / 30.0; } 
+                else { if (rem < 10) snapshot.alpha = rem / 10.0; }
             }
         }
-    }
-    _generateVines() {}
-    getOverride(i) {
-        if (!this.active) return null;
-        const grid = this.g;
-        const col = i % grid.cols;
-        const row = Math.floor(i / grid.cols);
-        const fontName = this._getFontName(i);
-        // Superman Effect (Highest Priority)
-        if (this.supermanState.cells.has(i)) {
-            const c = grid.getChar(i);
-            const displayChar = (c && c.charCodeAt(0) > 32) ? c : Utils.getRandomChar();
-            return { char: displayChar, color: '#FFFFFF', font: fontName, alpha: 1.0, glow: 5, size: 0, solid: false, blend: true };
-        }
-        for (const tri of this.supermanState.fluxTriangles) {
-            if (this._pointInTriangle(col, row, tri.p1, tri.p2, tri.p3)) {
-                let fluxColor = this._getCellColor(i);
-                return { char: grid.getChar(i), color: fluxColor, font: fontName, alpha: 1.0, glow: 2, solid: true, bgColor: '#000000', blend: true };
-            }
-        }
-        // Snapshots (Smith, White Blocks, etc)
-        const snapshot = this.snapshotOverlay.get(i);
-        if (snapshot) {
-            if (snapshot.isSmith) {
-                return { char: snapshot.char, color: snapshot.color, font: snapshot.font || fontName, alpha: snapshot.alpha, glow: 0, size: 0, solid: false, blend: true };
-            }
-            return { char: snapshot.char, color: snapshot.color, font: snapshot.font || fontName, alpha: snapshot.alpha, glow: 8, size: 0, solid: false, blend: true };
-        }
-        // --- GLOBAL FADE & BLACK SHEETS ---
-        // Calculate Total Blackness
-        let totalBlack = this.baseBlackLevel;
-        // Add Sheets
-        for (const s of this.blackSheets) {
-            if (col >= s.c && col < s.c + s.w &&
-                row >= s.r && row < s.r + s.h) {
-                let sheetAlpha = s.currentAlpha * s.maxAlpha;
-                const nx = (col - s.posX) / s.w;
-                const ny = (row - s.posY) / s.h;
-                const fadeSize = 0.2;
-                const fadeL = nx < fadeSize ? nx / fadeSize : 1.0;
-                const fadeR = (1.0 - nx) < fadeSize ? (1.0 - nx) / fadeSize : 1.0;
-                const fadeT = ny < fadeSize ? ny / fadeSize : 1.0;
-                const fadeB = (1.0 - ny) < fadeSize ? (1.0 - ny) / fadeSize : 1.0;
-                sheetAlpha *= Math.min(fadeL, fadeR, fadeT, fadeB);
-                // Combine with existing blackness
-                totalBlack = Math.max(totalBlack, sheetAlpha);
-            }
-        }
-        // Cap at 1.0
-        if (totalBlack > 1.0) totalBlack = 1.0;
-        // Apply to Rendering
-        if (totalBlack > 0.01) {
-             const isActive = this.g.alphas[i] > 0.05;
-             const dimColor = this._getCellColor(i);
-             // Inverse: Text Alpha is 1 - Blackness
-             const textAlpha = isActive ? Math.max(0, 1.0 - totalBlack) : 0.0;
-             return { 
-                char: isActive ? grid.getChar(i) : '', 
-                color: dimColor, 
-                font: fontName,
-                alpha: textAlpha, 
-                solid: true, 
-                bgColor: `rgba(0, 0, 0, ${totalBlack})`, 
-                blend: false 
-            };
-        }
-        return null;
     }
 }
 // --- DejaVuEffect.js ---
@@ -3944,6 +3767,15 @@ class DejaVuEffect extends AbstractEffect {
         this.autoTimer = c.state.dejaVuFrequencySeconds * 60; 
         this.map = null;
         this.bars = [];
+        // Sub-effect states
+        this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
+        this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
+        this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
+        // Shader State
+        this.originalShader = null;
+        this.originalShaderEnabled = false;
+        this.shaderActive = false;
+        this.originalFade = 0;
     }
     trigger() { 
         if(this.active) return false; 
@@ -3951,19 +3783,84 @@ class DejaVuEffect extends AbstractEffect {
         this.timer = this.c.state.dejaVuDurationSeconds * 60; 
         this.bars = []; 
         this.map = new Uint8Array(this.g.rows); 
+        // Reset sub-effects
+        this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
+        this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
+        this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
+        // Override Stream Fade
+        this.originalFade = this.c.get('decayFadeDurationFrames');
+        this.c.set('decayFadeDurationFrames', 0);
+        // Enable Glitch Shader
+        this._enableShader();
         return true; 
+    }
+    _enableShader() {
+        if (this.shaderActive) return;
+        this.originalShaderEnabled = this.c.state.shaderEnabled;
+        this.originalShader = this.c.state.customShader;
+        const glitchShader = `
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+varying vec2 vTexCoord;
+float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
+void main() {
+    vec2 uv = vTexCoord;
+    vec4 color = texture2D(uTexture, uv);
+    float t = floor(uTime * 15.0);
+    if (rand(vec2(t, 1.0)) > 0.95) {
+        float ry = rand(vec2(t, 2.0));
+        float rh = rand(vec2(t, 3.0)) * 0.15; 
+        if (uv.y > ry && uv.y < ry + rh) {
+             float shift = (rand(vec2(t, 4.0)) - 0.5) * 0.02;
+             float r = texture2D(uTexture, vec2(uv.x + shift + 0.003, uv.y)).r;
+             float g = texture2D(uTexture, vec2(uv.x + shift, uv.y)).g;
+             float b = texture2D(uTexture, vec2(uv.x + shift - 0.003, uv.y)).b;
+             float a = texture2D(uTexture, vec2(uv.x + shift, uv.y)).a;
+             color = vec4(r, g, b, a);
+             if (rand(vec2(t, 5.0)) > 0.8) {
+                color.rgb = 1.0 - color.rgb;
+             }
+        }
+    }
+    gl_FragColor = color;
+}
+`;
+        this.c.set('customShader', glitchShader);
+        this.c.set('shaderEnabled', true);
+        this.shaderActive = true;
+    }
+    _disableShader() {
+        if (!this.shaderActive) return;
+        this.c.set('customShader', this.originalShader);
+        this.c.set('shaderEnabled', this.originalShaderEnabled);
+        this.shaderActive = false;
     }
     update() {
         const s = this.c.state;
         if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
         if(!this.active) return;
-        if(this.timer-- <= 0) { this.active = false; this.bars = []; this.map = null; return; }
+        if(this.timer-- <= 0) { 
+            this.active = false; 
+            this.bars = []; 
+            this.map = null; 
+            this._disableShader();
+            // Restore Fade
+            this.c.set('decayFadeDurationFrames', this.originalFade);
+            return; 
+        }
         this.map.fill(0);
-        // Spawn bars
         if(Math.random() < s.dejaVuIntensity) {
             const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); 
             const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
-            this.bars.push({ y, h, age: 0, maxAge: s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10) });
+            const duration = s.dejaVuBarDurationFrames + Utils.randomInt(-10, 10);
+            this.bars.push({ y, h, age: 0, maxAge: duration });
+            if (this.g.glowSystem) {
+                this.g.glowSystem.addRect(
+                    this.g.cols / 2, y + (h / 2), this.g.cols, h, 2.0, 0xFF00FF00, duration, 'linear', 4
+                );
+            }
         }
         const activeFonts = this.c.derived.activeFonts;
         const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05));
@@ -3973,24 +3870,18 @@ class DejaVuEffect extends AbstractEffect {
         for(let i=this.bars.length-1; i>=0; i--) {
             const b = this.bars[i]; 
             b.age++;
-            if(b.age > b.maxAge) {
-                this.bars.splice(i, 1); 
-                continue;
-            } 
+            if(b.age > b.maxAge) { this.bars.splice(i, 1); continue; } 
             const limit = Math.min(rows, b.y + b.h);
             for(let r=b.y; r < limit; r++) {
                 this.map[r] = 1; 
-                // Apply glitches (Randomly change content of cells in the bar)
                 for(let k=0; k<glitchCount; k++) {
                     const x = (Math.random() * cols) | 0;
                     const idx = r * cols + x;
                     this.g.mix[idx] = 0; 
                     const fontIdx = (Math.random() * activeFonts.length) | 0;
                     const fontData = activeFonts[fontIdx];
-                    const chars = fontData.chars;
-                    if (chars && chars.length > 0) {
-                        const char = chars[(Math.random() * chars.length) | 0];
-                        // Preserve existing color/alpha/glow unless randomizing
+                    if (fontData.chars.length > 0) {
+                        const char = fontData.chars[(Math.random() * fontData.chars.length) | 0];
                         let color = this.g.colors[idx];
                         const alpha = this.g.alphas[idx];
                         const glow = this.g.glows[idx];
@@ -3998,56 +3889,156 @@ class DejaVuEffect extends AbstractEffect {
                             const h = (Math.random() * 360) | 0;
                             const rgb = Utils.hslToRgb(h, 90, 70);
                             color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
-                            // Set complex style so SimulationSystem can maintain it (if desired)
-                            // or just set color directly for instant effect.
-                            // SimulationSystem overwrites color if complexStyle exists.
                             this.g.complexStyles.set(idx, { h, s: 90, l: 70, glitched: true });
+                            this.g.baseColors[idx] = color;
                         }
                         this.g.setPrimary(idx, char, color, alpha, fontIdx, glow);
                     }
                 }
             }
         }
+        if (this.vertGlitch.active) {
+            this.vertGlitch.timer--;
+            if (this.vertGlitch.timer <= 0) this.vertGlitch.active = false;
+        } else {
+            if (Math.random() < 0.005) {
+                this.vertGlitch.active = true;
+                this.vertGlitch.timer = 15; 
+                this.vertGlitch.width = Utils.randomInt(4, 7);
+                this.vertGlitch.srcX = Utils.randomInt(0, this.g.cols - this.vertGlitch.width);
+            }
+        }
+        if (this.doubleGlitch.active) {
+            this.doubleGlitch.timer--;
+            if (this.doubleGlitch.timer <= 0) this.doubleGlitch.active = false;
+        } else {
+            if (Math.random() < 0.015) {
+                this.doubleGlitch.active = true;
+                this.doubleGlitch.timer = Utils.randomInt(5, 15);
+                this.doubleGlitch.h = Math.floor(this.g.rows / 3);
+                this.doubleGlitch.startY = Utils.randomInt(0, this.g.rows - this.doubleGlitch.h);
+                this.doubleGlitch.shiftX = Utils.randomInt(5, 20) * (Math.random() < 0.5 ? 1 : -1);
+            }
+        }
+        if (this.horizGlitch.active) {
+            this.horizGlitch.timer--;
+            if (this.horizGlitch.timer <= 0) this.horizGlitch.active = false;
+        } else {
+            if (Math.random() < 0.005) {
+                this.horizGlitch.active = true;
+                this.horizGlitch.timer = Utils.randomInt(5, 10);
+                this.horizGlitch.shift = Utils.randomInt(3, 10) * (Math.random() < 0.5 ? 1 : -1);
+                this.horizGlitch.flash = Math.random() < 0.5;
+                this.horizGlitch.rows = [];
+                const count = Utils.randomInt(5, 20);
+                for(let i=0; i<count; i++) {
+                    this.horizGlitch.rows.push(Utils.randomInt(0, this.g.rows-1));
+                }
+            }
+        }
     }
     applyToGrid(grid) {
-        if(!this.active || !this.map) return;
+        if(!this.active) return;
+        if (!this.map) return;
         const s = this.c.state; 
         const d = this.c.derived;
         const cols = grid.cols;
         const tracerColor = d.tracerColorUint32;
-        const holeBrightness = s.dejaVuHoleBrightness; // UI Label: "Intensity"
-        // For filling gaps, we need a fallback char
-        // We can use a random char from the first active font
+        const holeBrightness = s.dejaVuHoleBrightness;
         const activeFonts = d.activeFonts;
         const fallbackFontIdx = 0;
         const fallbackChars = activeFonts[0].chars;
+        const timeSeed = Math.floor(Date.now() / 150);
         for (let y = 0; y < grid.rows; y++) {
             if (this.map[y] === 1) {
                 const rowOffset = y * cols;
                 for (let x = 0; x < cols; x++) {
                     const i = rowOffset + x;
                     const baseAlpha = grid.alphas[i];
+                    const char = grid.getChar(i);
+                    const fontIdx = grid.fontIndices[i];
                     if (baseAlpha < 0.01) {
-                        // INACTIVE CELL (Space)
-                        // Light up based on Intensity (HoleBrightness)
                         if (holeBrightness > 0.01) {
-                            // Pick a random char to fill the void (stable per cell? No, glitchy is fine)
-                            // To be stable, we hash index.
-                            const charIdx = (i + y) % fallbackChars.length;
-                            const char = fallbackChars[charIdx];
-                            grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            if (fallbackChars && fallbackChars.length > 0) {
+                                const hash = (i ^ timeSeed) * 2654435761;
+                                const rndIdx = (hash & 0x7FFFFFFF) % fallbackChars.length;
+                                grid.setOverride(i, fallbackChars[rndIdx], tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            } else {
+                                grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
+                            }
                         }
                     } else {
-                        // ACTIVE CELL
-                        // Overlay with Tracer Color? Or keep original?
-                        // Legacy: "alpha = baseAlpha < 0.1 ? hole : baseAlpha"
-                        // But also set Color = TracerColor.
-                        // So for active cells, we Override color to White.
-                        // We use the existing char
-                        const char = grid.getChar(i);
-                        const fontIdx = grid.fontIndices[i];
                         grid.setOverride(i, char, tracerColor, baseAlpha, fontIdx, 0);
                     }
+                }
+            }
+        }
+        if (this.vertGlitch.active) {
+            const { srcX, width } = this.vertGlitch;
+            for (let y = 0; y < grid.rows; y++) {
+                if (this.map[y] !== 1) continue;
+                const rowOffset = y * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    const readX = srcX + (x % width);
+                    if (readX >= cols) continue;
+                    const readIdx = rowOffset + readX;
+                    const char = grid.getChar(readIdx);
+                    const alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    const color = tracerColor; 
+                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                }
+            }
+        }
+        if (this.doubleGlitch.active) {
+            const { startY, h, shiftX } = this.doubleGlitch;
+            const endY = Math.min(grid.rows, startY + h);
+            for (let y = startY; y < endY; y++) {
+                const rowOffset = y * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    let readX = x - shiftX;
+                    if (readX < 0) readX += cols;
+                    if (readX >= cols) readX -= cols;
+                    const readIdx = rowOffset + readX;
+                    const char = grid.getChar(readIdx);
+                    const alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    const color = tracerColor;
+                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                }
+            }
+        }
+        if (this.horizGlitch.active) {
+            const { rows, shift, flash } = this.horizGlitch;
+            for (const r of rows) {
+                if (r >= grid.rows) continue;
+                const rowOffset = r * cols;
+                for (let x = 0; x < cols; x++) {
+                    const i = rowOffset + x;
+                    let readX = x - shift;
+                    if (readX < 0) readX += cols;
+                    if (readX >= cols) readX -= cols;
+                    const readIdx = rowOffset + readX;
+                    let char = grid.getChar(readIdx);
+                    let alpha = grid.alphas[readIdx];
+                    const fontIdx = grid.fontIndices[readIdx];
+                    let color = grid.colors[readIdx];
+                    let glow = grid.glows[readIdx];
+                    const needsRandom = flash || (alpha < 0.1);
+                    if (needsRandom && fallbackChars && fallbackChars.length > 0) {
+                         const rndIdx = (Math.random() * fallbackChars.length) | 0;
+                         char = fallbackChars[rndIdx];
+                    }
+                    if (flash) {
+                        color = 0xFFFFFFFF; 
+                        alpha = 1.0;
+                        glow = 5.0; 
+                    } else {
+                         color = tracerColor;
+                    }
+                    grid.setOverride(i, char, color, alpha, fontIdx, glow);
                 }
             }
         }
@@ -4118,12 +4109,7 @@ class FirewallEffect extends AbstractEffect {
                 // Deep clean the column so it is totally empty
                 for (let y = 0; y < this.g.rows; y++) {
                     const idx = this.g.getIndex(this.column, y);
-                    this.g.types[idx] = CELL_TYPE.EMPTY;
-                    this.g.alphas[idx] = 0;
-                    this.g.ages[idx] = 0;
-                    this.g.decays[idx] = 0;
-                    this.g.rotatorProg[idx] = 0;
-                    this.g.complexStyles.delete(idx);
+                    this.g.clearCell(idx);
                 }
             }
             if (this.eraseTimer <= 0) {
@@ -4193,6 +4179,155 @@ class FirewallEffect extends AbstractEffect {
             };
         }
         return null;
+    }
+}
+// --- GlowSystem.js ---
+class GlowSystem {
+    constructor(grid) {
+        this.grid = grid;
+        this.sources = [];
+    }
+    /**
+     * Adds a transient radial glow source.
+     * @param {number} x - Center Column.
+     * @param {number} y - Center Row.
+     * @param {number} radius - Radius in cells.
+     * @param {number} intensity - Peak intensity.
+     * @param {number|null} color - Tint color (Uint32).
+     * @param {number} duration - Frames.
+     * @param {string} decayFn - 'linear', 'exponential', 'none'.
+     */
+    add(x, y, radius, intensity, color = null, duration = 0, decayFn = 'linear') {
+        this.addRadial(x, y, radius, intensity, color, duration, decayFn);
+    }
+    addRadial(x, y, radius, intensity, color = null, duration = 0, decayFn = 'linear') {
+        this.sources.push({
+            type: 'radial', x, y, radius, intensity, color, 
+            duration: Math.max(1, duration), 
+            maxDuration: Math.max(1, duration), 
+            decayFn, 
+            age: 0
+        });
+    }
+    /**
+     * Adds a transient rectangular glow source.
+     * @param {number} x - Center Column.
+     * @param {number} y - Center Row.
+     * @param {number} width - Full Width in cells.
+     * @param {number} height - Full Height in cells.
+     * @param {number} intensity - Peak intensity (inside box).
+     * @param {number|null} color - Tint color.
+     * @param {number} duration - Frames.
+     * @param {string} decayFn - 'linear', 'exponential'.
+     * @param {number} falloff - Soft edge radius outside the box (0 = hard edge).
+     */
+    addRect(x, y, width, height, intensity, color = null, duration = 0, decayFn = 'linear', falloff = 2) {
+        this.sources.push({
+            type: 'rect', x, y, w: width, h: height, falloff, intensity, color,
+            duration: Math.max(1, duration),
+            maxDuration: Math.max(1, duration),
+            decayFn,
+            age: 0
+        });
+    }
+    update() {
+        // Lifecycle Management
+        for (let i = this.sources.length - 1; i >= 0; i--) {
+            const s = this.sources[i];
+            s.age++;
+            if (s.age >= s.duration) {
+                this.sources.splice(i, 1);
+            }
+        }
+    }
+    apply() {
+        if (this.sources.length === 0) return;
+        const grid = this.grid;
+        const cols = grid.cols;
+        const rows = grid.rows;
+        const gEnvGlows = grid.envGlows;
+        const gColors = grid.colors;
+        for (const s of this.sources) {
+            // Calculate lifecycle intensity
+            let currentIntensity = s.intensity;
+            if (s.decayFn === 'linear') {
+                currentIntensity *= 1.0 - (s.age / s.maxDuration);
+            } else if (s.decayFn === 'exponential') {
+                const prog = s.age / s.maxDuration;
+                currentIntensity *= (1.0 - (prog * prog));
+            }
+            if (currentIntensity <= 0.01) continue;
+            // Determine Bounds
+            let minX, maxX, minY, maxY;
+            if (s.type === 'rect') {
+                const halfW = s.w / 2;
+                const halfH = s.h / 2;
+                const margin = s.falloff;
+                minX = Math.floor(s.x - halfW - margin);
+                maxX = Math.ceil(s.x + halfW + margin);
+                minY = Math.floor(s.y - halfH - margin);
+                maxY = Math.ceil(s.y + halfH + margin);
+            } else {
+                // Radial
+                const r = s.radius;
+                minX = Math.floor(s.x - r);
+                maxX = Math.ceil(s.x + r);
+                minY = Math.floor(s.y - r);
+                maxY = Math.ceil(s.y + r);
+            }
+            // Clamp to grid
+            minX = Math.max(0, minX); maxX = Math.min(cols - 1, maxX);
+            minY = Math.max(0, minY); maxY = Math.min(rows - 1, maxY);
+            for (let cy = minY; cy <= maxY; cy++) {
+                for (let cx = minX; cx <= maxX; cx++) {
+                    const idx = cy * cols + cx;
+                    if (grid.state[idx] === 0) continue; 
+                    let boost = 0;
+                    if (s.type === 'rect') {
+                        // Signed Distance Field logic for Box
+                        // distance from center relative to half-size
+                        const dx = Math.abs(cx - s.x) - (s.w / 2);
+                        const dy = Math.abs(cy - s.y) - (s.h / 2);
+                        // dist > 0 means outside. dist <= 0 means inside.
+                        // We only care about outside distance for falloff.
+                        // Inside is full intensity.
+                        const outsideDist = Math.sqrt(Math.max(dx, 0) ** 2 + Math.max(dy, 0) ** 2);
+                        if (outsideDist <= 0) {
+                            boost = currentIntensity; // Inside box
+                        } else if (outsideDist < s.falloff) {
+                            // Fade out
+                            boost = currentIntensity * (1.0 - (outsideDist / s.falloff));
+                        }
+                    } else {
+                        // Radial
+                        const dx = cx - s.x;
+                        const dy = cy - s.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist < s.radius) {
+                            boost = currentIntensity * (1.0 - (dist / s.radius));
+                        }
+                    }
+                    if (boost > 0.01) {
+                        gEnvGlows[idx] += boost;
+                        if (s.color !== null) {
+                            const blendFactor = Math.min(1.0, boost * 0.5);
+                            const cur = gColors[idx];
+                            const cR = cur & 0xFF;
+                            const cG = (cur >> 8) & 0xFF;
+                            const cB = (cur >> 16) & 0xFF;
+                            const sR = s.color & 0xFF;
+                            const sG = (s.color >> 8) & 0xFF;
+                            const sB = (s.color >> 16) & 0xFF;
+                            const nR = cR + (sR - cR) * blendFactor;
+                            const nG = cG + (sG - cG) * blendFactor;
+                            const nB = cB + (sB - cB) * blendFactor;
+                            const nA = (cur >> 24) & 0xFF;
+                            gColors[idx] = ((nA & 0xFF) << 24) | ((Math.floor(nB) & 0xFF) << 16) | ((Math.floor(nG) & 0xFF) << 8) | (Math.floor(nR) & 0xFF);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 // --- MiniPulseEffect.js ---
@@ -4451,7 +4586,10 @@ class PulseEffect extends AbstractEffect {
                     dist = Math.max(dx, dy * rd.ratio);
                 }
                 // Inside the hole: Reveal (Do nothing)
-                if (dist < rd.innerEdge) continue;
+                if (dist < rd.innerEdge) {
+                    grid.clearOverride(i);
+                    continue;
+                }
             } else {
                 // WAITING: dist is effectively Infinity (outside radius 0)
                 dist = 999999;
@@ -4468,6 +4606,12 @@ class PulseEffect extends AbstractEffect {
                 fontIdx = this.snap.fillFonts[i];
             }
             if (this.state === 'WAITING' || dist > rd.radius) {
+                const snAlpha = this.snap.alphas[i];
+                let charCode = this.snap.chars[i];
+                let fontIdx = this.snap.fontIndices[i];
+                let color = this.snap.colors[i];
+                const isTracer = (this.snap.tracers[i] === 1);
+                const isGap = (snAlpha <= 0.01);
                 // DIMMED SNAPSHOT
                 if (isTracer && s.pulseIgnoreTracers) {
                     // Keep original tracer
@@ -4481,6 +4625,8 @@ class PulseEffect extends AbstractEffect {
                 }
             } else {
                 // WAVE EDGE
+                const snAlpha = this.snap.alphas[i];
+                const isGap = (snAlpha <= 0.01);
                 if (s.pulsePreserveSpaces && isGap) {
                     grid.setOverride(i, '', 0, 0, 0);
                 } else {
@@ -4772,7 +4918,6 @@ class GlyphAtlas {
         this.cellSize = 0;
         this.atlasWidth = 0;
         this.atlasHeight = 0;
-        this.blockHeight = 0; // Height of one color set
         // State tracking for updates
         this.currentFont = '';
         this.currentPalette = '';
@@ -4783,22 +4928,11 @@ class GlyphAtlas {
         this._lastCols = 0;
         this._lastRows = 0;
         this._lastCharListKey = '';
-        this._lastMaxSize = 0;
-        this._lastPadding = 0;
-        // Optimization: Pre-rendered Rainbow Palette (24 steps)
-        // Used for "Star Power" / Glitter / Rainbow effects to avoid fillText
-        this.rainbowColors = [];
-        const rainbowSteps = 24;
-        for (let i = 0; i < rainbowSteps; i++) {
-            const hue = (i / rainbowSteps) * 360;
-            this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
-        }
-        // Cached block offset for rainbow section
-        this.rainbowOffsetStart = 0; 
         // Safety flags
-        this.rainbowSupported = true;
         this.valid = true;
         this.MAX_HEIGHT = 8192; // Common safe limit for mobile/desktop
+        // Fast Lookup for Renderer (CharCode -> AtlasID)
+        this.codeToId = new Int16Array(65536).fill(-1);
         // Glyph Cache Optimization: Filter unsupported characters
         this.testCanvas = document.createElement('canvas');
         this.testCanvas.width = 20;
@@ -4874,59 +5008,15 @@ class GlyphAtlas {
         this._lastCols = cols;
         this._lastRows = rows;
         const newAtlasWidth = cols * this.cellSize;
-        const newBlockHeight = rows * this.cellSize;
-        const paletteLen = d.paletteColorsStr?.length || 0;
-        // Safety Check & Dynamic Rainbow Optimization
-        let rainbowSteps = 24; 
-        let totalBlocks = paletteLen + 1 + rainbowSteps;
-        let requiredHeight = newBlockHeight * totalBlocks;
-        if (requiredHeight > this.MAX_HEIGHT) {
-            // Try reducing rainbow steps to fit
-            const attempts = [12, 8, 4]; // Degrade quality
-            let found = false;
-            for (const s of attempts) {
-                const h = newBlockHeight * (paletteLen + 1 + s);
-                if (h <= this.MAX_HEIGHT) {
-                    console.log(`[GlyphAtlas] Optimizing: Reducing rainbow to ${s} steps to fit atlas limit.`);
-                    rainbowSteps = s;
-                    totalBlocks = paletteLen + 1 + s;
-                    requiredHeight = h;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                // Info log instead of warning, as this is an expected optimization fallback
-                console.log(`[GlyphAtlas] Atlas height (${requiredHeight}px) exceeds limit (${this.MAX_HEIGHT}px). Disabling Rainbow optimization.`);
-                this.rainbowSupported = false;
-                rainbowSteps = 0;
-                // Recalculate without rainbow
-                totalBlocks = paletteLen + 1;
-                requiredHeight = newBlockHeight * totalBlocks;
-            } else {
-                this.rainbowSupported = true;
-            }
-        } else {
-            this.rainbowSupported = true;
-        }
-        if (requiredHeight > this.MAX_HEIGHT) {
-            console.error(`[GlyphAtlas] Texture CRITICAL (${requiredHeight}px). Atlas disabled.`);
-            this.valid = false;
-            return; // Abort
+        const newAtlasHeight = rows * this.cellSize;
+        if (newAtlasHeight > this.MAX_HEIGHT) {
+             console.error(`[GlyphAtlas] Texture Limit Exceeded.`);
+             this.valid = false;
+             return;
         }
         this.valid = true;
-        // Regenerate Rainbow Colors for current step count
-        if (this.rainbowSupported) {
-            this.rainbowColors = [];
-            for (let i = 0; i < rainbowSteps; i++) {
-                const hue = (i / rainbowSteps) * 360;
-                this.rainbowColors.push(`hsl(${hue}, 100%, 70%)`);
-            }
-        }
         this.atlasWidth = newAtlasWidth;
-        this.atlasHeight = requiredHeight;
-        this.blockHeight = newBlockHeight;
-        this.rainbowOffsetStart = (paletteLen + 1) * newBlockHeight;
+        this.atlasHeight = newAtlasHeight;
         // Resize Canvas (clears content)
         if (this.canvas.width !== this.atlasWidth || this.canvas.height !== this.atlasHeight) {
             this.canvas.width = this.atlasWidth;
@@ -4938,6 +5028,9 @@ class GlyphAtlas {
         this.ctx.font = this.currentFont;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
+        this.ctx.fillStyle = '#FFFFFF';
+        // Reset lookup
+        this.codeToId.fill(-1);
     }
     /**
      * Adds a character to the atlas if space permits, expanding if necessary.
@@ -4945,12 +5038,6 @@ class GlyphAtlas {
     addChar(char) {
         if (!this.valid) return null;
         // Check if supported first
-        // Note: We use a simplified check here or rely on the caller?
-        // Let's do the check here to avoid polluting atlas with tofu.
-        // But we need to cache the check.
-        // Using _getCharSignature is slightly expensive per-frame if hit often.
-        // We'll trust that 'char' is unique and not in map.
-        // Verify support
         const checkFont = this.currentFont.replace(/\d+px/, '16px'); 
         const sig = this._getCharSignature(checkFont, char);
         const emptySig = this._getCharSignature(checkFont, '\uFFFF');
@@ -4973,9 +5060,8 @@ class GlyphAtlas {
         // Double capacity
         this.capacity *= 2;
         // Re-calculate dimensions and resize canvas
-        // Warning: Resizing clears the canvas! We must redraw EVERYTHING.
         const oldUsed = [...this.usedChars];
-        const d = this.config.derived; // Need palette info
+        const d = this.config.derived; 
         this._resizeAtlas(d);
         // Re-add all characters to map and draw them
         this.charMap.clear();
@@ -4984,39 +5070,25 @@ class GlyphAtlas {
         }
     }
     _drawSingleChar(char, index) {
-        const d = this.config.derived;
-        const s = this.config.state;
-        const paletteLen = d.paletteColorsStr?.length || 0;
         const col = index % this._lastCols;
         const row = (index / this._lastCols) | 0;
         const x = col * this.cellSize + this.halfCell;
-        const baseY = row * this.cellSize + this.halfCell;
+        const y = row * this.cellSize + this.halfCell;
         const rect = {
             x: col * this.cellSize,
             y: row * this.cellSize,
             w: this.cellSize,
-            h: this.cellSize
+            h: this.cellSize,
+            id: index // Store index for shader lookup
         };
         this.charMap.set(char, rect);
         this.hasChanges = true;
-        // 1. Palette Blocks
-        for (let pIdx = 0; pIdx < paletteLen; pIdx++) {
-            this.ctx.fillStyle = d.paletteColorsStr[pIdx];
-            const y = baseY + (pIdx * this.blockHeight);
-            this.ctx.fillText(char, x, y);
+        // Update fast lookup
+        const code = char.charCodeAt(0);
+        if (code < 65536) {
+            this.codeToId[code] = index;
         }
-        // 2. Overlap Color Block
-        this.ctx.fillStyle = s.overlapColor;
-        const overlapY = baseY + (paletteLen * this.blockHeight);
-        this.ctx.fillText(char, x, overlapY);
-        // 3. Rainbow Blocks
-        if (this.rainbowSupported) {
-            for (let rIdx = 0; rIdx < this.rainbowColors.length; rIdx++) {
-                this.ctx.fillStyle = this.rainbowColors[rIdx];
-                const y = baseY + this.rainbowOffsetStart + (rIdx * this.blockHeight);
-                this.ctx.fillText(char, x, y);
-            }
-        }
+        this.ctx.fillText(char, x, y);
     }
     resetChanges() {
         this.hasChanges = false;
@@ -5225,6 +5297,16 @@ class WebGLRenderer {
             console.error("WebGLRenderer: Hardware acceleration not supported.");
             throw new Error("WebGL not supported");
         }
+        // Check for Float Texture Support (for HDR Bloom)
+        this.canUseFloat = false;
+        if (this.isWebGL2) {
+            const ext = this.gl.getExtension('EXT_color_buffer_float');
+            if (ext) this.canUseFloat = true;
+        } else {
+            const ext = this.gl.getExtension('OES_texture_float');
+            const extLin = this.gl.getExtension('OES_texture_float_linear');
+            if (ext && extLin) this.canUseFloat = true;
+        }
         // WebGL1 Extension for Instancing
         if (!this.isWebGL2) {
             const ext = this.gl.getExtension('ANGLE_instanced_arrays');
@@ -5262,8 +5344,10 @@ class WebGLRenderer {
         // --- Framebuffers for Bloom ---
         this.fboA = null; 
         this.fboB = null; 
+        this.fboC = null; // New Scratch FBO
         this.texA = null; 
         this.texB = null; 
+        this.texC = null; // New Scratch Texture
         this.bloomWidth = 0;
         this.bloomHeight = 0;
         // --- State Tracking ---
@@ -5348,69 +5432,217 @@ class WebGLRenderer {
         const texture2D = this.isWebGL2 ? 'texture' : 'texture2D';
         const outColor = this.isWebGL2 ? 'out vec4 fragColor;' : '';
         const setFragColor = this.isWebGL2 ? 'fragColor' : 'gl_FragColor';
+        // Optimized Vertex Shader
         const matrixVS = `${version}
-            layout(location=0) ${attribute} vec2 a_position;
-            layout(location=1) ${attribute} vec2 a_offset;
-            layout(location=2) ${attribute} float a_charIdx;
-            layout(location=3) ${attribute} vec4 a_color;
-            layout(location=4) ${attribute} float a_scale;
+            precision mediump float;
+            layout(location=0) ${attribute} vec2 a_quad;      // 0..1
+            layout(location=1) ${attribute} vec2 a_pos;       // Cell Center X,Y
+            layout(location=2) ${attribute} float a_charIdx;  // Char Index
+            layout(location=3) ${attribute} vec4 a_color;     // Normalized Color
+            layout(location=4) ${attribute} float a_alpha;    // Alpha
+            layout(location=5) ${attribute} float a_decay;    // Decay State
+            layout(location=6) ${attribute} float a_glow;     // Glow Amount
+            layout(location=7) ${attribute} float a_mix;      // Mix Factor
+            layout(location=8) ${attribute} float a_nextChar; // Next Char Index
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
             uniform float u_cellSize;
             uniform float u_cols;
-            uniform float u_mirror;
+            uniform float u_decayDur;
             uniform vec2 u_stretch;
+            uniform float u_mirror;
+            uniform float u_dissolveEnabled;
+            uniform float u_dissolveScale;
             ${varying} vec2 v_uv;
+            ${varying} vec2 v_uv2;
             ${varying} vec4 v_color;
-            ${varying} float v_isSolid;
+            ${varying} float v_mix;
+            ${varying} float v_glow;
+            ${varying} float v_prog;
             void main() {
-                vec2 centerPos = (a_position - 0.5) * u_cellSize * a_scale;
-                vec2 stretchedPos = (a_offset + centerPos) * u_stretch;
-                if (u_mirror < 0.0) stretchedPos.x = u_resolution.x - stretchedPos.x;
-                vec2 clip = (stretchedPos / u_resolution) * 2.0 - 1.0;
-                clip.y = -clip.y; 
+                // Decay Scale Logic
+                float scale = 1.0;
+                v_prog = 0.0;
+                if (a_decay >= 2.0) {
+                    v_prog = (a_decay - 2.0) / u_decayDur;
+                    if (u_dissolveEnabled > 0.5) {
+                        scale = mix(1.0, u_dissolveScale, v_prog);
+                    } else {
+                        scale = 1.0;
+                    }
+                }
+                // Position Calculation
+                vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
+                vec2 worldPos = a_pos + centerPos;
+                // Mirror/Stretch
+                worldPos.x = (worldPos.x - (u_resolution.x * 0.5)) * u_stretch.x + (u_resolution.x * 0.5);
+                worldPos.y = (worldPos.y - (u_resolution.y * 0.5)) * u_stretch.y + (u_resolution.y * 0.5);
+                if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
+                // Clip Space
+                vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
+                clip.y = -clip.y;
                 gl_Position = vec4(clip, 0.0, 1.0);
+                // Pass Attributes
                 v_color = a_color;
-                if (a_charIdx < -0.5) {
-                    v_isSolid = 1.0; v_uv = vec2(0.0);
+                v_color.a *= a_alpha;
+                v_mix = a_mix;
+                v_glow = a_glow;
+                // UV 1
+                float cIdx = a_charIdx;
+                float row = floor(cIdx / u_cols);
+                float col = mod(cIdx, u_cols);
+                vec2 uvBase = vec2(col, row) * u_cellSize;
+                v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                // UV 2 (Rotator Target)
+                if (a_mix > 0.0) {
+                    float cIdx2 = a_nextChar;
+                    float row2 = floor(cIdx2 / u_cols);
+                    float col2 = mod(cIdx2, u_cols);
+                    vec2 uvBase2 = vec2(col2, row2) * u_cellSize;
+                    v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
                 } else {
-                    v_isSolid = 0.0;
-                    float row = floor(a_charIdx / u_cols);
-                    float col = mod(a_charIdx, u_cols);
-                    vec2 uvBase = vec2(col, row) * u_cellSize;
-                    vec2 uvPixel = uvBase + (a_position * u_cellSize);
-                    v_uv = uvPixel / u_atlasSize;
+                    v_uv2 = v_uv;
                 }
             }
         `;
-        let finalMatrixVS = matrixVS;
+        // Optimized Fragment Shader
+        const matrixFS = `${version}
+            precision mediump float;
+            ${varyingIn} vec2 v_uv;
+            ${varyingIn} vec2 v_uv2;
+            ${varyingIn} vec4 v_color;
+            ${varyingIn} float v_mix;
+            ${varyingIn} float v_glow;
+            ${varyingIn} float v_prog;
+            uniform sampler2D u_texture;
+            uniform float u_time;
+            uniform float u_dissolveEnabled; // 0.0 or 1.0
+            uniform float u_dissolveScale;
+            uniform float u_dissolveSize;
+            uniform float u_deteriorationEnabled;
+            uniform float u_deteriorationStrength;
+            uniform vec2 u_atlasSize;
+            uniform vec4 u_overlapColor;
+            ${outColor}
+            // Pseudo-random function
+            float random(vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+            // Helper to apply all visual degradations (Dissolve + Ghosting) identically
+            float getProcessedAlpha(vec2 uv) {
+                float a = ${texture2D}(u_texture, uv).a;
+                float ghost1 = 0.0;
+                float ghost2 = 0.0;
+                // Trail Ghosting (Vertical Blur) - Sample first
+                if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
+                    float blurDist = (u_deteriorationStrength * v_prog) / u_atlasSize.y;
+                    ghost1 = ${texture2D}(u_texture, uv + vec2(0.0, blurDist)).a;
+                    ghost2 = ${texture2D}(u_texture, uv - vec2(0.0, blurDist)).a;
+                }
+                // Alpha Erosion Dissolve (Burn away from edges)
+                // Apply to MAIN char AND GHOSTS
+                if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
+                    float erosion = v_prog * 1.2; 
+                    a = min(a, smoothstep(erosion, erosion + 0.1, a));
+                    if (ghost1 > 0.0) ghost1 = min(ghost1, smoothstep(erosion, erosion + 0.1, ghost1));
+                    if (ghost2 > 0.0) ghost2 = min(ghost2, smoothstep(erosion, erosion + 0.1, ghost2));
+                }
+                // Combine
+                if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
+                    a = max(a, max(ghost1, ghost2) * 0.5);
+                }
+                return a;
+            }
+            void main() {
+                // Sample Texture with Effects
+                float tex1 = getProcessedAlpha(v_uv);
+                vec4 baseColor = v_color;
+                float finalAlpha = tex1;
+                if (v_mix >= 3.0) {
+                    // Solid Mode
+                    finalAlpha = 1.0;
+                } else if (v_mix >= 2.0) {
+                    // Overlap Mode
+                    // Apply same effects to secondary character
+                    float tex2 = getProcessedAlpha(v_uv2);
+                    float intersection = tex1 * tex2;
+                    // Primary visible, secondary invisible except intersection
+                    finalAlpha = tex1; 
+                    // If intersecting, use overlap color
+                    if (intersection > 0.1) {
+                         baseColor.rgb = u_overlapColor.rgb;
+                    }
+                } else if (v_mix > 0.0) {
+                    // Rotator Mix
+                    // For rotator, we might NOT want dissolve/ghosting on the incoming char yet?
+                    // Usually rotator happens on active cells (decay=0).
+                    // If decay=0, getProcessedAlpha just returns raw alpha. So it's safe.
+                    float tex2 = getProcessedAlpha(v_uv2);
+                    finalAlpha = mix(tex1, tex2, v_mix);
+                }
+                if (finalAlpha < 0.01) discard;
+                vec4 col = baseColor;
+                // Boost brightness for glow (Bloom trigger)
+                // Multiply by alpha to ensure it fades out with the character
+                if (v_glow > 0.0) {
+                    col.rgb += (v_glow * 0.3 * col.a);
+                }
+                ${setFragColor} = vec4(col.rgb, col.a * finalAlpha);
+            }
+        `;
+        // Fallback for WebGL1
+        let finalVS = matrixVS;
+        let finalFS = matrixFS;
         if (!this.isWebGL2) {
-             finalMatrixVS = `
-                attribute vec2 a_position; attribute vec2 a_offset; attribute float a_charIdx; attribute vec4 a_color; attribute float a_scale;
-                uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform float u_cellSize; uniform float u_cols; uniform float u_mirror; uniform vec2 u_stretch;
-                varying vec2 v_uv; varying vec4 v_color; varying float v_isSolid;
+             finalVS = `
+                precision mediump float;
+                attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
+                attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
+                uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
+                uniform vec2 u_stretch; uniform float u_mirror;
+                varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog;
                 void main() {
-                    vec2 centerPos = (a_position - 0.5) * u_cellSize * a_scale;
-                    vec2 stretchedPos = (a_offset + centerPos) * u_stretch;
-                    if (u_mirror < 0.0) { stretchedPos.x = u_resolution.x - stretchedPos.x; }
-                    vec2 clip = (stretchedPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
+                    float scale = 1.0;
+                    v_prog = 0.0;
+                    if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
+                    vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
+                    vec2 worldPos = a_pos + centerPos;
+                    worldPos.x = (worldPos.x - (u_resolution.x * 0.5)) * u_stretch.x + (u_resolution.x * 0.5);
+                    worldPos.y = (worldPos.y - (u_resolution.y * 0.5)) * u_stretch.y + (u_resolution.y * 0.5);
+                    if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
+                    vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                     gl_Position = vec4(clip, 0.0, 1.0);
-                    v_color = a_color;
-                    if (a_charIdx < -0.5) { v_isSolid = 1.0; v_uv = vec2(0.0); } else { v_isSolid = 0.0; float row = floor(a_charIdx / u_cols); float col = mod(a_charIdx, u_cols); vec2 uvBase = vec2(col, row) * u_cellSize; vec2 uvPixel = uvBase + (a_position * u_cellSize); v_uv = uvPixel / u_atlasSize; }
+                    v_color = a_color; v_color.a *= a_alpha; v_mix = a_mix; v_glow = a_glow;
+                    float cIdx = a_charIdx; float row = floor(cIdx / u_cols); float col = mod(cIdx, u_cols);
+                    vec2 uvBase = vec2(col, row) * u_cellSize; v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                    if (a_mix > 0.0) { float cIdx2 = a_nextChar; float row2 = floor(cIdx2 / u_cols); float col2 = mod(cIdx2, u_cols); vec2 uvBase2 = vec2(col2, row2) * u_cellSize; v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize; } else { v_uv2 = v_uv; }
+                }
+             `;
+             finalFS = `
+                precision mediump float;
+                varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog;
+                uniform sampler2D u_texture; uniform float u_time; uniform float u_dissolveEnabled; uniform float u_dissolveSize;
+                float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
+                void main() {
+                    float tex1 = texture2D(u_texture, v_uv).a;
+                    float finalAlpha = tex1;
+                    if (v_mix >= 3.0) { finalAlpha = 1.0; }
+                    else if (v_mix >= 2.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = max(tex1, tex2); }
+                    else if (v_mix > 0.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = mix(tex1, tex2, v_mix); }
+                    if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
+                        vec2 noiseCoord = floor(gl_FragCoord.xy / max(1.0, u_dissolveSize));
+                        float noise = random(noiseCoord);
+                        if (noise < v_prog) discard;
+                    }
+                    if (finalAlpha < 0.01) discard;
+                    vec4 col = v_color;
+                    if (v_glow > 0.0) { col.rgb += (v_glow * 0.3); }
+                    gl_FragColor = vec4(col.rgb, col.a * finalAlpha);
                 }
              `;
         }
-        const matrixFS = `${version}
-            precision mediump float;
-            ${varyingIn} vec2 v_uv; ${varyingIn} vec4 v_color; ${varyingIn} float v_isSolid;
-            uniform sampler2D u_texture;
-            ${outColor}
-            void main() {
-                if (v_isSolid > 0.5) { ${setFragColor} = v_color; } 
-                else { vec4 tex = ${texture2D}(u_texture, v_uv); if (tex.a < 0.1) discard; ${setFragColor} = vec4(v_color.rgb, v_color.a * tex.a); }
-            }
-        `;
-        this.program = this._createProgram(finalMatrixVS, matrixFS);
+        this.program = this._createProgram(finalVS, finalFS);
+        // Keep existing Bloom/Color programs
         const bloomVS = this.isWebGL2 ? `#version 300 es\nlayout(location=0) in vec2 a_position; out vec2 v_uv; void main(){ v_uv=a_position*0.5+0.5; gl_Position=vec4(a_position, 0.0, 1.0); }` : `attribute vec2 a_position; varying vec2 v_uv; void main(){ v_uv=a_position*0.5+0.5; gl_Position=vec4(a_position, 0.0, 1.0); }`;
         const bloomFS = this.isWebGL2 ? `#version 300 es\nprecision mediump float; in vec2 v_uv; uniform sampler2D u_image; uniform bool u_horizontal; uniform float u_weight[5]; uniform float u_spread; uniform float u_opacity; out vec4 fragColor; void main(){ vec2 tex_offset=(1.0/vec2(textureSize(u_image, 0)))*u_spread; vec3 result=texture(u_image, v_uv).rgb*u_weight[0]; if(u_horizontal){ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; } }else{ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; } } fragColor=vec4(result*u_opacity, 1.0); }` : `precision mediump float; varying vec2 v_uv; uniform sampler2D u_image; uniform bool u_horizontal; uniform float u_weight[5]; uniform float u_spread; uniform float u_opacity; uniform vec2 u_texSize; void main(){ vec2 tex_offset=(1.0/u_texSize)*u_spread; vec3 result=texture2D(u_image, v_uv).rgb*u_weight[0]; if(u_horizontal){ for(int i=1; i<5; ++i){ result+=texture2D(u_image, v_uv+vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; result+=texture2D(u_image, v_uv-vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; } }else{ for(int i=1; i<5; ++i){ result+=texture2D(u_image, v_uv+vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; result+=texture2D(u_image, v_uv-vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; } } gl_FragColor=vec4(result*u_opacity, 1.0); }`;
         this.bloomProgram = this._createProgram(bloomVS, bloomFS);
@@ -5427,15 +5659,38 @@ class WebGLRenderer {
         this.screenQuadBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, screenQuadVerts, this.gl.STATIC_DRAW);
+        // Instance buffers will be created in resize()
+        this.posBuffer = null;
+        this.charBuffer = null;
+        this.colorBuffer = null;
+        this.alphaBuffer = null;
+        this.decayBuffer = null;
+        this.glowBuffer = null;
+        this.mixBuffer = null;
+        this.nextCharBuffer = null;
+        // Mapped Arrays (CPU side)
+        this.mappedChars = null;
+        this.mappedNextChars = null;
     }
     _initBloomBuffers() {
         this.fboA = this.gl.createFramebuffer(); this.texA = this.gl.createTexture();
         this.fboB = this.gl.createFramebuffer(); this.texB = this.gl.createTexture();
+        this.fboC = this.gl.createFramebuffer(); this.texC = this.gl.createTexture();
     }
     _configureFramebuffer(fbo, tex, width, height) {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fbo);
         this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        let internalFormat = this.gl.RGBA;
+        let type = this.gl.UNSIGNED_BYTE;
+        if (this.canUseFloat) {
+            if (this.isWebGL2) {
+                internalFormat = this.gl.RGBA16F;
+                type = this.gl.HALF_FLOAT;
+            } else {
+                type = this.gl.FLOAT; // WebGL1 usually requires FLOAT for OES_texture_float
+            }
+        }
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, internalFormat, width, height, 0, this.gl.RGBA, type, null);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
@@ -5452,10 +5707,14 @@ class WebGLRenderer {
     }
     resize() {
         const s = this.config.state;
+        const d = this.config.derived;
         const scale = s.resolution;
         this.handleAppearanceChange();
         this.w = window.innerWidth;
         this.h = window.innerHeight;
+        // Fix: Explicitly set CSS size to match window, independent of buffer resolution
+        this.cvs.style.width = `${this.w}px`;
+        this.cvs.style.height = `${this.h}px`;
         const pw = Math.floor(this.w * scale);
         const ph = Math.floor(this.h * scale);
         if (this.cvs.width !== pw || this.cvs.height !== ph) {
@@ -5467,52 +5726,100 @@ class WebGLRenderer {
             if (pw > 0 && ph > 0) {
                 this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
                 this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
+                this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
             }
         }
         if (this.postProcessor) { this.postProcessor.resize(pw, ph); this.postProcessor.canvas.style.width = `${this.w}px`; this.postProcessor.canvas.style.height = `${this.h}px`; }
-        // Buffer resize
+        // --- Resize Buffers ---
         const totalCells = this.grid.cols * this.grid.rows;
-        const capacity = totalCells * 6; // Safety margin for layers
-        if (capacity > this.instanceCapacity) {
-            this.instanceCapacity = capacity;
-            this.instanceData = new Float32Array(capacity * 8);
-            if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
-            this.instanceBuffer = this.gl.createBuffer();
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, this.instanceData.byteLength, this.gl.DYNAMIC_DRAW);
-            this._setupVAO();
+        // Helper to recreate buffer
+        const ensureBuf = (buf, size, drawType = this.gl.DYNAMIC_DRAW) => {
+             if (buf) this.gl.deleteBuffer(buf);
+             const newBuf = this.gl.createBuffer();
+             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, newBuf);
+             this.gl.bufferData(this.gl.ARRAY_BUFFER, size, drawType);
+             return newBuf;
+        };
+        // Static Position Buffer
+        this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
+        const posData = new Float32Array(totalCells * 2);
+        const cw = d.cellWidth; const ch = d.cellHeight;
+        const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
+        for (let i = 0; i < totalCells; i++) {
+             const col = i % this.grid.cols;
+             const row = Math.floor(i / this.grid.cols);
+             posData[i*2] = col * cw + cw * 0.5 + xOff;
+             posData[i*2+1] = row * ch + ch * 0.5 + yOff;
         }
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
+        // Dynamic Buffers
+        this.charBuffer = ensureBuf(this.charBuffer, totalCells * 2); // Uint16
+        this.colorBuffer = ensureBuf(this.colorBuffer, totalCells * 4); // Uint32 (RGBA)
+        this.alphaBuffer = ensureBuf(this.alphaBuffer, totalCells * 4); // Float32
+        this.decayBuffer = ensureBuf(this.decayBuffer, totalCells); // Uint8
+        this.glowBuffer = ensureBuf(this.glowBuffer, totalCells * 4); // Float32
+        this.mixBuffer = ensureBuf(this.mixBuffer, totalCells * 4); // Float32
+        this.nextCharBuffer = ensureBuf(this.nextCharBuffer, totalCells * 2); // Uint16
+        // Mapped Arrays
+        this.mappedChars = new Uint16Array(totalCells);
+        this.mappedNextChars = new Uint16Array(totalCells);
+        // Upload Buffers (CPU merging for overrides/effects)
+        this.uploadColors = new Uint32Array(totalCells);
+        this.uploadAlphas = new Float32Array(totalCells);
+        this.uploadDecays = new Uint8Array(totalCells); // Decays usually don't have overrides but safe to copy
+        this.uploadGlows = new Float32Array(totalCells);
+        this.uploadMix = new Float32Array(totalCells);
+        this._setupVAO();
     }
     _setupVAO() {
         if (this.vao) this.gl.deleteVertexArray(this.vao);
         this.vao = this.gl.createVertexArray();
         this.gl.bindVertexArray(this.vao);
+        // 0: Quad (Vertex)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
         this.gl.enableVertexAttribArray(0);
         this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        const stride = 32;
-        this.gl.enableVertexAttribArray(1); this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, stride, 0); this.gl.vertexAttribDivisor(1, 1);
-        this.gl.enableVertexAttribArray(2); this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, stride, 8); this.gl.vertexAttribDivisor(2, 1);
-        this.gl.enableVertexAttribArray(3); this.gl.vertexAttribPointer(3, 4, this.gl.FLOAT, false, stride, 12); this.gl.vertexAttribDivisor(3, 1);
-        this.gl.enableVertexAttribArray(4); this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, stride, 28); this.gl.vertexAttribDivisor(4, 1);
-        this.gl.bindVertexArray(null);
-    }
-    _bindInstanceAttributes(offset) {
-        const stride = 32;
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        this.gl.enableVertexAttribArray(1); 
-        this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, stride, offset);
+        // 1: Pos (Static Instance)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
+        this.gl.enableVertexAttribArray(1);
+        this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(1, 1);
-        this.gl.enableVertexAttribArray(2); 
-        this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, stride, offset + 8);
+        // 2: CharIdx (Dynamic Instance, Uint16 -> Float/Int)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.charBuffer);
+        this.gl.enableVertexAttribArray(2);
+        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(2, 1);
-        this.gl.enableVertexAttribArray(3); 
-        this.gl.vertexAttribPointer(3, 4, this.gl.FLOAT, false, stride, offset + 12);
+        // 3: Color (Dynamic Instance, Uint32 -> Vec4 Normalized)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
+        this.gl.enableVertexAttribArray(3);
+        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 0, 0);
         this.gl.vertexAttribDivisor(3, 1);
-        this.gl.enableVertexAttribArray(4); 
-        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, stride, offset + 28);
+        // 4: Alpha (Dynamic Instance, Float)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
+        this.gl.enableVertexAttribArray(4);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(4, 1);
+        // 5: Decay (Dynamic Instance, Uint8 -> Float)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.decayBuffer);
+        this.gl.enableVertexAttribArray(5);
+        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 0, 0);
+        this.gl.vertexAttribDivisor(5, 1);
+        // 6: Glow (Dynamic Instance, Float)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glowBuffer);
+        this.gl.enableVertexAttribArray(6);
+        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(6, 1);
+        // 7: Mix (Dynamic Instance, Float)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.mixBuffer);
+        this.gl.enableVertexAttribArray(7);
+        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(7, 1);
+        // 8: NextChar (Dynamic Instance, Uint16 -> Float/Int)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.nextCharBuffer);
+        this.gl.enableVertexAttribArray(8);
+        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
+        this.gl.vertexAttribDivisor(8, 1);
+        this.gl.bindVertexArray(null);
     }
     _drawFullscreenTexture(texture, opacity, blurAmt) {
         if (!this.bloomProgram) return;
@@ -5550,262 +5857,185 @@ class WebGLRenderer {
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
     render(frame) {
-        if (!this.instanceData || this.fboWidth === 0) return; 
+        if (!this.posBuffer || this.fboWidth === 0) return; 
         const { state: s, derived: d } = this.config;
         const grid = this.grid;
         const activeFonts = d.activeFonts;
-        // --- PRE-CALCULATION & ATLAS UPDATES ---
-        for (const font of activeFonts) {
-            let atlas = this.glyphAtlases.get(font.name);
-            if (!atlas) {
-                atlas = new GlyphAtlas(this.config, font.name, font.chars);
-                this.glyphAtlases.set(font.name, atlas);
-            } else {
-                atlas.fontName = font.name; atlas.customChars = font.chars;
-            }
-            if (this.needsAtlasUpdate || atlas.needsUpdate) atlas.update();
-            // Ensure WebGL Texture Exists
-            if (!atlas.glTexture) {
-                atlas.glTexture = this.gl.createTexture();
-                this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-                this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-                // Initial Upload
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
-                atlas.resetChanges();
-            } else if (atlas.hasChanges) {
-                this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
-                atlas.resetChanges();
-            }
+        // --- ATLAS UPDATE ---
+        const font = activeFonts[0];
+        if (!font) return;
+        let atlas = this.glyphAtlases.get(font.name);
+        if (!atlas) {
+            atlas = new GlyphAtlas(this.config, font.name, font.chars);
+            this.glyphAtlases.set(font.name, atlas);
+        } else {
+            atlas.fontName = font.name; 
+        }
+        if (this.needsAtlasUpdate || atlas.needsUpdate) atlas.update();
+        if (!atlas.glTexture) {
+            atlas.glTexture = this.gl.createTexture();
+            this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+            this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
+            atlas.resetChanges();
+        } else if (atlas.hasChanges) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
+            atlas.resetChanges();
         }
         this.needsAtlasUpdate = false;
-        // --- OPTIMIZED BUCKETING (Single Pass) ---
+        // --- MERGE & MAP ---
         const totalCells = grid.cols * grid.rows;
-        const numFonts = activeFonts.length;
-        // 1. Initialize Buckets
-        const counts = new Uint32Array(numFonts);
-        // Pass 1: Count instances per font
+        if (this.mappedChars.length !== totalCells) return;
+        const gChars = grid.chars;
+        const gNext = grid.nextChars;
+        const gSecChars = grid.secondaryChars;
+        const gColors = grid.colors;
+        const gAlphas = grid.alphas;
+        const gDecays = grid.decays;
+        const gGlows = grid.glows;
+        const gMix = grid.mix;
+        const gMode = grid.renderMode;
+        const gEnvGlows = grid.envGlows;
+        const ovActive = grid.overrideActive;
+        const ovChars = grid.overrideChars;
+        const ovColors = grid.overrideColors;
+        const ovAlphas = grid.overrideAlphas;
+        const ovGlows = grid.overrideGlows;
+        const lookup = atlas.codeToId;
+        const mChars = this.mappedChars;
+        const mNext = this.mappedNextChars;
+        const uColors = this.uploadColors;
+        const uAlphas = this.uploadAlphas;
+        const uDecays = this.uploadDecays;
+        const uGlows = this.uploadGlows;
+        const uMix = this.uploadMix;
+        const mapChar = (c) => {
+            if (c <= 32) return 0;
+            let id = lookup[c];
+            if (id === -1) {
+                const rect = atlas.addChar(String.fromCharCode(c));
+                id = rect ? rect.id : 0;
+            }
+            return id;
+        };
         for (let i = 0; i < totalCells; i++) {
-            const overrideActive = grid.overrideActive[i];
-            if (overrideActive) {
-                // Override Layer (CHAR or SOLID)
-                if (overrideActive === 2) { // SOLID
-                    // Solid counts to Bucket 0 (any valid bucket works for Solid, but we pick 0)
-                    if (numFonts > 0) counts[0]++;
+            const ov = ovActive[i];
+            if (ov) {
+                if (ov === 2) { // SOLID
+                    mChars[i] = 0;
+                    mNext[i] = 0;
+                    uMix[i] = 3.0; 
+                    uColors[i] = ovColors[i];
+                    uAlphas[i] = ovAlphas[i];
+                    uDecays[i] = 0;
+                    uGlows[i] = (gEnvGlows ? gEnvGlows[i] : 0);
                 } else { // CHAR
-                    const fIdx = grid.overrideFontIndices[i];
-                    if (fIdx < numFonts && grid.overrideChars[i] > 0 && grid.overrideAlphas[i] > 0.01) {
-                        if (this.glyphAtlases.has(activeFonts[fIdx].name)) {
-                            counts[fIdx]++;
-                            if (grid.overrideGlows[i] > 0) counts[fIdx]++; 
-                        }
+                    mChars[i] = mapChar(ovChars[i]);
+                    // Respect Overlap Mode even during Overrides
+                    const mode = gMode[i];
+                    if (mode === 1) { // OVERLAP
+                        mNext[i] = mapChar(gSecChars[i]);
+                        uMix[i] = 2.0; 
+                    } else {
+                        mNext[i] = 0;
+                        uMix[i] = 0;
                     }
+                    uColors[i] = ovColors[i];
+                    uAlphas[i] = ovAlphas[i];
+                    uDecays[i] = 0;
+                    uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                 }
             } else {
-                // Standard Layer
-                if (grid.state[i] === 0) continue;
-                const alpha = grid.alphas[i];
-                if (alpha <= 0.01) continue;
-                const fIdx = grid.fontIndices[i];
-                if (fIdx < numFonts) {
-                    if (this.glyphAtlases.has(activeFonts[fIdx].name)) {
-                        counts[fIdx]++;
-                        if (grid.glows[i] > 0) counts[fIdx]++;
-                    }
-                }
-                // Rotator Target
-                const mix = grid.mix[i];
-                if (mix > 0.01) {
-                    if (fIdx < numFonts) {
-                         if (this.glyphAtlases.has(activeFonts[fIdx].name)) counts[fIdx]++;
-                    }
-                }
-                // Overlap
-                if (grid.renderMode[i] === 1) { 
-                    const sFIdx = grid.secondaryFontIndices[i];
-                    if (sFIdx < numFonts && grid.secondaryChars[i] > 0) {
-                        if (this.glyphAtlases.has(activeFonts[sFIdx].name)) {
-                            counts[sFIdx]++;
-                            if (grid.secondaryGlows[i] > 0) counts[sFIdx]++;
-                        }
-                    }
-                }
-            }
-        }
-        // 2. Calculate Offsets
-        const offsets = new Uint32Array(numFonts);
-        const currentOffsets = new Uint32Array(numFonts);
-        let accumulated = 0;
-        for (let f = 0; f < numFonts; f++) {
-            offsets[f] = accumulated;
-            currentOffsets[f] = accumulated;
-            accumulated += counts[f] * 8; 
-        }
-        const cw = d.cellWidth; const ch = d.cellHeight;
-        const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
-        const dissolveEnabled = s.dissolveEnabled;
-        const dissolveMin = s.dissolveMinSize / s.fontSize;
-        const decayDur = s.decayFadeDurationFrames;
-        // PASS 2: Write
-        for (let i = 0; i < totalCells; i++) {
-            const overrideActive = grid.overrideActive[i];
-            const px = (i % grid.cols) * cw + cw * 0.5 + xOff;
-            const py = Math.floor(i / grid.cols) * ch + ch * 0.5 + yOff;
-            let scale = 1.0;
-            if (!overrideActive && dissolveEnabled) {
-                const decay = grid.decays[i];
-                if (decay >= 2) {
-                    const prog = (decay - 2) / decayDur;
-                    scale = Math.max(0.1, 1.0 - (prog * (1.0 - dissolveMin)));
-                }
-            }
-            const write = (fIdx, cCode, cR, cG, cB, cA, cScale, cGlow, cAtlas) => {
-                if (fIdx >= numFonts) return; 
-                let ptr = currentOffsets[fIdx];
-                const charStr = String.fromCharCode(cCode);
-                const sprite = cAtlas.get(charStr);
-                if (sprite) {
-                    const col = Math.round(sprite.x / cAtlas.cellSize);
-                    const row = Math.round(sprite.y / cAtlas.cellSize);
-                    const charIdx = (row * cAtlas._lastCols) + col;
-                    if (cGlow > 0) {
-                        const glowScale = cScale + (Math.min(5, cGlow) / s.fontSize);
-                        this.instanceData[ptr++] = px; this.instanceData[ptr++] = py;
-                        this.instanceData[ptr++] = charIdx;
-                        this.instanceData[ptr++] = cR; this.instanceData[ptr++] = cG; this.instanceData[ptr++] = cB;
-                        this.instanceData[ptr++] = cA * 0.4;
-                        this.instanceData[ptr++] = glowScale;
-                    }
-                    this.instanceData[ptr++] = px; this.instanceData[ptr++] = py;
-                    this.instanceData[ptr++] = charIdx;
-                    this.instanceData[ptr++] = cR; this.instanceData[ptr++] = cG; this.instanceData[ptr++] = cB;
-                    this.instanceData[ptr++] = cA;
-                    this.instanceData[ptr++] = cScale;
+                const c = gChars[i];
+                mChars[i] = mapChar(c);
+                uColors[i] = gColors[i];
+                uAlphas[i] = gAlphas[i];
+                uDecays[i] = gDecays[i];
+                uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                const mode = gMode[i];
+                if (mode === 1) { // OVERLAP
+                    mNext[i] = mapChar(gSecChars[i]);
+                    uMix[i] = 2.0; 
                 } else {
-                    if (cGlow > 0) {
-                        this.instanceData[ptr++] = px; this.instanceData[ptr++] = py; this.instanceData[ptr++] = -1;
-                        this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0;
-                        this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0;
-                    }
-                    this.instanceData[ptr++] = px; this.instanceData[ptr++] = py; this.instanceData[ptr++] = -1;
-                    this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0;
-                    this.instanceData[ptr++] = 0; this.instanceData[ptr++] = 0;
-                }
-                currentOffsets[fIdx] = ptr;
-            };
-            const writeSolid = (fIdx, cR, cG, cB, cA) => {
-                if (fIdx >= numFonts) return;
-                let ptr = currentOffsets[fIdx];
-                this.instanceData[ptr++] = px; this.instanceData[ptr++] = py;
-                this.instanceData[ptr++] = -1; // Solid
-                this.instanceData[ptr++] = cR; this.instanceData[ptr++] = cG; this.instanceData[ptr++] = cB;
-                this.instanceData[ptr++] = cA;
-                this.instanceData[ptr++] = 1.1; // Scale > 1 for full cover
-                currentOffsets[fIdx] = ptr;
-            }
-            if (overrideActive) {
-                if (overrideActive === 2) { // SOLID
-                    if (numFonts > 0) {
-                        const colorInt = grid.overrideColors[i];
-                        const r = (colorInt & 0xFF) / 255;
-                        const g = ((colorInt >> 8) & 0xFF) / 255;
-                        const b = ((colorInt >> 16) & 0xFF) / 255;
-                        const alpha = grid.overrideAlphas[i];
-                        writeSolid(0, r, g, b, alpha);
-                    }
-                } else { // CHAR
-                    const fIdx = grid.overrideFontIndices[i];
-                    const charCode = grid.overrideChars[i];
-                    const alpha = grid.overrideAlphas[i];
-                    if (charCode > 0 && alpha > 0.01 && fIdx < numFonts) {
-                        const colorInt = grid.overrideColors[i];
-                        const r = (colorInt & 0xFF) / 255;
-                        const g = ((colorInt >> 8) & 0xFF) / 255;
-                        const b = ((colorInt >> 16) & 0xFF) / 255;
-                        const atlas = this.glyphAtlases.get(activeFonts[fIdx]?.name);
-                        if (atlas) write(fIdx, charCode, r, g, b, alpha, scale, grid.overrideGlows[i], atlas);
-                    }
-                }
-            } else {
-                if (grid.state[i] === 0) continue;
-                const alpha = grid.alphas[i];
-                if (alpha <= 0.01) continue;
-                const fIdx = grid.fontIndices[i];
-                const atlas = this.glyphAtlases.get(activeFonts[fIdx]?.name);
-                if (atlas) {
-                    const colorInt = grid.colors[i];
-                    const r = (colorInt & 0xFF) / 255;
-                    const g = ((colorInt >> 8) & 0xFF) / 255;
-                    const b = ((colorInt >> 16) & 0xFF) / 255;
-                    const mix = grid.mix[i];
-                    const primAlpha = alpha * (1.0 - mix);
-                    write(fIdx, grid.chars[i], r, g, b, primAlpha, scale, grid.glows[i], atlas);
-                    if (mix > 0.01) {
-                        const nextChar = grid.getRotatorTarget(i, false);
-                        const cCode = (nextChar && typeof nextChar === 'string') ? nextChar.charCodeAt(0) : (nextChar || 0);
-                        write(fIdx, cCode, r, g, b, alpha * mix, scale, grid.glows[i], atlas);
-                    }
-                }
-                if (grid.renderMode[i] === 1) {
-                    const sFIdx = grid.secondaryFontIndices[i];
-                    const sAtlas = this.glyphAtlases.get(activeFonts[sFIdx]?.name);
-                    if (sAtlas && grid.secondaryChars[i] > 0) {
-                        const sColor = grid.secondaryColors[i];
-                        const sr = (sColor & 0xFF) / 255;
-                        const sg = ((sColor >> 8) & 0xFF) / 255;
-                        const sb = ((sColor >> 16) & 0xFF) / 255;
-                        write(sFIdx, grid.secondaryChars[i], sr, sg, sb, alpha, scale, grid.secondaryGlows[i], sAtlas);
+                    const mix = gMix[i];
+                    uMix[i] = mix;
+                    if (mix > 0) {
+                        mNext[i] = mapChar(gNext[i]);
+                    } else {
+                        mNext[i] = 0;
                     }
                 }
             }
         }
+        if (atlas.hasChanges) {
+             this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
+             atlas.resetChanges();
+        }
+        // --- UPLOAD ---
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.charBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, mChars);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uColors);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uAlphas);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.decayBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uDecays);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glowBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uGlows);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.mixBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uMix);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.nextCharBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, mNext);
         // --- DRAW ---
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA);
         this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+        // 1. Trail Fade (Draw Black Quad)
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
         if (this.colorProgram) {
             this.gl.useProgram(this.colorProgram);
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-            this.gl.enableVertexAttribArray(0); this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+            this.gl.enableVertexAttribArray(0); 
+            this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
             this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), 0, 0, 0, s.clearAlpha);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         }
-        if (accumulated > 0) {
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-            this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData.subarray(0, accumulated));
-            this.gl.useProgram(this.program);
-            const locRes = this.gl.getUniformLocation(this.program, 'u_resolution');
-            const locAtlasSize = this.gl.getUniformLocation(this.program, 'u_atlasSize');
-            const locCellSize = this.gl.getUniformLocation(this.program, 'u_cellSize');
-            const locCols = this.gl.getUniformLocation(this.program, 'u_cols');
-            const locMirror = this.gl.getUniformLocation(this.program, 'u_mirror');
-            const locStretch = this.gl.getUniformLocation(this.program, 'u_stretch');
-            this.gl.uniform2f(locRes, this.w, this.h);
-            this.gl.uniform1f(locMirror, s.mirrorEnabled ? -1.0 : 1.0);
-            this.gl.uniform2f(locStretch, s.stretchX, s.stretchY);
-            this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_texture'), 0);
-            this.gl.bindVertexArray(this.vao);
-            for (let f = 0; f < numFonts; f++) {
-                const count = counts[f];
-                if (count === 0) continue;
-                const atlas = this.glyphAtlases.get(activeFonts[f].name);
-                if (!atlas || !atlas.glTexture) continue;
-                this.gl.activeTexture(this.gl.TEXTURE0);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-                this.gl.uniform2f(locAtlasSize, atlas.canvas.width, atlas.canvas.height);
-                this.gl.uniform1f(locCellSize, atlas.cellSize);
-                this.gl.uniform1f(locCols, atlas._lastCols);
-                const byteOffset = offsets[f] * 4;
-                this._bindInstanceAttributes(byteOffset);
-                this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, count);
-            }
-            this.gl.bindVertexArray(null);
-        }
+        // 2. Draw Cells
+        this.gl.useProgram(this.program);
+        // Uniforms
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_resolution'), this.w, this.h);
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cellSize'), atlas.cellSize);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cols'), atlas._lastCols);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_decayDur'), s.decayFadeDurationFrames);
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_stretch'), s.stretchX, s.stretchY);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_texture'), 0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+        // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
+        const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
+        const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveScale'), dissolveScale);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_deteriorationStrength'), s.deteriorationStrength);
+        // Pass Overlap Color
+        const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
+        this.gl.uniform4f(this.gl.getUniformLocation(this.program, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+        this.gl.bindVertexArray(this.vao);
+        // Draw
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
+        this.gl.bindVertexArray(null);
+        // --- POST PROCESS (Bloom) ---
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
         this.gl.clearColor(0, 0, 0, 1);
@@ -5816,11 +6046,19 @@ class WebGLRenderer {
         if (s.enableBloom) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
             this.gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
-            this._runBlur(this.texA, true, s.bloomStrength * 2.5, this.fboWidth, this.fboHeight); 
+            let spread = s.bloomStrength * 1.0; 
+            this._runBlur(this.texA, true, spread, this.fboWidth, this.fboHeight); 
+            const iterations = 3;
+            for (let i = 0; i < iterations; i++) {
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboC);
+                this._runBlur(this.texB, false, spread, this.bloomWidth, this.bloomHeight);
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
+                this._runBlur(this.texC, true, spread, this.bloomWidth, this.bloomHeight);
+            }
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
             this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
-            this._runBlur(this.texB, false, s.bloomStrength * 2.5, this.bloomWidth, this.bloomHeight, s.bloomOpacity);
+            this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
         }
         if (this.postProcessor && s.shaderEnabled) {
             const currentShader = s.customShader;
@@ -5848,6 +6086,8 @@ class SimulationSystem {
         this.grid = grid;
         this.config = config;
         this.streamManager = new StreamManager(grid, config);
+        this.glowSystem = new GlowSystem(grid);
+        this.grid.glowSystem = this.glowSystem; // Expose to Effects via Grid
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.timeScale = 1.0;
@@ -5856,6 +6096,10 @@ class SimulationSystem {
         this.streamManager.update(frame, this.timeScale);
         this._manageOverlapGrid(frame);
         this._updateCells(frame);
+        // Apply Glows (Additive)
+        if (this.grid.envGlows) this.grid.envGlows.fill(0);
+        this.glowSystem.update();
+        this.glowSystem.apply();
         if (this.grid.cellLocks) {
             this.grid.cellLocks.fill(0);
         }
@@ -5896,6 +6140,8 @@ class SimulationSystem {
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             const N = this.grid.secondaryChars.length;
             for (let i = 0; i < N; i++) {
+                // If cell is overridden (e.g. Pulse Freeze), do not change secondary char
+                if (this.grid.overrideActive[i] !== 0) continue;
                 if (Math.random() < currentDensity) {
                     setOverlapChar(i);
                 } else {
@@ -5917,6 +6163,8 @@ class SimulationSystem {
     _updateCell(idx, frame, s, d) {
         const grid = this.grid;
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
+        // If an effect is overriding this cell, pause simulation updates (Freeze)
+        if (grid.overrideActive[idx] !== 0) return;
         const decay = grid.decays[idx];
         if (decay === 0) return;
         let age = grid.ages[idx];
@@ -5926,7 +6174,8 @@ class SimulationSystem {
         }
         // --- TRACER COLOR FADE ---
         // Transitions from Tracer Color -> Stream Color based on Age
-        if (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR) {
+        // Only apply if NOT decaying (Erasers trigger decay)
+        if (decay < 2 && (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR)) {
             const attack = s.tracerAttackFrames;
             const hold = s.tracerHoldFrames;
             const release = s.tracerReleaseFrames;
@@ -5967,7 +6216,8 @@ class SimulationSystem {
             }
         }
         // Handle Rotator
-        if (s.rotatorEnabled && grid.types[idx] === CELL_TYPE.ROTATOR) {
+        // Allow rotator to finish its transition (mix > 0) even if subsequently disabled
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && grid.types[idx] === CELL_TYPE.ROTATOR) {
             this._handleRotator(idx, frame, s, d);
         }
         // Handle Dynamic Colors (Effects)
@@ -5989,6 +6239,7 @@ class SimulationSystem {
             } else {
                 // Also enforce it in case we missed frame 2 (unlikely but safe)
                 grid.colors[idx] = grid.baseColors[idx];
+                grid.glows[idx] = 0;
             }
             grid.decays[idx]++;
             const newDecay = grid.decays[idx];
@@ -6010,7 +6261,7 @@ class SimulationSystem {
         const decay = grid.decays[idx];
         if (mix > 0) {
             this._progressRotator(idx, mix, s.rotatorCrossfadeFrames);
-        } else if (decay === 1 || (s.rotateDuringFade && decay > 1)) {
+        } else if (s.rotatorEnabled && (decay === 1 || (s.rotateDuringFade && decay > 1))) {
             this._cycleRotator(idx, frame, s.rotatorCrossfadeFrames, d.rotatorCycleFrames, s);
         }
     }
@@ -6021,17 +6272,18 @@ class SimulationSystem {
         if (newMix >= 1.0) {
             const target = grid.getRotatorTarget(idx, false); 
             if (target) {
-                grid.chars[idx] = target;
+                grid.chars[idx] = target.charCodeAt(0);
                 if (this.config.state.overlapEnabled) {
                     const ovTarget = grid.getRotatorTarget(idx, true);
                     if (ovTarget) {
-                        grid.secondaryChars[idx] = ovTarget;
+                        grid.secondaryChars[idx] = ovTarget.charCodeAt(0);
                     }
                 }
             }
             grid.mix[idx] = 0;
-            grid.nextChars.delete(idx);
-            grid.nextOverlapChars.delete(idx);
+            // Clear rotator targets
+            grid.nextChars[idx] = 0;
+            grid.nextOverlapChars[idx] = 0;
         } else {
             grid.mix[idx] = newMix;
         }
@@ -6085,14 +6337,22 @@ class SimulationSystem {
         return decay > fadeDurationFrames + 2;
     }
     _calculateAlpha(idx, age, decay, fadeDurationFrames) {
+        const s = this.config.state;
         const b = this.grid.brightness[idx];
-        if (age > 0 || decay === 1) {
-            return 0.95 * b;
-        } else if (decay >= 2) {
+        // Fading OUT
+        if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;
-            return 0.95 * (1 - ratio) * b;
+            // Use power curve for smoother perceived fade (starts fading sooner)
+            const fade = Math.pow(Math.max(0, 1.0 - ratio), 2.0);
+            return 0.95 * fade * b;
         }
-        return 0;
+        // Fading IN
+        const attack = s.tracerAttackFrames;
+        if (age <= attack && attack > 0) {
+            return 0.95 * (age / attack) * b;
+        }
+        // Standard State
+        return 0.95 * b;
     }
 }
 // --- StreamManager.js ---
@@ -7305,6 +7565,7 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
+            { cat: 'Global', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
             { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.' },
@@ -7332,7 +7593,7 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_subheader', label: 'Stream Trails' },
             { cat: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit:'fr' },
             { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
-            { cat: 'Appearance', id: 'dissolveMinSize', type: 'range', label: 'Dissolve Size', min: 1, max: 20, unit:'px', dep: 'dissolveEnabled', description: 'Higher numbers on smaller fonts will expand the trail instead of dissolve' },
+            { cat: 'Appearance', id: 'dissolveScalePercent', type: 'range', label: 'Dissolve Scale', min: -100, max: 100, unit: '%', dep: 'dissolveEnabled', description: 'Percentage size change during dissolve. Negative values shrink, positive values grow.' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
             { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled' },
             { cat: 'Appearance', type: 'accordion_subheader', label: 'Character Overlap' },
@@ -7344,8 +7605,7 @@ class UIManager {
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
             { cat: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
             { cat: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
-            { cat: 'Appearance', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
-            { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.05, max: 1.0, step: 0.05, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
+            { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.0, max: 1.0, step: 0.01, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
             { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
             { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
@@ -7376,6 +7636,7 @@ class UIManager {
             { cat: 'Behavior', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 20, unit: 'fr' },
             { cat: 'Behavior', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 20, unit: 'fr' },
+            { cat: 'Behavior', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit:'px' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Erasers'},
             { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
             { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
@@ -7439,7 +7700,7 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 100, unit: 'px', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 150, unit: 'px', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
@@ -8756,7 +9017,10 @@ class MatrixKernel {
             'stretchX',
             'stretchY',
             'fontSize',
-            'horizontalSpacingFactor'
+            'horizontalSpacingFactor',
+            'verticalSpacingFactor',
+            'fontOffsetX',
+            'fontOffsetY'
         ]);
         const smoothingTriggers = new Set([
             'smoothingEnabled',
@@ -8837,7 +9101,17 @@ class MatrixKernel {
         const smoothedFps = this.fpsHistory.reduce((a, b) => a + b) / this.fpsHistory.length;
             // 2. Update Display
             if (this.fpsDisplayElement) {
-                this.fpsDisplayElement.textContent = `FPS: ${Math.round(smoothedFps)}`;
+                let text = `FPS: ${Math.round(smoothedFps)}`;
+                if (this.config.state.debugEnabled) {
+                     if (performance.memory) {
+                         const used = Math.round(performance.memory.usedJSHeapSize / 1048576);
+                         text += ` | Mem: ${used}MB`;
+                     }
+                     if (this.grid && this.grid.activeIndices) {
+                         text += ` | Cells: ${this.grid.activeIndices.length}`;
+                     }
+                }
+                this.fpsDisplayElement.textContent = text;
                 this.fpsDisplayElement.style.display = 'block';
             }
         } else if (this.fpsDisplayElement) {

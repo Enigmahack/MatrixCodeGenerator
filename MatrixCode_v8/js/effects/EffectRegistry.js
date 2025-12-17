@@ -9,6 +9,7 @@ class EffectRegistry {
             
             update() { 
                 this.grid.clearAllOverrides();
+                this.grid.clearAllEffects();
                 this.effects.forEach(e => {
                     e.update(); 
                     if (!e.active) return;
