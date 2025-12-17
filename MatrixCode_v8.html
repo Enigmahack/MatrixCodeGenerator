@@ -2560,6 +2560,7 @@ class EffectRegistry {
             trigger(name) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(); return false; }
             update() { 
                 this.grid.clearAllOverrides();
+                this.grid.clearAllEffects();
                 this.effects.forEach(e => {
                     e.update(); 
                     if (!e.active) return;
@@ -2688,6 +2689,12 @@ class CellGrid {
         this.overrideAlphas = null; // Float32
         this.overrideGlows = null;  // Float32
         this.overrideFontIndices = null; // Uint8
+        // --- Passive Layer (Effects) ---
+        this.effectActive = null;   // Uint8
+        this.effectChars = null;    // Uint16
+        this.effectColors = null;   // Uint32
+        this.effectAlphas = null;   // Float32
+        this.effectGlows = null;    // Float32
         // --- Simulation Logic Storage ---
         this.types = null;      // Uint8 (Tracer, Rotator, Empty)
         this.decays = null;     // Uint8
@@ -2750,6 +2757,7 @@ class CellGrid {
         this.secondaryFontIndices[idx] = fontIndex;
     }
     // --- Override Layer Modifiers ---
+    // This is a 'permanent' or hard override - it directly changes state
     setOverride(idx, charStr, colorUint32, alpha, fontIndex = 0, glow = 0) {
         this.overrideChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
         this.overrideColors[idx] = colorUint32;
@@ -2757,6 +2765,14 @@ class CellGrid {
         this.overrideGlows[idx] = glow;
         this.overrideFontIndices[idx] = fontIndex;
         this.overrideActive[idx] = OVERRIDE_MODE.CHAR;
+    }
+    // This is a soft override - 
+    setEffectOverride(idx, charStr, colorUint32, alpha, glow) {
+        this.effectActive[idx] = 1;
+        this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
+        this.effectColors[idx] = colorUint32;
+        this.effectAlphas[idx] = alpha;
+        this.effectGlows[idx] = glow;
     }
     setSolidOverride(idx, colorUint32, alpha) {
         this.overrideColors[idx] = colorUint32;
@@ -2767,10 +2783,16 @@ class CellGrid {
     clearOverride(idx) {
         this.overrideActive[idx] = OVERRIDE_MODE.NONE;
     }
+    clearEffectOverride(idx) {
+        this.effectActive[idx] = 0;
+    }
     clearAllOverrides() {
         if (this.overrideActive) {
             this.overrideActive.fill(0);
         }
+    }
+    clearAllEffects(){
+        this.effectActive.fill(0);
     }
     // --- General State Management ---
     clearCell(idx) {
@@ -2828,6 +2850,12 @@ class CellGrid {
         this.overrideAlphas = new Float32Array(total);
         this.overrideGlows = new Float32Array(total);
         this.overrideFontIndices = new Uint8Array(total);
+        // Effects
+        this.effectActive = new Uint8Array(total)
+        this.effectChars = new Uint16Array(total);
+        this.effectColors = new Uint32Array(total);
+        this.effectAlphas = new Float32Array(total);
+        this.effectGlows = new Float32Array(total);
         // Simulation
         this.types = new Uint8Array(total);
         this.decays = new Uint8Array(total);
@@ -3248,7 +3276,7 @@ class ClearPulseEffect extends AbstractEffect {
                 glow = 30 * (1.0 - rel);
             }
             // Solid Alpha 1.0
-            grid.setOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
+            grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
         }
     }
 }
@@ -4570,7 +4598,6 @@ class PulseEffect extends AbstractEffect {
         const total = grid.cols * grid.rows;
         for (let i = 0; i < total; i++) {
             // Optimization: Skip if we are waiting (Override whole screen efficiently)
-            // But we need coordinate check for Expanding.
             let dist = 0;
             if (this.state === 'EXPANDING') {
                 const x = i % grid.cols; 
@@ -4585,58 +4612,54 @@ class PulseEffect extends AbstractEffect {
                     const dy = Math.abs(cy - rd.oy);
                     dist = Math.max(dx, dy * rd.ratio);
                 }
-                // Inside the hole: Reveal (Do nothing)
+                // 1. HOLE (Inner Edge): Instant Reveal
                 if (dist < rd.innerEdge) {
-                    grid.clearOverride(i);
+                    grid.clearEffectOverride(i); 
                     continue;
                 }
             } else {
-                // WAITING: dist is effectively Infinity (outside radius 0)
-                dist = 999999;
+                dist = 999999; // Waiting state: effectively infinite distance
             }
-            // --- Override Logic ---
+            // --- Common Data Fetch ---
             const snAlpha = this.snap.alphas[i];
             let charCode = this.snap.chars[i];
             let fontIdx = this.snap.fontIndices[i];
             let color = this.snap.colors[i];
             const isTracer = (this.snap.tracers[i] === 1);
             const isGap = (snAlpha <= 0.01);
+            // Apply Gap Filling (Global)
             if (isGap && !s.pulsePreserveSpaces) {
                 charCode = this.snap.fillChars[i];
                 fontIdx = this.snap.fillFonts[i];
             }
+            // 2. BACKGROUND (Dimmed)
+            // Condition: Waiting OR Outside Radius
             if (this.state === 'WAITING' || dist > rd.radius) {
-                const snAlpha = this.snap.alphas[i];
-                let charCode = this.snap.chars[i];
-                let fontIdx = this.snap.fontIndices[i];
-                let color = this.snap.colors[i];
-                const isTracer = (this.snap.tracers[i] === 1);
-                const isGap = (snAlpha <= 0.01);
-                // DIMMED SNAPSHOT
-                if (isTracer && s.pulseIgnoreTracers) {
-                    // Keep original tracer
-                    grid.setOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, s.tracerGlow);
-                } else if (isGap) {
-                     // Black gap
-                     grid.setOverride(i, '', 0, 0, 0, 0); // Override with empty
-                } else {
-                    // Dimmed
-                    grid.setOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
-                }
-            } else {
-                // WAVE EDGE
-                const snAlpha = this.snap.alphas[i];
-                const isGap = (snAlpha <= 0.01);
                 if (s.pulsePreserveSpaces && isGap) {
-                    grid.setOverride(i, '', 0, 0, 0);
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                } else if (isTracer && s.pulseIgnoreTracers) {
+                    // Keep original tracer
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, s.tracerGlow);
                 } else {
-                    const rel = Math.max(0, Math.min(1, (rd.radius - dist) / (s.pulseWidth * 2)));
-                    // Simple Logic: Bright Wave
-                    // We can't easily do the "Fade In" overlay logic without alpha blending.
-                    // We'll stick to Replacement.
+                    // Dimmed Snapshot
+                    if (snAlpha > 0.01 || !s.pulsePreserveSpaces) {
+                        grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0);
+                    } else {
+                        grid.clearEffectOverride(i);
+                    }
+                }
+            } 
+            // 3. WAVE BAND (Bright)
+            // Condition: We are here because dist >= innerEdge AND dist <= radius
+            else {
+                if (s.pulsePreserveSpaces && isGap) {
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                } else {
+                    // Calculate relative position (0.0 at outer edge, 1.0 at inner edge)
+                    // (radius - dist) is small at edge, large at inner
+                    const rel = Math.max(0, Math.min(1, (rd.radius - dist) / (s.pulseWidth * 1.25)));
                     let finalColor = tColorInt;
                     if (s.pulseBlend) {
-                        // Blend snapshot color with tracer color
                         const bR = color & 0xFF;
                         const bG = (color >> 8) & 0xFF;
                         const bB = (color >> 16) & 0xFF;
@@ -4646,7 +4669,8 @@ class PulseEffect extends AbstractEffect {
                         finalColor = Utils.packAbgr(mR, mG, mB);
                     }
                     const actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
-                    grid.setOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, actualGlow);
+                    // Force alpha 1.0 for the wave
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0 , actualGlow);
                 }
             }
         }
@@ -5906,6 +5930,11 @@ class WebGLRenderer {
         const ovColors = grid.overrideColors;
         const ovAlphas = grid.overrideAlphas;
         const ovGlows = grid.overrideGlows;
+        const effActive = grid.effectActive;
+        const effChars = grid.effectChars;
+        const effColors = grid.effectColors;
+        const effAlphas = grid.effectAlphas;
+        const effGlows = grid.effectGlows;
         const lookup = atlas.codeToId;
         const mChars = this.mappedChars;
         const mNext = this.mappedNextChars;
@@ -5923,6 +5952,7 @@ class WebGLRenderer {
             }
             return id;
         };
+        /* Former loop logic for updates
         for (let i = 0; i < totalCells; i++) {
             const ov = ovActive[i];
             if (ov) {
@@ -5969,6 +5999,70 @@ class WebGLRenderer {
                     } else {
                         mNext[i] = 0;
                     }
+                }
+            }
+        }*/
+        for (let i = 0; i < totalCells; i++) {
+            // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
+            // Does NOT affect simulation state (decay/age), purely visual overlay.
+            if (effActive && effActive[i]) {
+                mChars[i] = mapChar(effChars[i]);
+                uColors[i] = effColors[i];
+                uAlphas[i] = effAlphas[i];
+                uGlows[i] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                // Force "Solid" render behavior for effects to prevent simulation fading
+                uDecays[i] = 0; 
+                uMix[i] = 0.0; // Treat as solid/override in shader
+                mNext[i] = 0;
+                continue; 
+            }
+            // PRIORITY 2: HARD OVERRIDE (Deja Vu, Firewall, etc.)
+            // These usually indicate a logic change or interruption.
+            const ov = ovActive[i];
+            if (ov) {
+                if (ov === 2) { // SOLID
+                    mChars[i] = 0;
+                    mNext[i] = 0;
+                    uMix[i] = 0.0; 
+                    uColors[i] = ovColors[i];
+                    uAlphas[i] = ovAlphas[i];
+                    uDecays[i] = 0;
+                    uGlows[i] = (gEnvGlows ? gEnvGlows[i] : 0);
+                } else { // CHAR
+                    mChars[i] = mapChar(ovChars[i]);
+                    const mode = gMode[i];
+                    if (mode === 1) { // OVERLAP
+                        mNext[i] = mapChar(gSecChars[i]);
+                        uMix[i] = 2.0; 
+                    } else {
+                        mNext[i] = 0;
+                        uMix[i] = 0;
+                    }
+                    uColors[i] = ovColors[i];
+                    uAlphas[i] = ovAlphas[i];
+                    uDecays[i] = 0;
+                    uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                }
+                continue;
+            }
+            // PRIORITY 3: STANDARD SIMULATION
+            const c = gChars[i];
+            mChars[i] = mapChar(c);
+            uColors[i] = gColors[i];
+            uAlphas[i] = gAlphas[i];
+            uDecays[i] = gDecays[i];
+            uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+            const mode = gMode[i];
+            if (mode === 1) { // OVERLAP
+                mNext[i] = mapChar(gSecChars[i]);
+                uMix[i] = 2.0; 
+            } else {
+                const mix = gMix[i];
+                uMix[i] = mix;
+                if (mix > 0) {
+                    mNext[i] = mapChar(gNext[i]);
+                } else {
+                    mNext[i] = 0;
                 }
             }
         }
