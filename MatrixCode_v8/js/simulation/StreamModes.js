@@ -26,9 +26,17 @@ class StarPowerMode extends StreamMode {
     }
 
     style(stream, frame, state) {
-        const hue = (state.starPowerRainbowMode === 'char')
-            ? (frame + (stream.x * 10)) % 360 // Character-based hue
-            : stream.baseHue; // Fixed hue based on baseHue
+        let hue;
+        if (state.starPowerRainbowMode === 'char') {
+            hue = (frame + (stream.x * 10)) % 360; // Character-based hue
+        } else {
+            // Full Stream Mode: Sync hue start time so they cycle together
+            // If cycling is enabled, offset the base hue by the current frame * speed
+            hue = stream.baseHue;
+            if (state.starPowerColorCycle) {
+                 hue = (hue + (frame * state.starPowerCycleSpeed)) % 360;
+            }
+        }
         return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
     }
 

@@ -158,8 +158,8 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
             { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
             { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
-            { cat: 'Appearance', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -20, max: 20, unit: 'px' },
-            { cat: 'Appearance', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -20, max: 20, unit: 'px' },
+            { cat: 'Appearance', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -100, max: 100, unit: 'px' },
+            { cat: 'Appearance', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -100, max: 100, unit: 'px' },
             { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
             { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
         ];

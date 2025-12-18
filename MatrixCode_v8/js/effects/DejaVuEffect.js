@@ -13,8 +13,6 @@ class DejaVuEffect extends AbstractEffect {
         this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
 
         // Shader State
-        this.originalShader = null;
-        this.originalShaderEnabled = false;
         this.shaderActive = false;
         this.originalFade = 0;
     }
@@ -43,8 +41,6 @@ class DejaVuEffect extends AbstractEffect {
 
     _enableShader() {
         if (this.shaderActive) return;
-        this.originalShaderEnabled = this.c.state.shaderEnabled;
-        this.originalShader = this.c.state.customShader;
         
         const glitchShader = `
 precision mediump float;
@@ -79,15 +75,13 @@ void main() {
     gl_FragColor = color;
 }
 `;
-        this.c.set('customShader', glitchShader);
-        this.c.set('shaderEnabled', true);
+        this.c.set('effectShader', glitchShader);
         this.shaderActive = true;
     }
 
     _disableShader() {
         if (!this.shaderActive) return;
-        this.c.set('customShader', this.originalShader);
-        this.c.set('shaderEnabled', this.originalShaderEnabled);
+        this.c.set('effectShader', null);
         this.shaderActive = false;
     }
     

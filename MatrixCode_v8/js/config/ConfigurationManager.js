@@ -116,6 +116,7 @@ class ConfigurationManager {
             "rotatorDesyncVariance": 0,
             "shaderEnabled": false,
             "customShader": null,
+            "effectShader": null,
             "shaderParameter": 0,
             "pulseEnabled": true,
             "pulseMovieAccurate": false,

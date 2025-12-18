@@ -180,12 +180,25 @@ class SimulationSystem {
         // Handle Decay / Alpha
         if (decay >= 2) {
             // Ensure trails are Stream Color, not Tracer Color
-            if (decay === 2) { // First frame of decay
-                grid.colors[idx] = grid.baseColors[idx];
-                grid.glows[idx] = 0;
+            // BUT: If it's a cycling effect (StarPower), the baseColor is outdated. 
+            // The effect logic above keeps grid.colors updated, so we shouldn't overwrite it.
+            let useBase = true;
+            if (grid.complexStyles.has(idx)) {
+                const style = grid.complexStyles.get(idx);
+                if (style.cycle) useBase = false;
+            }
+
+            if (useBase) {
+                if (decay === 2) { // First frame of decay
+                    grid.colors[idx] = grid.baseColors[idx];
+                    grid.glows[idx] = 0;
+                } else {
+                    // Also enforce it in case we missed frame 2 (unlikely but safe)
+                    grid.colors[idx] = grid.baseColors[idx];
+                    grid.glows[idx] = 0;
+                }
             } else {
-                // Also enforce it in case we missed frame 2 (unlikely but safe)
-                grid.colors[idx] = grid.baseColors[idx];
+                // For cycling effects, just kill the glow
                 grid.glows[idx] = 0;
             }
             

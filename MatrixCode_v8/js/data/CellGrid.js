@@ -171,6 +171,13 @@ class CellGrid {
         // Glow is additive
     }
 
+    // Shadow Overlay (Mixes Black Block on top of Primary)
+    setEffectShadow(idx, alpha) {
+        this.effectActive[idx] = 3; // 3 = Shadow Mode
+        this.effectAlphas[idx] = alpha;
+        // Chars/Colors/Fonts ignored for shadow
+    }
+
     setSolidOverride(idx, colorUint32, alpha) {
         this.overrideColors[idx] = colorUint32;
         this.overrideAlphas[idx] = alpha;

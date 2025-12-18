@@ -102,6 +102,7 @@ class WebGLRenderer {
                 this.cvs.parentNode.insertBefore(this.postProcessor.canvas, this.cvs.nextSibling);
             }
             this.lastShaderSource = null;
+            this.lastEffectSource = null;
         }
     }
 
@@ -182,6 +183,7 @@ class WebGLRenderer {
 
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
+            uniform vec2 u_gridSize;
             uniform float u_cellSize;
             uniform float u_cols;
             uniform float u_decayDur;
@@ -215,9 +217,11 @@ class WebGLRenderer {
                 vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
                 vec2 worldPos = a_pos + centerPos;
                 
-                // Mirror/Stretch
-                worldPos.x = (worldPos.x - (u_resolution.x * 0.5)) * u_stretch.x + (u_resolution.x * 0.5);
-                worldPos.y = (worldPos.y - (u_resolution.y * 0.5)) * u_stretch.y + (u_resolution.y * 0.5);
+                // Mirror/Stretch - Pivot around GRID center, not screen center
+                vec2 gridCenter = u_gridSize * 0.5;
+                worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
+                worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
+                
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
 
                 // Clip Space
@@ -316,7 +320,14 @@ class WebGLRenderer {
                 
                 float finalAlpha = tex1;
 
-                if (v_mix >= 4.0) {
+                if (v_mix >= 5.0) {
+                    // Shadow Mode (Black Overlay Quad)
+                    float ovAlpha = v_mix - 5.0;
+                    // Force Black Color
+                    baseColor.rgb = vec3(0.0);
+                    // Force Solid Alpha (No texture interaction)
+                    finalAlpha = ovAlpha;
+                } else if (v_mix >= 4.0) {
                     // Overlay Mode (White on top of Primary)
                     float ovAlpha = v_mix - 4.0;
                     float tex2 = getProcessedAlpha(v_uv2);
@@ -371,7 +382,7 @@ class WebGLRenderer {
                 precision mediump float;
                 attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                 attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
-                uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
+                uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
                 uniform vec2 u_stretch; uniform float u_mirror;
                 varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog;
                 void main() {
@@ -380,8 +391,9 @@ class WebGLRenderer {
                     if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
                     vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
                     vec2 worldPos = a_pos + centerPos;
-                    worldPos.x = (worldPos.x - (u_resolution.x * 0.5)) * u_stretch.x + (u_resolution.x * 0.5);
-                    worldPos.y = (worldPos.y - (u_resolution.y * 0.5)) * u_stretch.y + (u_resolution.y * 0.5);
+                    vec2 gridCenter = u_gridSize * 0.5;
+                    worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
+                    worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
                     if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                     gl_Position = vec4(clip, 0.0, 1.0);
@@ -769,6 +781,22 @@ class WebGLRenderer {
         for (let i = 0; i < totalCells; i++) {
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
             if (effActive && effActive[i]) {
+                if (effActive[i] === 3) {
+                    // SHADOW MODE
+                    const c = gChars[i];
+                    mChars[i] = mapChar(c);
+                    uColors[i] = gColors[i];
+                    uAlphas[i] = 1.0; // Force full alpha, let ovAlpha handle opacity
+                    uDecays[i] = gDecays[i];
+                    uGlows[i] = 0.0; // Disable glow for shadowboxes
+                    
+                    let eAlpha = effAlphas[i];
+                    if (eAlpha > 0.99) eAlpha = 0.99;
+                    uMix[i] = 5.0 + eAlpha; 
+                    mNext[i] = 0;
+                    continue;
+                }
+
                 if (effActive[i] === 2) {
                     // OVERLAY MODE: Draw Sim + White Effect
                     // 1. Load Simulation
@@ -807,7 +835,7 @@ class WebGLRenderer {
                 if (ov === 2) { // SOLID
                     mChars[i] = 0;
                     mNext[i] = 0;
-                    uMix[i] = 0.0; 
+                    uMix[i] = 3.0; // Trigger SOLID mode in shader
                     uColors[i] = ovColors[i];
                     uAlphas[i] = ovAlphas[i];
                     uDecays[i] = 0;
@@ -908,6 +936,12 @@ class WebGLRenderer {
         // Uniforms
         this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_resolution'), this.w, this.h);
         this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
+        
+        // Calculate Grid Size in Pixels for Centering
+        const gridPixW = grid.cols * d.cellWidth;
+        const gridPixH = grid.rows * d.cellHeight;
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_gridSize'), gridPixW, gridPixH);
+
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cellSize'), atlas.cellSize);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cols'), atlas._lastCols);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_decayDur'), s.decayFadeDurationFrames);
@@ -936,6 +970,10 @@ class WebGLRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
         
         this.gl.bindVertexArray(this.vao);
+        
+        // Ensure blending is enabled for the main draw
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
         
         // Draw
         this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
@@ -975,23 +1013,37 @@ class WebGLRenderer {
             this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
         }
 
-        if (this.postProcessor && s.shaderEnabled) {
-            const currentShader = s.customShader;
-            if (currentShader && currentShader !== this.lastShaderSource) {
-                this.postProcessor.compileShader(currentShader);
-                this.lastShaderSource = currentShader;
+        if (this.postProcessor) {
+            const customSource = s.shaderEnabled ? s.customShader : null;
+            const effectSource = s.effectShader;
+
+            // Compile Custom Shader if changed
+            if (customSource !== this.lastShaderSource) {
+                this.postProcessor.compileShader(customSource);
+                this.lastShaderSource = customSource;
             }
-            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
-            this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
             
-            if (this.postProcessor.canvas.style.display === 'none') {
-                this.postProcessor.canvas.style.display = 'block';
-                this.cvs.style.opacity = '0'; 
+            // Compile Effect Shader if changed
+            if (effectSource !== this.lastEffectSource) {
+                this.postProcessor.compileEffectShader(effectSource);
+                this.lastEffectSource = effectSource;
             }
-        } else {
-            if (this.postProcessor && this.postProcessor.canvas.style.display !== 'none') {
-                this.postProcessor.canvas.style.display = 'none';
-                this.cvs.style.opacity = '1';
+
+            const isActive = (s.shaderEnabled && customSource) || effectSource;
+
+            if (isActive) {
+                const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
+                this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
+                
+                if (this.postProcessor.canvas.style.display === 'none') {
+                    this.postProcessor.canvas.style.display = 'block';
+                    this.cvs.style.opacity = '0'; 
+                }
+            } else {
+                if (this.postProcessor.canvas.style.display !== 'none') {
+                    this.postProcessor.canvas.style.display = 'none';
+                    this.cvs.style.opacity = '1';
+                }
             }
         }
     }

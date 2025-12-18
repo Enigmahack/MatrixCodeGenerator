@@ -2,10 +2,17 @@ class PostProcessor {
     constructor(config) {
         this.config = config;
         this.gl = null;
-        this.program = null;
+        this.program = null; // Custom User Shader
+        this.effectProgram = null; // System Effect Shader (e.g. Deja Vu)
         this.canvas = document.createElement('canvas'); // Offscreen WebGL canvas
-        this.texture = null;
+        
+        // Textures
+        this.texture = null; // Source Input
+        this.intermediateTexture = null; // Output of Pass 1
+        
+        // Buffers
         this.positionBuffer = null;
+        this.framebuffer = null; // For Pass 1
         
         this.defaultFragmentShader = `
             precision mediump float;
@@ -24,10 +31,13 @@ class PostProcessor {
         this.vertexShaderSource = `
             attribute vec2 aPosition;
             varying vec2 vTexCoord;
+            uniform float uFlipY;
             void main() {
-                // Map -1..1 to 0..1 for tex coords (flip Y if needed)
+                // Map -1..1 to 0..1 for tex coords
                 vTexCoord = (aPosition + 1.0) * 0.5;
-                vTexCoord.y = 1.0 - vTexCoord.y; 
+                if (uFlipY > 0.5) {
+                    vTexCoord.y = 1.0 - vTexCoord.y; 
+                }
                 gl_Position = vec4(aPosition, 0.0, 1.0);
             }
         `;
@@ -56,19 +66,45 @@ class PostProcessor {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
         
-        this.texture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+        // Input Texture
+        this.texture = this._createTexture();
+        // Intermediate Texture (for Pass 1 output)
+        this.intermediateTexture = this._createTexture();
+        
+        // Framebuffer for Pass 1
+        this.framebuffer = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTexture, 0);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        
+        this.compileShader(this.config.get('customShader') || this.defaultFragmentShader);
+        this.compileEffectShader(this.config.get('effectShader'));
+    }
+
+    _createTexture() {
+        const tex = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-        
-        this.compileShader(this.config.get('customShader') || this.defaultFragmentShader);
+        return tex;
     }
 
     compileShader(fragSource) {
-        if (!this.gl) return;
-        
+        this.program = this._compileProgram(fragSource);
+    }
+
+    compileEffectShader(fragSource) {
+        if (!fragSource) {
+            this.effectProgram = null;
+            return;
+        }
+        this.effectProgram = this._compileProgram(fragSource);
+    }
+
+    _compileProgram(fragSource) {
+        if (!this.gl) return null;
         if (!fragSource) fragSource = this.defaultFragmentShader;
 
         const createShader = (type, source) => {
@@ -86,7 +122,7 @@ class PostProcessor {
         const vs = createShader(this.gl.VERTEX_SHADER, this.vertexShaderSource);
         const fs = createShader(this.gl.FRAGMENT_SHADER, fragSource);
         
-        if (!vs || !fs) return; // Compilation failed
+        if (!vs || !fs) return null;
 
         const prog = this.gl.createProgram();
         this.gl.attachShader(prog, vs);
@@ -95,53 +131,83 @@ class PostProcessor {
         
         if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
             console.warn("Program Link Error", this.gl.getProgramInfoLog(prog));
-            return;
+            return null;
         }
-        
-        this.program = prog;
+        return prog;
     }
 
     resize(width, height) {
         if (!this.gl) return;
         this.canvas.width = width;
         this.canvas.height = height;
-        this.gl.viewport(0, 0, width, height);
+        
+        // Resize textures
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.intermediateTexture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
     }
 
     render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5) {
-        if (!this.gl || !this.program) return;
+        if (!this.gl) return;
 
-        this.gl.useProgram(this.program);
+        // Upload Source to Input Texture
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
 
-        // Bind Vertex Buffer
-        const posLoc = this.gl.getAttribLocation(this.program, 'aPosition');
+        let inputTex = this.texture;
+        let flipY = 1.0; // Default: Flip Y for Canvas source
+
+        // PASS 1: Effect Shader (e.g. Deja Vu)
+        if (this.effectProgram) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+            this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, param, flipY);
+            
+            // Output of Pass 1 becomes Input of Pass 2
+            inputTex = this.intermediateTexture;
+            flipY = 0.0; // Next pass uses FBO source, no flip needed
+        }
+
+        // PASS 2: Custom Shader (Final Post-Process)
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null); // Draw to screen (canvas)
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        
+        const prog = this.program || this._compileProgram(this.defaultFragmentShader);
+        this._drawPass(prog, inputTex, time, mouseX, mouseY, param, flipY);
+    }
+
+    _drawPass(prog, texture, time, mouseX, mouseY, param, flipY) {
+        this.gl.useProgram(prog);
+
+        const posLoc = this.gl.getAttribLocation(prog, 'aPosition');
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.enableVertexAttribArray(posLoc);
         this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 0, 0);
 
-        // Update Texture
         this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
         
-        // Uniforms
-        const uTex = this.gl.getUniformLocation(this.program, 'uTexture');
+        const uTex = this.gl.getUniformLocation(prog, 'uTexture');
         this.gl.uniform1i(uTex, 0);
         
-        const uRes = this.gl.getUniformLocation(this.program, 'uResolution');
+        const uRes = this.gl.getUniformLocation(prog, 'uResolution');
         this.gl.uniform2f(uRes, this.canvas.width, this.canvas.height);
         
-        const uTime = this.gl.getUniformLocation(this.program, 'uTime');
+        const uTime = this.gl.getUniformLocation(prog, 'uTime');
         this.gl.uniform1f(uTime, time);
 
-        // NEW UNIFORMS
-        const uMouse = this.gl.getUniformLocation(this.program, 'uMouse');
+        const uMouse = this.gl.getUniformLocation(prog, 'uMouse');
         if (uMouse) this.gl.uniform2f(uMouse, mouseX, mouseY);
 
-        const uParam = this.gl.getUniformLocation(this.program, 'uParameter');
+        const uParam = this.gl.getUniformLocation(prog, 'uParameter');
         if (uParam) this.gl.uniform1f(uParam, param);
+        
+        const uFlip = this.gl.getUniformLocation(prog, 'uFlipY');
+        if (uFlip) this.gl.uniform1f(uFlip, flipY);
 
-        // Draw
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
 }
