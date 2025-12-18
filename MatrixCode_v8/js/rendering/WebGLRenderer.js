@@ -316,7 +316,15 @@ class WebGLRenderer {
                 
                 float finalAlpha = tex1;
 
-                if (v_mix >= 3.0) {
+                if (v_mix >= 4.0) {
+                    // Overlay Mode (White on top of Primary)
+                    float ovAlpha = v_mix - 4.0;
+                    float tex2 = getProcessedAlpha(v_uv2);
+                    float effA = tex2 * ovAlpha;
+                    
+                    baseColor.rgb = mix(baseColor.rgb, vec3(1.0), effA);
+                    finalAlpha = max(tex1, effA);
+                } else if (v_mix >= 3.0) {
                     // Solid Mode
                     finalAlpha = 1.0;
                 } else if (v_mix >= 2.0) {
@@ -757,66 +765,29 @@ class WebGLRenderer {
             }
             return id;
         };
-
-        /* Former loop logic for updates
-        for (let i = 0; i < totalCells; i++) {
-            const ov = ovActive[i];
-            
-            if (ov) {
-                if (ov === 2) { // SOLID
-                    mChars[i] = 0;
-                    mNext[i] = 0;
-                    uMix[i] = 3.0; 
-                    uColors[i] = ovColors[i];
-                    uAlphas[i] = ovAlphas[i];
-                    uDecays[i] = 0;
-                    uGlows[i] = (gEnvGlows ? gEnvGlows[i] : 0);
-                } else { // CHAR
-                    mChars[i] = mapChar(ovChars[i]);
-                    
-                    // Respect Overlap Mode even during Overrides
-                    const mode = gMode[i];
-                    if (mode === 1) { // OVERLAP
-                        mNext[i] = mapChar(gSecChars[i]);
-                        uMix[i] = 2.0; 
-                    } else {
-                        mNext[i] = 0;
-                        uMix[i] = 0;
-                    }
-                    
-                    uColors[i] = ovColors[i];
-                    uAlphas[i] = ovAlphas[i];
-                    uDecays[i] = 0;
-                    uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-                }
-            } else {
-                const c = gChars[i];
-                mChars[i] = mapChar(c);
-                uColors[i] = gColors[i];
-                uAlphas[i] = gAlphas[i];
-                uDecays[i] = gDecays[i];
-                uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-                
-                const mode = gMode[i];
-                if (mode === 1) { // OVERLAP
-                    mNext[i] = mapChar(gSecChars[i]);
-                    uMix[i] = 2.0; 
-                } else {
-                    const mix = gMix[i];
-                    uMix[i] = mix;
-                    if (mix > 0) {
-                        mNext[i] = mapChar(gNext[i]);
-                    } else {
-                        mNext[i] = 0;
-                    }
-                }
-            }
-        }*/
         
         for (let i = 0; i < totalCells; i++) {
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
-            // Does NOT affect simulation state (decay/age), purely visual overlay.
             if (effActive && effActive[i]) {
+                if (effActive[i] === 2) {
+                    // OVERLAY MODE: Draw Sim + White Effect
+                    // 1. Load Simulation
+                    const c = gChars[i];
+                    mChars[i] = mapChar(c);
+                    uColors[i] = gColors[i];
+                    uAlphas[i] = gAlphas[i];
+                    uDecays[i] = gDecays[i];
+                    uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    
+                    // 2. Load Effect
+                    mNext[i] = mapChar(effChars[i]);
+                    let eAlpha = effAlphas[i];
+                    if (eAlpha > 0.99) eAlpha = 0.99;
+                    uMix[i] = 4.0 + eAlpha; 
+                    continue;
+                }
+
+                // STANDARD OVERRIDE (Replace)
                 mChars[i] = mapChar(effChars[i]);
                 uColors[i] = effColors[i];
                 uAlphas[i] = effAlphas[i];

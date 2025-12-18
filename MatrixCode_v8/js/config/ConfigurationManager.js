@@ -118,6 +118,7 @@ class ConfigurationManager {
             "customShader": null,
             "shaderParameter": 0,
             "pulseEnabled": true,
+            "pulseMovieAccurate": false,
             "pulseFrequencySeconds": 300,
             "pulseDelaySeconds": 0.7,
             "pulseDurationSeconds": 1.2,

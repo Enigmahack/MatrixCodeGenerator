@@ -4,13 +4,41 @@ Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 Bugs: 
-Burst and Clear Burst: They illuminate both states at the same time instead of only the original/current - decide on one. 
+Post Processing shader should be the very last in the pipeline; effects override the imported fragment shader. Perhaps it should be the final-pass? 
 
 Behavior: 
 Reverse Time - Does nothing. (Address later on)
+Window Stretching does not resize/scale/center; Window Stretch of 0.9 means the far left is empty; either allow Cell Offset to be 	higher, or recenter every new stretch. 
+
 
 Look: 
-Superman - Additional Glow + Voltage Glow does nothing, and Voltage glow should be put directly under Additional Glow and be called "Glow amount" instead of Voltage Glow. 
+Superman - Additional Glow does nothing so remove it. Voltage glow should be put directly under Look subheader and be called "Glow amount" instead of Voltage Glow. 
+
+Pulse, Clear Pulse, Pluse Storm - need a toggle for "Use tracer glow" which switches between using the tracer glow amount, or just being the tracer color but not using additional glow effects. 
+
+The pulse wave should also be fading on all edges; Alpha should be 50% or less on the outer and inner edge as it expands. 
+When not using Preserve Spaces, the pulse effect should have varying alphas for some random characters. Most characters observe the general alpha but some (say 10%) will randomly have a lower alpha value, but only within the pulse wave. The current fading effect is perfect. 
+There should be a toggle that says "Movie-accurate Pulse" under "Look" which disables everything, within the pulse customization, and uses a shader to generate the effect. (Description below) 
+
+The effect starts on a tracer closest to the middle of the screen (not entirely random)
+It expands outwards as a solid wave of characters; the inner and outer edges are faded (lower alpha). Everything outside the outer perimeter is frozen and dimmed (exactly like the current pulse effect.) 
+As the pulse wave expands, the pulse is 5 characters wide on top and bottom, with a 1/2 character fade on the inner and outer regions. The sides are slightly wider, at 6 characters wide, and it expands in a rectangular pattern. 
+The outer perimeter is where the existing streaming code is allowed to start showing through, but it should blend with the pulse wave; the outer perimeter should overlap the pulse wave as described, but should fade the existing code in around the edges in the same way that the pulse wave also fades on the edges. 
+In essence, this is 4 layered effects: 
+1 - A complete brightness dampen that makes everything darker while allowing the tracers to be emphasized. 
+2 - A 'reveal' layer, which simply reveals the code underneath, and fades from the darkened color to the stream color (alpha blending only) for 2 character's width. 
+3 - A "Wave" which is the same color as the tracers and has the same perimeter as the reveal layer, but also extends inwards to create the wave color. 
+4 - A brightness mask that dims edges in various rectangular blocks within the wave itself. 
+
+This entire effect reveals the code stream beneath. 
+
+Finally, the expansion of the wave isn't entirely uniform; it expands in rectangular 'chunks' that are 8-9 characters thick, and offset by about 3 characters - It's as though the expansion is happening inside-out but not in perfect unison, as though a horizontal row that is 7-8 characters tall is delayed very slightly near the bottom of the pulse wave, before it completes, like a CRT that is updating from top to bottom. The top should be 1-20 frames ahead in a tearing fashion when rendering the pulse wave. 
+
+Deja Vu - Some effects aren't inheriting the stream color for some reason. They're using a static color? 
+
+Crash - Sheets aren't in the way/opaque. Perhaps consider using the setEffectOverride instead of the direct override. 
+The lighting should be going from corner to corner (not in an X but from UL to BR or UR to BL). The second 'superman' lightning effect also ONLY goes corner to corner, but should have a lightning-branching effect that starts about 40% of the way up the stream, and branches toward a screen edge without passing across the lightning bolt. 
+The Agent Smith flash also needs to look better - it looks like a robot, not a human wearing glasses and a tie. 
 
 Star Power - Make the glitter do something different, like a luminscent effect through the entire star power stream. Also, full stream mode doesn't work. 
  

@@ -62,6 +62,7 @@ class CellGrid {
         this.effectColors = null;   // Uint32
         this.effectAlphas = null;   // Float32
         this.effectGlows = null;    // Float32
+        this.effectFontIndices = null; // Uint8
 
         // --- Simulation Logic Storage ---
         this.types = null;      // Uint8 (Tracer, Rotator, Empty)
@@ -150,13 +151,24 @@ class CellGrid {
         this.overrideActive[idx] = OVERRIDE_MODE.CHAR;
     }
 
-    // This is a soft override - 
-    setEffectOverride(idx, charStr, colorUint32, alpha, glow) {
+    // This is a soft override 
+    setEffectOverride(idx, charStr, colorUint32, alpha, fontIndex = 0, glow = 0) {
         this.effectActive[idx] = 1;
         this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
         this.effectColors[idx] = colorUint32;
         this.effectAlphas[idx] = alpha;
+        this.effectFontIndices[idx] = fontIndex;
         this.effectGlows[idx] = glow;
+    }
+
+    // Overlay Override (Mixes Effect Char on top of Primary)
+    setEffectOverlay(idx, charStr, alpha, fontIndex = 0) {
+        this.effectActive[idx] = 2; // 2 = Overlay Mode
+        this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
+        this.effectAlphas[idx] = alpha;
+        this.effectFontIndices[idx] = fontIndex;
+        // Color is assumed White/Global for overlay in simplified shader logic
+        // Glow is additive
     }
 
     setSolidOverride(idx, colorUint32, alpha) {
@@ -181,7 +193,9 @@ class CellGrid {
     }
 
     clearAllEffects(){
-        this.effectActive.fill(0);
+        if (this.effectActive){
+            this.effectActive.fill(0);
+        }
     }
 
     // --- General State Management ---
@@ -259,6 +273,7 @@ class CellGrid {
         this.effectChars = new Uint16Array(total);
         this.effectColors = new Uint32Array(total);
         this.effectAlphas = new Float32Array(total);
+        this.effectFontIndices = new Uint8Array(total);
         this.effectGlows = new Float32Array(total);
 
         // Simulation

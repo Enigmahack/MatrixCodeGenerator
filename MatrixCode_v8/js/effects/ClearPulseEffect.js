@@ -8,15 +8,10 @@ class ClearPulseEffect extends AbstractEffect {
         this.snap = null;
         this.autoTimer = c.state.clearPulseFrequencySeconds * 60;
         this.renderData = null;
-        // this.originalFade = 0;
     }
 
     trigger() {
         if (this.active) return false;
-        
-        // Override Stream Fade
-        // this.originalFade = this.c.get('decayFadeDurationFrames');
-        // this.c.set('decayFadeDurationFrames', 0);
 
         const total = this.g.cols * this.g.rows;
         const s = this.c.state;
@@ -29,7 +24,7 @@ class ClearPulseEffect extends AbstractEffect {
         this.snap = { 
             fillChars: new Uint16Array(total),
             fillFonts: new Uint8Array(total),
-            colors: new Uint32Array(this.g.colors) // Use current grid colors
+            colors: new Uint32Array(this.g.colors) 
         };
 
         for (let i = 0; i < total; i++) {
@@ -82,7 +77,6 @@ class ClearPulseEffect extends AbstractEffect {
             this.active = false; 
             this.snap = null; 
             this.renderData = null; 
-            // this.c.set('decayFadeDurationFrames', this.originalFade);
             return; 
         }
 
@@ -185,16 +179,16 @@ class ClearPulseEffect extends AbstractEffect {
             }
 
             const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
+            const actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel)); 
             
             let finalColor, glow;
 
             if (!s.clearPulseBlend) {
                 // Blend OFF: Solid Tracer Color & Glow
                 finalColor = tColorInt;
-                glow = s.tracerGlow;
+                grid.setEffectOverride(i, String.fromCharCode(charCode), color, alpha, fontIdx, actualGlow)
             } else {
                 // Blend ON: Linear fade across the entire wave
-                
                 // Color Blend
                 const bR = color & 0xFF;
                 const bG = (color >> 8) & 0xFF;
@@ -204,13 +198,10 @@ class ClearPulseEffect extends AbstractEffect {
                 const mG = Math.floor(tG + (bG - tG) * rel);
                 const mB = Math.floor(tB + (bB - tB) * rel);
                 finalColor = Utils.packAbgr(mR, mG, mB);
-
-                // Glow Fade: Max -> 0
-                glow = 30 * (1.0 - rel);
             }
-            
+
             // Solid Alpha 1.0
-            grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glow);
+            grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, actualGlow);
         }
     }
 }
