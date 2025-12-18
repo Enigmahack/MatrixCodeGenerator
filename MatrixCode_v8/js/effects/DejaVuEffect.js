@@ -111,7 +111,7 @@ void main() {
 
             if (this.g.glowSystem) {
                 this.g.glowSystem.addRect(
-                    this.g.cols / 2, y + (h / 2), this.g.cols, h, 2.0, 0xFF00FF00, duration, 'linear', 4
+                    this.g.cols / 2, y + (h / 2), this.g.cols, h, 2.0, this.c.derived.streamColorUint32, duration, 'linear', 4
                 );
             }
         }

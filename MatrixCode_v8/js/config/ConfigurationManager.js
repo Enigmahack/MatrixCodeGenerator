@@ -192,6 +192,7 @@ class ConfigurationManager {
             "crashSheetCount": 25,
             "crashSheetSpeed": 1.0,
             "crashSheetOpacity": 0.5,
+            "crashStationaryChance": 20,
             "crashFlashDelayMin": 3,
             "crashFlashDelayMax": 6,
             "crashEnableSmith": true,

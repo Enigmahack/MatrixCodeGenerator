@@ -22,7 +22,7 @@ class CrashEffect extends AbstractEffect {
             active: false,
             type: 0, 
             cells: new Set(), 
-            illuminatedCells: new Set(),
+            fadingTriangles: [], // Store active reveal zones
             flickerTimer: 0,
             globalTimer: 0,
             boltId: 0
@@ -59,7 +59,7 @@ class CrashEffect extends AbstractEffect {
         this.originalShaderParameter = this.c.state.shaderParameter;
         
         // Get Stream Color for the Splash
-        const colorStr = this.c.derived.streamColorStr || '#00FF00';
+        const colorStr = this.c.derived.streamColorStr || this.c.defaults.streamColor;
         const rgb = Utils.hexToRgb(colorStr);
         const vec3Color = `vec3(${rgb.r/255.0}, ${rgb.g/255.0}, ${rgb.b/255.0})`;
 
@@ -138,7 +138,16 @@ void main() {
         this.snapshotOverlay.clear(); 
         this.blackSheets = []; 
         this.crashBars = [];
-        this.supermanState = { active: false, type: 0, cells: new Set(), illuminatedCells: new Set(), flickerTimer: 0, globalTimer: 0, boltId: 0 };
+        this.supermanState = { 
+            active: false, 
+            type: 0, 
+            cells: new Set(), 
+            illuminatedCells: new Set(), 
+            fadingTriangles: [], // Ensure this is initialized!
+            flickerTimer: 0, 
+            globalTimer: 0, 
+            boltId: 0 
+        };
         this.shaderState = { activeId: 0, timer: 0, duration: 0 };
         this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
         this.sheetState = { spawning: true, timer: 600 };
@@ -150,6 +159,11 @@ void main() {
         
         this.MAX_BLACK_LEVEL = 0.5;
         this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
+
+        // Immediate Spawn of all sheets
+        const maxSheets = this.c.get('crashSheetCount');
+        this.blackSheets = [];
+        this._updateBlackSheets(maxSheets); // Force fill
 
         return true;
     }
@@ -249,35 +263,27 @@ void main() {
             this.sheetState.spawning = !this.sheetState.spawning;
             this.sheetState.timer = this.sheetState.spawning ? 400 : 200; 
         }
-        if (this.sheetState.spawning) this._updateBlackSheets(maxSheets);
+        // Always call _updateBlackSheets to handle movement/wrapping, even if not spawning
+        this._updateBlackSheets(this.sheetState.spawning ? maxSheets : 0);
+        
         if (this.blackSheets.length > maxSheets) this.blackSheets.splice(maxSheets);
         
-        // Update Sheets
-        const userSpeed = this.c.get('crashSheetSpeed');
-        for (const s of this.blackSheets) {
-            s.maxAlpha = sheetOpacity * this.sheetFadeVal;
-            if (s.baseDx === undefined) { s.baseDx = s.dx; s.baseDy = s.dy; }
-            s.posX += s.baseDx * userSpeed; 
-            s.posY += s.baseDy * userSpeed;
-            if (s.posX <= -s.w * 0.5 || s.posX >= this.g.cols - s.w * 0.5) s.baseDx *= -1;
-            if (s.posY <= -s.h * 0.5 || s.posY >= this.g.rows - s.h * 0.5) s.baseDy *= -1;
-            s.w += (s.targetW - s.w) * 0.05; s.h += (s.targetH - s.h) * 0.05;
-            s.currentAlpha += (s.targetAlpha - s.currentAlpha) * 0.1;
-        }
-
         // --- SUPERMAN (Lightning) ---
         if (this.c.get('crashEnableSuperman')) {
             if (this.supermanState.active) {
                 this.supermanState.globalTimer--;
-                this.supermanState.flickerTimer++;
-                if (this.supermanState.flickerTimer > 2) {
-                    this._generateSupermanBolt();
-                    this.supermanState.flickerTimer = 0;
-                }
+                // Update every frame for smooth animation
+                this._generateSupermanBolt();
+                
                 if (this.supermanState.globalTimer <= 0) {
+                    // Transition Active Reveal to Fading
+                    if (this.supermanState.activeReveal) {
+                        this.supermanState.fadingTriangles.push(this.supermanState.activeReveal);
+                        this.supermanState.activeReveal = null;
+                    }
+                    
                     this.supermanState.active = false;
                     this.supermanState.cells.clear();
-                    this.supermanState.illuminatedCells.clear();
                     this.supermanState.geometry = null;
                 }
             } else {
@@ -289,6 +295,15 @@ void main() {
             }
         } else {
             this.supermanState.active = false;
+        }
+        
+        // Update Fading Triangles (Reveals)
+        for (let i = this.supermanState.fadingTriangles.length - 1; i >= 0; i--) {
+            const t = this.supermanState.fadingTriangles[i];
+            t.alpha -= 0.05; // Fade out speed
+            if (t.alpha <= 0) {
+                this.supermanState.fadingTriangles.splice(i, 1);
+            }
         }
         
         // --- OTHER ELEMENTS ---
@@ -307,7 +322,7 @@ void main() {
         if (Math.random() < 0.02) this._triggerColumnBurst(); 
         
         if (this.c.get('crashEnableSmith')) {
-            if (!this.smithState.triggered && Math.random() < 0.005) { 
+            if (!this.smithState.triggered && Math.random() < 0.001) { 
                 this._triggerSmith();
             }
             if (this.smithState.active) {
@@ -316,7 +331,7 @@ void main() {
             }
         }
         
-        if (this.registry) { 
+        if (this.registry) {
             if (Math.random() < 0.001) this.registry.trigger('ClearPulse');
         }
     }
@@ -327,98 +342,21 @@ void main() {
         const cols = grid.cols;
         const rows = grid.rows;
 
-        // 1. Black Sheets (Fix #2: Rendering)
-        if (this.baseBlackLevel > 0.01 || this.blackSheets.length > 0) {
-            // ... (Black Sheet Logic - Keeping existing code via surrounding context match if possible, or just rewriting applyToGrid to be safe)
-            // To avoid huge replacement, I will match the function start and just replace the Superman section?
-            // The instruction is to update applyToGrid. I'll replace the Superman section specifically.
-        }
-        // ... (Black sheets loop is long) ...
-    }
-    // Actually, I'll replace the whole applyToGrid method to be clean.
-    
-    applyToGrid(grid) {
-        if (!this.active) return;
-        
-        const cols = grid.cols;
-        const rows = grid.rows;
-
-        // 1. Black Sheets (Additive Accumulation)
-        if (this.baseBlackLevel > 0.01 || this.blackSheets.length > 0) {
-            const total = cols * rows;
-            if (!this.shadowMap || this.shadowMap.length !== total) {
-                this.shadowMap = new Float32Array(total);
-            } else {
-                this.shadowMap.fill(0);
-            }
-
-            // Accumulate Opacity
-            let activeShadows = false;
-            for (const s of this.blackSheets) {
-                 const minX = Math.floor(s.posX);
-                 const maxX = Math.floor(s.posX + s.w);
-                 const minY = Math.floor(s.posY);
-                 const maxY = Math.floor(s.posY + s.h);
-                 const sAlpha = s.currentAlpha * s.maxAlpha;
-
-                 if (sAlpha < 0.001) continue;
-
-                 const rMinX = Math.max(0, minX);
-                 const rMaxX = Math.min(cols, maxX);
-                 const rMinY = Math.max(0, minY);
-                 const rMaxY = Math.min(rows, maxY);
-
-                 for (let y = rMinY; y < rMaxY; y++) {
-                     const rowOffset = y * cols;
-                     const ny = (y - s.posY) / s.h;
-                     for (let x = rMinX; x < rMaxX; x++) {
-                         const nx = (x - s.posX) / s.w;
-                         const edgeFade = Math.min(nx/0.2, (1-nx)/0.2, ny/0.2, (1-ny)/0.2, 1.0);
-                         const finalAlpha = sAlpha * edgeFade;
-                         if (finalAlpha > 0.001) {
-                            this.shadowMap[rowOffset + x] += finalAlpha;
-                            activeShadows = true;
-                         }
-                     }
-                 }
-            }
-            
-            // Apply to Grid
-            if (activeShadows) {
-                for (let i = 0; i < total; i++) {
-                    const acc = this.shadowMap[i];
-                    if (acc > 0.01) {
-                        // Clamp to 1.0 max opacity
-                        grid.setEffectShadow(i, Math.min(1.0, acc));
-                    }
-                }
-            }
-            
-            // Global Fade removed to prevent premature blackout. 
-            // Sheets provide the shadowbox effect.
-        }
+        // 1. Black Sheets - GPU HANDLED (Mask Texture)
 
         // 2. Superman Lightning (Updated)
         if (this.supermanState.active) {
-            const streamColor = this.c.derived.streamColorUint32;
+            const tracerColor = this.c.derived.tracerColorUint32;
             
-            // Render Illuminated Triangle (Background)
-            for (const idx of this.supermanState.illuminatedCells) {
-                 const char = grid.getChar(idx);
-                 // Preserve spaces: Only illuminate if there is a character
-                 if (char !== ' ') {
-                     // Illuminated: Stream Color, Low Glow, Moderate Alpha
-                     grid.setEffectOverride(idx, char, streamColor, 0.5, grid.fontIndices[idx], 0.3);
-                 }
-            }
+            // Triangle Reveals are now GPU HANDLED via getReveals() / Shadow Mask Punch-out
 
             // Render Main Bolt (Foreground)
             if (this.supermanState.cells.size > 0) {
                 for (const idx of this.supermanState.cells) {
                     const char = grid.getChar(idx);
                     if (char !== ' ') {
-                        // Bolt: Bright White, Moderate Glow
-                        grid.setEffectOverride(idx, char, 0xFFFFFFFF, 1.0, grid.fontIndices[idx], 1.0);
+                        // Bolt: Tracer Color, High Glow
+                        grid.setHighPriorityEffect(idx, char, tracerColor, 1.0, grid.fontIndices[idx], 1.0);
                     }
                 }
             }
@@ -429,6 +367,7 @@ void main() {
             const activeFonts = this.c.derived.activeFonts;
             const fontData = activeFonts[0]; // Use default font
             const charSet = fontData.chars;
+            const tracerColor = this.c.derived.tracerColorUint32;
             
             for (const bar of this.crashBars) {
                 const limitY = Math.min(rows, bar.y + bar.h);
@@ -447,8 +386,8 @@ void main() {
                         const alphaSeed = Math.floor(idx * 223 + bar.id * 773);
                         const alpha = 0.75 + (alphaSeed % 26) / 100;
                         
-                        // White Overlay (Mixes on top of existing code)
-                        grid.setEffectOverlay(idx, char, alpha, 0); 
+                        // Use High Priority to ensure color is enforced and shadows are ignored
+                        grid.setHighPriorityEffect(idx, char, tracerColor, alpha, 0, 0.5); 
                     }
                 }
             }
@@ -458,6 +397,7 @@ void main() {
         for (const [idx, snap] of this.snapshotOverlay) {
              if (snap.alpha <= 0.01) continue;
              const char = snap.char;
+             // Snap color is stored as hex string
              const color = Utils.hexToRgb(snap.color);
              const packedColor = Utils.packAbgr(color.r, color.g, color.b);
              grid.setOverride(idx, char, packedColor, snap.alpha, grid.fontIndices[idx], snap.isSmith ? 0 : 8.0);
@@ -474,30 +414,107 @@ void main() {
     }
 
     _updateBlackSheets(maxSheets) {
-        if (this.blackSheets.length < maxSheets) { 
-            if (Math.random() < 0.4) { 
-                const grid = this.g;
-                const r = Math.random();
-                let w, h;
-                if (r < 0.4) { w = Utils.randomInt(4, 8); h = Utils.randomInt(4, 8); } 
-                else if (r < 0.8) { w = Utils.randomInt(8, 16); h = Utils.randomInt(8, 16); } 
-                else { w = Utils.randomInt(16, 24); h = Utils.randomInt(16, 24); }
+        // Fill up to maxSheets immediately
+        while (this.blackSheets.length < maxSheets) { 
+            const grid = this.g;
+            // Generate dimensions (4 to 16)
+            const w = Utils.randomInt(4, 16);
+            const h = Utils.randomInt(4, 16);
+            
+            let c = Math.floor(Math.random() * (grid.cols - w));
+            let row = Math.floor(Math.random() * (grid.rows - h));
+            
+            // Orthogonal Movement Logic
+            const speedScale = (Math.random() * 1.5 + 0.5); 
+            let dx = 0;
+            let dy = 0;
+
+            // Configurable Chance to be stationary
+            const stationaryChance = this.c.get('crashStationaryChance') / 100.0;
+            if (Math.random() > stationaryChance) {
+                const axis = Math.random() < 0.5 ? 'x' : 'y';
+                const dir = Math.random() < 0.5 ? 1 : -1;
                 
-                let c = Math.floor(Math.random() * (grid.cols - w));
-                let row = Math.floor(Math.random() * (grid.rows - h));
-                const speedScale = (Math.random() * 1.5 + 0.5); 
-                
-                this.blackSheets.push({ 
-                    c, r: row, w, h,
-                    posX: c, posY: row, 
-                    baseDx: (Math.random() - 0.5) * speedScale, 
-                    baseDy: (Math.random() - 0.5) * speedScale, 
-                    targetW: w, targetH: h, 
-                    maxAlpha: this.c.get('crashSheetOpacity'), 
-                    currentAlpha: 0.0, targetAlpha: 1.0 
+                dx = axis === 'x' ? (0.2 + Math.random() * 0.3) * speedScale * dir : 0;
+                dy = axis === 'y' ? (0.2 + Math.random() * 0.3) * speedScale * dir : 0;
+            }
+            
+            const maxAlpha = this.c.get('crashSheetOpacity');
+
+            this.blackSheets.push({ 
+                c, r: row, w, h,
+                posX: c, posY: row, 
+                baseDx: dx, 
+                baseDy: dy, 
+                targetW: w, targetH: h, 
+                // Requirement 1: Immediate Spawn (No Fade In)
+                currentAlpha: maxAlpha, 
+                targetAlpha: maxAlpha, 
+                maxAlpha: maxAlpha,
+                blur: 0.0
+            });
+        }
+
+        // Update Position & Wrapping
+        for (const s of this.blackSheets) {
+            // Update Alpha (Fade Out logic handled by sheetFadeVal globally, but per-sheet fade-in removed)
+            s.maxAlpha = this.c.get('crashSheetOpacity') * this.sheetFadeVal;
+            s.currentAlpha = s.maxAlpha; 
+
+            // Move
+            s.posX += s.baseDx * this.c.get('crashSheetSpeed');
+            s.posY += s.baseDy * this.c.get('crashSheetSpeed');
+            
+            // Wrapping Logic (Requirement 2)
+            if (s.posX > this.g.cols) s.posX -= this.g.cols;
+            if (s.posX + s.w < 0) s.posX += this.g.cols;
+            
+            if (s.posY > this.g.rows) s.posY -= this.g.rows;
+            if (s.posY + s.h < 0) s.posY += this.g.rows;
+        }
+    }
+
+    // New Generic Interface for Renderer (Requirement 4: Layering/Wrapping Visuals)
+    getMasks() {
+        if (!this.active) return [];
+        const masks = [];
+        const cols = this.g.cols;
+        const rows = this.g.rows;
+
+        for (const s of this.blackSheets) {
+            // Main Body
+            masks.push({
+                x: s.posX, y: s.posY, w: s.w, h: s.h,
+                alpha: s.currentAlpha, blur: s.blur
+            });
+
+            // Horizontal Wrapping Ghost
+            if (s.posX + s.w > cols) {
+                masks.push({
+                    x: s.posX - cols, y: s.posY, w: s.w, h: s.h,
+                    alpha: s.currentAlpha, blur: s.blur
+                });
+            } else if (s.posX < 0) {
+                 masks.push({
+                    x: s.posX + cols, y: s.posY, w: s.w, h: s.h,
+                    alpha: s.currentAlpha, blur: s.blur
+                });
+            }
+
+            // Vertical Wrapping Ghost
+            if (s.posY + s.h > rows) {
+                masks.push({
+                    x: s.posX, y: s.posY - rows, w: s.w, h: s.h,
+                    alpha: s.currentAlpha, blur: s.blur
+                });
+            } else if (s.posY < 0) {
+                masks.push({
+                    x: s.posX, y: s.posY + rows, w: s.w, h: s.h,
+                    alpha: s.currentAlpha, blur: s.blur
                 });
             }
         }
+        return masks;
     }
 
     _getFontName(i) {
@@ -572,7 +589,7 @@ void main() {
                 
                 this.snapshotOverlay.set(i, {
                     char: char, 
-                    color: '#00FF00', 
+                    color: this.c.derived.tracerColorStr, 
                     alpha: 1.0, // Full brightness for ASCII art
                     endFrame: endFrame, 
                     isSmith: true
@@ -604,16 +621,35 @@ void main() {
         
         if (!s.geometry) {
             this._initSupermanGeometry();
+            // Initialize active reveal for this new bolt
+            s.activeReveal = { 
+                type: 'strip', 
+                trunk: [], 
+                branch: [], 
+                alpha: 1.0 
+            };
         }
         
-        // Draw Main Path (Jittered) - Thicker
         const g = s.geometry;
-        this._drawJaggedLine(g.start.x, g.start.y, g.end.x, g.end.y, s.cells, 2);
         
-        // Draw Branches (Jittered)
+        // Draw Main Path and capture points
+        const trunkPoints = this._drawJaggedLine(g.start.x, g.start.y, g.end.x, g.end.y, s.cells, 2);
+        
+        // Update active reveal geometry
+        if (s.activeReveal) {
+            s.activeReveal.trunk = trunkPoints;
+            s.activeReveal.branch = []; // Reset branch
+        }
+
+        // Draw Branches
         if (g.branches) {
             for (const b of g.branches) {
-                this._drawJaggedLine(g.split.x, g.split.y, b.x, b.y, s.cells, 1);
+                const branchPoints = this._drawJaggedLine(g.split.x, g.split.y, b.x, b.y, s.cells, 1);
+                // For the reveal, we only care about the first/longest branch to define the "V" shape
+                // If there are multiple, we could potentially handle them, but let's stick to the primary split for the reveal web
+                if (s.activeReveal && s.activeReveal.branch.length === 0) {
+                    s.activeReveal.branch = branchPoints;
+                }
             }
         }
     }
@@ -657,10 +693,6 @@ void main() {
             let maxDist = -1;
             
             // Define adjacent edges for the END corner
-            // If end is TL (0,0) -> Edges are Top (y=0) and Left (x=0)
-            // If end is TR (w,0) -> Edges are Top (y=0) and Right (x=w)
-            // etc.
-            
             for (let i = 0; i < numBranches; i++) {
                 let tx, ty;
                 let attempts = 0;
@@ -668,14 +700,10 @@ void main() {
                 
                 while (!valid && attempts < 10) {
                     attempts++;
-                    // Pick one of the two adjacent edges
-                    // Edge 1 is Horizontal (y = end.y)
-                    // Edge 2 is Vertical (x = end.x)
                     const useHorizontal = Math.random() < 0.5;
                     
                     if (useHorizontal) {
                         ty = end.y;
-                        // Random X along that edge (constrain slightly to avoid overlap with start side?)
                         tx = Utils.randomInt(0, grid.cols - 1);
                     } else {
                         tx = end.x;
@@ -708,77 +736,66 @@ void main() {
                 }
             }
             s.geometry.branches = branches;
-            
-            // Calculate Illuminated Triangle
-            // P1: Split, P2: End Corner, P3: Furthest Branch
-            if (furthestBranch) {
-                this._calculateIlluminatedTriangle(s.geometry.split, end, furthestBranch);
-            }
         }
     }
 
-    _calculateIlluminatedTriangle(p1, p2, p3) {
-        const grid = this.g;
-        const set = this.supermanState.illuminatedCells;
-        set.clear();
-        
-        // Bounding box of triangle
-        const minX = Math.min(p1.x, p2.x, p3.x);
-        const maxX = Math.max(p1.x, p2.x, p3.x);
-        const minY = Math.min(p1.y, p2.y, p3.y);
-        const maxY = Math.max(p1.y, p2.y, p3.y);
-        
-        // Barycentric helper
-        const areaOrig = Math.abs((p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y));
-        
-        for (let y = minY; y <= maxY; y++) {
-            for (let x = minX; x <= maxX; x++) {
-                if (x < 0 || x >= grid.cols || y < 0 || y >= grid.rows) continue;
-                
-                // Check if inside
-                // Area of sub-triangles
-                const area1 = Math.abs((p1.x - x) * (p2.y - y) - (p2.x - x) * (p1.y - y));
-                const area2 = Math.abs((p2.x - x) * (p3.y - y) - (p3.x - x) * (p2.y - y));
-                const area3 = Math.abs((p3.x - x) * (p1.y - y) - (p1.x - x) * (p3.y - y));
-                
-                if (Math.abs(area1 + area2 + area3 - areaOrig) < 1.0) {
-                    set.add(y * grid.cols + x);
-                }
-            }
+    getReveals() {
+        const reveals = [...this.supermanState.fadingTriangles];
+        if (this.supermanState.activeReveal) {
+            reveals.push(this.supermanState.activeReveal);
         }
+        return reveals;
     }
     
-    _drawJaggedLine(x0, y0, x1, y1, set, thickness = 1) {
-        // Connected Line with Flexing (Intermediate Points)
+    _drawJaggedLine(x0, y0, x1, y1, set, baseThickness = 1) {
+        const points = [];
+        
+        // Elastic / Arcing Lightning with Time-Based Animation
         const dist = Math.hypot(x1 - x0, y1 - y0);
-        const segments = Math.max(2, Math.floor(dist / 10)); // One segment every ~10px
+        const steps = Math.ceil(dist * 0.8); // High resolution for smooth arcs
+        
+        // Perpendicular Vector for displacement
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const nx = -dy / dist; // Normalized Perpendicular X
+        const ny = dx / dist;  // Normalized Perpendicular Y
         
         let px = x0;
         let py = y0;
         
-        for (let i = 1; i <= segments; i++) {
-            const t = i / segments;
+        const time = this.frame * 0.3; 
+        const seed = this.supermanState.boltId; 
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
             
-            let tx, ty;
-            if (i === segments) {
-                tx = x1;
-                ty = y1;
-            } else {
-                // Intermediate point with jitter
-                tx = x0 + (x1 - x0) * t;
-                ty = y0 + (y1 - y0) * t;
-                
-                const jitter = (Math.random() - 0.5) * 2.0; 
-                tx += jitter;
-                ty += jitter;
+            let tx = x0 + dx * t;
+            let ty = y0 + dy * t;
+            
+            const thickness = baseThickness;
+
+            // Chaotic Displacement
+            const arc1 = Math.sin(t * Math.PI + seed + time * 0.5) * 4.0;
+            const arc2 = Math.sin(t * Math.PI * 4.0 + seed * 2.0 - time * 1.5) * 2.0;
+            const jitter = Math.sin(t * Math.PI * 25.0 + time * 8.0) * 0.8;
+            const noise = (Math.random() - 0.5) * 1.2;
+            const envelope = Math.sin(t * Math.PI); 
+            
+            const displacement = (arc1 + arc2 + jitter + noise) * envelope * 2.0;
+
+            tx += nx * displacement;
+            ty += ny * displacement;
+            
+            points.push({x: tx, y: ty}); // Capture point
+            
+            if (i > 0) {
+                this._drawLine(px, py, tx, ty, set, thickness);
             }
-            
-            // Draw straight line from (px, py) to (tx, ty)
-            this._drawLine(px, py, tx, ty, set, thickness);
             
             px = tx;
             py = ty;
         }
+        return points;
     }
 
     _drawLine(x0, y0, x1, y1, set, thickness = 1) {

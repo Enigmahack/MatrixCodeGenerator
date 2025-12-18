@@ -171,6 +171,16 @@ class CellGrid {
         // Glow is additive
     }
 
+    // High Priority Override (Ignores Shadows/Masks)
+    setHighPriorityEffect(idx, charStr, colorUint32, alpha, fontIndex = 0, glow = 0) {
+        this.effectActive[idx] = 4; // 4 = High Priority Mode
+        this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
+        this.effectColors[idx] = colorUint32;
+        this.effectAlphas[idx] = alpha;
+        this.effectFontIndices[idx] = fontIndex;
+        this.effectGlows[idx] = glow;
+    }
+
     // Shadow Overlay (Mixes Black Block on top of Primary)
     setEffectShadow(idx, alpha) {
         this.effectActive[idx] = 3; // 3 = Shadow Mode
@@ -299,8 +309,23 @@ class CellGrid {
         this.envGlows = new Float32Array(total);
 
         // Initialize static data
+        const activeFonts = this.config.derived ? this.config.derived.activeFonts : null;
+        const fallbackChars = "012345789Z:<=>\"*+-._!|";
+        
         for (let i = 0; i < total; i++) {
             this.rotatorOffsets[i] = (Math.random() * 255) | 0;
+            
+            // Pre-populate random characters for varied effect snapshots
+            let charCode = 32; 
+            if (activeFonts && activeFonts.length > 0) {
+                const f = activeFonts[Math.floor(Math.random() * activeFonts.length)];
+                if (f.chars && f.chars.length > 0) {
+                    charCode = f.chars.charCodeAt(Math.floor(Math.random() * f.chars.length));
+                }
+            } else {
+                charCode = fallbackChars.charCodeAt(Math.floor(Math.random() * fallbackChars.length));
+            }
+            this.chars[i] = charCode;
         }
 
         this.activeIndices = new Set();

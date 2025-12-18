@@ -168,6 +168,75 @@ class WebGLRenderer {
         const outColor = this.isWebGL2 ? 'out vec4 fragColor;' : '';
         const setFragColor = this.isWebGL2 ? 'fragColor' : 'gl_FragColor';
 
+        // --- SHADOW MASK SHADER ---
+        const shadowVS = this.isWebGL2 ? `#version 300 es
+            layout(location=0) in vec2 a_quad;
+            layout(location=1) in vec4 a_rect;
+            layout(location=2) in float a_alpha;
+            layout(location=3) in float a_blur;
+            uniform vec2 u_gridSize;
+            out vec2 v_uv;
+            out float v_alpha;
+            out float v_blur;
+            void main() {
+                vec2 size = a_rect.zw;
+                vec2 pos = a_rect.xy;
+                vec2 worldPos = pos + (a_quad * size);
+                vec2 uv = worldPos / u_gridSize;
+                gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+                gl_Position.y = -gl_Position.y;
+                v_uv = a_quad;
+                v_alpha = a_alpha;
+                v_blur = a_blur;
+            }
+        ` : `
+            attribute vec2 a_quad;
+            attribute vec4 a_rect;
+            attribute float a_alpha;
+            attribute float a_blur;
+            uniform vec2 u_gridSize;
+            varying vec2 v_uv;
+            varying float v_alpha;
+            varying float v_blur;
+            void main() {
+                vec2 size = a_rect.zw;
+                vec2 pos = a_rect.xy;
+                vec2 worldPos = pos + (a_quad * size);
+                vec2 uv = worldPos / u_gridSize;
+                gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+                gl_Position.y = -gl_Position.y;
+                v_uv = a_quad;
+                v_alpha = a_alpha;
+                v_blur = a_blur;
+            }
+        `;
+
+        const shadowFS = this.isWebGL2 ? `#version 300 es
+            precision mediump float;
+            in vec2 v_uv;
+            in float v_alpha;
+            in float v_blur;
+            out vec4 fragColor;
+            void main() {
+                vec2 d = abs(v_uv - 0.5) * 2.0;
+                float dist = max(d.x, d.y);
+                float edge = 1.0 - smoothstep(1.0 - max(0.001, v_blur), 1.0, dist);
+                fragColor = vec4(0.0, 0.0, 0.0, v_alpha * edge);
+            }
+        ` : `
+            precision mediump float;
+            varying vec2 v_uv;
+            varying float v_alpha;
+            varying float v_blur;
+            void main() {
+                vec2 d = abs(v_uv - 0.5) * 2.0;
+                float dist = max(d.x, d.y);
+                float edge = 1.0 - smoothstep(1.0 - max(0.001, v_blur), 1.0, dist);
+                gl_FragColor = vec4(0.0, 0.0, 0.0, v_alpha * edge);
+            }
+        `;
+        this.shadowProgram = this._createProgram(shadowVS, shadowFS);
+
         // Optimized Vertex Shader
         const matrixVS = `${version}
             precision mediump float;
@@ -199,6 +268,7 @@ class WebGLRenderer {
             ${varying} float v_mix;
             ${varying} float v_glow;
             ${varying} float v_prog;
+            ${varying} vec2 v_screenUV; // For sampling Shadow Mask
 
             void main() {
                 // Decay Scale Logic
@@ -228,8 +298,11 @@ class WebGLRenderer {
                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
                 clip.y = -clip.y;
                 gl_Position = vec4(clip, 0.0, 1.0);
-
+                
                 // Pass Attributes
+                v_screenUV = clip * 0.5 + 0.5; // -1..1 -> 0..1
+                // v_screenUV.y = 1.0 - v_screenUV.y; // REMOVED: Match Texture Coords (0=Bottom, 1=Top)
+
                 v_color = a_color;
                 v_color.a *= a_alpha;
                 v_mix = a_mix;
@@ -255,176 +328,220 @@ class WebGLRenderer {
             }
         `;
 
-        // Optimized Fragment Shader
-        const matrixFS = `${version}
-            precision mediump float;
-            ${varyingIn} vec2 v_uv;
-            ${varyingIn} vec2 v_uv2;
-            ${varyingIn} vec4 v_color;
-            ${varyingIn} float v_mix;
-            ${varyingIn} float v_glow;
-            ${varyingIn} float v_prog;
-            
-            uniform sampler2D u_texture;
-            uniform float u_time;
-            uniform float u_dissolveEnabled; // 0.0 or 1.0
-            uniform float u_dissolveScale;
-            uniform float u_dissolveSize;
-            
-            uniform float u_deteriorationEnabled;
-            uniform float u_deteriorationStrength;
-            uniform vec2 u_atlasSize;
-            uniform vec4 u_overlapColor;
-            
-            ${outColor}
-
-            // Pseudo-random function
-            float random(vec2 st) {
-                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
-            }
-
-            // Helper to apply all visual degradations (Dissolve + Ghosting) identically
-            float getProcessedAlpha(vec2 uv) {
-                float a = ${texture2D}(u_texture, uv).a;
-                float ghost1 = 0.0;
-                float ghost2 = 0.0;
-
-                // Trail Ghosting (Vertical Blur) - Sample first
-                if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
-                    float blurDist = (u_deteriorationStrength * v_prog) / u_atlasSize.y;
-                    ghost1 = ${texture2D}(u_texture, uv + vec2(0.0, blurDist)).a;
-                    ghost2 = ${texture2D}(u_texture, uv - vec2(0.0, blurDist)).a;
-                }
-
-                // Alpha Erosion Dissolve (Burn away from edges)
-                // Apply to MAIN char AND GHOSTS
-                if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
-                    float erosion = v_prog * 1.2; 
-                    a = min(a, smoothstep(erosion, erosion + 0.1, a));
-                    if (ghost1 > 0.0) ghost1 = min(ghost1, smoothstep(erosion, erosion + 0.1, ghost1));
-                    if (ghost2 > 0.0) ghost2 = min(ghost2, smoothstep(erosion, erosion + 0.1, ghost2));
-                }
-
-                // Combine
-                if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
-                    a = max(a, max(ghost1, ghost2) * 0.5);
-                }
-                
-                return a;
-            }
-
-            void main() {
-                // Sample Texture with Effects
-                float tex1 = getProcessedAlpha(v_uv);
-                vec4 baseColor = v_color;
-                
-                float finalAlpha = tex1;
-
-                if (v_mix >= 5.0) {
-                    // Shadow Mode (Black Overlay Quad)
-                    float ovAlpha = v_mix - 5.0;
-                    // Force Black Color
-                    baseColor.rgb = vec3(0.0);
-                    // Force Solid Alpha (No texture interaction)
-                    finalAlpha = ovAlpha;
-                } else if (v_mix >= 4.0) {
-                    // Overlay Mode (White on top of Primary)
-                    float ovAlpha = v_mix - 4.0;
-                    float tex2 = getProcessedAlpha(v_uv2);
-                    float effA = tex2 * ovAlpha;
+                    // Optimized Fragment Shader
+                const matrixFS = `${version}
+                    precision mediump float;
+                    ${varyingIn} vec2 v_uv;
+                    ${varyingIn} vec2 v_uv2;
+                    ${varyingIn} vec4 v_color;
+                    ${varyingIn} float v_mix;
+                    ${varyingIn} float v_glow;
+                    ${varyingIn} float v_prog;
+                    ${varyingIn} vec2 v_screenUV;
                     
-                    baseColor.rgb = mix(baseColor.rgb, vec3(1.0), effA);
-                    finalAlpha = max(tex1, effA);
-                } else if (v_mix >= 3.0) {
-                    // Solid Mode
-                    finalAlpha = 1.0;
-                } else if (v_mix >= 2.0) {
-                    // Overlap Mode
-                    // Apply same effects to secondary character
-                    float tex2 = getProcessedAlpha(v_uv2);
+                    uniform sampler2D u_texture;
+                    uniform sampler2D u_shadowMask; // <-- New Input
+                    uniform float u_time;
+                    uniform float u_dissolveEnabled; // 0.0 or 1.0
+                    uniform float u_dissolveScale;
+                    uniform float u_dissolveSize;
                     
-                    float intersection = tex1 * tex2;
-                    // Primary visible, secondary invisible except intersection
-                    finalAlpha = tex1; 
+                    uniform float u_deteriorationEnabled;
+                    uniform float u_deteriorationStrength;
+                    uniform vec2 u_atlasSize;
+                    uniform vec4 u_overlapColor;
                     
-                    // If intersecting, use overlap color
-                    if (intersection > 0.1) {
-                         baseColor.rgb = u_overlapColor.rgb;
-                    }
-                } else if (v_mix > 0.0) {
-                    // Rotator Mix
-                    // For rotator, we might NOT want dissolve/ghosting on the incoming char yet?
-                    // Usually rotator happens on active cells (decay=0).
-                    // If decay=0, getProcessedAlpha just returns raw alpha. So it's safe.
-                    float tex2 = getProcessedAlpha(v_uv2);
-                    finalAlpha = mix(tex1, tex2, v_mix);
-                }
-
-                if (finalAlpha < 0.01) discard;
-
-                vec4 col = baseColor;
-                // Boost brightness for glow (Bloom trigger)
-                // Multiply by alpha to ensure it fades out with the character
-                if (v_glow > 0.0) {
-                    col.rgb += (v_glow * 0.3 * col.a);
-                }
-
-                ${setFragColor} = vec4(col.rgb, col.a * finalAlpha);
-            }
-        `;
+                    // 0 = Base (Glyphs/Glow), 1 = Shadow
+                    uniform int u_passType;
+                    
+                    ${outColor}
         
-        // Fallback for WebGL1
-        let finalVS = matrixVS;
-        let finalFS = matrixFS;
-        
-        if (!this.isWebGL2) {
-             finalVS = `
-                precision mediump float;
-                attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
-                attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
-                uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
-                uniform vec2 u_stretch; uniform float u_mirror;
-                varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog;
-                void main() {
-                    float scale = 1.0;
-                    v_prog = 0.0;
-                    if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
-                    vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
-                    vec2 worldPos = a_pos + centerPos;
-                    vec2 gridCenter = u_gridSize * 0.5;
-                    worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
-                    worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
-                    if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
-                    vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
-                    gl_Position = vec4(clip, 0.0, 1.0);
-                    v_color = a_color; v_color.a *= a_alpha; v_mix = a_mix; v_glow = a_glow;
-                    float cIdx = a_charIdx; float row = floor(cIdx / u_cols); float col = mod(cIdx, u_cols);
-                    vec2 uvBase = vec2(col, row) * u_cellSize; v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
-                    if (a_mix > 0.0) { float cIdx2 = a_nextChar; float row2 = floor(cIdx2 / u_cols); float col2 = mod(cIdx2, u_cols); vec2 uvBase2 = vec2(col2, row2) * u_cellSize; v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize; } else { v_uv2 = v_uv; }
-                }
-             `;
-             finalFS = `
-                precision mediump float;
-                varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog;
-                uniform sampler2D u_texture; uniform float u_time; uniform float u_dissolveEnabled; uniform float u_dissolveSize;
-                float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
-                void main() {
-                    float tex1 = texture2D(u_texture, v_uv).a;
-                    float finalAlpha = tex1;
-                    if (v_mix >= 3.0) { finalAlpha = 1.0; }
-                    else if (v_mix >= 2.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = max(tex1, tex2); }
-                    else if (v_mix > 0.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = mix(tex1, tex2, v_mix); }
-                    if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
-                        vec2 noiseCoord = floor(gl_FragCoord.xy / max(1.0, u_dissolveSize));
-                        float noise = random(noiseCoord);
-                        if (noise < v_prog) discard;
+                    // Pseudo-random function
+                    float random(vec2 st) {
+                        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
                     }
-                    if (finalAlpha < 0.01) discard;
-                    vec4 col = v_color;
-                    if (v_glow > 0.0) { col.rgb += (v_glow * 0.3); }
-                    gl_FragColor = vec4(col.rgb, col.a * finalAlpha);
-                }
-             `;
+        
+                    // Helper to apply all visual degradations (Dissolve + Ghosting) identically
+                    float getProcessedAlpha(vec2 uv) {
+                        float a = ${texture2D}(u_texture, uv).a;
+                        float ghost1 = 0.0;
+                        float ghost2 = 0.0;
+        
+                        // Trail Ghosting (Vertical Blur) - Sample first
+                        if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
+                            float blurDist = (u_deteriorationStrength * v_prog) / u_atlasSize.y;
+                            ghost1 = ${texture2D}(u_texture, uv + vec2(0.0, blurDist)).a;
+                            ghost2 = ${texture2D}(u_texture, uv - vec2(0.0, blurDist)).a;
+                        }
+        
+                        // Alpha Erosion Dissolve (Burn away from edges)
+                        // Apply to MAIN char AND GHOSTS
+                        if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
+                            float erosion = v_prog * 1.2; 
+                            a = min(a, smoothstep(erosion, erosion + 0.1, a));
+                            if (ghost1 > 0.0) ghost1 = min(ghost1, smoothstep(erosion, erosion + 0.1, ghost1));
+                            if (ghost2 > 0.0) ghost2 = min(ghost2, smoothstep(erosion, erosion + 0.1, ghost2));
+                        }
+        
+                        // Combine
+                        if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
+                            a = max(a, max(ghost1, ghost2) * 0.5);
+                        }
+                        
+                        return a;
+                    }
+        
+                    void main() {
+                        // Decode High Priority Signal
+                        bool isHighPriority = (v_mix >= 9.5);
+                        float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
+        
+                        // Sample Shadow Mask
+                        float shadow = ${texture2D}(u_shadowMask, v_screenUV).a;
+                        
+                        // Sample Texture with Effects
+                        float tex1 = getProcessedAlpha(v_uv);
+                        vec4 baseColor = v_color;
+                        
+                        float finalAlpha = tex1;
+        
+                        if (useMix >= 4.0) {
+                            // Overlay Mode (Tracers/Effects)
+                            // Use baseColor so tracers follow Stream Color.
+                            float ovAlpha = useMix - 4.0;
+                            float tex2 = getProcessedAlpha(v_uv2);
+                            float effA = tex2 * ovAlpha;
+                            
+                            // Boost brightness by multiplying (preserves hue better than adding white)
+                            vec3 targetColor = baseColor.rgb * 2.0; 
+                            baseColor.rgb = mix(baseColor.rgb, targetColor, effA);
+                            
+                            finalAlpha = max(tex1, effA);
+                        } else if (useMix >= 3.0) {
+                            // Solid Mode
+                            finalAlpha = 1.0;
+                        } else if (useMix >= 2.0) {
+                            // Overlap Mode
+                            // Apply same effects to secondary character
+                            float tex2 = getProcessedAlpha(v_uv2);
+                            
+                            float intersection = tex1 * tex2;
+                            // Primary visible, secondary invisible except intersection
+                            finalAlpha = tex1; 
+                            
+                            // If intersecting, use overlap color
+                            if (intersection > 0.1) {
+                                 baseColor.rgb = u_overlapColor.rgb;
+                            }
+                        } else if (useMix > 0.0) {
+                            // Rotator Mix
+                            // For rotator, we might NOT want dissolve/ghosting on the incoming char yet?
+                            // Usually rotator happens on active cells (decay=0).
+                            // If decay=0, getProcessedAlpha just returns raw alpha. So it's safe.
+                            float tex2 = getProcessedAlpha(v_uv2);
+                            finalAlpha = mix(tex1, tex2, useMix);
+                        }
+        
+                        if (finalAlpha < 0.01) discard;
+        
+                        // Apply Shadow Darkening
+                        // shadow = 0..1 (0=No Shadow, 1=Black)
+                        // LAYER PRECEDENCE:
+                        // 1. Background Code & Tracers -> Affect by Shadow
+                        // 2. High Priority Effects (Lightning) -> Ignore Shadow (v_mix >= 10.0)
+                        
+                        if (!isHighPriority) {
+                            baseColor.rgb *= (1.0 - shadow);
+                        }
+        
+                        vec4 col = baseColor;
+                        // Boost brightness for glow (Bloom trigger)
+                        // Multiply by alpha to ensure it fades out with the character
+                        if (v_glow > 0.0) {
+                            // GLOW logic must also respect shadow for non-high-priority effects!
+                            // If shadow is active, the baseColor is darkened.
+                            // The GLOW should also be darkened/suppressed.
+                            // Otherwise a black char will still emit light.
+                            
+                            float glowFactor = v_glow;
+                            if (!isHighPriority) {
+                                glowFactor *= (1.0 - shadow);
+                            }
+                            
+                            col.rgb += (glowFactor * 0.3 * col.a);
+                        }
+        
+                        ${setFragColor} = vec4(col.rgb, col.a * finalAlpha);
+                    }
+                `;
+                
+                // Fallback for WebGL1
+                let finalVS = matrixVS;
+                let finalFS = matrixFS;
+                
+                if (!this.isWebGL2) {
+                     finalVS = `
+                        precision mediump float;
+                        attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
+                        attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
+                        uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
+                        uniform vec2 u_stretch; uniform float u_mirror;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        void main() {
+                            float scale = 1.0;
+                            v_prog = 0.0;
+                            if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
+                            vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
+                            vec2 worldPos = a_pos + centerPos;
+                            vec2 gridCenter = u_gridSize * 0.5;
+                            worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
+                            worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
+                            if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
+                            vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
+                            gl_Position = vec4(clip, 0.0, 1.0);
+                            v_screenUV = clip * 0.5 + 0.5; // v_screenUV.y = 1.0 - v_screenUV.y; // Removed flip
+                            v_color = a_color; v_color.a *= a_alpha; v_mix = a_mix; v_glow = a_glow;
+                            float cIdx = a_charIdx; float row = floor(cIdx / u_cols); float col = mod(cIdx, u_cols);
+                            vec2 uvBase = vec2(col, row) * u_cellSize; v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                            if (a_mix > 0.0) { float cIdx2 = a_nextChar; float row2 = floor(cIdx2 / u_cols); float col2 = mod(cIdx2, u_cols); vec2 uvBase2 = vec2(col2, row2) * u_cellSize; v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize; } else { v_uv2 = v_uv; }
+                        }
+                     `;
+                     finalFS = `
+                        precision mediump float;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        uniform sampler2D u_texture; uniform sampler2D u_shadowMask; uniform float u_time; uniform float u_dissolveEnabled; uniform float u_dissolveSize;
+                        float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
+                        void main() {
+                            bool isHighPriority = (v_mix >= 9.5);
+                            float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
+                            
+                            float shadow = texture2D(u_shadowMask, v_screenUV).a;
+                            float tex1 = texture2D(u_texture, v_uv).a;
+                            float finalAlpha = tex1;
+                            if (useMix >= 3.0) { finalAlpha = 1.0; }
+                            else if (useMix >= 2.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = max(tex1, tex2); }
+                            else if (useMix > 0.0) { float tex2 = texture2D(u_texture, v_uv2).a; finalAlpha = mix(tex1, tex2, useMix); }
+                            if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
+                                vec2 noiseCoord = floor(gl_FragCoord.xy / max(1.0, u_dissolveSize));
+                                float noise = random(noiseCoord);
+                                if (noise < v_prog) discard;
+                            }
+                            if (finalAlpha < 0.01) discard;
+                            vec4 col = v_color;
+                            
+                            if (!isHighPriority) { 
+                                col.rgb *= (1.0 - shadow); 
+                            }
+                            // WebGL1 simplified glow logic - assumes glow attribute handling elsewhere or simplified here
+                             if (v_glow > 0.0) {
+                                float glowFactor = v_glow;
+                                if (!isHighPriority) glowFactor *= (1.0 - shadow);
+                                col.rgb += (glowFactor * 0.3 * col.a);
+                            }
+                            
+                            gl_FragColor = vec4(col.rgb, col.a * finalAlpha);
+                        }
+                     `;
         }
 
         this.program = this._createProgram(finalVS, finalFS);
@@ -451,6 +568,13 @@ class WebGLRenderer {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, screenQuadVerts, this.gl.STATIC_DRAW);
 
+        // Shadow Instance Buffer (Dynamic)
+        this.shadowInstanceBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
+        this.shadowInstanceCapacity = 1000;
+        // Initial capacity: 1000 sheets * 20 bytes (x,y,w,h,a)
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * 20, this.gl.DYNAMIC_DRAW);
+
         // Instance buffers will be created in resize()
         this.posBuffer = null;
         this.charBuffer = null;
@@ -470,6 +594,10 @@ class WebGLRenderer {
         this.fboA = this.gl.createFramebuffer(); this.texA = this.gl.createTexture();
         this.fboB = this.gl.createFramebuffer(); this.texB = this.gl.createTexture();
         this.fboC = this.gl.createFramebuffer(); this.texC = this.gl.createTexture();
+        
+        // Shadow Mask FBO
+        this.shadowMaskFbo = this.gl.createFramebuffer(); 
+        this.shadowMaskTex = this.gl.createTexture();
     }
 
     _configureFramebuffer(fbo, tex, width, height) {
@@ -532,6 +660,9 @@ class WebGLRenderer {
                 this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
                 this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
                 this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
+                
+                // Shadow Mask (Matches Render Resolution)
+                this._configureFramebuffer(this.shadowMaskFbo, this.shadowMaskTex, this.fboWidth, this.fboHeight);
             }
         }
         if (this.postProcessor) { this.postProcessor.resize(pw, ph); this.postProcessor.canvas.style.width = `${this.w}px`; this.postProcessor.canvas.style.height = `${this.h}px`; }
@@ -669,6 +800,7 @@ class WebGLRenderer {
 
     _runBlur(sourceTex, horizontal, strength, width, height, opacity = 1.0) {
         if (!this.bloomProgram) return;
+        this.gl.disable(this.gl.BLEND);
         this.gl.useProgram(this.bloomProgram);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
         this.gl.enableVertexAttribArray(0);
@@ -698,6 +830,10 @@ class WebGLRenderer {
         const { state: s, derived: d } = this.config;
         const grid = this.grid;
         const activeFonts = d.activeFonts;
+        const gl = this.gl;
+
+        gl.enable(gl.BLEND);
+        // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         
         // --- ATLAS UPDATE ---
         const font = activeFonts[0];
@@ -815,6 +951,20 @@ class WebGLRenderer {
                     continue;
                 }
 
+                if (effActive[i] === 4) {
+                    // HIGH PRIORITY OVERRIDE (Superman/Lightning)
+                    // Behaves like Standard Override but sets Mix >= 10.0 to signal "Ignore Shadow"
+                    mChars[i] = mapChar(effChars[i]);
+                    uColors[i] = effColors[i];
+                    uAlphas[i] = effAlphas[i];
+                    uGlows[i] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    
+                    uDecays[i] = 0; 
+                    uMix[i] = 10.0; // Signal Value
+                    mNext[i] = 0;
+                    continue;
+                }
+
                 // STANDARD OVERRIDE (Replace)
                 mChars[i] = mapChar(effChars[i]);
                 uColors[i] = effColors[i];
@@ -913,6 +1063,229 @@ class WebGLRenderer {
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, mNext);
 
 
+        // --- SHADOW MASK PASS ---
+        // Render Shadow Masks from Effects (Generic)
+        if (this.fboWidth > 0 && this.fboHeight > 0) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.shadowMaskFbo);
+            this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+            
+            this.gl.colorMask(true, true, true, true); // Ensure writes are enabled
+            this.gl.clearColor(0, 0, 0, 0); 
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            
+            // Collect Masks from All Active Effects
+            let masks = [];
+            if (this.effects) {
+                 // Support both Array and Map structures for EffectRegistry
+                 const effectList = (Array.isArray(this.effects.effects)) 
+                    ? this.effects.effects 
+                    : (this.effects.effects instanceof Map) 
+                        ? Array.from(this.effects.effects.values()) 
+                        : (typeof this.effects.get === 'function' && typeof this.effects.getAll === 'function') // Handle registry with getters
+                            ? this.effects.getAll() // Assuming a getAll exists, or fallback to iterating specific known effects if not
+                            : []; 
+
+                 // If getAll doesn't exist, we might need to rely on the Map iterator if effects.effects is private.
+                 // However, let's assume standard iteration is possible.
+                 // Fallback: If effects.effects is a Map, use values().
+                 const iterable = (this.effects.effects instanceof Map) ? this.effects.effects.values() : effectList;
+
+                 for (const effect of iterable) {
+                     if (effect.active) {
+                         // Check for CrashEffect legacy support or new Generic Interface
+                         if (effect.name === 'CrashSequence' && effect.blackSheets) {
+                             // Legacy/Specific Support for CrashEffect
+                             for (const s of effect.blackSheets) {
+                                 masks.push({
+                                     x: s.posX, y: s.posY, w: s.w, h: s.h,
+                                     alpha: s.currentAlpha * s.maxAlpha,
+                                     blur: (s.blur !== undefined) ? s.blur : 0.0 // Default to 0 for Crash
+                                 });
+                             }
+                         }
+                         // Future Generic Interface: getMasks()
+                         if (typeof effect.getMasks === 'function') {
+                             const effectMasks = effect.getMasks();
+                             if (Array.isArray(effectMasks)) {
+                                 masks.push(...effectMasks);
+                             }
+                         }
+                     }
+                 }
+            }
+            
+            if (masks.length > 0 && this.shadowInstanceBuffer) {
+                this.gl.useProgram(this.shadowProgram);
+                
+                // Upload Instance Data (x, y, w, h, alpha, blur) - 6 floats
+                const count = masks.length;
+                if (!this.shadowData || this.shadowData.length < count * 6) {
+                    this.shadowData = new Float32Array(count * 6 * 2); 
+                }
+                
+                const data = this.shadowData;
+                for (let i=0; i<count; i++) {
+                    const m = masks[i];
+                    data[i*6+0] = m.x;
+                    data[i*6+1] = m.y;
+                    data[i*6+2] = m.w;
+                    data[i*6+3] = m.h;
+                    data[i*6+4] = m.alpha;
+                    data[i*6+5] = (m.blur !== undefined) ? m.blur : 0.2; // Default blur if missing
+                }
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
+                
+                // 6 floats * 4 bytes = 24 bytes per instance
+                const stride = 24;
+                
+                if (count > this.shadowInstanceCapacity) {
+                     this.shadowInstanceCapacity = Math.max(count, this.shadowInstanceCapacity * 2);
+                     this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * stride, this.gl.DYNAMIC_DRAW);
+                     this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, data.subarray(0, count*6));
+                } else {
+                     this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, data.subarray(0, count*6));
+                }
+                
+                // Setup Attributes
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+                this.gl.enableVertexAttribArray(0);
+                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+                
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
+                
+                // a_rect (vec4)
+                this.gl.enableVertexAttribArray(1);
+                this.gl.vertexAttribPointer(1, 4, this.gl.FLOAT, false, stride, 0);
+                this.gl.vertexAttribDivisor(1, 1);
+                
+                // a_alpha (float)
+                this.gl.enableVertexAttribArray(2);
+                this.gl.vertexAttribPointer(2, 1, this.gl.FLOAT, false, stride, 16);
+                this.gl.vertexAttribDivisor(2, 1);
+                
+                // a_blur (float)
+                this.gl.enableVertexAttribArray(3);
+                this.gl.vertexAttribPointer(3, 1, this.gl.FLOAT, false, stride, 20);
+                this.gl.vertexAttribDivisor(3, 1);
+                
+                this.gl.uniform2f(this.gl.getUniformLocation(this.shadowProgram, 'u_gridSize'), grid.cols, grid.rows);
+                
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                
+                this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, count);
+                
+                this.gl.vertexAttribDivisor(1, 0);
+                this.gl.vertexAttribDivisor(2, 0);
+                this.gl.vertexAttribDivisor(3, 0);
+                this.gl.disableVertexAttribArray(1);
+                this.gl.disableVertexAttribArray(2);
+                this.gl.disableVertexAttribArray(3);
+            }
+
+            // --- REVEAL PUNCH-OUT PASS (Subtract Alpha) ---
+            // Only necessary if we have drawn shadows
+            if (typeof masks !== 'undefined' && masks && masks.length > 0 && this.effects) {
+                let crash = null;
+                // Locate CrashEffect
+                if (Array.isArray(this.effects.effects)) {
+                     crash = this.effects.effects.find(e => e.name === 'CrashSequence');
+                } else if (this.effects.effects instanceof Map) {
+                     crash = this.effects.effects.get('CrashSequence');
+                } else if (typeof this.effects.get === 'function') {
+                     crash = this.effects.get('CrashSequence');
+                }
+
+                if (crash && crash.active && typeof crash.getReveals === 'function') {
+                    const reveals = crash.getReveals();
+                    if (reveals.length > 0) {
+                        // Use Color Program to draw fading triangles
+                        this.gl.useProgram(this.colorProgram);
+                        
+                        // Punch-out blend mode: DestAlpha = DestAlpha * (1 - SrcAlpha)
+                        // Src = (0,0,0, RevealAlpha)
+                        this.gl.blendFunc(this.gl.ZERO, this.gl.ONE_MINUS_SRC_ALPHA);
+                        
+                        if (!this.revealBuffer) {
+                            this.revealBuffer = this.gl.createBuffer();
+                        }
+                        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.revealBuffer);
+                        
+                        // Enable Position Attribute (Location 0 in colorProgram)
+                        this.gl.enableVertexAttribArray(0);
+                        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+    
+                        const cols = grid.cols;
+                        const rows = grid.rows;
+                        
+                        // Buffer for batching vertices
+                        // Estimate size: 50 reveals * 100 segments * 6 verts * 2 coords = ~60k floats
+                        // Just allocate dynamically per frame or reuse a large buffer.
+                        // For simplicity/safety in this refactor, let's process per reveal and use bufferData.
+                        
+                        for (const r of reveals) {
+                            const alpha = r.alpha;
+                            if (alpha <= 0.01) continue;
+    
+                            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), 0, 0, 0, alpha);
+                            
+                            let vertices = null;
+
+                            if (r.type === 'strip' && r.trunk && r.branch) {
+                                // Draw Triangle Strip between Trunk and Branch
+                                const len = Math.min(r.trunk.length, r.branch.length);
+                                if (len < 2) continue;
+                                
+                                // 2 triangles per segment * (len-1) segments * 3 verts * 2 coords
+                                const data = new Float32Array((len - 1) * 6 * 2);
+                                let ptr = 0;
+                                
+                                for (let i = 0; i < len - 1; i++) {
+                                    // Points in Grid Space
+                                    const t1 = r.trunk[i];
+                                    const t2 = r.trunk[i+1];
+                                    const b1 = r.branch[i];
+                                    const b2 = r.branch[i+1];
+                                    
+                                    // Convert to Clip Space
+                                    // X: 0..cols -> -1..1
+                                    // Y: 0..rows -> 1..-1 (Inverted)
+                                    const ax = (t1.x / cols) * 2.0 - 1.0; const ay = 1.0 - (t1.y / rows) * 2.0;
+                                    const bx = (t2.x / cols) * 2.0 - 1.0; const by = 1.0 - (t2.y / rows) * 2.0;
+                                    const cx = (b1.x / cols) * 2.0 - 1.0; const cy = 1.0 - (b1.y / rows) * 2.0;
+                                    const dx = (b2.x / cols) * 2.0 - 1.0; const dy = 1.0 - (b2.y / rows) * 2.0;
+                                    
+                                    // Triangle 1: t1, t2, b1
+                                    data[ptr++] = ax; data[ptr++] = ay;
+                                    data[ptr++] = bx; data[ptr++] = by;
+                                    data[ptr++] = cx; data[ptr++] = cy;
+                                    
+                                    // Triangle 2: t2, b2, b1
+                                    data[ptr++] = bx; data[ptr++] = by;
+                                    data[ptr++] = dx; data[ptr++] = dy;
+                                    data[ptr++] = cx; data[ptr++] = cy;
+                                }
+                                vertices = data;
+                            } 
+                            // Legacy/Fallback Triangle support (if needed, though we moved to strip)
+                            else if (r.p1 && r.p2 && r.p3) {
+                                const x1 = (r.p1.x / cols) * 2.0 - 1.0; const y1 = 1.0 - (r.p1.y / rows) * 2.0;
+                                const x2 = (r.p2.x / cols) * 2.0 - 1.0; const y2 = 1.0 - (r.p2.y / rows) * 2.0;
+                                const x3 = (r.p3.x / cols) * 2.0 - 1.0; const y3 = 1.0 - (r.p3.y / rows) * 2.0;
+                                vertices = new Float32Array([x1, y1, x2, y2, x3, y3]);
+                            }
+
+                            if (vertices) {
+                                this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.DYNAMIC_DRAW);
+                                this.gl.drawArrays(this.gl.TRIANGLES, 0, vertices.length / 2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // --- DRAW ---
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA);
         this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
@@ -947,7 +1320,15 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_decayDur'), s.decayFadeDurationFrames);
         this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_stretch'), s.stretchX, s.stretchY);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
+        
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
         this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_texture'), 0);
+        
+        // Bind Shadow Mask
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
+        this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_shadowMask'), 1);
         
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
@@ -966,16 +1347,13 @@ class WebGLRenderer {
         const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
         this.gl.uniform4f(this.gl.getUniformLocation(this.program, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
 
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-        
         this.gl.bindVertexArray(this.vao);
         
         // Ensure blending is enabled for the main draw
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
         
-        // Draw
+        // Draw Main Pass
         this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
         this.gl.bindVertexArray(null);
 
@@ -1009,6 +1387,7 @@ class WebGLRenderer {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
             
+            this.gl.enable(this.gl.BLEND);
             this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
             this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
         }

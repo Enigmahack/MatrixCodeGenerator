@@ -46,7 +46,10 @@ class PostProcessor {
     }
 
     _initWebGL() {
-        this.gl = this.canvas.getContext('webgl', { alpha: false, preserveDrawingBuffer: true });
+        this.gl = this.canvas.getContext('webgl', { 
+            alpha: true, 
+            preserveDrawingBuffer: true 
+        });
         if (!this.gl) {
             console.warn("WebGL not supported for Post Processing");
             return;
@@ -152,7 +155,14 @@ class PostProcessor {
     render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5) {
         if (!this.gl) return;
 
+        // Ensure state is clean before we start
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        this.gl.clearColor(0, 0, 0, 0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
         // Upload Source to Input Texture
+        this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
@@ -164,6 +174,8 @@ class PostProcessor {
         if (this.effectProgram) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
             this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT); // Clear intermediate FBO
+            
             this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, param, flipY);
             
             // Output of Pass 1 becomes Input of Pass 2
