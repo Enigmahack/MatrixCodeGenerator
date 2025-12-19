@@ -273,7 +273,6 @@ class PulseEffect extends AbstractEffect {
                      if (y >= rHalfRow) {
                          // Held at r40
                          curLag = this.radius - r40;
-                         isDebugRect = true;
                      }
                  }
                  
