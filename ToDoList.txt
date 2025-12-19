@@ -4,6 +4,7 @@ Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 Bugs: 
+Not all effects (crash) seem to use shader pass 1. When I try and use the CRT monitor barrel shape and run Crash, it stops/turns off and the slider moves by itself in some parts. It should be completely separate. 
 
 
 Behavior: 
@@ -13,30 +14,6 @@ Look:
 Superman - Additional Glow does nothing so remove it. Voltage glow should be put directly under Look subheader and be called "Glow amount" instead of Voltage Glow. 
 
 Pulse, Clear Pulse, Pluse Storm - need a toggle for "Use tracer glow" which switches between using the tracer glow amount, or just being the tracer color but not using additional glow effects. 
-
-The movie accurate pulse wave is very similar to the existing effect with some differences. The MA(Movie Accurate) version should fading on all edges in the pulse wave; Alpha should be 50% or less on the outer and inner edge as it expands. 
-The MA pulse effect should have varying alphas for some random characters. Most characters observe the general alpha but some (say 10%) will randomly have a lower alpha value for the duration of the pulse wave, but only within the pulse wave. The current fading effect is perfect. 
-There should be a toggle that says "Movie-accurate Pulse" under "Look" which disables everything, within the pulse customization, and uses a shader to generate the effect. (Description below) 
-
-Timing: The dark delay of 1 second is appropriate, and the MA Pulse Wave effect should last roughly 1.3 seconds for a total of 2.3 seconds. 
-
-The effect starts on a tracer closest to the middle of the screen (not entirely random)
-It expands outwards as a solid wave of characters; the inner and outer edges are faded (lower alpha). Everything outside the outer perimeter is frozen and dimmed (exactly like the current pulse effect.) The MA version is locked at a 16/10 aspect ratio and will not be circular but a rectangle. 
-As the pulse wave expands, the pulse is 5 characters wide on top and bottom, with a 1/2 character fade on the inner and outer regions. The sides are slightly wider, at 7 characters wide, and it expands in a rectangular pattern. This is using a standard 1920x1080 resolution. This will need to be proportional on various monitor resolutions or with varying font sizes. 
-The outer perimeter is where the existing streaming code is allowed to start showing through, but it should blend with the pulse wave; the outer perimeter should overlap the pulse wave as described, but should fade the existing code in around the edges in the same way that the pulse wave also fades on the edges. 
-In essence, this is 4 layered effects: 
-1 - A complete brightness dampen that makes everything darker while allowing the tracers to be emphasized. 
-2 - A 'reveal' layer, which simply reveals the code underneath, and fades from the darkened color to the stream color (alpha blending only) for 2 character's width. 
-3 - A "Wave" which is the same color as the tracers and has the same perimeter as the reveal layer, but also extends inwards to create the wave color. 
-
-For clarity, the characters within the MA version pulse wave do not cycle, are not rotators, and are static for the duration of the effect. 
-
-This entire effect reveals the code stream beneath. 
-
-Finally, the expansion of the wave isn't entirely uniform; it expands in rectangular 'chunks' that are 8-9 characters thick, and offset by about 3 characters - It's as though the expansion is happening inside-out but not in perfect unison, as though a horizontal row that is 7-8 characters tall is delayed very slightly near the bottom of the pulse wave, before it completes, like a CRT that is updating from top to bottom. The top should be 1-20 frames ahead in a tearing fashion when rendering the pulse wave, but will catch up on the next frame. 
-
-This appears to be a mostly post-processing effect hybrid with the fading/tracer illuminate/code reveal technique from the existing pulse effect. 
-
 
 Deja Vu - Some effects aren't inheriting the stream color for some reason. They're using a static color? 
 
