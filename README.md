@@ -6,17 +6,15 @@ The font used in the screenshot including the Resurrection glyphs was Rezmason's
 https://github.com/Rezmason/matrix
 
 
-
-
-
 #
 💻 Matrix Digital Rain Simulation v8.0
 
-I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there.
+I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there. Everything seen here is a screenshot from the site. 
 
 <img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/e45eb4ae-57ba-4fc3-9c65-3e5b113a5748" />
 <img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/b3b4ee61-fb17-47a5-a331-1df299666777" />
 <img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/d446aa23-87fe-4e90-b097-7c755d6b2762" />
+<img width="702" height="687" alt="image" src="https://github.com/user-attachments/assets/a14545a9-5b54-4061-b0a4-d8032e78a1c2" />
 <img width="3839" height="2159" alt="Screenshot 2025-12-10 145915" src="https://github.com/user-attachments/assets/2bbccefd-93ac-44c3-a0b6-6815cb5f35d4" />
 <img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/1df1a8dc-fc6f-400a-b446-ff088f793b41" />
 <img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/ec2910cf-44f5-4452-a422-57a372d0ec75" />
