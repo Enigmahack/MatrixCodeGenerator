@@ -382,8 +382,8 @@ void main() {
             for (const bar of this.crashBars) {
                 // Calculate Fade
                 let fade = 1.0;
-                if (bar.age < 6) fade = bar.age / 6.0;
-                else if (bar.age > bar.maxAge - 20) fade = Math.max(0, (bar.maxAge - bar.age) / 20.0);
+                if (bar.age < 5) fade = bar.age / 5.0;
+                else if (bar.age > bar.maxAge - 15) fade = Math.max(0, (bar.maxAge - bar.age) / 15.0);
                 
                 // Logic for Type 2 (Jump)
                 let renderY = bar.y;

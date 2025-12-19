@@ -3654,8 +3654,8 @@ void main() {
             for (const bar of this.crashBars) {
                 // Calculate Fade
                 let fade = 1.0;
-                if (bar.age < 6) fade = bar.age / 6.0;
-                else if (bar.age > bar.maxAge - 20) fade = Math.max(0, (bar.maxAge - bar.age) / 20.0);
+                if (bar.age < 5) fade = bar.age / 5.0;
+                else if (bar.age > bar.maxAge - 15) fade = Math.max(0, (bar.maxAge - bar.age) / 15.0);
                 // Logic for Type 2 (Jump)
                 let renderY = bar.y;
                 if (bar.type === 2) {
@@ -3838,7 +3838,7 @@ void main() {
     _triggerSmith() {
         this.smithState.triggered = true;
         this.smithState.active = true;
-        this.smithState.timer = 60; 
+        this.smithState.timer = 30; // Halved
         const asciiArt = [
             "                                      *##*#*####+                                        ",
             "                                   # @@@%%#%%%%%##*-                                      ",
@@ -3911,7 +3911,7 @@ void main() {
     _triggerSuperman(type) {
         this.supermanState.active = true;
         this.supermanState.type = type; 
-        this.supermanState.globalTimer = 60; // Short duration
+        this.supermanState.globalTimer = 30; // Halved
         this.supermanState.flickerTimer = 0;
         this.supermanState.boltId = Math.random() * 1000; // Unique ID for this bolt instance
         this._generateSupermanBolt();
@@ -4104,7 +4104,7 @@ void main() {
         if (type === 1) h = 30; // 10 + 17 + 10 approx space needed
         if (type === 2) h = 14; 
         const r = Math.floor(Math.random() * (grid.rows - h));
-        const duration = 40; // 6 fade in + 14 linger + 20 fade out
+        const duration = 25; // Shorter duration
         this.crashBars.push({
             x: 0, 
             y: r,
@@ -4122,7 +4122,7 @@ void main() {
         let startRow = Math.floor(Math.random() * (grid.rows / 2)); 
         let height = Math.floor(Math.random() * (grid.rows / 2)) + (grid.rows / 4);
         if (Math.random() < 0.3) { startRow = 0; height = grid.rows; }
-        const duration = 8; 
+        const duration = 4; // Halved
         this.crashBars.push({
             x: col, 
             y: startRow,
@@ -5116,16 +5116,11 @@ class PulseEffect extends AbstractEffect {
                              displayChar = String.fromCharCode(grid.chars[i]);
                              displayFont = grid.fontIndices[i];
                              lColor = grid.colors[i];
-                         } else if (this.snap.alphas[i] > 0.01) {
-                             // Flash in together: Use snapshot fill for gaps IN ACTIVE STREAMS
+                         } else {
+                             // Flash in together: Always fill with snapshot char
                              displayChar = String.fromCharCode(this.snap.fillChars[i]);
                              displayFont = this.snap.fillFonts[i];
                              lColor = 0; 
-                         } else {
-                             // Respect spaces/holes
-                             displayChar = ' ';
-                             displayFont = 0;
-                             lColor = 0;
                          }
                          // 2. Bright White Blending (0.8 weight for white)
                          const blendWeight = 0.8;

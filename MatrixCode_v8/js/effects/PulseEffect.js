@@ -316,16 +316,11 @@ class PulseEffect extends AbstractEffect {
                              displayChar = String.fromCharCode(grid.chars[i]);
                              displayFont = grid.fontIndices[i];
                              lColor = grid.colors[i];
-                         } else if (this.snap.alphas[i] > 0.01) {
-                             // Flash in together: Use snapshot fill for gaps IN ACTIVE STREAMS
+                         } else {
+                             // Flash in together: Always fill with snapshot char
                              displayChar = String.fromCharCode(this.snap.fillChars[i]);
                              displayFont = this.snap.fillFonts[i];
                              lColor = 0; 
-                         } else {
-                             // Respect spaces/holes
-                             displayChar = ' ';
-                             displayFont = 0;
-                             lColor = 0;
                          }
 
                          // 2. Bright White Blending (0.8 weight for white)
