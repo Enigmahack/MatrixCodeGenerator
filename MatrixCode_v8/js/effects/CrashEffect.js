@@ -185,9 +185,15 @@ void main() {
             this.endFlashTriggered = true;
             if (this.registry) {
                 const originalPulseDelay = this.c.get('pulseDelaySeconds');
+                const originalPulseMA = this.c.get('pulseMovieAccurate');
+                
                 this.c.set('pulseDelaySeconds', 0.1);
+                this.c.set('pulseMovieAccurate', true);
+                
                 this.registry.trigger('Pulse');
+                
                 this.c.set('pulseDelaySeconds', originalPulseDelay);
+                this.c.set('pulseMovieAccurate', originalPulseMA);
             }
         }
 

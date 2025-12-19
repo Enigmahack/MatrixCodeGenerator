@@ -68,7 +68,9 @@ void main() {
              float a = texture2D(uTexture, vec2(uv.x + shift, uv.y)).a;
              color = vec4(r, g, b, a);
              if (rand(vec2(t, 5.0)) > 0.8) {
-                color.rgb = 1.0 - color.rgb;
+                float dir = (rand(vec2(t, 6.0)) > 0.5) ? 1.0 : -1.0;
+                float jump = dir * (0.03 + rand(vec2(t, 7.0)) * 0.04);
+                color = texture2D(uTexture, vec2(uv.x + jump, uv.y));
              }
         }
     }

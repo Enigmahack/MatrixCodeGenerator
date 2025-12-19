@@ -192,64 +192,54 @@ class PulseEffect extends AbstractEffect {
         // MOVIE ACCURATE RENDER PATH
         // ===========================================
         if (s.pulseMovieAccurate) {
-             const aspect = s.pulseAspectRatio || 1.6;
-             // Widths
-             const sideWidth = 9 * d.cellWidth * s.stretchX; 
-             const vertWidth = 7 * d.cellHeight * s.stretchY; 
+             const aspect = 1.0; // Force Square Aspect Ratio for troubleshooting
+             const sideWidth = 7 * d.cellWidth * s.stretchX; 
+             const vertWidth = 5 * d.cellHeight * s.stretchY; 
              const fadeSizeSide = 0.5 * d.cellWidth * s.stretchX;
              const fadeSizeVert = 0.5 * d.cellHeight * s.stretchY;
-
-             // Latching Logic (Inner waits for Outer)
-             // Inner Hole Size: 4 chars wide (2 radius), 3 chars tall (1.5 radius)
              const initHoleRad = 2 * d.cellWidth * s.stretchX; 
-             // Note: Vertical hole will be initHoleRad / aspect = 2 / 1.6 = 1.25 (close to 1.5)
-             
-             // Dynamic Inner Edge
-             // Max Wave Width is when the wave is fully formed
              const maxWaveWidth = sideWidth; 
              
-             // innerB latches to initHoleRad until outerB exceeds (initHoleRad + maxWaveWidth)
-             // Effectively, the wave grows in thickness until it hits max width, then moves.
-             // BUT, we want inner to be OPEN (revealed).
-             // If innerB < initHoleRad, we clamp it?
-             // No, "start at normal center and expand... inner rectangle should 'latch'".
-             // Means Inner Edge stays at center until Outer Edge goes far enough.
              let innerB = Math.max(initHoleRad, this.radius - maxWaveWidth);
              let outerB = this.radius;
 
-             // Expansion Tearing Params
-             const chunkHeightChars = Math.max(15, Math.floor(grid.rows / 4)); 
-             const lagAmplitude = 100 * s.stretchY; 
-
-             // Reveal Layer Params (2 Char width)
              const revealFadeLenSide = 2 * d.cellWidth * s.stretchX;
              const revealFadeLenVert = 2 * d.cellHeight * s.stretchY;
-             
-             // Glitch Trigger Thresholds
              const maxRad = Math.max(grid.cols * d.cellWidth * s.stretchX, grid.rows * d.cellHeight * s.stretchY);
-             const glitchStart = maxRad * 0.55; 
-             const glitchEnd = maxRad * 0.85; 
+             
+             // Scripted Delay Logic
+             // 3 Char Width Delay
+             const delayDist = 3 * d.cellWidth * s.stretchX;
+             const r30 = maxRad * 0.30;
+             const r40 = maxRad * 0.40; // Moved to 40% (Earlier than 50%)
+             const rHalfRow = Math.floor(grid.rows / 2);
 
+             // Tearing Timing (Progress 0.0 to 1.0)
+             const progress = this.radius / maxRad;
+             
              for (let i = 0; i < total; i++) {
                  // Common Data Fetch
                  const snAlpha = this.snap.alphas[i];
                  let charCode = this.snap.chars[i];
                  let color = this.snap.colors[i];
+                 let fontIdx = this.snap.fontIndices[i];
                  const isTracer = (this.snap.tracers[i] === 1);
                  
                  // Fill gaps from snapshot
                  const isGap = (snAlpha <= 0.01);
                  if (isGap) {
                      charCode = this.snap.fillChars[i];
-                     color = d.streamColorUint32; 
+                     color = d.streamColorUint32;
+                     fontIdx = this.snap.fillFonts[i];
                  }
 
                  if (this.state === 'WAITING') {
                      // 1. Darken Everything
                      if (isTracer) {
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, s.tracerGlow);
+                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                      } else {
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0);
+                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                      }
                      continue;
                  }
@@ -260,24 +250,38 @@ class PulseEffect extends AbstractEffect {
                  const cx = Math.floor(x * d.cellWidth * s.stretchX); 
                  const cy = Math.floor(y * d.cellHeight * s.stretchY);
 
-                 // --- Large Block Tearing Logic ---
+                 // --- Scripted Tearing/Delay Logic ---
                  let curLag = 0;
-                 if (this.radius > glitchStart && this.radius < glitchEnd) {
-                     if (y > grid.rows * 0.5 && y < grid.rows - 5) {
-                         const chunkIdx = Math.floor(y / chunkHeightChars);
-                         const myStart = glitchStart + (chunkIdx % 2) * (maxRad * 0.15);
-                         const myEnd = myStart + (maxRad * 0.10); 
-                         if (this.radius > myStart && this.radius < myEnd) {
-                             curLag = lagAmplitude;
+                 
+                 // Event 1: 30% Mark (Lasts until delayDist passed)
+                 if (this.radius >= r30 && this.radius < r30 + delayDist) {
+                     // "Block spans whole width... 1/2 down... extends 7 chars"
+                     if (y >= rHalfRow) {
+                         if (y < rHalfRow + 7) {
+                             // Delay Rect 1: Held at r30
+                             curLag = this.radius - r30;
+                         } else if (y >= rHalfRow + 10) {
+                             // Gap of 3 chars (7..10) is skipped
+                             // Delay Rect 2 (Resumes to bottom): Held at r30
+                             curLag = this.radius - r30;
                          }
                      }
                  }
+                 // Event 2: 40% Mark
+                 else if (this.radius >= r40 && this.radius < r40 + delayDist) {
+                     // "From 1/2 to bottom... delays another"
+                     if (y >= rHalfRow) {
+                         // Held at r40
+                         curLag = this.radius - r40;
+                         isDebugRect = true;
+                     }
+                 }
                  
-                 // Apply Lag to both edges
+                 // Apply Lag
                  const localOuter = Math.max(0, outerB - curLag);
                  const localInner = Math.max(0, innerB - curLag);
                  
-                 // Distance Calculation (Rectangular 16:10)
+                 // Distance Calculation (Square Aspect 1.0)
                  const dx = Math.abs(cx - rd.ox);
                  const dy = Math.abs(cy - rd.oy);
                  const dyScaled = dy * aspect;
@@ -285,65 +289,75 @@ class PulseEffect extends AbstractEffect {
                  
                  // Determine Zone Properties
                  const isSide = (dx > dyScaled);
-                 const waveThick = isSide ? sideWidth : vertWidth; // Used for scale calcs if needed
                  const fadeSize = isSide ? fadeSizeSide : fadeSizeVert;
                  
                  if (dist > localOuter) {
-                     // --- OUTSIDE: Dimmed/Frozen ---
-                     // Tear Gap Logic: Filled with Faint White
-                     // If we are lagging, and dist < unlagged outer, we are in the "gap".
-                     // Note: We use 'outerB' (unlagged) for comparison
+                     // --- OUTSIDE ---
                      if (curLag > 0 && dist < outerB) {
-                         // Tear Gap (White Fade)
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), Utils.packAbgr(255,255,255), 0.3, 0);
+                         // Tear Gap
+                         const gapColor = Utils.packAbgr(255, 255, 255); // Restore to White
+                         
+                         grid.setEffectOverride(i, String.fromCharCode(charCode), gapColor, 0.3, fontIdx, 0);
                      } else {
                          // Normal Outside
                          if (isTracer) {
-                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, s.tracerGlow);
+                             const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                          } else {
-                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0);
+                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                          }
                      }
                  } 
                  else if (dist > localInner) {
                      // --- INSIDE WAVE BAND ---
                      
-                     // 1. Base Layer (Reveal) - Visible through holes/transparency
-                     const revealLen = isSide ? revealFadeLenSide : revealFadeLenVert;
-                     const distFromOuter = localOuter - dist; 
-                     
-                     let baseAlphaFactor = s.pulseDimming; 
-                     if (distFromOuter < revealLen) {
-                         const p = distFromOuter / revealLen;
-                         baseAlphaFactor = s.pulseDimming + (1.0 - s.pulseDimming) * p;
-                     } else {
-                         baseAlphaFactor = 1.0;
-                     }
-                     
                      // HOLES (10%)
                      const chaos = Math.sin(i * 12.9898) * 43758.5453;
                      const rndVal = chaos - Math.floor(chaos); 
-                     const isHole = rndVal < 0.10;
                      
-                     if (isHole) {
-                         // HOLE: BLACK (Negative Space)
-                         // "Block out the green code" -> Empty cell
-                         grid.setEffectOverride(i, ' ', 0, 0, 0);
+                     if (rndVal < 0.10) {
+                         grid.setEffectOverride(i, ' ', 0, 0, 0, 0);
                      } else {
-                         // WAVE: White Overlay on top of Green Code
-                         // Calculate Wave Alpha
-                         let waveAlpha = 0.85; 
+                         // WAVE
+                         let waveAlpha = 0.5; // Transparent base
                          
-                         // Edge Fades
+                         const distFromOuter = localOuter - dist;
                          if (distFromOuter < fadeSize) {
                              waveAlpha *= (distFromOuter / fadeSize);
                          } else if (dist - localInner < fadeSize) {
                              waveAlpha = Math.min(waveAlpha, waveAlpha * ((dist - localInner) / fadeSize));
                          }
+
+                         // Live Code Retrieval
+                         const liveAlpha = grid.alphas[i];
+                         let displayChar, displayFont;
+                         let lColor;
+
+                         if (liveAlpha > 0.01) {
+                             // Use Live
+                             displayChar = String.fromCharCode(grid.chars[i]);
+                             displayFont = grid.fontIndices[i];
+                             lColor = grid.colors[i];
+                         } else {
+                             // Use Snapshot Fill for solid wave look over gaps
+                             displayChar = String.fromCharCode(this.snap.fillChars[i]);
+                             displayFont = this.snap.fillFonts[i];
+                             lColor = 0; // Black background
+                         }
+
+                         // Blend Logic
+                         const tColor = d.tracerColorUint32;
+                         const tR = tColor & 0xFF; const tG = (tColor >> 8) & 0xFF; const tB = (tColor >> 16) & 0xFF;
+                         const lR = lColor & 0xFF; const lG = (lColor >> 8) & 0xFF; const lB = (lColor >> 16) & 0xFF;
                          
-                         // Use setEffectOverlay to blend White over Sim
-                         const waveChar = String.fromCharCode(this.snap.fillChars[i]);
-                         grid.setEffectOverlay(i, waveChar, waveAlpha, 0);
+                         const mR = Math.floor(lR + (tR - lR) * waveAlpha);
+                         const mG = Math.floor(lG + (tG - lG) * waveAlpha);
+                         const mB = Math.floor(lB + (tB - lB) * waveAlpha);
+                         
+                         const finalColor = Utils.packAbgr(mR, mG, mB);
+                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow * waveAlpha : 0; // Scale glow by alpha
+                         
+                         grid.setEffectOverride(i, displayChar, finalColor, 1.0, displayFont, glow);
                      }
                  } 
                  else {
@@ -407,14 +421,15 @@ class PulseEffect extends AbstractEffect {
             // Condition: Waiting OR Outside Radius
             if (this.state === 'WAITING' || dist > rd.radius) {
                 if (s.pulsePreserveSpaces && isGap) {
-                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0)
                 } else if (isTracer && s.pulseIgnoreTracers) {
                     // Keep original tracer
-                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, s.tracerGlow);
+                    const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                 } else {
                     // Dimmed Snapshot
                     if (snAlpha > 0.01 || !s.pulsePreserveSpaces) {
-                        grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0);
+                        grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                     } else {
                         grid.clearEffectOverride(i);
                     }
@@ -424,7 +439,7 @@ class PulseEffect extends AbstractEffect {
             // Condition: We are here because dist >= innerEdge AND dist <= radius
             else {
                 if (s.pulsePreserveSpaces && isGap) {
-                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, 0)
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0)
                 } else {
                     // Calculate relative position (0.0 at outer edge, 1.0 at inner edge)
                     // (radius - dist) is small at edge, large at inner
@@ -442,10 +457,10 @@ class PulseEffect extends AbstractEffect {
                         finalColor = Utils.packAbgr(mR, mG, mB);
                     }
                     
-                    const actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
+                    const glowAmount = (s.pulseUseTracerGlow) ? Math.max(s.tracerGlow, 30 * (1.0 - rel)) : 0;
                     
                     // Force alpha 1.0 for the wave
-                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0 , actualGlow);
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0 , fontIdx, glowAmount);
                 }
             }
         }

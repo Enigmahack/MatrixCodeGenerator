@@ -179,7 +179,10 @@ class ClearPulseEffect extends AbstractEffect {
             }
 
             const rel = Math.max(0, Math.min(1, (rd.radius - dist) / rd.width));
-            const actualGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel)); 
+            
+            // Apply Glow Toggle
+            const baseGlow = Math.max(s.tracerGlow, 30 * (1.0 - rel));
+            const actualGlow = (s.clearPulseUseTracerGlow) ? baseGlow : 0;
             
             let finalColor, glow;
 

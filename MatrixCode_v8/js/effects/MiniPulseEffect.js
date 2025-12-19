@@ -135,7 +135,8 @@ class MiniPulseEffect extends AbstractEffect {
                     const mB = Math.floor(sB + (tB - sB) * lifeFade);
                     
                     const finalColor = Utils.packAbgr(mR, mG, mB);
-                    const glow = s.tracerGlow * lifeFade;
+                    const baseGlow = s.tracerGlow * lifeFade;
+                    const glow = (s.miniPulseUseTracerGlow) ? baseGlow : 0;
                     
                     // Override acts as a "Lighting" layer here.
                     // We use existing char and font.
