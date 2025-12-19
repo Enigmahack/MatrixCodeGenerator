@@ -54,6 +54,12 @@ class CrashEffect extends AbstractEffect {
     trigger() {
         if (this.active) return false;
 
+        // Snapshot for Deja Vu bars to respect spaces
+        this.snap = {
+            alphas: new Float32Array(this.g.alphas),
+            chars: new Uint16Array(this.g.chars)
+        };
+
         this.originalShaderEnabled = this.c.state.shaderEnabled;
         this.originalShader = this.c.state.customShader;
         this.originalShaderParameter = this.c.state.shaderParameter;
@@ -368,33 +374,91 @@ void main() {
             }
         }
 
-        // 3. Crash Bars (White Blocks) - Rendered on top
+        // 3. Crash Bars (Deja Vu Bars) - Updated Logic
         if (this.crashBars.length > 0) {
-            const activeFonts = this.c.derived.activeFonts;
-            const fontData = activeFonts[0]; // Use default font
-            const charSet = fontData.chars;
-            const tracerColor = this.c.derived.tracerColorUint32;
-            
+            const whiteColor = 0xFFFFFFFF; 
+            const tR = 255, tG = 255, tB = 255; 
+
             for (const bar of this.crashBars) {
-                const limitY = Math.min(rows, bar.y + bar.h);
-                const limitX = Math.min(cols, bar.x + bar.w);
+                // Calculate Fade
+                let fade = 1.0;
+                if (bar.age < 6) fade = bar.age / 6.0;
+                else if (bar.age > bar.maxAge - 20) fade = Math.max(0, (bar.maxAge - bar.age) / 20.0);
                 
-                for (let y = bar.y; y < limitY; y++) {
-                    const rowOffset = y * cols;
-                    for (let x = bar.x; x < limitX; x++) {
-                        const idx = rowOffset + x;
-                        
-                        // Static Random Char based on position and bar ID
-                        const seed = Math.floor(idx * 137 + bar.id * 997);
-                        const char = charSet[seed % charSet.length];
-                        
-                        // Random Alpha between 0.75 and 1.0
-                        const alphaSeed = Math.floor(idx * 223 + bar.id * 773);
-                        const alpha = 0.75 + (alphaSeed % 26) / 100;
-                        
-                        // Use High Priority to ensure color is enforced and shadows are ignored
-                        grid.setHighPriorityEffect(idx, char, tracerColor, alpha, 0, 0.5); 
+                // Logic for Type 2 (Jump)
+                let renderY = bar.y;
+                if (bar.type === 2) {
+                    if (bar.age > 8) renderY = bar.y + 6;
+                }
+
+                // Render Blocks function
+                const renderBlock = (y, h) => {
+                    const limitY = Math.min(rows, y + h);
+                    const limitX = Math.min(cols, bar.x + bar.w);
+                    
+                    for (let r = y; r < limitY; r++) {
+                        const rowOffset = r * cols;
+                        for (let x = bar.x; x < limitX; x++) {
+                            const idx = rowOffset + x;
+                            
+                            // 1. Alpha Variance (20% spread)
+                            const hash = Math.sin(idx * 12.9898 + bar.id) * 43758.5453;
+                            const rnd = hash - Math.floor(hash);
+                            const variance = (rnd - 0.5) * 0.2; 
+                            let barAlpha = Math.min(1.0, Math.max(0, 0.7 + variance)) * fade;
+
+                            if (barAlpha <= 0.01) continue;
+
+                            // 2. Flash in together (Respect Spaces)
+                            const liveAlpha = grid.alphas[idx];
+                            const liveChar = grid.chars[idx];
+                            const liveColor = grid.colors[idx];
+                            const fontIdx = grid.fontIndices[idx];
+                            
+                            let charStr, displayFont;
+                            if (liveAlpha > 0.01) {
+                                // Use Live Code
+                                charStr = String.fromCharCode(liveChar);
+                                displayFont = fontIdx;
+                            } else if (this.snap && this.snap.alphas[idx] > 0.01) {
+                                // Stream segment gap: fill to "flash in together"
+                                const charSeed = (idx ^ Math.floor(bar.id)) * 7.123;
+                                const charCode = Utils.CHARS.charCodeAt(Math.floor((charSeed - Math.floor(charSeed)) * Utils.CHARS.length));
+                                charStr = String.fromCharCode(charCode);
+                                displayFont = 0;
+                            } else {
+                                // Respect permanent spaces/holes
+                                continue; 
+                            }
+
+                            // 3. Bright White Blending
+                            const lR = liveColor & 0xFF; 
+                            const lG = (liveColor >> 8) & 0xFF; 
+                            const lB = (liveColor >> 16) & 0xFF;
+                            
+                            const blendWeight = 0.8;
+                            const mR = Math.floor(lR + (255 - lR) * blendWeight);
+                            const mG = Math.floor(lG + (255 - lG) * blendWeight);
+                            const mB = Math.floor(lB + (255 - lB) * blendWeight);
+                            
+                            const finalColor = Utils.packAbgr(mR, mG, mB);
+                            grid.setHighPriorityEffect(idx, charStr, finalColor, 1.0, displayFont, 1.2 * barAlpha); 
+                        }
                     }
+                };
+
+                // Render based on Type
+                if (bar.type === 1) {
+                    // Split: Two bars, 10 high, split by 16-18
+                    // bar.y is top of first.
+                    renderBlock(bar.y, 10);
+                    renderBlock(bar.y + 10 + 17, 10);
+                } else if (bar.type === 2) {
+                    // Jump
+                    renderBlock(renderY, bar.h);
+                } else {
+                    // Standard
+                    renderBlock(bar.y, bar.h);
                 }
             }
         }
@@ -532,7 +596,7 @@ void main() {
     _triggerSmith() {
         this.smithState.triggered = true;
         this.smithState.active = true;
-        this.smithState.timer = 60; 
+        this.smithState.timer = 30; // Halved
         
         const asciiArt = [
             "                                      *##*#*####+                                        ",
@@ -615,7 +679,7 @@ void main() {
     _triggerSuperman(type) {
         this.supermanState.active = true;
         this.supermanState.type = type; 
-        this.supermanState.globalTimer = 60; // Short duration
+        this.supermanState.globalTimer = 30; // Halved
         this.supermanState.flickerTimer = 0;
         this.supermanState.boltId = Math.random() * 1000; // Unique ID for this bolt instance
         this._generateSupermanBolt();
@@ -845,9 +909,16 @@ void main() {
 
     _triggerWhiteBlock() {
         const grid = this.g;
-        const h = 11; 
+        
+        // Random Type: 0, 1, 2
+        const type = Math.floor(Math.random() * 3);
+        
+        let h = 11;
+        if (type === 1) h = 30; // 10 + 17 + 10 approx space needed
+        if (type === 2) h = 14; 
+        
         const r = Math.floor(Math.random() * (grid.rows - h));
-        const duration = 18; 
+        const duration = 25; // Shorter duration
         
         this.crashBars.push({
             x: 0, 
@@ -856,7 +927,8 @@ void main() {
             h: h,
             age: 0,
             maxAge: duration,
-            id: Math.random() * 10000 // Seed for static randomness
+            id: Math.random() * 10000,
+            type: type
         });
     }
 
@@ -866,7 +938,7 @@ void main() {
         let startRow = Math.floor(Math.random() * (grid.rows / 2)); 
         let height = Math.floor(Math.random() * (grid.rows / 2)) + (grid.rows / 4);
         if (Math.random() < 0.3) { startRow = 0; height = grid.rows; }
-        const duration = 8; 
+        const duration = 4; // Halved
         
         this.crashBars.push({
             x: col, 

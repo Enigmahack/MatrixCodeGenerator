@@ -49,7 +49,7 @@ class PulseEffect extends AbstractEffect {
         const d = this.c.derived; const s = this._getEffectiveState(); const holdEnd = d.cycleDuration + d.holdFrames;
         const activeFonts = d.activeFonts;
         const numFonts = activeFonts.length;
-        const fallbackChars = "MATRIX";
+        const fallbackChars = Utils.CHARS;
 
         for(let i=0; i<total; i++) {
             // Identify Tracer State
@@ -185,14 +185,13 @@ class PulseEffect extends AbstractEffect {
         const s = this._getEffectiveState(); 
         const d = this.c.derived;
         const rd = this.renderData;
-        const tColorInt = d.tracerColorUint32;
         const total = grid.cols * grid.rows;
         
         // ===========================================
         // MOVIE ACCURATE RENDER PATH
         // ===========================================
         if (s.pulseMovieAccurate) {
-             const aspect = 1.0; // Force Square Aspect Ratio for troubleshooting
+             const aspect = 1.0; 
              const sideWidth = 7 * d.cellWidth * s.stretchX; 
              const vertWidth = 5 * d.cellHeight * s.stretchY; 
              const fadeSizeSide = 0.5 * d.cellWidth * s.stretchX;
@@ -207,14 +206,11 @@ class PulseEffect extends AbstractEffect {
              const revealFadeLenVert = 2 * d.cellHeight * s.stretchY;
              const maxRad = Math.max(grid.cols * d.cellWidth * s.stretchX, grid.rows * d.cellHeight * s.stretchY);
              
-             // Scripted Delay Logic
-             // 3 Char Width Delay
              const delayDist = 3 * d.cellWidth * s.stretchX;
              const r30 = maxRad * 0.30;
-             const r40 = maxRad * 0.40; // Moved to 40% (Earlier than 50%)
+             const r40 = maxRad * 0.40; 
              const rHalfRow = Math.floor(grid.rows / 2);
 
-             // Tearing Timing (Progress 0.0 to 1.0)
              const progress = this.radius / maxRad;
              
              for (let i = 0; i < total; i++) {
@@ -237,9 +233,9 @@ class PulseEffect extends AbstractEffect {
                      // 1. Darken Everything
                      if (isTracer) {
                          const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
+                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                      } else {
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
+                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                      }
                      continue;
                  }
@@ -250,76 +246,61 @@ class PulseEffect extends AbstractEffect {
                  const cx = Math.floor(x * d.cellWidth * s.stretchX); 
                  const cy = Math.floor(y * d.cellHeight * s.stretchY);
 
-                 // --- Scripted Tearing/Delay Logic ---
                  let curLag = 0;
-                 
-                 // Event 1: 30% Mark (Lasts until delayDist passed)
                  if (this.radius >= r30 && this.radius < r30 + delayDist) {
-                     // "Block spans whole width... 1/2 down... extends 7 chars"
                      if (y >= rHalfRow) {
                          if (y < rHalfRow + 7) {
-                             // Delay Rect 1: Held at r30
                              curLag = this.radius - r30;
                          } else if (y >= rHalfRow + 10) {
-                             // Gap of 3 chars (7..10) is skipped
-                             // Delay Rect 2 (Resumes to bottom): Held at r30
                              curLag = this.radius - r30;
                          }
                      }
                  }
-                 // Event 2: 40% Mark
                  else if (this.radius >= r40 && this.radius < r40 + delayDist) {
-                     // "From 1/2 to bottom... delays another"
                      if (y >= rHalfRow) {
-                         // Held at r40
                          curLag = this.radius - r40;
                      }
                  }
                  
-                 // Apply Lag
                  const localOuter = Math.max(0, outerB - curLag);
                  const localInner = Math.max(0, innerB - curLag);
-                 
-                 // Distance Calculation (Square Aspect 1.0)
                  const dx = Math.abs(cx - rd.ox);
                  const dy = Math.abs(cy - rd.oy);
                  const dyScaled = dy * aspect;
                  const dist = Math.max(dx, dyScaled);
-                 
-                 // Determine Zone Properties
                  const isSide = (dx > dyScaled);
                  const fadeSize = isSide ? fadeSizeSide : fadeSizeVert;
                  
                  if (dist > localOuter) {
                      // --- OUTSIDE ---
                      if (curLag > 0 && dist < outerB) {
-                         // Tear Gap
-                         const gapColor = Utils.packAbgr(255, 255, 255); // Restore to White
-                         
-                         grid.setEffectOverride(i, String.fromCharCode(charCode), gapColor, 0.3, fontIdx, 0);
+                         const gapColor = Utils.packAbgr(255, 255, 255); 
+                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), gapColor, 0.3, fontIdx, 0);
                      } else {
-                         // Normal Outside
                          if (isTracer) {
                              const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
-                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
+                             grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                          } else {
-                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
+                             grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                          }
                      }
                  } 
                  else if (dist > localInner) {
                      // --- INSIDE WAVE BAND ---
-                     
-                     // HOLES (10%)
                      const chaos = Math.sin(i * 12.9898) * 43758.5453;
                      const rndVal = chaos - Math.floor(chaos); 
                      
                      if (rndVal < 0.10) {
-                         grid.setEffectOverride(i, ' ', 0, 0, 0, 0);
+                         grid.setHighPriorityEffect(i, ' ', 0, 0, 0, 0);
                      } else {
                          // WAVE
-                         let waveAlpha = 0.5; // Transparent base
                          
+                         // 1. Alpha Variance (20% spread: 0.6 +/- 0.1)
+                         const chaos2 = Math.sin(i * 78.233) * 43758.5453;
+                         const rnd2 = chaos2 - Math.floor(chaos2);
+                         const variance = (rnd2 - 0.5) * 0.2; // -0.1 to 0.1
+                         let waveAlpha = 0.7 + variance; // Increased base alpha
+
                          const distFromOuter = localOuter - dist;
                          if (distFromOuter < fadeSize) {
                              waveAlpha *= (distFromOuter / fadeSize);
@@ -327,40 +308,41 @@ class PulseEffect extends AbstractEffect {
                              waveAlpha = Math.min(waveAlpha, waveAlpha * ((dist - localInner) / fadeSize));
                          }
 
-                         // Live Code Retrieval
                          const liveAlpha = grid.alphas[i];
                          let displayChar, displayFont;
                          let lColor;
 
                          if (liveAlpha > 0.01) {
-                             // Use Live
                              displayChar = String.fromCharCode(grid.chars[i]);
                              displayFont = grid.fontIndices[i];
                              lColor = grid.colors[i];
-                         } else {
-                             // Use Snapshot Fill for solid wave look over gaps
+                         } else if (this.snap.alphas[i] > 0.01) {
+                             // Flash in together: Use snapshot fill for gaps IN ACTIVE STREAMS
                              displayChar = String.fromCharCode(this.snap.fillChars[i]);
                              displayFont = this.snap.fillFonts[i];
-                             lColor = 0; // Black background
+                             lColor = 0; 
+                         } else {
+                             // Respect spaces/holes
+                             displayChar = ' ';
+                             displayFont = 0;
+                             lColor = 0;
                          }
 
-                         // Blend Logic
-                         const tColor = d.tracerColorUint32;
-                         const tR = tColor & 0xFF; const tG = (tColor >> 8) & 0xFF; const tB = (tColor >> 16) & 0xFF;
+                         // 2. Bright White Blending (0.8 weight for white)
+                         const blendWeight = 0.8;
                          const lR = lColor & 0xFF; const lG = (lColor >> 8) & 0xFF; const lB = (lColor >> 16) & 0xFF;
                          
-                         const mR = Math.floor(lR + (tR - lR) * waveAlpha);
-                         const mG = Math.floor(lG + (tG - lG) * waveAlpha);
-                         const mB = Math.floor(lB + (tB - lB) * waveAlpha);
+                         const mR = Math.floor(lR + (255 - lR) * blendWeight);
+                         const mG = Math.floor(lG + (255 - lG) * blendWeight);
+                         const mB = Math.floor(lB + (255 - lB) * blendWeight);
                          
                          const finalColor = Utils.packAbgr(mR, mG, mB);
-                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow * waveAlpha : 0; // Scale glow by alpha
+                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow * waveAlpha * 1.5 : 0; 
                          
-                         grid.setEffectOverride(i, displayChar, finalColor, 1.0, displayFont, glow);
+                         grid.setHighPriorityEffect(i, displayChar, finalColor, 1.0, displayFont, glow);
                      }
                  } 
                  else {
-                     // --- INSIDE HOLE: Fully Revealed ---
                      grid.clearEffectOverride(i);
                  }
              }
@@ -370,6 +352,7 @@ class PulseEffect extends AbstractEffect {
         // ===========================================
         // STANDARD PATH (Original Logic)
         // ===========================================
+        const tColorInt = d.tracerColorUint32;
         const tR = tColorInt & 0xFF;
         const tG = (tColorInt >> 8) & 0xFF;
         const tB = (tColorInt >> 16) & 0xFF;
