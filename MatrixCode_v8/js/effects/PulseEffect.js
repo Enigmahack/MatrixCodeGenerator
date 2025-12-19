@@ -17,7 +17,7 @@ class PulseEffect extends AbstractEffect {
             ...s,
             pulseFrequencySeconds: 300, 
             pulseDelaySeconds: 1.0,      // Dark delay of 1 second
-            pulseDurationSeconds: 1.3,   // Wave expands for 1.3 seconds
+            pulseDurationSeconds: 1.4,   // Wave expands for 1.4 seconds
             pulseWidth: 150,             // Ignored in MA custom logic but kept for safety
             pulseRandomPosition: false,  // We calculate specific start
             pulseInstantStart: false,
@@ -120,9 +120,6 @@ class PulseEffect extends AbstractEffect {
         
         // Radius Init
         if (s.pulseMovieAccurate) {
-            // Start very small, allowing Latch logic to handle expansion
-            // Inner Hole: 4 wide (2 rad), 3 tall (1.5 rad)
-            // Initial Radius must cover at least this hole
             this.radius = 2 * d.cellWidth * s.stretchX; 
         } else {
             this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; 
@@ -130,6 +127,11 @@ class PulseEffect extends AbstractEffect {
         
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
         this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+
+        // --- Dynamic Delay Chunks ---
+        this.chunks = [];
+        this.spawnedCount = 0;
+        this.spawnCooldown = 0;
         
         return true; 
     }
@@ -148,6 +150,69 @@ class PulseEffect extends AbstractEffect {
             this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
             this.radius += this.speed; 
             if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
+
+            // --- Chunk Lifecycle & Spawning ---
+            if (s.pulseMovieAccurate) {
+                // 1. Update existing chunks
+                for (let i = this.chunks.length - 1; i >= 0; i--) {
+                    this.chunks[i].life--;
+                    if (this.chunks[i].life <= 0) {
+                        this.chunks.splice(i, 1);
+                    }
+                }
+
+                // 2. Cooldown
+                if (this.spawnCooldown > 0) this.spawnCooldown--;
+
+                // 3. Spawn Logic
+                const progress = this.radius / maxDim;
+                if (progress > 0.15 && this.spawnedCount < 4 && this.spawnCooldown <= 0) {
+                    // Spawn new chunk - Select Type
+                    const type = Math.floor(Math.random() * 3);
+                    const w = Utils.randomInt(Math.floor(this.g.cols * 0.5), this.g.cols);
+                    let h, y;
+
+                    if (type === 0) {
+                        // Type A: Bottom Half
+                        h = Math.floor(this.g.rows / 2);
+                        y = Math.floor(this.g.rows / 2);
+                    } else if (type === 1) {
+                        // Type B: Mid Section (9-10 tall)
+                        h = Utils.randomInt(9, 10);
+                        // Center near wave edge, but favor middle
+                        const rY = this.radius / 1.6;
+                        const topEdgeY = (this.origin.y * d.cellHeight * s.stretchY - rY) / (d.cellHeight * s.stretchY);
+                        const botEdgeY = (this.origin.y * d.cellHeight * s.stretchY + rY) / (d.cellHeight * s.stretchY);
+                        let targetY = (Math.random() < 0.5) ? topEdgeY : botEdgeY;
+                        y = Math.floor(targetY - h / 2);
+                        // Constrain to "Middle-ish" (20% to 80%)
+                        y = Math.max(Math.floor(this.g.rows * 0.2), Math.min(Math.floor(this.g.rows * 0.8) - h, y));
+                    } else {
+                        // Type C: Thin Strip (4 tall) near bottom
+                        h = 4;
+                        y = Utils.randomInt(this.g.rows - 15, this.g.rows - 5);
+                    }
+                    
+                    const x = Utils.randomInt(0, this.g.cols - w);
+                    
+                    // Final Clamp
+                    y = Math.max(0, Math.min(this.g.rows - h, y));
+
+                    const delayPixels = 4 * d.cellWidth * s.stretchX; 
+                    // Duration: Time to traverse delay + Time to traverse 1 extra char + buffer
+                    const oneCharTime = (d.cellWidth * s.stretchX) / this.speed;
+                    const duration = Math.ceil(delayPixels / this.speed) + Math.ceil(oneCharTime) + 2;
+
+                    this.chunks.push({
+                        x, y, w, h,
+                        lag: delayPixels,
+                        life: duration
+                    });
+
+                    this.spawnedCount++;
+                    this.spawnCooldown = duration + 5; // Wait at least 5 frames after despawn
+                }
+            }
         }
 
         // --- Pre-calc ---
@@ -206,12 +271,26 @@ class PulseEffect extends AbstractEffect {
              const revealFadeLenVert = 2 * d.cellHeight * s.stretchY;
              const maxRad = Math.max(grid.cols * d.cellWidth * s.stretchX, grid.rows * d.cellHeight * s.stretchY);
              
-             const delayDist = 3 * d.cellWidth * s.stretchX;
+             const delayDist = 4 * d.cellWidth * s.stretchX;
              const r30 = maxRad * 0.30;
              const r40 = maxRad * 0.40; 
              const rHalfRow = Math.floor(grid.rows / 2);
 
              const progress = this.radius / maxRad;
+
+             // FADE TO DARK LOGIC
+             // Timer counts DOWN. We want to fade OUT in the first 10 frames of the wait.
+             // Max timer = s.pulseDelaySeconds * 60
+             const maxTimer = s.pulseDelaySeconds * 60;
+             const timeElapsed = maxTimer - this.timer;
+             const fadeDur = 10; // Frames
+             let fadeMult = s.pulseDimming;
+             
+             if (timeElapsed < fadeDur) {
+                 const t = timeElapsed / fadeDur; 
+                 // Lerp from 1.0 to s.pulseDimming
+                 fadeMult = 1.0 + (s.pulseDimming - 1.0) * t;
+             }
              
              for (let i = 0; i < total; i++) {
                  // Common Data Fetch
@@ -230,12 +309,13 @@ class PulseEffect extends AbstractEffect {
                  }
 
                  if (this.state === 'WAITING') {
-                     // 1. Darken Everything
+                     // 1. Darken Everything with Fade
                      if (isTracer) {
                          const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                         // Tracers REMAIN BRIGHT (Ignore fadeMult)
                          grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                      } else {
-                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
+                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * fadeMult, fontIdx, 0);
                      }
                      continue;
                  }
@@ -246,19 +326,18 @@ class PulseEffect extends AbstractEffect {
                  const cx = Math.floor(x * d.cellWidth * s.stretchX); 
                  const cy = Math.floor(y * d.cellHeight * s.stretchY);
 
+                 // --- Apply Catching Lag ---
                  let curLag = 0;
-                 if (this.radius >= r30 && this.radius < r30 + delayDist) {
-                     if (y >= rHalfRow) {
-                         if (y < rHalfRow + 7) {
-                             curLag = this.radius - r30;
-                         } else if (y >= rHalfRow + 10) {
-                             curLag = this.radius - r30;
+                 // Check active chunks
+                 if (this.chunks) {
+                     const col = x; 
+                     const row = y;
+                     for (const chunk of this.chunks) {
+                         if (col >= chunk.x && col < chunk.x + chunk.w &&
+                             row >= chunk.y && row < chunk.y + chunk.h) {
+                             curLag = chunk.lag;
+                             break; // Apply first found (or max if we wanted overlap)
                          }
-                     }
-                 }
-                 else if (this.radius >= r40 && this.radius < r40 + delayDist) {
-                     if (y >= rHalfRow) {
-                         curLag = this.radius - r40;
                      }
                  }
                  
@@ -273,11 +352,29 @@ class PulseEffect extends AbstractEffect {
                  
                  if (dist > localOuter) {
                      // --- OUTSIDE ---
+                     
+                     // Check if this block is "Lagging" (Delayed Chunk)
                      if (curLag > 0 && dist < outerB) {
-                         const gapColor = Utils.packAbgr(255, 255, 255); 
-                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), gapColor, 0.3, fontIdx, 0);
+                         // LAGGED CHUNK: Faded Pulse Character on Dimmed Background
+                         // User Req: "characters... empty due to delay be faded characters the color of the pulse wave"
+                         // User Req: "green code... should be dark like the background"
+                         
+                         const displayChar = String.fromCharCode(this.snap.fillChars[i]);
+                         const displayFont = this.snap.fillFonts[i];
+                         
+                         // Dim the underlying green code
+                         let baseColor = grid.colors[i];
+                         const r = baseColor & 0xFF;
+                         const g = (baseColor >> 8) & 0xFF;
+                         const b = (baseColor >> 16) & 0xFF;
+                         baseColor = Utils.packAbgr(Math.floor(r * s.pulseDimming), Math.floor(g * s.pulseDimming), Math.floor(b * s.pulseDimming));
+                         
+                         // Faded Pulse Overlay (Alpha 0.4 - Visible but Dim)
+                         grid.setEffectOverlay(i, displayChar, baseColor, 0.4, displayFont, 0); // No glow for faded part
                      } else {
+                         // NORMAL BACKGROUND
                          if (isTracer) {
+                             // Tracers remain bright outside
                              const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
                              grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                          } else {
@@ -285,60 +382,58 @@ class PulseEffect extends AbstractEffect {
                          }
                      }
                  } 
-                 else if (dist > localInner) {
-                     // --- INSIDE WAVE BAND ---
-                     const chaos = Math.sin(i * 12.9898) * 43758.5453;
-                     const rndVal = chaos - Math.floor(chaos); 
-                     
-                     if (rndVal < 0.10) {
-                         grid.setHighPriorityEffect(i, ' ', 0, 0, 0, 0);
-                     } else {
-                         // WAVE
-                         
-                         // 1. Alpha Variance (20% spread: 0.6 +/- 0.1)
-                         const chaos2 = Math.sin(i * 78.233) * 43758.5453;
-                         const rnd2 = chaos2 - Math.floor(chaos2);
-                         const variance = (rnd2 - 0.5) * 0.2; // -0.1 to 0.1
-                         let waveAlpha = 0.7 + variance; // Increased base alpha
-
-                         const distFromOuter = localOuter - dist;
-                         if (distFromOuter < fadeSize) {
-                             waveAlpha *= (distFromOuter / fadeSize);
-                         } else if (dist - localInner < fadeSize) {
-                             waveAlpha = Math.min(waveAlpha, waveAlpha * ((dist - localInner) / fadeSize));
-                         }
-
-                         const liveAlpha = grid.alphas[i];
-                         let displayChar, displayFont;
-                         let lColor;
-
-                         if (liveAlpha > 0.01) {
-                             displayChar = String.fromCharCode(grid.chars[i]);
-                             displayFont = grid.fontIndices[i];
-                             lColor = grid.colors[i];
-                         } else {
-                             // Flash in together: Always fill with snapshot char
-                             displayChar = String.fromCharCode(this.snap.fillChars[i]);
-                             displayFont = this.snap.fillFonts[i];
-                             lColor = 0; 
-                         }
-
-                         // 2. Bright White Blending (0.8 weight for white)
-                         const blendWeight = 0.8;
-                         const lR = lColor & 0xFF; const lG = (lColor >> 8) & 0xFF; const lB = (lColor >> 16) & 0xFF;
-                         
-                         const mR = Math.floor(lR + (255 - lR) * blendWeight);
-                         const mG = Math.floor(lG + (255 - lG) * blendWeight);
-                         const mB = Math.floor(lB + (255 - lB) * blendWeight);
-                         
-                         const finalColor = Utils.packAbgr(mR, mG, mB);
-                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow * waveAlpha * 1.5 : 0; 
-                         
-                         grid.setHighPriorityEffect(i, displayChar, finalColor, 1.0, displayFont, glow);
-                     }
-                 } 
                  else {
-                     grid.clearEffectOverride(i);
+                     // --- INSIDE WAVE FRONT (Revealing Simulation) ---
+                     
+                     if (dist > localInner) {
+                         // --- WAVE BAND OVERLAY ---
+
+                         // 0. Random Glitch "Dead" Characters (2% chance - sparse)
+                         if ((i * 13) % 100 < 2) {
+                             grid.clearEffectOverride(i); // Show simulation (with its gaps)
+                         } else {
+                             // Use random char and font
+                             const displayChar = String.fromCharCode(this.snap.fillChars[i]);
+                             const displayFont = this.snap.fillFonts[i];
+
+                             // 1. Alpha Variance (15% chance to be 20% darker)
+                             // Base: 1.0 (Full Bright)
+                             // Variance: 0.8 (20% darker)
+                             let alpha = 1.0;
+                             if ((i * 37) % 100 < 15) {
+                                 alpha = 0.8; 
+                             }
+                             
+                             // 2. Delay Dimming
+                             // If this part of the wave is delayed (lagged), dim it.
+                             if (curLag > 0) {
+                                 alpha *= 0.6;
+                             }
+                             
+                             // Slight Glow -> Bold/Thicker (1.5)
+                             const waveGlow = 1.5;
+
+                             // Dimming Logic for Leading Edge (First 5 chars)
+                             let baseColor = grid.colors[i];
+                             // Check distance from leading edge
+                             const edgeDist = localOuter - dist;
+                             const threshold = 5 * d.cellWidth * s.stretchX;
+                             
+                             if (edgeDist < threshold) {
+                                 const r = baseColor & 0xFF;
+                                 const g = (baseColor >> 8) & 0xFF;
+                                 const b = (baseColor >> 16) & 0xFF;
+                                 // Dim by 50%
+                                 baseColor = Utils.packAbgr(Math.floor(r * 0.5), Math.floor(g * 0.5), Math.floor(b * 0.5));
+                             }
+
+                             // Use Overlay Mode (2) to see simulation underneath
+                             grid.setEffectOverlay(i, displayChar, baseColor, alpha, displayFont, waveGlow);
+                         }
+                     } else {
+                         // --- HOLE (Full Reveal) ---
+                         grid.clearEffectOverride(i);
+                     }
                  }
              }
              return; // End MA path

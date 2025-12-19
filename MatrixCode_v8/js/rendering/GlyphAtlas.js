@@ -6,7 +6,7 @@ class GlyphAtlas {
         this.customChars = customChars;
 
         this.canvas = document.createElement('canvas');
-        this.ctx = this.canvas.getContext('2d', { alpha: true });
+        this.ctx = this.canvas.getContext('2d', { alpha: true, willReadFrequently: true });
         
         // Map character strings to their rect in the atlas
         this.charMap = new Map();
@@ -25,6 +25,7 @@ class GlyphAtlas {
         this.halfCell = 0;
 
         // Internal caches for differential updates
+        this.fixedCols = 16; // Strategy 4: Default safety
         this._lastCols = 0;
         this._lastRows = 0;
         this._lastCharListKey = '';
@@ -109,18 +110,23 @@ class GlyphAtlas {
         this.cellSize = Math.ceil(Math.max(maxSize, actualHeight) + padding);
         this.halfCell = this.cellSize / 2;
         
+        // Strategy 4: Fixed Width, Vertical Expansion
+        // Fix columns based on a reasonable texture width (e.g., 2048)
+        const TARGET_WIDTH = 2048;
+        this.fixedCols = Math.max(1, Math.floor(TARGET_WIDTH / this.cellSize));
+
         // Reset dynamic state
         this.usedChars = [];
         this.charMap.clear();
         this.capacity = this.minCapacity;
         
-        // Initial sizing (empty)
-        this._resizeAtlas(d);
+        // Initial sizing (reset = true)
+        this._resizeAtlas(d, true);
     }
 
-    _resizeAtlas(d) {
-        // Calculate grid for current capacity
-        const cols = Math.ceil(Math.sqrt(this.capacity));
+    _resizeAtlas(d, reset = false) {
+        // Use fixed columns
+        const cols = this.fixedCols;
         const rows = Math.ceil(this.capacity / cols);
         
         this._lastCols = cols;
@@ -130,7 +136,8 @@ class GlyphAtlas {
         const newAtlasHeight = rows * this.cellSize;
 
         if (newAtlasHeight > this.MAX_HEIGHT) {
-             console.error(`[GlyphAtlas] Texture Limit Exceeded.`);
+             console.error(`[GlyphAtlas] Texture Limit Exceeded: Height ${newAtlasHeight} > ${this.MAX_HEIGHT}`);
+             console.error(`Details: Capacity=${this.capacity}, Cols=${cols}, Rows=${rows}, CellSize=${this.cellSize}`);
              this.valid = false;
              return;
         }
@@ -139,6 +146,15 @@ class GlyphAtlas {
         this.atlasWidth = newAtlasWidth;
         this.atlasHeight = newAtlasHeight;
 
+        // Preserve existing content if not resetting
+        let savedContent = null;
+        if (!reset && this.canvas.width > 0 && this.canvas.height > 0) {
+             savedContent = document.createElement('canvas');
+             savedContent.width = this.canvas.width;
+             savedContent.height = this.canvas.height;
+             savedContent.getContext('2d').drawImage(this.canvas, 0, 0);
+        }
+
         // Resize Canvas (clears content)
         if (this.canvas.width !== this.atlasWidth || this.canvas.height !== this.atlasHeight) {
             this.canvas.width = this.atlasWidth;
@@ -146,15 +162,25 @@ class GlyphAtlas {
         } else {
             this.ctx.clearRect(0, 0, this.atlasWidth, this.atlasHeight);
         }
+        
+        // Restore content
+        if (savedContent) {
+            this.ctx.drawImage(savedContent, 0, 0);
+        }
 
-        // Setup Context
+        // Full update required on resize/clear (GPU texture must be resized)
+        this.needsFullUpdate = true;
+        this.dirtyRects = []; // Clear partial updates as we are doing full
+
+        // Setup Context (State is lost on resize)
         this.ctx.font = this.currentFont;
         this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'center';
         this.ctx.fillStyle = '#FFFFFF';
         
-        // Reset lookup
-        this.codeToId.fill(-1);
+        if (reset) {
+            this.codeToId.fill(-1);
+        }
     }
 
     /**
@@ -162,6 +188,14 @@ class GlyphAtlas {
      */
     addChar(char) {
         if (!this.valid) return null;
+        
+        // Safety: Check if already exists to prevent duplicates
+        if (this.charMap.has(char)) {
+            const rect = this.charMap.get(char);
+            const code = char.charCodeAt(0);
+            if (code < 65536) this.codeToId[code] = rect.id;
+            return rect;
+        }
         
         // Check if supported first
         const checkFont = this.currentFont.replace(/\d+px/, '16px'); 
@@ -177,8 +211,10 @@ class GlyphAtlas {
         
         if (this.usedChars.length > this.capacity) {
             this._expandAtlas();
-        } else {
-            // Just draw the new char at the end
+        }
+
+        // Always draw the new char (even after expansion)
+        if (this.valid) {
             const index = this.usedChars.length - 1;
             this._drawSingleChar(char, index);
         }
@@ -191,17 +227,12 @@ class GlyphAtlas {
         // Double capacity
         this.capacity *= 2;
         
-        // Re-calculate dimensions and resize canvas
-        const oldUsed = [...this.usedChars];
+        // Re-calculate dimensions and resize canvas (preserving content)
         const d = this.config.derived; 
+        this._resizeAtlas(d, false);
         
-        this._resizeAtlas(d);
-        
-        // Re-add all characters to map and draw them
-        this.charMap.clear();
-        for (let i = 0; i < oldUsed.length; i++) {
-            this._drawSingleChar(oldUsed[i], i);
-        }
+        // No need to redraw old characters! 
+        // Fixed columns ensure indices match locations.
     }
 
     _drawSingleChar(char, index) {
@@ -219,19 +250,27 @@ class GlyphAtlas {
             id: index // Store index for shader lookup
         };
         this.charMap.set(char, rect);
-        this.hasChanges = true;
+        
+        this.ctx.fillText(char, x, y);
+
+        // Strategy 2: Incremental Updates - Capture pixel data
+        const imageData = this.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
+        this.dirtyRects.push({
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            data: imageData
+        });
         
         // Update fast lookup
         const code = char.charCodeAt(0);
-        if (code < 65536) {
-            this.codeToId[code] = index;
-        }
-
-        this.ctx.fillText(char, x, y);
     }
 
     resetChanges() {
-        this.hasChanges = false;
+        this.hasChanges = false; // Keep for compatibility if used elsewhere
+        this.dirtyRects = [];
+        this.needsFullUpdate = false;
     }
 
     /**

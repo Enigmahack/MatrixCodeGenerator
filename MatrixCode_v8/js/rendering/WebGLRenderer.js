@@ -403,20 +403,26 @@ class WebGLRenderer {
                         float tex1 = getProcessedAlpha(v_uv);
                         vec4 baseColor = v_color;
                         
+                        // Default Standard Mode
                         float finalAlpha = tex1;
         
                         if (useMix >= 4.0) {
                             // Overlay Mode (Tracers/Effects)
                             // Use baseColor so tracers follow Stream Color.
+                            float originalBaseAlpha = baseColor.a;
+                            
                             float ovAlpha = useMix - 4.0;
                             float tex2 = getProcessedAlpha(v_uv2);
                             float effA = tex2 * ovAlpha;
                             
-                            // Boost brightness by multiplying (preserves hue better than adding white)
-                            vec3 targetColor = baseColor.rgb * 2.0; 
+                            float simA = tex1 * originalBaseAlpha;
+                            
+                            // Mix towards White (Tracer-like) instead of just boosting brightness
+                            vec3 targetColor = vec3(0.95, 0.95, 0.95); 
                             baseColor.rgb = mix(baseColor.rgb, targetColor, effA);
                             
-                            finalAlpha = max(tex1, effA);
+                            finalAlpha = max(simA, effA);
+                            baseColor.a = 1.0; // Prevent base instance alpha (0 for empty) from killing the overlay
                         } else if (useMix >= 3.0) {
                             // Solid Mode
                             finalAlpha = 1.0;
@@ -849,19 +855,26 @@ class WebGLRenderer {
 
         if (this.needsAtlasUpdate || atlas.needsUpdate) atlas.update();
 
-        if (!atlas.glTexture) {
-            atlas.glTexture = this.gl.createTexture();
+        if (!atlas.glTexture || atlas.needsFullUpdate) {
+            // Full Upload (Initial or Resize)
+            if (!atlas.glTexture) atlas.glTexture = this.gl.createTexture();
             this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+            
+            // Re-apply parameters in case it's a new texture
             this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
             atlas.resetChanges();
-        } else if (atlas.hasChanges) {
+        } else if (atlas.dirtyRects.length > 0) {
+            // Incremental Update
             this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
+            for (const rect of atlas.dirtyRects) {
+                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, rect.x, rect.y, this.gl.RGBA, this.gl.UNSIGNED_BYTE, rect.data);
+            }
             atlas.resetChanges();
         }
         this.needsAtlasUpdate = false;
@@ -938,10 +951,10 @@ class WebGLRenderer {
                     // 1. Load Simulation
                     const c = gChars[i];
                     mChars[i] = mapChar(c);
-                    uColors[i] = gColors[i];
+                    uColors[i] = effColors[i]; // Use effect-provided color (allows dimming)
                     uAlphas[i] = gAlphas[i];
                     uDecays[i] = gDecays[i];
-                    uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    uGlows[i] = gGlows[i] + effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                     
                     // 2. Load Effect
                     mNext[i] = mapChar(effChars[i]);

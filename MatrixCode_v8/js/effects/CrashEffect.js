@@ -330,7 +330,7 @@ void main() {
             }
         }
 
-        if (Math.random() < 0.005) this._triggerWhiteBlock(); 
+        if (Math.random() < 0.02) this._triggerWhiteBlock(); 
         if (Math.random() < 0.02) this._triggerColumnBurst(); 
         
         if (this.c.get('crashEnableSmith')) {
@@ -376,14 +376,27 @@ void main() {
 
         // 3. Crash Bars (Deja Vu Bars) - Updated Logic
         if (this.crashBars.length > 0) {
-            const whiteColor = 0xFFFFFFFF; 
-            const tR = 255, tG = 255, tB = 255; 
+            // Requirement: "White again" -> Pure White Target
+            const tR = 255; 
+            const tG = 255; 
+            const tB = 255;
 
             for (const bar of this.crashBars) {
-                // Calculate Fade
-                let fade = 1.0;
-                if (bar.age < 5) fade = bar.age / 5.0;
-                else if (bar.age > bar.maxAge - 15) fade = Math.max(0, (bar.maxAge - bar.age) / 15.0);
+                const glitchDuration = 9; 
+                let fade = 0;
+                let isGlitching = false;
+                
+                // Logic: Glitch (Partial) -> Full White -> Fade Out
+                if (bar.age < glitchDuration) {
+                    isGlitching = bar.shouldGlitch; // Only apply geometric glitch occasionally
+                    fade = 1.0; 
+                } else {
+                    // Linear Fade to 0
+                    const remaining = bar.maxAge - glitchDuration;
+                    const progress = (bar.age - glitchDuration);
+                    fade = 1.0 - (progress / remaining);
+                }
+                fade = Math.max(0, fade);
                 
                 // Logic for Type 2 (Jump)
                 let renderY = bar.y;
@@ -392,24 +405,42 @@ void main() {
                 }
 
                 // Render Blocks function
-                const renderBlock = (y, h) => {
+                const renderBlock = (y, h, isTopBlock) => {
                     const limitY = Math.min(rows, y + h);
                     const limitX = Math.min(cols, bar.x + bar.w);
                     
                     for (let r = y; r < limitY; r++) {
+                        
+                        // GLITCH GEOMETRY LOGIC
+                        if (isGlitching) {
+                            // 1. A/B Toggle for Split blocks (Type 1)
+                            if (bar.type === 1) {
+                                const phase = Math.floor(bar.age / 3) % 2; 
+                                if (isTopBlock && phase === 1) continue;
+                                if (!isTopBlock && phase === 0) continue;
+                            }
+                            
+                            // 2. Partial Row Rendering (Scanline/Noise)
+                            // "part of the block is full brightness but not the entire block"
+                            // Simple noise pattern that shifts per frame
+                            if ((r + bar.age) % 3 !== 0) continue; 
+                        }
+
                         const rowOffset = r * cols;
                         for (let x = bar.x; x < limitX; x++) {
                             const idx = rowOffset + x;
                             
-                            // 1. Alpha Variance (20% spread)
+                            // 1. Alpha Variance (Minimal now, we want WHITE)
                             const hash = Math.sin(idx * 12.9898 + bar.id) * 43758.5453;
                             const rnd = hash - Math.floor(hash);
-                            const variance = (rnd - 0.5) * 0.2; 
-                            let barAlpha = Math.min(1.0, Math.max(0, 0.7 + variance)) * fade;
+                            let barAlpha = fade; 
+                            
+                            // Add slight noise to edges
+                            if (rnd > 0.9) barAlpha *= 0.8;
 
                             if (barAlpha <= 0.01) continue;
 
-                            // 2. Flash in together (Respect Spaces)
+                            // 2. Flash in together
                             const liveAlpha = grid.alphas[idx];
                             const liveChar = grid.chars[idx];
                             const liveColor = grid.colors[idx];
@@ -417,17 +448,14 @@ void main() {
                             
                             let charStr, displayFont;
                             if (liveAlpha > 0.01) {
-                                // Use Live Code
                                 charStr = String.fromCharCode(liveChar);
                                 displayFont = fontIdx;
                             } else if (this.snap && this.snap.alphas[idx] > 0.01) {
-                                // Stream segment gap: fill to "flash in together"
                                 const charSeed = (idx ^ Math.floor(bar.id)) * 7.123;
                                 const charCode = Utils.CHARS.charCodeAt(Math.floor((charSeed - Math.floor(charSeed)) * Utils.CHARS.length));
                                 charStr = String.fromCharCode(charCode);
                                 displayFont = 0;
                             } else {
-                                // Respect permanent spaces/holes
                                 continue; 
                             }
 
@@ -436,29 +464,28 @@ void main() {
                             const lG = (liveColor >> 8) & 0xFF; 
                             const lB = (liveColor >> 16) & 0xFF;
                             
-                            const blendWeight = 0.8;
-                            const mR = Math.floor(lR + (255 - lR) * blendWeight);
-                            const mG = Math.floor(lG + (255 - lG) * blendWeight);
-                            const mB = Math.floor(lB + (255 - lB) * blendWeight);
+                            // "Increase the alpha so they're white again"
+                            const blendWeight = 0.9; // Mostly Target (White)
+                            const mR = Math.floor(lR + (tR - lR) * blendWeight);
+                            const mG = Math.floor(lG + (tG - lG) * blendWeight);
+                            const mB = Math.floor(lB + (tB - lB) * blendWeight);
                             
                             const finalColor = Utils.packAbgr(mR, mG, mB);
-                            grid.setHighPriorityEffect(idx, charStr, finalColor, 1.0, displayFont, 1.2 * barAlpha); 
+                            
+                            // Force High Alpha for "White" look
+                            grid.setHighPriorityEffect(idx, charStr, finalColor, 1.0, displayFont, 1.0 * barAlpha); 
                         }
                     }
                 };
 
                 // Render based on Type
                 if (bar.type === 1) {
-                    // Split: Two bars, 10 high, split by 16-18
-                    // bar.y is top of first.
-                    renderBlock(bar.y, 10);
-                    renderBlock(bar.y + 10 + 17, 10);
+                    renderBlock(bar.y, bar.subH, true); // Top
+                    renderBlock(bar.y + bar.subH + 17, bar.subH, false); // Bottom
                 } else if (bar.type === 2) {
-                    // Jump
-                    renderBlock(renderY, bar.h);
+                    renderBlock(renderY, bar.subH, true);
                 } else {
-                    // Standard
-                    renderBlock(bar.y, bar.h);
+                    renderBlock(bar.y, bar.subH, true);
                 }
             }
         }
@@ -598,6 +625,23 @@ void main() {
         this.smithState.active = true;
         this.smithState.timer = 30; // Halved
         
+        // Mapping ASCII density to Matrix Font characters
+        // 1-100 Density approximation:
+        // @ (100) -> ⽇ (Ultra Dense)
+        // % (90)  -> ヌ (Very Dense)
+        // # (80)  -> ホ (Dense)
+        // * (50)  -> * (Medium - Native)
+        // + (40)  -> + (Medium - Native)
+        // = (30)  -> = (Medium - Native)
+        // : (20)  -> : (Light - Native)
+        // - (10)  -> - (Light - Native)
+        // . (5)   -> . (Light - Native)
+        const densityMap = {
+            '@': '⽇',
+            '%': 'ヌ',
+            '#': 'ホ'
+        };
+        
         const asciiArt = [
             "                                      *##*#*####+                                        ",
             "                                   # @@@%%#%%%%%##*-                                      ",
@@ -657,8 +701,11 @@ void main() {
                 
                 const i = rowIdx * grid.cols + colIdx;
                 
+                // Apply Matrix Font Mapping
+                const matrixChar = densityMap[char] || char;
+
                 this.snapshotOverlay.set(i, {
-                    char: char, 
+                    char: matrixChar, 
                     color: this.c.derived.tracerColorStr, 
                     alpha: 1.0, // Full brightness for ASCII art
                     endFrame: endFrame, 
@@ -908,27 +955,39 @@ void main() {
     }
 
     _triggerWhiteBlock() {
+        if (this.crashBars.length > 0) return;
+
         const grid = this.g;
         
         // Random Type: 0, 1, 2
         const type = Math.floor(Math.random() * 3);
         
-        let h = 11;
-        if (type === 1) h = 30; // 10 + 17 + 10 approx space needed
-        if (type === 2) h = 14; 
+        // Requirement: Blocks strictly 10-12 chars high
+        const subH = Utils.randomInt(10, 12);
+        
+        let h = subH;
+        if (type === 1) h = subH * 2 + 17; // Two blocks + gap
         
         const r = Math.floor(Math.random() * (grid.rows - h));
-        const duration = 25; // Shorter duration
+        
+        // Requirement: Always span the full width, random height only
+        const w = grid.cols;
+        const x = 0;
+        
+        const duration = 15; // Shorter duration
         
         this.crashBars.push({
-            x: 0, 
+            x: x, 
             y: r,
-            w: grid.cols, 
+            w: w, 
             h: h,
+            subH: subH, // Store the actual block height
             age: 0,
             maxAge: duration,
             id: Math.random() * 10000,
-            type: type
+            type: type,
+            // User Request: Flickering happens only occasionally
+            shouldGlitch: Math.random() < 0.3
         });
     }
 

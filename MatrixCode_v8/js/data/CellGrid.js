@@ -162,13 +162,13 @@ class CellGrid {
     }
 
     // Overlay Override (Mixes Effect Char on top of Primary)
-    setEffectOverlay(idx, charStr, alpha, fontIndex = 0) {
+    setEffectOverlay(idx, charStr, color, alpha, fontIndex = 0, glow = 0) {
         this.effectActive[idx] = 2; // 2 = Overlay Mode
         this.effectChars[idx] = charStr ? charStr.charCodeAt(0) : 32;
+        this.effectColors[idx] = color;
         this.effectAlphas[idx] = alpha;
         this.effectFontIndices[idx] = fontIndex;
-        // Color is assumed White/Global for overlay in simplified shader logic
-        // Glow is additive
+        this.effectGlows[idx] = glow;
     }
 
     // High Priority Override (Ignores Shadows/Masks)
