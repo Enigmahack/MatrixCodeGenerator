@@ -22,7 +22,7 @@ class CrashEffect extends AbstractEffect {
             active: false,
             type: 0, 
             cells: new Set(), 
-            fadingTriangles: [], // Store active reveal zones
+            fadingReveals: [], // Store active reveal zones
             flickerTimer: 0,
             globalTimer: 0,
             boltId: 0
@@ -149,7 +149,7 @@ void main() {
             type: 0, 
             cells: new Set(), 
             illuminatedCells: new Set(), 
-            fadingTriangles: [], // Ensure this is initialized!
+            fadingReveals: [], // Ensure this is initialized!
             flickerTimer: 0, 
             globalTimer: 0, 
             boltId: 0 
@@ -290,7 +290,7 @@ void main() {
                 if (this.supermanState.globalTimer <= 0) {
                     // Transition Active Reveal to Fading
                     if (this.supermanState.activeReveal) {
-                        this.supermanState.fadingTriangles.push(this.supermanState.activeReveal);
+                        this.supermanState.fadingReveals.push(this.supermanState.activeReveal);
                         this.supermanState.activeReveal = null;
                     }
                     
@@ -310,11 +310,11 @@ void main() {
         }
         
         // Update Fading Triangles (Reveals)
-        for (let i = this.supermanState.fadingTriangles.length - 1; i >= 0; i--) {
-            const t = this.supermanState.fadingTriangles[i];
+        for (let i = this.supermanState.fadingReveals.length - 1; i >= 0; i--) {
+            const t = this.supermanState.fadingReveals[i];
             t.alpha -= 0.05; // Fade out speed
             if (t.alpha <= 0) {
-                this.supermanState.fadingTriangles.splice(i, 1);
+                this.supermanState.fadingReveals.splice(i, 1);
             }
         }
         
@@ -493,6 +493,10 @@ void main() {
         // 4. Snapshots (Smith)
         for (const [idx, snap] of this.snapshotOverlay) {
              if (snap.alpha <= 0.01) continue;
+             
+             // Smith is now handled as a Shadow Mask, do not render as override
+             if (snap.isSmith) continue; 
+
              const char = snap.char;
              // Snap color is stored as hex string
              const color = Utils.hexToRgb(snap.color);
@@ -578,6 +582,7 @@ void main() {
         const cols = this.g.cols;
         const rows = this.g.rows;
 
+        // 1. Black Sheets
         for (const s of this.blackSheets) {
             // Main Body
             masks.push({
@@ -611,6 +616,23 @@ void main() {
                 });
             }
         }
+        
+        // 2. Smith Shadow Masks
+        for (const [idx, snap] of this.snapshotOverlay) {
+            if (snap.isSmith && snap.alpha > 0.01) {
+                const x = idx % cols;
+                const y = Math.floor(idx / cols);
+                // Combine fade alpha (snap.alpha) with density alpha (snap.densityAlpha)
+                const combinedAlpha = snap.alpha * (snap.densityAlpha || 0.5);
+                
+                masks.push({
+                    x: x, y: y, w: 1, h: 1,
+                    alpha: combinedAlpha, 
+                    blur: 0.1 // Crisp blocks for pixelated look
+                });
+            }
+        }
+        
         return masks;
     }
 
@@ -624,22 +646,15 @@ void main() {
         this.smithState.triggered = true;
         this.smithState.active = true;
         this.smithState.timer = 30; // Halved
+        this._triggerFlash();
         
-        // Mapping ASCII density to Matrix Font characters
-        // 1-100 Density approximation:
-        // @ (100) -> ⽇ (Ultra Dense)
-        // % (90)  -> ヌ (Very Dense)
-        // # (80)  -> ホ (Dense)
-        // * (50)  -> * (Medium - Native)
-        // + (40)  -> + (Medium - Native)
-        // = (30)  -> = (Medium - Native)
-        // : (20)  -> : (Light - Native)
-        // - (10)  -> - (Light - Native)
-        // . (5)   -> . (Light - Native)
-        const densityMap = {
-            '@': '⽇',
-            '%': 'ヌ',
-            '#': 'ホ'
+        // Mapping ASCII density to Shadow Mask Alpha
+        // @ (100) -> 1.0 (Darkest/Solid)
+        // . (5)   -> 0.1 (Lightest)
+        const densityAlphaMap = {
+            '@': 1.0, '%': 0.9, '#': 0.8,
+            '*': 0.6, '+': 0.5, '=': 0.4,
+            ':': 0.3, '-': 0.2, '.': 0.1
         };
         
         const asciiArt = [
@@ -681,11 +696,11 @@ void main() {
 
         const grid = this.g;
         const artHeight = asciiArt.length;
-        const artWidth = asciiArt[0].length; // Assuming consistent width or max width
+        const artWidth = asciiArt[0].length; 
         
         const startR = Math.floor((grid.rows - artHeight) / 2);
         const startC = Math.floor((grid.cols - artWidth) / 2);
-        const endFrame = this.frame + 60;
+        const endFrame = this.frame + 50;
         
         for (let r = 0; r < artHeight; r++) {
             const line = asciiArt[r];
@@ -694,20 +709,19 @@ void main() {
             
             for (let c = 0; c < line.length; c++) {
                 const char = line[c];
-                if (char === ' ') continue; // Skip spaces
+                if (char === ' ') continue; 
                 
                 const colIdx = startC + c;
                 if (colIdx < 0 || colIdx >= grid.cols) continue;
                 
                 const i = rowIdx * grid.cols + colIdx;
                 
-                // Apply Matrix Font Mapping
-                const matrixChar = densityMap[char] || char;
+                // Get Density Alpha
+                const density = densityAlphaMap[char] || 0.2;
 
                 this.snapshotOverlay.set(i, {
-                    char: matrixChar, 
-                    color: this.c.derived.tracerColorStr, 
-                    alpha: 1.0, // Full brightness for ASCII art
+                    densityAlpha: density,
+                    alpha: 1.0, // Fade Alpha
                     endFrame: endFrame, 
                     isSmith: true
                 });
@@ -740,34 +754,53 @@ void main() {
             this._initSupermanGeometry();
             // Initialize active reveal for this new bolt
             s.activeReveal = { 
-                type: 'strip', 
-                trunk: [], 
-                branch: [], 
+                type: 'rects', 
+                rects: [], 
                 alpha: 1.0 
             };
         }
         
         const g = s.geometry;
         
-        // Draw Main Path and capture points
-        const trunkPoints = this._drawJaggedLine(g.start.x, g.start.y, g.end.x, g.end.y, s.cells, 2);
+        // Draw Main Path (Populates s.cells)
+        this._drawJaggedLine(g.start.x, g.start.y, g.end.x, g.end.y, s.cells, 2);
         
-        // Update active reveal geometry
-        if (s.activeReveal) {
-            s.activeReveal.trunk = trunkPoints;
-            s.activeReveal.branch = []; // Reset branch
-        }
-
-        // Draw Branches
+        // Draw Branches (Populates s.cells)
         if (g.branches) {
             for (const b of g.branches) {
-                const branchPoints = this._drawJaggedLine(g.split.x, g.split.y, b.x, b.y, s.cells, 1);
-                // For the reveal, we only care about the first/longest branch to define the "V" shape
-                // If there are multiple, we could potentially handle them, but let's stick to the primary split for the reveal web
-                if (s.activeReveal && s.activeReveal.branch.length === 0) {
-                    s.activeReveal.branch = branchPoints;
+                this._drawJaggedLine(g.split.x, g.split.y, b.x, b.y, s.cells, 1);
+            }
+        }
+        
+        // Calculate Border Cells (1 char away)
+        if (s.activeReveal) {
+            const cols = this.g.cols;
+            const rows = this.g.rows;
+            const borderSet = new Set();
+            const borderRects = [];
+            
+            for (const idx of s.cells) {
+                const cx = idx % cols;
+                const cy = Math.floor(idx / cols);
+                
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        
+                        const nx = cx + dx;
+                        const ny = cy + dy;
+                        
+                        if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+                            const nIdx = ny * cols + nx;
+                            if (!s.cells.has(nIdx) && !borderSet.has(nIdx)) {
+                                borderSet.add(nIdx);
+                                borderRects.push({ x: nx, y: ny, w: 1, h: 1 });
+                            }
+                        }
+                    }
                 }
             }
+            s.activeReveal.rects = borderRects;
         }
     }
 
@@ -857,7 +890,7 @@ void main() {
     }
 
     getReveals() {
-        const reveals = [...this.supermanState.fadingTriangles];
+        const reveals = [...this.supermanState.fadingReveals];
         if (this.supermanState.activeReveal) {
             reveals.push(this.supermanState.activeReveal);
         }
@@ -1016,7 +1049,7 @@ void main() {
             if (currentFrame > snapshot.endFrame) this.snapshotOverlay.delete(index);
             else {
                 const rem = snapshot.endFrame - currentFrame;
-                if (snapshot.isSmith) { if (rem < 30) snapshot.alpha = rem / 30.0; } 
+                if (snapshot.isSmith) { if (rem < 20) snapshot.alpha = rem / 20.0; } 
                 else { if (rem < 10) snapshot.alpha = rem / 10.0; }
             }
         }

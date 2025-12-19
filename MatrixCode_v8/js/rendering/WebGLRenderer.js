@@ -1245,7 +1245,32 @@ class WebGLRenderer {
                             
                             let vertices = null;
 
-                            if (r.type === 'strip' && r.trunk && r.branch) {
+                            if (r.type === 'rects' && r.rects) {
+                                const count = r.rects.length;
+                                if (count > 0) {
+                                    const data = new Float32Array(count * 6 * 2);
+                                    let ptr = 0;
+                                    for (const rect of r.rects) {
+                                        const x1 = (rect.x / cols) * 2.0 - 1.0;
+                                        // Invert Y: 0 is Top (+1), Rows is Bottom (-1)
+                                        const y1 = 1.0 - (rect.y / rows) * 2.0; 
+                                        const x2 = ((rect.x + rect.w) / cols) * 2.0 - 1.0;
+                                        const y2 = 1.0 - ((rect.y + rect.h) / rows) * 2.0;
+                                        
+                                        // Triangle 1
+                                        data[ptr++] = x1; data[ptr++] = y1;
+                                        data[ptr++] = x2; data[ptr++] = y1;
+                                        data[ptr++] = x1; data[ptr++] = y2;
+                                        
+                                        // Triangle 2
+                                        data[ptr++] = x2; data[ptr++] = y1;
+                                        data[ptr++] = x2; data[ptr++] = y2;
+                                        data[ptr++] = x1; data[ptr++] = y2;
+                                    }
+                                    vertices = data;
+                                }
+                            }
+                            else if (r.type === 'strip' && r.trunk && r.branch) {
                                 // Draw Triangle Strip between Trunk and Branch
                                 const len = Math.min(r.trunk.length, r.branch.length);
                                 if (len < 2) continue;
