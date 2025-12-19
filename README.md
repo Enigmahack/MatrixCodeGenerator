@@ -1,5 +1,5 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v7.7.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v8.html
 
 **Note: 
 The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
@@ -7,11 +7,16 @@ https://github.com/Rezmason/matrix
 
 
 
+
+
 #
-💻 Matrix Digital Rain Simulation v7.7
+💻 Matrix Digital Rain Simulation v8.0
 
-The quest for the "perfect" rain continues. v7.5 represents a massive leap forward in typographical control and visual fidelity. Going beyond hardcoded fonts and standard fading to a fully customizable engine that allows you to inject your own glyphs and simulate both the original trilogy as well as the new Matrix Resurrections.
+I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there.
 
+<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/e45eb4ae-57ba-4fc3-9c65-3e5b113a5748" />
+<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/b3b4ee61-fb17-47a5-a331-1df299666777" />
+<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/d446aa23-87fe-4e90-b097-7c755d6b2762" />
 <img width="3839" height="2159" alt="Screenshot 2025-12-10 145915" src="https://github.com/user-attachments/assets/2bbccefd-93ac-44c3-a0b6-6815cb5f35d4" />
 <img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/1df1a8dc-fc6f-400a-b446-ff088f793b41" />
 <img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/ec2910cf-44f5-4452-a422-57a372d0ec75" />
