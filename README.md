@@ -7,7 +7,7 @@ https://github.com/Rezmason/matrix
 
 
 #
-💻 Matrix Digital Rain Simulation v8.0
+## 💻 Matrix Digital Rain Simulation v8.4
 
 I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there. Everything seen here is a screenshot from the site. 
 
@@ -26,8 +26,27 @@ I'm getting tired of writing these... It started as a simple coding adventure an
 <img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
 
 #
+🚀 What's New in v8.4
+This major update introduces advanced temporal controls and further polishes the high-performance WebGL engine.
+
+**Updated Effects:**
+*   **Time Manipulation (Reverse Time)**: A new custom effect that orchestrates a cinematic sequence
+*   **Movie-Accurate Pulse Effect**: A frame-by-frame recreation of the pulse effect in the original trilogy. 
+*   **Updated Crashing Effect**: Corrected some misbehaving or poorly implemented visual effects. 
+
+**Performance & Engine Refinements:**
+*   **WebGL Optimized Fixed Grid**: Continued refinements to the v8 CellGrid architecture, providing even smoother 60fps performance on legacy hardware (like 2013-era MacBooks).
+*   **Effects Pipeline Update**: Ensured a full 2-pass shader pipeline. Now effects can use one pass while leaving custom pipelines alone to keep graphical stability. 
+
+
+**UI & Configuration:**
+*   **Refined Defaults**: Updated the "Trilogy" baseline configuration to provide a more authentic visual experience upon first load.
+*   **Dynamic UI Sync**: Improved synchronization between the settings panel and the live simulation state.
+*   **Stream & Tracer updates**: Added additional controls and behaviors for both streams and tracers to be able to accurately replicate both the original trilogy as well as Matrix Resurrections. 
+
+#
 🚀 What's New in v7.7
-This update brings the codebase to version 7.7, including configuration updates and general improvements.
+This update brought the codebase to version 7.7, including foundational configuration updates and initial performance improvements for the modular architecture.
 
 #
 🚀 What's New in v7.5

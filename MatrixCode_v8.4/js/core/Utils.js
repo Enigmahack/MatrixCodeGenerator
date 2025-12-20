@@ -1,4 +1,4 @@
-const APP_VERSION = "7.7"; // Updated version
+const APP_VERSION = "8.4"; // Updated version
 
 // =========================================================================
 // 1. CORE UTILITIES / CONSTANTS

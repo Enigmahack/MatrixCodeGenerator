@@ -4,11 +4,14 @@ Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 Bugs: 
+Fix the double-line code rectangles from the crash effect.
 
 Behavior: 
 
 Look:
 Backwards tracer: an invisible tracer that moves up the stream, highlighting characters along the way.
-Resurrection Pulse: The rectangular grid stretch and rescale pulse effect shown in resurrections. 
+
+Resurrection Pulse: The rectangular grid stretch and rescale pulse effect shown in resurrections.
+ 
 Star Power - Make the glitter do something different, like a luminscent effect through the entire star power stream. Also, full stream mode doesn't work. 
  
