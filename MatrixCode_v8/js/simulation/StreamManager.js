@@ -103,6 +103,25 @@ class StreamManager {
             else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
+                
+                // Cluster Logic: 10-20% chance to spawn a neighbor
+                if (s.preferClusters && streamCount > 0 && Math.random() < 0.15) {
+                    // Try Right Neighbor (wrapping handled by modulo if needed, but here we just clamp)
+                    const neighbor = col + 1;
+                    if (neighbor < this.grid.cols) {
+                        const idxN = this.grid.getIndex(neighbor, 0);
+                        let blockedN = false;
+                        if (idxN !== -1 && this.grid.decays[idxN] > 0) blockedN = true;
+                        
+                        const lastStreamN = this.lastStreamInColumn[neighbor];
+                        
+                        if (!blockedN && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
+                            this._spawnStreamAt(neighbor, false);
+                            streamCount--;
+                        }
+                    }
+                }
+                
                 continue; 
             }
         }
@@ -122,7 +141,13 @@ class StreamManager {
         
         const lastStream = this.lastStreamInColumn[col];
         if (lastStream && lastStream.active && !lastStream.isEraser) {
-            if (lastStream.y <= minGapTypes) return false;
+            if (this.config.state.allowTinyStreams) {
+                const s = this.config.state;
+                const tinyGap = s.tracerAttackFrames + s.tracerHoldFrames + s.tracerReleaseFrames + 3;
+                if (lastStream.y <= tinyGap) return false;
+            } else {
+                if (lastStream.y <= minGapTypes) return false;
+            }
         }
         return true;
     }
@@ -165,6 +190,17 @@ class StreamManager {
 
             if (isReverse) {
                 stream.y--;
+                
+                // REWIND LOGIC: Clear the "future" (the cell we just left, which was stream.y + 1)
+                // This creates the effect of the stream being sucked back up.
+                const oldHeadY = stream.y + 1;
+                if (oldHeadY < rows) {
+                    const oldIdx = grid.getIndex(stream.x, oldHeadY);
+                    if (oldIdx !== -1) {
+                         grid.clearCell(oldIdx);
+                    }
+                }
+
                 if (stream.y < -5) {
                     stream.active = false;
                     continue;
@@ -364,7 +400,10 @@ class StreamManager {
             } else {
                 grid.complexStyles.delete(idx);
                 // Standard Color
-                if (Math.random() < s.paletteBias) {
+                // colorMixType: 0 = Stream, 1 = Character
+                const isPerChar = Math.random() < s.colorMixType;
+                
+                if (isPerChar || Math.random() < s.paletteBias) {
                     const pLen = d.paletteColorsUint32?.length || 1;
                     colorUint32 = d.paletteColorsUint32[Math.floor(Math.random() * pLen)];
                 } else {

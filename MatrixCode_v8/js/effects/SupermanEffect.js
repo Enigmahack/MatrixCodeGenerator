@@ -131,7 +131,7 @@ class SupermanEffect extends AbstractEffect {
                     return {
                         char: this.g.getChar(i),
                         font: fontName,
-                        color: s.supermanIncludeColors ? '#ffffffff' : this.c.derived.streamColorStr, 
+                        color: this.c.derived.streamColorStr, 
                         alpha: effectAlpha, 
                         glow: s.supermanGlow, 
                         size: 1,

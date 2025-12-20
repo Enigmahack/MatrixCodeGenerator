@@ -14,7 +14,7 @@ class SimulationSystem {
     update(frame) {
         this.streamManager.update(frame, this.timeScale);
         this._manageOverlapGrid(frame);
-        this._updateCells(frame);
+        this._updateCells(frame, this.timeScale);
         
         // Apply Glows (Additive)
         if (this.grid.envGlows) this.grid.envGlows.fill(0);
@@ -83,7 +83,15 @@ class SimulationSystem {
         }
     }
 
-    _updateCells(frame) {
+    _updateCells(frame, timeScale = 1.0) {
+        // Pause simulation updates if time is stopped or reversed
+        if (timeScale <= 0) return;
+
+        // Slow Motion: Probabilistic update for integer-based counters
+        if (timeScale < 1.0) {
+            if (Math.random() > timeScale) return;
+        }
+
         const s = this.config.state;
         const d = this.config.derived;
         const grid = this.grid;
@@ -126,11 +134,24 @@ class SimulationSystem {
             // Attack+Hold..End: Fade to Stream Color
             
             const activeAge = age - 1;
-            if (activeAge > attack + hold) {
-                if (release > 0) {
-                    ratio = Math.min(1.0, (activeAge - (attack + hold)) / release);
-                } else {
-                    ratio = 1.0;
+            
+            if (s.gradualColorStreams) {
+                // Gradual Fade: Linearly interpolate over a long distance (e.g. 45 chars/frames)
+                // Starts fading immediately after attack+hold
+                const fadeStart = attack + hold;
+                const fadeLen = 45.0; 
+                
+                if (activeAge > fadeStart) {
+                    ratio = Math.min(1.0, (activeAge - fadeStart) / fadeLen);
+                }
+            } else {
+                // Standard Logic
+                if (activeAge > attack + hold) {
+                    if (release > 0) {
+                        ratio = Math.min(1.0, (activeAge - (attack + hold)) / release);
+                    } else {
+                        ratio = 1.0;
+                    }
                 }
             }
             

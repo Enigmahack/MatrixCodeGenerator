@@ -25,6 +25,7 @@ class PulseEffect extends AbstractEffect {
             pulseAspectRatio: 1.6,       // 16:10 Aspect Ratio (Width / Height)
             pulsePreserveSpaces: true,
             pulseIgnoreTracers: true,
+            pulseUseTracerGlow: true,    // Always use glow in movie accurate mode
             pulseDimming: 0.2,
             pulseBlend: false
         };

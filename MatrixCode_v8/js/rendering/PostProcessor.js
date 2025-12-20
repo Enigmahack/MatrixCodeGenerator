@@ -152,7 +152,7 @@ class PostProcessor {
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
     }
 
-    render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5) {
+    render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5, effectParam = 0.0) {
         if (!this.gl) return;
 
         // Ensure state is clean before we start
@@ -176,7 +176,7 @@ class PostProcessor {
             this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT); // Clear intermediate FBO
             
-            this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, param, flipY);
+            this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, effectParam, flipY);
             
             // Output of Pass 1 becomes Input of Pass 2
             inputTex = this.intermediateTexture;

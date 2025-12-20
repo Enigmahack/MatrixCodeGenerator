@@ -4,22 +4,11 @@ Implement Reverse Time Effect (Code slows down, stops, rewinds, and then a pulse
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 Bugs: 
-Not all effects (crash) seem to use shader pass 1. When I try and use the CRT monitor barrel shape and run Crash, it stops/turns off and the slider moves by itself in some parts. It should be completely separate. 
-
 
 Behavior: 
-Reverse Time - Does nothing. (Address later on)
 
-Look: 
-Superman - Additional Glow does nothing so remove it. Voltage glow should be put directly under Look subheader and be called "Glow amount" instead of Voltage Glow. 
-
-Pulse, Clear Pulse, Pluse Storm - need a toggle for "Use tracer glow" which switches between using the tracer glow amount, or just being the tracer color but not using additional glow effects. 
-
-Deja Vu - Some effects aren't inheriting the stream color for some reason. They're using a static color? 
-
-Crash - Sheets aren't in the way/opaque. Lightning in empty spaces renders a static character instead of randomly generating a character. (CellGrid issue?)
-Same thing with the Smith image - it should be the stream color, so it's subtle. It'll also have to be made up of matrix characters, instead of the general ASCII characters (That's a me fix)
-
-
+Look:
+Backwards tracer: an invisible tracer that moves up the stream, highlighting characters along the way.
+Resurrection Pulse: The rectangular grid stretch and rescale pulse effect shown in resurrections. 
 Star Power - Make the glitter do something different, like a luminscent effect through the entire star power stream. Also, full stream mode doesn't work. 
  

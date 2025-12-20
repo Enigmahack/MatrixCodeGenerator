@@ -1450,7 +1450,8 @@ class WebGLRenderer {
 
             if (isActive) {
                 const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
-                this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param);
+                const effectParam = s.effectParameter !== undefined ? s.effectParameter : 0.0;
+                this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param, effectParam);
                 
                 if (this.postProcessor.canvas.style.display === 'none') {
                     this.postProcessor.canvas.style.display = 'block';

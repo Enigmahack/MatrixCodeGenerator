@@ -14,12 +14,8 @@ class BootEffect extends AbstractEffect {
     trigger() {
         if (this.active) return false;
 
-        this.originalShaderEnabled = this.c.state.shaderEnabled;
-        this.originalShader = this.c.state.customShader;
-        this.originalShaderParameter = this.c.state.shaderParameter;
-
-        this.c.set('shaderEnabled', true);
-        this.c.set('customShader', `
+        // Set Effect Shader (Pass 1)
+        this.c.set('effectShader', `
 precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
@@ -237,7 +233,7 @@ void main() {
 }
 `); 
         
-        this.c.set('shaderParameter', 0.0); 
+        this.c.set('effectParameter', 0.0); 
 
         this.active = true;
         this.startTime = performance.now();
@@ -253,9 +249,8 @@ void main() {
 
         if (progress >= 1.0) {
             this.active = false;
-            this.c.set('customShader', this.originalShader);
-            this.c.set('shaderEnabled', this.originalShaderEnabled);
-            this.c.set('shaderParameter', this.originalShaderParameter);
+            this.c.set('effectShader', null);
+            this.c.set('effectParameter', 0.0);
             // console.log("BootEffect Finished");
 
             if (this.c.get('runBothInOrder') && this.registry) {
@@ -264,7 +259,7 @@ void main() {
             return;
         }
 
-        this.c.set('shaderParameter', progress);
+        this.c.set('effectParameter', progress);
     }
 
     getOverride(i) {

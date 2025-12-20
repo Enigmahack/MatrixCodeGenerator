@@ -1,7 +1,7 @@
 class ReverseEffect extends AbstractEffect {
     constructor(grid, config, effectRegistry) {
         super(grid, config);
-        this.name = "Reverse";
+        this.name = "ReverseTime";
         this.effectRegistry = effectRegistry;
         this.active = false;
         
@@ -10,17 +10,15 @@ class ReverseEffect extends AbstractEffect {
         // 1: Slow Down
         // 2: Stop
         // 3: Reverse (Rewind)
-        // 4: Reset (Pulse)
+        // 4: Reset (Pulse Handoff)
         this.phase = 0;
         this.timer = 0;
         
-        // Configuration (Could be moved to ConfigManager later)
-        this.durationSlow = 120; // Frames to slow down
-        this.durationStop = 60;  // Frames to hold stop
-        this.durationRewind = 180; // Frames to rewind
-        this.rewindSpeed = -2.0;   // Rewind speed multiplier
-        
-        // Store original speed to restore later (though we manipulate timeScale directly)
+        // Configuration
+        this.durationSlow = 60;  // Frames to slow down (1s)
+        this.durationStop = 20;   // Frames to hold stop (~0.3s)
+        this.durationRewind = 100; // Frames to rewind (~1.6s)
+        this.rewindSpeed = -3.0;   // Rewind speed multiplier
     }
 
     trigger() {
@@ -41,12 +39,6 @@ class ReverseEffect extends AbstractEffect {
         this.phase = 1;
         this.timer = 0;
         
-        // Access Simulation System directly via global or passed reference
-        // Ideally EffectRegistry should pass simulation, but currently it passes grid/config.
-        // We can access it via window.matrix.simulation as a fallback or hack.
-        // Or better: The MatrixKernel passes 'effectRegistry' which has 'grid'.
-        // Wait, EffectRegistry doesn't store SimulationSystem.
-        // Let's assume window.matrix is available as per MatrixKernel.js: "window.matrix = kernel;"
         this.sim = window.matrix ? window.matrix.simulation : null;
         
         if (!this.sim) {
@@ -67,8 +59,6 @@ class ReverseEffect extends AbstractEffect {
             case 1: // SLOW DOWN
                 {
                     const progress = this.timer / this.durationSlow;
-                    // Lerp timeScale from 1.0 to 0.0
-                    // Ease out cubic
                     const t = 1.0 - Math.pow(1 - progress, 3); 
                     this.sim.timeScale = 1.0 - t;
                     
@@ -92,10 +82,6 @@ class ReverseEffect extends AbstractEffect {
 
             case 3: // REWIND
                 {
-                    const progress = this.timer / this.durationRewind;
-                    // Accelerate rewind? Or constant?
-                    // Constant is clearer.
-                    // Ramp up rewind speed
                     if (this.timer < 60) {
                         const t = this.timer / 60;
                         this.sim.timeScale = -t * Math.abs(this.rewindSpeed);
@@ -110,32 +96,18 @@ class ReverseEffect extends AbstractEffect {
                 }
                 break;
 
-            case 4: // PULSE RESET
+            case 4: // PULSE HANDOFF
                 {
-                    // Trigger a massive Clear Pulse
-                    if (this.timer === 0) {
-                        this.sim.timeScale = 0; // Pause during blast init
-                        
-                        // Force a ClearPulse manually or via registry
-                        // We want a fast, strong pulse.
-                        const pulse = this.effectRegistry.get('ClearPulse');
-                        if (pulse) {
-                            // Override pulse settings for this specific blast?
-                            // Difficult without dirtying config. 
-                            // Just trigger it and restore speed immediately.
-                            pulse.trigger();
-                        }
-                    }
+                    // Resume Normal Simulation
+                    this.sim.timeScale = 1.0;
                     
-                    // Quickly restore speed
-                    if (this.timer > 30) {
-                        this.sim.timeScale = 1.0;
-                        this.active = false;
-                        this.phase = 0;
-                    } else {
-                        // Ramp up speed from 0 to 1
-                        this.sim.timeScale = this.timer / 30;
-                    }
+                    // Trigger Standard Pulse Effect (runs correctly with its own freeze/dim)
+                    // We assume the user has configured the Pulse effect as desired (e.g. Movie Accurate)
+                    this.effectRegistry.trigger('Pulse');
+                    
+                    // Deactivate Time Control
+                    this.active = false;
+                    this.phase = 0;
                 }
                 break;
         }

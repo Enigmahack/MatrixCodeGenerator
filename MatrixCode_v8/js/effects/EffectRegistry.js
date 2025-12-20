@@ -5,7 +5,7 @@ class EffectRegistry {
                 this.effects = []; 
             }
             register(effect) { this.effects.push(effect); }
-            trigger(name) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(); return false; }
+            trigger(name, ...args) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(...args); return false; }
             
             update() { 
                 this.grid.clearAllOverrides();

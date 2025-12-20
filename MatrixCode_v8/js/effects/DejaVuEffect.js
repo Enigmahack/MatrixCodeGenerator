@@ -17,10 +17,13 @@ class DejaVuEffect extends AbstractEffect {
         this.originalFade = 0;
     }
     
-    trigger() { 
+    trigger(durationSeconds = null) { 
         if(this.active) return false; 
         this.active = true; 
-        this.timer = this.c.state.dejaVuDurationSeconds * 60; 
+        
+        const seconds = durationSeconds || this.c.state.dejaVuDurationSeconds;
+        this.timer = seconds * 60; 
+        
         this.bars = []; 
         this.map = new Uint8Array(this.g.rows); 
         
