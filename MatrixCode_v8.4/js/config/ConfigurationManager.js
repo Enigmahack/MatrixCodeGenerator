@@ -25,6 +25,7 @@ class ConfigurationManager {
             'tracerHoldFrames',
             'fontSize',
             'brightnessVariance',
+            'backgroundColor',
             'streamColor',
             'tracerColor',
             'streamPalette',
@@ -50,6 +51,7 @@ class ConfigurationManager {
     _initializeDefaults() {
         return {
             "streamColor": "#65d778",
+            "backgroundColor": "#000000",
             "streamPalette": [
               "#0de761",
               "#1fd64d",
@@ -534,6 +536,7 @@ class ConfigurationManager {
 
         // Precompute common color conversions only once
         const streamRgb = Utils.hexToRgb(s.streamColor);
+        const bgRgb = Utils.hexToRgb(s.backgroundColor);
         const tracerRgb = Utils.hexToRgb(s.tracerColor);
 
         // Palette conversions done once and reused
@@ -558,6 +561,7 @@ class ConfigurationManager {
             cellHeight: s.fontSize * vFactor,
             varianceMin: 1.0 - s.brightnessVariance / 100,
             streamRgb,
+            bgRgb,
             tracerRgb,
             streamColorStr: Utils.createRGBString(streamRgb),
             paletteRgbs,

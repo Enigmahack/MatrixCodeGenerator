@@ -1337,7 +1337,13 @@ class WebGLRenderer {
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
             this.gl.enableVertexAttribArray(0); 
             this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), 0, 0, 0, s.clearAlpha);
+            
+            // Apply Background Color for Fade
+            const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+            const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+            const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+            
+            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         }
 
@@ -1399,7 +1405,11 @@ class WebGLRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
         
-        this.gl.clearColor(0, 0, 0, 1);
+        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+        
+        this.gl.clearColor(br, bg, bb, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);

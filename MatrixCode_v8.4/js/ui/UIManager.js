@@ -100,6 +100,7 @@ class UIManager {
     _generateGlobalSettings() {
         return [
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
+            { cat: 'Global', id: 'backgroundColor', type: 'color', label: 'Background Color' },
             { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
             { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             { cat: 'Global', id: 'colorMixType', type: 'range', label: 'Mix Type', min: 0, max: 1, step: 0.05, transform: v => v < 0.3 ? 'Stream Colors' : (v > 0.7 ? 'Character Colors' : 'Mixed'), description: "Controls whether colors are assigned per-stream or per-character." },

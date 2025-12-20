@@ -422,8 +422,8 @@ void main() {
                                 if (!isTopBlock && phase === 0) continue;
                             }
                             
-                            // 2. Partial Row Rendering (Scanline/Noise)
-                            if ((r + currentAge) % 3 !== 0) continue; 
+                            // 2. Partial Row Rendering (Scanline/Noise) - REMOVED per user request
+                            // if ((r + currentAge) % 3 !== 0) continue; 
                         }
 
                         const rowOffset = r * cols;
