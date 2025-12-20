@@ -325,8 +325,8 @@
         input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; transition: transform 0.1s; }
         input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 
-        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 40px; }
-        input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
+        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+        input[type="color"] { border: none; width: 48px; height: 48px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
 
