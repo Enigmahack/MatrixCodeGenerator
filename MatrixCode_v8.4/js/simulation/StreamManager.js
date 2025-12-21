@@ -83,9 +83,9 @@ class StreamManager {
         // Increase spawn density proportionally to maintain visual fullness.
         const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
         if (is3D) {
-            // Z-Spread is ~4000. Normal depth is effectively "1 layer".
-            // A multiplier of 15-20x feels appropriate for this depth.
-            const multiplier = 15; 
+            // Z-Spread is ~4000. Grid width is 3x.
+            // Adjust multiplier to balance density with the increased column count.
+            const multiplier = 10; 
             streamCount *= multiplier;
             eraserCount *= multiplier;
         }
@@ -130,16 +130,12 @@ class StreamManager {
 
             const lastStream = this.lastStreamInColumn[col];
 
-            // In 3D, we might want to allow tighter vertical stacking (ignore gaps)?
-            // Let's reduce gap requirements in 3D slightly to pack them in.
-            // Or rely on the multiplier.
-            
             if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
                 continue; 
             } 
-            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
+            else if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
                 
@@ -154,7 +150,7 @@ class StreamManager {
                         
                         const lastStreamN = this.lastStreamInColumn[neighbor];
                         
-                        if (!blockedN && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
+                        if ((!blockedN || is3D) && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
                             this._spawnStreamAt(neighbor, false);
                             streamCount--;
                         }
@@ -286,9 +282,20 @@ class StreamManager {
     }
 
     _handleStreamCompletion(stream) {
-        stream.active = false;
-        if (!stream.isEraser) {
-            this._spawnStreamAt(stream.x, true);
+        const s = this.config.state;
+        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
+        
+        if (is3D && !stream.isEraser) {
+            // In 3D, recycle stream to top to maintain consistent density
+            stream.y = -1;
+            stream.age = 0;
+            stream.delay = 0;
+            stream.active = true;
+        } else {
+            stream.active = false;
+            if (!stream.isEraser) {
+                this._spawnStreamAt(stream.x, true);
+            }
         }
     }
 

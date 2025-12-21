@@ -421,18 +421,14 @@ class WebGLRenderer {
                     // Since a_depth.y is wrapped, the whole column wraps.
                     finalPos.y += charY;
                     
-                    // Quad local offset (Size)
+                    // Quad local offset
                     vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                     
-                    // Billboarding Logic (Spherical):
-                    // 1. Transform Center Position to View Space
-                    vec4 viewPos = u_view * vec4(finalPos.x, -finalPos.y, finalPos.z, 1.0);
-                    
-                    // 2. Add Quad Offset in View Space (Camera Facing)
-                    viewPos.xy += quadOffset;
-                    
-                    // 3. Project
-                    gl_Position = u_projection * viewPos;
+                    // Final 3D Pos (World Space aligned)
+                    // Note: We apply quadOffset directly to X/Y. This means characters are 2D planes 
+                    // aligned with the world axes (facing -Z initially, but since we are inside them, 
+                    // they look like flat strips).
+                    gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y + quadOffset.y, finalPos.z, 1.0);
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -659,10 +655,8 @@ class WebGLRenderer {
                                 finalPos.y += charY;
                                 vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                                 
-                                // Billboarding
-                                vec4 viewPos = u_view * vec4(finalPos.x, -finalPos.y, finalPos.z, 1.0);
-                                viewPos.xy += quadOffset;
-                                gl_Position = u_projection * viewPos;
+                                // World Aligned
+                                gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y + quadOffset.y, finalPos.z, 1.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);

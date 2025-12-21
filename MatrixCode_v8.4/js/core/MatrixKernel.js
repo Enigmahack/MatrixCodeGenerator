@@ -240,8 +240,12 @@ class MatrixKernel {
      * @private
      */
     _resize() {
+        // In 3D mode, triple the horizontal resolution to provide more columns for scattering
+        const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+        const widthMult = is3D ? 3.0 : 1.0;
+
         this.grid.resize(
-            window.innerWidth / this.config.state.stretchX,
+            (window.innerWidth * widthMult) / this.config.state.stretchX,
             window.innerHeight / this.config.state.stretchY
         );
         this.renderer.resize();
