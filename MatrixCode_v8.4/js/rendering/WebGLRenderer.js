@@ -1714,25 +1714,21 @@ class WebGLRenderer {
         const isActive = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
         if (!isActive) return;
         
-        // Block updates if menu is open
-        if (this._isMenuOpen()) return;
+        // --- 1. Input Processing (Blocked when menu is open) ---
+        if (!this._isMenuOpen()) {
+            // Mouse Look (Yaw/Pitch)
+            const fov = 60 * Math.PI / 180;
+            this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; 
+            this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
+            
+            // Clamp Pitch
+            const pitchLimit = Math.PI / 2 - 0.1;
+            this.camera.pitch = Math.max(-pitchLimit, Math.min(pitchLimit, this.camera.pitch));
+        }
 
-        // Fly-Through Physics
-        const friction = 0.95;
-
-        // Mouse Look (Yaw/Pitch)
-        // Map mouse 0..1 to Angles
-        const fov = 60 * Math.PI / 180;
-        this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; 
-        this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
+        // --- 2. Physics & Position Update (Always runs) ---
         
-        // Clamp Pitch to avoid gimbal lock/flipping
-        const pitchLimit = Math.PI / 2 - 0.1;
-        this.camera.pitch = Math.max(-pitchLimit, Math.min(pitchLimit, this.camera.pitch));
-
         // Calculate Forward Vector (Direction we are looking)
-        // Note: Initial view is -Z. 
-        // Yaw rotates around Y. Pitch rotates around X (local).
         const forwardX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
         const forwardY = Math.sin(this.camera.pitch);
         const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
@@ -1743,38 +1739,32 @@ class WebGLRenderer {
         this.camera.y += forwardY * speed;
         this.camera.z += forwardZ * speed;
 
-        // Strafe Input (Arrows) relative to View
-        // Right Vector = Cross(Forward, Up)
-        // Up is (0,1,0) world up
-        // Right = Cross((fx,fy,fz), (0,1,0)) = (-fz, 0, fx) normalized
-        
-        // Simplified strafe (just X/Z plane mostly)
-        const rightX = -forwardZ;
-        const rightZ = forwardX;
-        
-        // Up Vector (Camera Up)
-        // Cross(Right, Forward)
-        
-        let moveX = 0;
-        let moveY = 0;
-        let moveZ = 0;
-        
-        const strafeSpeed = 2.0;
+        // Strafe Input (Blocked when menu is open)
+        if (!this._isMenuOpen()) {
+            const rightX = -forwardZ;
+            const rightZ = forwardX;
+            
+            let moveX = 0;
+            let moveY = 0;
+            let moveZ = 0;
+            
+            const strafeSpeed = 2.0;
 
-        if (this.keys.ArrowUp) moveY = 1; // Global Up
-        if (this.keys.ArrowDown) moveY = -1;
-        if (this.keys.ArrowLeft) {
-            moveX -= rightX;
-            moveZ -= rightZ;
-        }
-        if (this.keys.ArrowRight) {
-            moveX += rightX;
-            moveZ += rightZ;
-        }
+            if (this.keys.ArrowUp) moveY = 1;
+            if (this.keys.ArrowDown) moveY = -1;
+            if (this.keys.ArrowLeft) {
+                moveX -= rightX;
+                moveZ -= rightZ;
+            }
+            if (this.keys.ArrowRight) {
+                moveX += rightX;
+                moveZ += rightZ;
+            }
 
-        this.camera.x += moveX * strafeSpeed;
-        this.camera.y += moveY * strafeSpeed;
-        this.camera.z += moveZ * strafeSpeed;
+            this.camera.x += moveX * strafeSpeed;
+            this.camera.y += moveY * strafeSpeed;
+            this.camera.z += moveZ * strafeSpeed;
+        }
     }
 
     _makePerspective(fov, aspect, near, far) {
