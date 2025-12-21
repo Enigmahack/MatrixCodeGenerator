@@ -64,6 +64,7 @@ class WebGLRenderer {
         this.instanceCapacity = 0; 
         this.instanceData = null; 
         this.instanceBuffer = null;
+        this.depthBuffer = null; // New Depth Buffer
 
         // --- Framebuffers for Bloom ---
         this.fboA = null; 
@@ -85,7 +86,9 @@ class WebGLRenderer {
         this._setupMouseTracking();
 
         // --- 3D Camera State ---
-        this.camera = { x: 0, y: 0, z: 1000, pitch: 0, yaw: 0 };
+        // x,y = strafe position, z = forward travel distance
+        // vx,vy = current strafe velocity
+        this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0 };
         this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
         this._setupKeyboardTracking();
 
@@ -268,6 +271,7 @@ class WebGLRenderer {
             layout(location=6) ${attribute} float a_glow;     // Glow Amount
             layout(location=7) ${attribute} float a_mix;      // Mix Factor
             layout(location=8) ${attribute} float a_nextChar; // Next Char Index
+            layout(location=9) ${attribute} float a_depth;    // Base Z Depth
 
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
@@ -281,6 +285,10 @@ class WebGLRenderer {
             uniform mat4 u_projection;
             uniform mat4 u_view;
             uniform float u_is3D;
+            
+            // New uniforms for infinite scroll
+            uniform float u_cameraZ;
+            uniform float u_depthRange;
 
             uniform float u_dissolveEnabled;
             uniform float u_dissolveScale;
@@ -322,10 +330,19 @@ class WebGLRenderer {
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
 
                 if (u_is3D > 0.5) {
-                    // 3D Mode
+                    // 3D Mode (Infinite Scroll)
+                    // We treat a_depth as the base offset.
+                    // u_cameraZ increases constantly.
+                    // We wrap the difference to keep cells within a visible range [-Range, 0] relative to camera
+                    
+                    float relZ = a_depth + u_cameraZ; 
+                    float wrappedZ = mod(relZ, u_depthRange);
+                    // Shift so it's in front of camera: -depthRange .. 0
+                    float finalZ = -wrappedZ; 
+                    
                     vec2 centered = worldPos - (u_resolution * 0.5);
-                    // Map Y to negative so it falls "down" in 3D space
-                    gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, 0.0, 1.0);
+                    // Use worldPos directly but replace Z
+                    gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, finalZ, 1.0);
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -525,9 +542,11 @@ class WebGLRenderer {
                         precision mediump float;
                         attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
+                        attribute float a_depth;
                         uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
                         uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
+                        uniform float u_cameraZ; uniform float u_depthRange;
                         varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         void main() {
                             float scale = 1.0;
@@ -542,8 +561,11 @@ class WebGLRenderer {
                             if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
                             
                             if (u_is3D > 0.5) {
+                                float relZ = a_depth + u_cameraZ;
+                                float wrappedZ = mod(relZ, u_depthRange);
+                                float finalZ = -wrappedZ;
                                 vec2 centered = worldPos - (u_resolution * 0.5);
-                                gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, 0.0, 1.0);
+                                gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, finalZ, 1.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
@@ -731,6 +753,18 @@ class WebGLRenderer {
 
         // Static Position Buffer
         this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
+        
+        // Depth Buffer (Static Instance)
+        // One float per cell, but constant per column
+        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 4, this.gl.STATIC_DRAW);
+        const depthData = new Float32Array(totalCells);
+        // Pre-generate random depths for columns
+        const colDepths = new Float32Array(this.grid.cols);
+        for(let c=0; c<this.grid.cols; c++) {
+            // Random depth between 0 and -2000
+            colDepths[c] = -(Math.random() * 2000); 
+        }
+        
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
         const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
@@ -739,8 +773,13 @@ class WebGLRenderer {
              const row = Math.floor(i / this.grid.cols);
              posData[i*2] = col * cw + cw * 0.5 + xOff;
              posData[i*2+1] = row * ch + ch * 0.5 + yOff;
+             
+             depthData[i] = colDepths[col];
         }
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
+        
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, depthData);
 
         // Dynamic Buffers
         this.charBuffer = ensureBuf(this.charBuffer, totalCells * 2); // Uint16
@@ -822,6 +861,12 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(8);
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
+
+        // 9: Depth (Static Instance, Float)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
+        this.gl.enableVertexAttribArray(9);
+        this.gl.vertexAttribPointer(9, 1, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(9, 1);
 
         this.gl.bindVertexArray(null);
     }
@@ -1426,21 +1471,35 @@ class WebGLRenderer {
         const is3D = s.renderMode3D ? 1.0 : 0.0;
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
         
+        // Pass infinite scroll uniforms
+        const depthRange = 2000.0;
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cameraZ'), this.camera.z);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_depthRange'), depthRange);
+        
         if (s.renderMode3D) {
             const aspect = this.w / this.h;
             const fov = 60 * Math.PI / 180;
-            // Distance: Ensure we see the whole grid. 
-            // Grid is roughly centered at 0,0. Dimensions are approx w/h.
-            const dist = Math.max(this.w, this.h) * 1.2;
             
-            const proj = this._makePerspective(fov, aspect, 1.0, 20000.0);
+            // Perspective: Far plane needs to cover the wrap distance
+            const proj = this._makePerspective(fov, aspect, 1.0, depthRange + 500.0);
             
-            // Orbit Camera Logic
-            const camX = dist * Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
-            const camY = dist * Math.sin(this.camera.pitch);
-            const camZ = dist * Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+            // Fly-Through Camera:
+            // Camera is at (camX, camY, 0) in View Space relative to the scrolling world.
+            // Actually, we are scrolling the world Z in the shader relative to camera Z.
+            // So View Matrix just needs to handle X/Y strafing.
+            // We invert camera position for the view matrix translation.
             
-            const view = this._makeLookAt(camX, camY, camZ, 0, 0, 0, 0, 1, 0);
+            // To simulate "flying through", we move the camera position.
+            // The shader handles the Z-wrapping relative to this Z.
+            // We just need to position the camera at (cam.x, cam.y, 0) effectively, 
+            // but since we are looking DOWN the -Z axis, let's just use LookAt.
+            
+            const camX = this.camera.x;
+            const camY = this.camera.y;
+            const camZ = 0; // We handle Z travel in shader via u_cameraZ wrapping
+            
+            // Look forward (towards -Z)
+            const view = this._makeLookAt(camX, camY, camZ, camX, camY, -100, 0, 1, 0);
             
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, proj);
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, view);
@@ -1552,42 +1611,48 @@ class WebGLRenderer {
     _updateCamera() {
         if (!this.config.state.renderMode3D) return;
 
-        const speed = 10.0;
-        const rotSpeed = 0.02;
+        // Fly-Through Physics
+        const maxSpeed = 30.0;
+        const accelTime = 0.5; // seconds to max speed
+        const fps = 60;
+        const accelPerFrame = maxSpeed / (accelTime * fps);
+        const friction = 0.95; // Slide friction
 
-        // Move camera based on keys (FPS style or orbit? "direction" -> maybe plane tilt or camera move)
-        // User said: "camera view will be simply moving forward through whatever code is falling"
-        // But also "user can use the up/down/left/right arrows on the keyboard to choose the direction"
-        // Let's interpret arrows as moving the camera's position relative to the code plane.
-        // Or rotating the view?
-        // Let's try Rotation (Orbit) or Pan.
-        // Given "viewed through a TV monitor", maybe we rotate around the code.
+        // Forward motion (constant)
+        this.camera.z += 10.0; // Fly speed
+
+        // Strafe Input (Arrows)
+        // Up/Down = Y Axis (Standard 2D coordinates: Up is -Y in typical screen, but let's invert for 'pilot' feel?)
+        // User: "Up/Down... choose direction". Usually Up = Go Up (Screen Y-).
+        // Let's map Up Arrow -> Decrease Y (Go Up on screen).
         
-        // Let's go with:
-        // Left/Right = Yaw (Rotate around Y axis)
-        // Up/Down = Pitch (Rotate around X axis) or Zoom?
-        // Let's do simple translation for now as it's safer for "choose direction".
+        let tx = 0;
+        let ty = 0;
+        if (this.keys.ArrowUp) ty = -1;
+        if (this.keys.ArrowDown) ty = 1;
+        if (this.keys.ArrowLeft) tx = -1;
+        if (this.keys.ArrowRight) tx = 1;
+
+        // Apply Acceleration
+        if (tx !== 0) {
+            this.camera.vx += tx * accelPerFrame;
+        } else {
+            this.camera.vx *= friction; // Slide/Stop
+        }
         
-        // Actually, "moving forward through whatever code is falling" implies Z movement.
-        // But user wants arrows to choose direction. 
-        // Let's do:
-        // Up/Down: Move Camera Y
-        // Left/Right: Move Camera X
-        // And we just set a fixed Z for the camera.
-        
-        // Wait, "moving forward through" implies we are travelling deep into the code.
-        // Maybe the arrows control the angle of the "fall"?
-        
-        // Let's stick to a simple free camera for now.
-        // Arrows rotate the camera LookAt direction?
-        
-        if (this.keys.ArrowUp) this.camera.pitch -= rotSpeed;
-        if (this.keys.ArrowDown) this.camera.pitch += rotSpeed;
-        if (this.keys.ArrowLeft) this.camera.yaw -= rotSpeed;
-        if (this.keys.ArrowRight) this.camera.yaw += rotSpeed;
-        
-        // Clamp pitch
-        this.camera.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.pitch));
+        if (ty !== 0) {
+            this.camera.vy += ty * accelPerFrame;
+        } else {
+            this.camera.vy *= friction; // Slide/Stop
+        }
+
+        // Clamp Velocity
+        this.camera.vx = Math.max(-maxSpeed, Math.min(maxSpeed, this.camera.vx));
+        this.camera.vy = Math.max(-maxSpeed, Math.min(maxSpeed, this.camera.vy));
+
+        // Apply Velocity
+        this.camera.x += this.camera.vx;
+        this.camera.y += this.camera.vy;
     }
 
     _makePerspective(fov, aspect, near, far) {
