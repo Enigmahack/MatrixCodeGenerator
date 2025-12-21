@@ -11,8 +11,6 @@ Backwards tracer: an invisible tracer that moves up the stream, highlighting cha
 
 Resurrection Pulse: The rectangular grid stretch and rescale pulse effect shown in resurrections.
 
-Let the user choose their own background color instead of solid black. 
-
 Image interpolation? 
 
 3D mode

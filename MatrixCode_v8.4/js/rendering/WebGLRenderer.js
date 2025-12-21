@@ -343,6 +343,7 @@ class WebGLRenderer {
             uniform vec2 u_atlasSize;
             uniform vec2 u_gridSize;
             uniform float u_cellSize;
+            uniform vec2 u_cellScale; // XY Scale factor for Aspect Ratio
             uniform float u_cols;
             uniform float u_decayDur;
             uniform vec2 u_stretch;
@@ -352,9 +353,11 @@ class WebGLRenderer {
             uniform mat4 u_view;
             uniform float u_is3D;
             
-            // New uniforms for infinite scroll
+            // New uniforms for infinite scroll & culling
             uniform vec3 u_cameraPos;
+            uniform vec3 u_camForward;
             uniform vec3 u_wrapSize; // X, Y, Z dimensions of forest
+            uniform float u_drawDistance;
 
             uniform float u_dissolveEnabled;
             uniform float u_dissolveScale;
@@ -381,14 +384,14 @@ class WebGLRenderer {
                     }
                 }
                 
-                // Position Calculation
-                vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
-                vec2 worldPos = a_pos + centerPos;
+                // Position Calculation (2D)
+                vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
+                vec2 worldPos = a_pos + centerPos2D;
                 
                 // Calculate Shadow UV before transformations
                 v_shadowUV = worldPos / u_gridSize;
                 
-                // Mirror/Stretch - Pivot around GRID center, not screen center
+                // Mirror/Stretch - Pivot around GRID center
                 vec2 gridCenter = u_gridSize * 0.5;
                 worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
                 worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
@@ -397,55 +400,50 @@ class WebGLRenderer {
 
                 if (u_is3D > 0.5) {
                     // 3D Mode (Infinite Volumetric Scroll)
-                    // a_depth = Base World Position (X, Y-Offset, Z)
                     
                     // 1. Calculate Relative Position (World - Camera)
                     vec3 basePos = vec3(a_depth.x, a_depth.y, a_depth.z);
                     vec3 diff = basePos - u_cameraPos;
                     
-                    // 2. Wrap coordinates to keep cells within u_wrapSize box centered on camera
+                    // 2. Wrap coordinates
                     vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
                     
                     // 3. Reconstruct World Position
                     vec3 finalPos = u_cameraPos + wrappedDiff;
                     
-                    // 4. Apply Column Logic (Vertical Characters)
-                    // Y: We need to respect the character's vertical position within the column (worldPos.y)
-                    // But we also want to wrap Y if the camera goes up/down too far.
-                    // The a_depth.y gives us a random column offset.
-                    // worldPos.y is 0..ScreenHeight.
-                    // Let's center worldPos.y
-                    float charY = worldPos.y - (u_resolution.y * 0.5);
-                    
-                    // Combined Y: Column Base Y + Character Y
-                    // Since a_depth.y is wrapped, the whole column wraps.
+                    // 4. Apply Column Logic
+                    float charY = (u_resolution.y * 0.5) - worldPos.y;
                     finalPos.y += charY;
                     
-                    // Quad local offset
-                    vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
+                    // --- CULLING ---
+                    float dist = length(finalPos - u_cameraPos);
+                    vec3 toObj = normalize(finalPos - u_cameraPos);
+                    float viewDot = dot(toObj, u_camForward);
                     
-                    // Cylindrical Billboarding Logic:
-                    // 1. Calculate direction from camera to character center (on XZ plane)
-                    vec3 centerPos = vec3(finalPos.x, -finalPos.y, finalPos.z);
-                    vec3 camPos = vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z); // Adjust for shader coordinate space? 
-                    // Actually, u_cameraPos is World Space. finalPos is World Space.
-                    // But in shader, we use -finalPos.y for Y.
+                    // Cull if behind camera (allow some margin)
+                    if (dist > 100.0 && viewDot < 0.4) {
+                        scale = 0.0;
+                    }
+
+                    // Soft Fade at Limit (Prevents Snapping)
+                    float limit = u_wrapSize.z * 0.5;
+                    float fade = 1.0 - smoothstep(limit * 0.7, limit * 0.95, dist);
+                    scale *= fade;
+
+                    if (scale < 0.01) scale = 0.0;
+
+                    // Quad local offset with Aspect Ratio Fix & Y-Flip
+                    vec2 aspectOffset = vec2(a_quad.x - 0.5, 0.5 - a_quad.y) * u_cellSize * u_cellScale * scale;
                     
-                    // Vector from Camera to Object
-                    vec3 look = centerPos - vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z);
-                    look.y = 0.0; // Flatten to horizontal plane
-                    look = normalize(look);
+                    // Fixed Orientation (2D Strips in 3D Space)
+                    // No rotation/billboarding - simple offsets in World Space
+                    vec3 vertexPos = finalPos;
+                    vertexPos.x += aspectOffset.x;
+                    vertexPos.y += aspectOffset.y;
                     
-                    // Right Vector (Cross World Up (0,1,0) and Look)
-                    vec3 right = cross(vec3(0.0, 1.0, 0.0), look);
+                    gl_Position = u_projection * u_view * vec4(vertexPos, 1.0);
                     
-                    // Up Vector (World Up)
-                    vec3 up = vec3(0.0, 1.0, 0.0);
-                    
-                    // Construct Billboarded Position
-                    vec3 billboardPos = centerPos + (right * quadOffset.x) + (up * quadOffset.y);
-                    
-                    gl_Position = u_projection * u_view * vec4(billboardPos, 1.0);
+                    if (scale < 0.01) gl_Position = vec4(0.0); // Discard degenerate
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -646,17 +644,18 @@ class WebGLRenderer {
                         attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
                         attribute vec3 a_depth;
-                        uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
+                        uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform vec2 u_cellScale; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
                         uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
-                        uniform vec3 u_cameraPos; uniform vec3 u_wrapSize;
+                        uniform vec3 u_cameraPos; uniform vec3 u_camForward; uniform vec3 u_wrapSize; uniform float u_drawDistance;
+                        uniform float u_dissolveEnabled; uniform float u_dissolveScale;
                         varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         void main() {
                             float scale = 1.0;
                             v_prog = 0.0;
-                            if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
-                            vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
-                            vec2 worldPos = a_pos + centerPos;
+                            if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; if (u_dissolveEnabled > 0.5) scale = mix(1.0, u_dissolveScale, v_prog); }
+                            vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
+                            vec2 worldPos = a_pos + centerPos2D;
                             v_shadowUV = worldPos / u_gridSize;
                             vec2 gridCenter = u_gridSize * 0.5;
                             worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
@@ -668,20 +667,25 @@ class WebGLRenderer {
                                 vec3 diff = basePos - u_cameraPos;
                                 vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
                                 vec3 finalPos = u_cameraPos + wrappedDiff;
-                                float charY = worldPos.y - (u_resolution.y * 0.5);
+                                float charY = (u_resolution.y * 0.5) - worldPos.y;
                                 finalPos.y += charY;
-                                vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                                 
-                                // Cylindrical Billboarding
-                                vec3 centerPos = vec3(finalPos.x, -finalPos.y, finalPos.z);
-                                vec3 look = centerPos - vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z);
-                                look.y = 0.0;
-                                look = normalize(look);
-                                vec3 right = cross(vec3(0.0, 1.0, 0.0), look);
-                                vec3 up = vec3(0.0, 1.0, 0.0);
-                                vec3 billboardPos = centerPos + (right * quadOffset.x) + (up * quadOffset.y);
+                                float dist = length(finalPos - u_cameraPos);
+                                vec3 toObj = normalize(finalPos - u_cameraPos);
+                                float viewDot = dot(toObj, u_camForward);
+                                if (dist > 100.0 && viewDot < 0.4) { scale = 0.0; }
+                                float limit = u_wrapSize.z * 0.5;
+                                float fade = 1.0 - smoothstep(limit * 0.7, limit * 0.95, dist);
+                                scale *= fade;
+                                if (scale < 0.01) scale = 0.0;
                                 
-                                gl_Position = u_projection * u_view * vec4(billboardPos, 1.0);
+                                vec2 aspectOffset = vec2(a_quad.x - 0.5, 0.5 - a_quad.y) * u_cellSize * u_cellScale * scale;
+                                vec3 vertexPos = finalPos;
+                                vertexPos.x += aspectOffset.x;
+                                vertexPos.y += aspectOffset.y;
+                                
+                                gl_Position = u_projection * u_view * vec4(vertexPos, 1.0);
+                                if (scale < 0.01) gl_Position = vec4(0.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
@@ -876,9 +880,9 @@ class WebGLRenderer {
         
         // Generate random world positions for columns (Forest)
         const colData = new Float32Array(this.grid.cols * 3);
-        const spreadX = 4000.0; 
-        const spreadZ = 4000.0;
-        const spreadY = 2000.0; // Vertical scatter range
+        const spreadX = 1000.0; // Increased density (narrower width)
+        const spreadZ = 3000.0; // Longer draw distance
+        const spreadY = 6000.0; // Vertical scatter range
         
         for(let c=0; c<this.grid.cols; c++) {
             // Random X
@@ -1603,9 +1607,21 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
         
         // Pass infinite scroll uniforms
-        const wrapSizeX = 4000.0;
-        const wrapSizeY = 2000.0;
-        const wrapSizeZ = 4000.0;
+        const wrapSizeX = 1000.0;
+        const wrapSizeY = 6000.0;
+        const wrapSizeZ = 3000.0;
+        
+        // New Uniforms for Aspect Ratio and Culling
+        const cellScaleX = d.cellWidth / atlas.cellSize;
+        const cellScaleY = d.cellHeight / atlas.cellSize;
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_cellScale'), cellScaleX, cellScaleY);
+        
+        const camFwdX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+        const camFwdY = Math.sin(this.camera.pitch);
+        const camFwdZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_camForward'), camFwdX, camFwdY, camFwdZ);
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_drawDistance'), 3000.0);
         
         this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_cameraPos'), this.camera.x, this.camera.y, this.camera.z);
         this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_wrapSize'), wrapSizeX, wrapSizeY, wrapSizeZ);
@@ -1810,6 +1826,10 @@ class WebGLRenderer {
         this.camera.x += this.camera.vx;
         this.camera.y += this.camera.vy;
         this.camera.z += this.camera.vz;
+
+        // Clamp Y Position (Code Bounds)
+        const limitY = 3000.0; // Half of spreadY (2000)
+        this.camera.y = Math.max(-limitY, Math.min(limitY, this.camera.y));
     }
 
     _makePerspective(fov, aspect, near, far) {
