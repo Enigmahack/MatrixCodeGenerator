@@ -880,9 +880,9 @@ class WebGLRenderer {
         
         // Generate random world positions for columns (Forest)
         const colData = new Float32Array(this.grid.cols * 3);
-        const spreadX = 1000.0; // Increased density (narrower width)
-        const spreadZ = 3000.0; // Longer draw distance
-        const spreadY = 6000.0; // Vertical scatter range
+        const spreadX = 2000.0; // Increased density (narrower width)
+        const spreadZ = 4000.0; // Longer draw distance
+        const spreadY = 8000.0; // Vertical scatter range
         
         for(let c=0; c<this.grid.cols; c++) {
             // Random X
@@ -1780,7 +1780,10 @@ class WebGLRenderer {
         const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
 
         // Apply constant forward flight (Fly Speed)
-        const speed = this.config.state.flySpeed || 15.0;
+        let speed = this.config.state.flySpeed || 15.0;
+        // Deadzone for fly speed to allow full stop
+        if (Math.abs(speed) < 0.5) speed = 0.0;
+
         this.camera.x += forwardX * speed;
         this.camera.y += forwardY * speed;
         this.camera.z += forwardZ * speed;
@@ -1817,10 +1820,15 @@ class WebGLRenderer {
         this.camera.vz += accZ;
 
         // Apply Friction
-        const friction = 0.90;
+        const friction = 0.85;
         this.camera.vx *= friction;
         this.camera.vy *= friction;
         this.camera.vz *= friction;
+
+        // Slow-to-stop: Round down if velocity is negligible
+        if (Math.abs(this.camera.vx) < 0.2) this.camera.vx = 0;
+        if (Math.abs(this.camera.vy) < 0.2) this.camera.vy = 0;
+        if (Math.abs(this.camera.vz) < 0.2) this.camera.vz = 0;
 
         // Apply Velocity to Position
         this.camera.x += this.camera.vx;

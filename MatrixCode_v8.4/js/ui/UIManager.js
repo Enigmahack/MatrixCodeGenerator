@@ -199,7 +199,7 @@ class UIManager {
             { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Inverted Tracers'},
             { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Tracers that only write occassional characters" },
-            { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+                        { cat: 'Tracers', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', transform: v=>(v*100).toFixed(0)+'%'},            { cat: 'Tracers', id: 'upwardTracerEnabled', type: 'checkbox', label: 'Upward Tracers', tooltip: 'Invisible scanners that light up existing code' },            { cat: 'Tracers', id: 'upwardTracerChance', type: 'range', label: 'Upward Rate', min: 0, max: 0.2, step: 0.01, dep: 'upwardTracerEnabled' },            { cat: 'Tracers', id: 'upwardTracerGlow', type: 'range', label: 'Upward Glow', min: 0, max: 20, step: 0.5, dep: 'upwardTracerEnabled' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Enable Rotators' },

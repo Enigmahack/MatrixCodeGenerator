@@ -307,8 +307,8 @@
         input[type="range"] { width: 100%; height: 6px; background: #1f2937; border-radius: 3px; outline: none; appearance: none; -webkit-appearance: none; padding: 0; margin: 0; cursor: pointer; }
         input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent); appearance: none; -webkit-appearance: none; transition: transform 0.1s; }
         input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
-        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 40px; }
-        input[type="color"] { border: none; width: 40px; height: 40px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
+        .color-wrapper { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+        input[type="color"] { border: none; width: 48px; height: 48px; padding: 0; background: none; cursor: pointer; border-radius: 50%; overflow: hidden; appearance: none; -webkit-appearance: none; }
         input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
         input[type="color"]::-webkit-color-swatch { border: 2px solid var(--panel-border); border-radius: 50%; }
         /* Color List Styling */
@@ -2089,6 +2089,22 @@ class ConfigurationManager {
         this.subscribers = [];
         this._previousSmoothingEnabled = undefined;
         this._previousSmoothingAmount = undefined;
+        // Define keys that are shared across all profiles (Global Settings)
+        this.SHARED_KEYS = new Set([
+            'renderMode3D', // The switcher itself
+            'showFpsCounter',
+            'debugEnabled',
+            'keyBindings',
+            'hideMenuIcon',
+            'suppressToasts',
+            'renderingEngine',
+            // 'savedPresets' is handled by this.slots
+        ]);
+        // Initialize Profiles
+        this.profiles = {
+            '2D': {},
+            '3D': {}
+        };
         // Keys that affect derived values (safe superset to ensure correctness)
         this._derivedKeys = new Set([
             'streamSpeed',
@@ -2102,6 +2118,7 @@ class ConfigurationManager {
             'tracerHoldFrames',
             'fontSize',
             'brightnessVariance',
+            'backgroundColor',
             'streamColor',
             'tracerColor',
             'streamPalette',
@@ -2124,6 +2141,7 @@ class ConfigurationManager {
     _initializeDefaults() {
         return {
             "streamColor": "#65d778",
+            "backgroundColor": "#000000",
             "streamPalette": [
               "#0de761",
               "#1fd64d",
@@ -2315,6 +2333,8 @@ class ConfigurationManager {
             "ttlMaxSeconds": 8,
             "supermanIncludeColors": true,
             "renderingEngine": "canvas",
+            "renderMode3D": false,
+            "flySpeed": 15.0,
             "dissolveMinSize": 19,
             "crashMovieFps": true
         };
@@ -2371,14 +2391,24 @@ class ConfigurationManager {
             if (!storedState) {
                 const legacyKey = 'matrix_config_v7.5';
                 storedState = localStorage.getItem(legacyKey);
-                if (storedState) {
-                    // console.log("Migrating configuration from v7.5");
-                }
             }
             if (storedState) {
                 const parsed = JSON.parse(storedState);
                 delete parsed.customFonts; // Remove unsupported keys if present
-                this.state = { ...this.defaults, ...parsed };
+                // Handle new profile structure vs legacy flat structure
+                if (parsed.profiles) {
+                    this.profiles = parsed.profiles;
+                    this.state = { ...this.defaults, ...parsed.state };
+                } else {
+                    // Migration: Treat existing flat state as the initial state for BOTH profiles
+                    // This ensures a smooth transition without losing settings
+                    const migrated = { ...this.defaults, ...parsed };
+                    // Populate initial profiles with migrated data (filtering out non-specifics is optional but cleaner)
+                    // For safety, we clone the full migrated state into both.
+                    this.profiles['2D'] = this._deepClone(migrated);
+                    this.profiles['3D'] = this._deepClone(migrated);
+                    this.state = migrated;
+                }
                 // Migration: Ensure streamPalette exists
                 if (!this.state.streamPalette) {
                     this.state.streamPalette = [this.state.streamColor];
@@ -2391,6 +2421,10 @@ class ConfigurationManager {
                 if (this.state.eraserStopChance > 25) {
                     this.state.eraserStopChance = 25;
                 }
+            } else {
+                // First run: Clone defaults to profiles
+                this.profiles['2D'] = this._deepClone(this.defaults);
+                this.profiles['3D'] = this._deepClone(this.defaults);
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -2401,7 +2435,12 @@ class ConfigurationManager {
      */
     save() {
         try {
-            localStorage.setItem(this.storageKey, JSON.stringify(this.state));
+            // Save state AND profiles
+            const data = {
+                state: this.state,
+                profiles: this.profiles
+            };
+            localStorage.setItem(this.storageKey, JSON.stringify(data));
         } catch (e) {
             console.warn('Failed to save configuration:', e);
         }
@@ -2421,6 +2460,11 @@ class ConfigurationManager {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
+        // Special handling for renderMode3D (Profile Switching)
+        if (key === 'renderMode3D') {
+            this._handleModeSwitch(value);
+            return; 
+        }
         // Special handling for shaderEnabled
         if (key === 'shaderEnabled') {
             if (value === true) { // Shader is being enabled
@@ -2484,12 +2528,53 @@ class ConfigurationManager {
             }
         }
         this.state[key] = value; // Update the actual key's value
+        // Sync with Current Profile if Specific
+        if (!this.SHARED_KEYS.has(key)) {
+            const currentMode = (this.state.renderMode3D === true || this.state.renderMode3D === 'true') ? '3D' : '2D';
+            this.profiles[currentMode][key] = value;
+        }
         // Only recompute derived values when relevant keys change (preserves behavior, improves perf)
         if (this._derivedKeys.has(key) || key === 'ALL') {
             this.updateDerivedValues();
         }
         this.save();
         this.notify(key);
+    }
+    /**
+     * Handles switching between 2D and 3D profiles.
+     * @private
+     * @param {boolean|string} newModeValue - The new value for renderMode3D.
+     */
+    _handleModeSwitch(newModeValue) {
+        const isNew3D = (newModeValue === true || newModeValue === 'true');
+        const isOld3D = (this.state.renderMode3D === true || this.state.renderMode3D === 'true');
+        if (isNew3D === isOld3D) return;
+        const oldMode = isOld3D ? '3D' : '2D';
+        const newMode = isNew3D ? '3D' : '2D';
+        // 1. Save current specific settings to Old Profile
+        // (This is redundant if we sync on set(), but safe for bulk changes or init)
+        for (const k in this.state) {
+            if (!this.SHARED_KEYS.has(k)) {
+                this.profiles[oldMode][k] = this.state[k];
+            }
+        }
+        // 2. Load settings from New Profile
+        const targetProfile = this.profiles[newMode];
+        // Merge target profile into state, but respect Shared Keys (don't overwrite them from profile if they exist there by mistake)
+        // Actually, we overwrite specific keys in state with profile keys.
+        // If a key is missing in profile (e.g. new feature), we keep current state or default?
+        // Let's assume profile has valid data or fallback to current state.
+        for (const k in targetProfile) {
+            if (!this.SHARED_KEYS.has(k)) {
+                this.state[k] = targetProfile[k];
+            }
+        }
+        // 3. Update the switch itself
+        this.state.renderMode3D = newModeValue;
+        // 4. Finalize
+        this.updateDerivedValues();
+        this.save();
+        this.notify('ALL'); // Trigger full UI and Renderer refresh
     }
     /**
      * Resets the application state to its default values.
@@ -2579,6 +2664,7 @@ class ConfigurationManager {
             : Math.max(10, Math.round(60 - s.rotatorCycleFactor * 2.5));
         // Precompute common color conversions only once
         const streamRgb = Utils.hexToRgb(s.streamColor);
+        const bgRgb = Utils.hexToRgb(s.backgroundColor);
         const tracerRgb = Utils.hexToRgb(s.tracerColor);
         // Palette conversions done once and reused
         const paletteHexes = (s.streamPalette && s.streamPalette.length > 0)
@@ -2601,6 +2687,7 @@ class ConfigurationManager {
             cellHeight: s.fontSize * vFactor,
             varianceMin: 1.0 - s.brightnessVariance / 100,
             streamRgb,
+            bgRgb,
             tracerRgb,
             streamColorStr: Utils.createRGBString(streamRgb),
             paletteRgbs,
@@ -3771,8 +3858,8 @@ void main() {
                                 if (isTopBlock && phase === 1) continue;
                                 if (!isTopBlock && phase === 0) continue;
                             }
-                            // 2. Partial Row Rendering (Scanline/Noise)
-                            if ((r + currentAge) % 3 !== 0) continue; 
+                            // 2. Partial Row Rendering (Scanline/Noise) - REMOVED per user request
+                            // if ((r + currentAge) % 3 !== 0) continue; 
                         }
                         const rowOffset = r * cols;
                         for (let x = bar.x; x < limitX; x++) {
@@ -6277,6 +6364,7 @@ class WebGLRenderer {
         this.instanceCapacity = 0; 
         this.instanceData = null; 
         this.instanceBuffer = null;
+        this.depthBuffer = null; // New Depth Buffer
         // --- Framebuffers for Bloom ---
         this.fboA = null; 
         this.fboB = null; 
@@ -6293,6 +6381,14 @@ class WebGLRenderer {
         this.mouseX = 0.5;
         this.mouseY = 0.5;
         this._setupMouseTracking();
+        // --- 3D Camera State ---
+        // x,y,z = World Position
+        // vx,vy,vz = Velocity
+        this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, pitch: 0, yaw: 0 };
+        // flySpeed is now managed by config.state.flySpeed
+        this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        this._setupKeyboardTracking();
+        this._setupScrollTracking();
         this._initShaders();
         this._initBuffers();
         this._initBloomBuffers();
@@ -6325,17 +6421,84 @@ class WebGLRenderer {
             this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         }
     }
+    _isMenuOpen() {
+        const panel = document.getElementById('settingsPanel');
+        return panel && panel.classList.contains('open');
+    }
     _setupMouseTracking() {
+        // Click to capture pointer in 3D mode
+        this.cvs.addEventListener('mousedown', () => {
+            const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+            if (is3D && !this._isMenuOpen()) {
+                this.cvs.requestPointerLock();
+            }
+        });
         this._mouseMoveHandler = (e) => {
-            const rect = this.cvs.getBoundingClientRect();
-            this.mouseX = (e.clientX - rect.left) / rect.width;
-            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            if (this._isMenuOpen()) return;
+            // If pointer is locked, use delta movement for infinite turning
+            if (document.pointerLockElement === this.cvs) {
+                // Normalize delta relative to screen size to keep sensitivity consistent
+                // Accumulate directly into mouseX/Y but wrap/clamp isn't strictly needed for the look logic 
+                // since we map it to angles in _updateCamera. 
+                // However, our _updateCamera expects 0..1 values currently.
+                // Let's adapt _updateCamera to handle continuous accumulation or modify this to update yaw/pitch directly.
+                // Better approach: Pass deltas to a tracking object, or accumulate virtual mouse coordinates.
+                // Let's simply add the delta to the existing 0..1 mouseX/Y, allowing them to go <0 or >1.
+                // The camera logic uses (mouseX - 0.5) * Scale.
+                // So if mouseX keeps growing, Yaw keeps rotating. This is perfect for infinite turning.
+                const sensitivity = 0.002;
+                this.mouseX += e.movementX * sensitivity;
+                this.mouseY += e.movementY * sensitivity;
+                // Clamp Pitch (Y) to prevent flipping over (optional, but good for FPS feel)
+                // Let's leave Y unclamped here and let _updateCamera handle pitch clamping if needed, 
+                // or just let it spin if that's the desired "fly" feel. 
+                // Standard FPS clamps pitch.
+            } else {
+                // Fallback for 2D or unlocked 3D (standard cursor tracking)
+                const rect = this.cvs.getBoundingClientRect();
+                this.mouseX = (e.clientX - rect.left) / rect.width;
+                this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            }
         };
         this._touchMoveHandler = (e) => {
-            if (e.touches.length > 0) this._mouseMoveHandler(e.touches[0]);
+            if (this._isMenuOpen()) return;
+            if (e.touches.length > 0) {
+                const rect = this.cvs.getBoundingClientRect();
+                this.mouseX = (e.clientX - rect.left) / rect.width;
+                this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            }
         };
         window.addEventListener('mousemove', this._mouseMoveHandler);
         window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
+    }
+    _setupKeyboardTracking() {
+        window.addEventListener('keydown', (e) => {
+            if (this.keys.hasOwnProperty(e.code)) {
+                this.keys[e.code] = true;
+                if(this.config.state.renderMode3D) e.preventDefault();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (this.keys.hasOwnProperty(e.code)) {
+                this.keys[e.code] = false;
+            }
+        });
+    }
+    _setupScrollTracking() {
+        window.addEventListener('wheel', (e) => {
+            if (this._isMenuOpen()) return;
+            if (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true') {
+                e.preventDefault();
+                // Scroll Up (Negative Delta) -> Increase Speed
+                // Scroll Down (Positive Delta) -> Decrease Speed
+                const delta = e.deltaY * -0.05; 
+                let newSpeed = (this.config.state.flySpeed || 15.0) + delta;
+                // Clamp speed reasonably (e.g. -50 to 100)
+                newSpeed = Math.max(-50.0, Math.min(100.0, newSpeed));
+                // Save to config (updates profile automatically via ConfigurationManager logic)
+                this.config.set('flySpeed', newSpeed);
+            }
+        }, { passive: false });
     }
     _createShader(type, source) {
         const shader = this.gl.createShader(type);
@@ -6448,14 +6611,24 @@ class WebGLRenderer {
             layout(location=6) ${attribute} float a_glow;     // Glow Amount
             layout(location=7) ${attribute} float a_mix;      // Mix Factor
             layout(location=8) ${attribute} float a_nextChar; // Next Char Index
+            layout(location=9) ${attribute} vec3 a_depth;     // World X, Y-Offset, Base Z
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
             uniform vec2 u_gridSize;
             uniform float u_cellSize;
+            uniform vec2 u_cellScale; // XY Scale factor for Aspect Ratio
             uniform float u_cols;
             uniform float u_decayDur;
             uniform vec2 u_stretch;
             uniform float u_mirror;
+            uniform mat4 u_projection;
+            uniform mat4 u_view;
+            uniform float u_is3D;
+            // New uniforms for infinite scroll & culling
+            uniform vec3 u_cameraPos;
+            uniform vec3 u_camForward;
+            uniform vec3 u_wrapSize; // X, Y, Z dimensions of forest
+            uniform float u_drawDistance;
             uniform float u_dissolveEnabled;
             uniform float u_dissolveScale;
             ${varying} vec2 v_uv;
@@ -6465,6 +6638,7 @@ class WebGLRenderer {
             ${varying} float v_glow;
             ${varying} float v_prog;
             ${varying} vec2 v_screenUV; // For sampling Shadow Mask
+            ${varying} vec2 v_shadowUV; // NEW: Grid-space UV
             void main() {
                 // Decay Scale Logic
                 float scale = 1.0;
@@ -6477,21 +6651,59 @@ class WebGLRenderer {
                         scale = 1.0;
                     }
                 }
-                // Position Calculation
-                vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
-                vec2 worldPos = a_pos + centerPos;
-                // Mirror/Stretch - Pivot around GRID center, not screen center
+                // Position Calculation (2D)
+                vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
+                vec2 worldPos = a_pos + centerPos2D;
+                // Calculate Shadow UV before transformations
+                v_shadowUV = worldPos / u_gridSize;
+                // Mirror/Stretch - Pivot around GRID center
                 vec2 gridCenter = u_gridSize * 0.5;
                 worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
                 worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
-                // Clip Space
-                vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
-                clip.y = -clip.y;
-                gl_Position = vec4(clip, 0.0, 1.0);
+                if (u_is3D > 0.5) {
+                    // 3D Mode (Infinite Volumetric Scroll)
+                    // 1. Calculate Relative Position (World - Camera)
+                    vec3 basePos = vec3(a_depth.x, a_depth.y, a_depth.z);
+                    vec3 diff = basePos - u_cameraPos;
+                    // 2. Wrap coordinates
+                    vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
+                    // 3. Reconstruct World Position
+                    vec3 finalPos = u_cameraPos + wrappedDiff;
+                    // 4. Apply Column Logic
+                    float charY = (u_resolution.y * 0.5) - worldPos.y;
+                    finalPos.y += charY;
+                    // --- CULLING ---
+                    float dist = length(finalPos - u_cameraPos);
+                    vec3 toObj = normalize(finalPos - u_cameraPos);
+                    float viewDot = dot(toObj, u_camForward);
+                    // Cull if behind camera (allow some margin)
+                    if (dist > 100.0 && viewDot < 0.4) {
+                        scale = 0.0;
+                    }
+                    // Soft Fade at Limit (Prevents Snapping)
+                    float limit = u_wrapSize.z * 0.5;
+                    float fade = 1.0 - smoothstep(limit * 0.7, limit * 0.95, dist);
+                    scale *= fade;
+                    if (scale < 0.01) scale = 0.0;
+                    // Quad local offset with Aspect Ratio Fix & Y-Flip
+                    vec2 aspectOffset = vec2(a_quad.x - 0.5, 0.5 - a_quad.y) * u_cellSize * u_cellScale * scale;
+                    // Fixed Orientation (2D Strips in 3D Space)
+                    // No rotation/billboarding - simple offsets in World Space
+                    vec3 vertexPos = finalPos;
+                    vertexPos.x += aspectOffset.x;
+                    vertexPos.y += aspectOffset.y;
+                    gl_Position = u_projection * u_view * vec4(vertexPos, 1.0);
+                    if (scale < 0.01) gl_Position = vec4(0.0); // Discard degenerate
+                } else {
+                    // 2D Mode (Legacy Clip Space)
+                    vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
+                    clip.y = -clip.y;
+                    gl_Position = vec4(clip, 0.0, 1.0);
+                }
                 // Pass Attributes
-                v_screenUV = clip * 0.5 + 0.5; // -1..1 -> 0..1
-                // v_screenUV.y = 1.0 - v_screenUV.y; // REMOVED: Match Texture Coords (0=Bottom, 1=Top)
+                vec3 ndc = gl_Position.xyz / gl_Position.w;
+                v_screenUV = ndc.xy * 0.5 + 0.5;
                 v_color = a_color;
                 v_color.a *= a_alpha;
                 v_mix = a_mix;
@@ -6524,6 +6736,7 @@ class WebGLRenderer {
                     ${varyingIn} float v_glow;
                     ${varyingIn} float v_prog;
                     ${varyingIn} vec2 v_screenUV;
+                    ${varyingIn} vec2 v_shadowUV;
                     uniform sampler2D u_texture;
                     uniform sampler2D u_shadowMask; // <-- New Input
                     uniform float u_time;
@@ -6571,7 +6784,7 @@ class WebGLRenderer {
                         bool isHighPriority = (v_mix >= 9.5);
                         float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
                         // Sample Shadow Mask
-                        float shadow = ${texture2D}(u_shadowMask, v_screenUV).a;
+                        float shadow = ${texture2D}(u_shadowMask, v_shadowUV).a;
                         // Sample Texture with Effects
                         float tex1 = getProcessedAlpha(v_uv);
                         vec4 baseColor = v_color;
@@ -6646,22 +6859,51 @@ class WebGLRenderer {
                         precision mediump float;
                         attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
-                        uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
+                        attribute vec3 a_depth;
+                        uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform vec2 u_cellScale; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
-                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
+                        uniform vec3 u_cameraPos; uniform vec3 u_camForward; uniform vec3 u_wrapSize; uniform float u_drawDistance;
+                        uniform float u_dissolveEnabled; uniform float u_dissolveScale;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         void main() {
                             float scale = 1.0;
                             v_prog = 0.0;
-                            if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
-                            vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
-                            vec2 worldPos = a_pos + centerPos;
+                            if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; if (u_dissolveEnabled > 0.5) scale = mix(1.0, u_dissolveScale, v_prog); }
+                            vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
+                            vec2 worldPos = a_pos + centerPos2D;
+                            v_shadowUV = worldPos / u_gridSize;
                             vec2 gridCenter = u_gridSize * 0.5;
                             worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
                             worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
                             if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
-                            vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
-                            gl_Position = vec4(clip, 0.0, 1.0);
-                            v_screenUV = clip * 0.5 + 0.5; // v_screenUV.y = 1.0 - v_screenUV.y; // Removed flip
+                            if (u_is3D > 0.5) {
+                                vec3 basePos = vec3(a_depth.x, a_depth.y, a_depth.z);
+                                vec3 diff = basePos - u_cameraPos;
+                                vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
+                                vec3 finalPos = u_cameraPos + wrappedDiff;
+                                float charY = (u_resolution.y * 0.5) - worldPos.y;
+                                finalPos.y += charY;
+                                float dist = length(finalPos - u_cameraPos);
+                                vec3 toObj = normalize(finalPos - u_cameraPos);
+                                float viewDot = dot(toObj, u_camForward);
+                                if (dist > 100.0 && viewDot < 0.4) { scale = 0.0; }
+                                float limit = u_wrapSize.z * 0.5;
+                                float fade = 1.0 - smoothstep(limit * 0.7, limit * 0.95, dist);
+                                scale *= fade;
+                                if (scale < 0.01) scale = 0.0;
+                                vec2 aspectOffset = vec2(a_quad.x - 0.5, 0.5 - a_quad.y) * u_cellSize * u_cellScale * scale;
+                                vec3 vertexPos = finalPos;
+                                vertexPos.x += aspectOffset.x;
+                                vertexPos.y += aspectOffset.y;
+                                gl_Position = u_projection * u_view * vec4(vertexPos, 1.0);
+                                if (scale < 0.01) gl_Position = vec4(0.0);
+                            } else {
+                                vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
+                                gl_Position = vec4(clip, 0.0, 1.0);
+                            }
+                            vec3 ndc = gl_Position.xyz / gl_Position.w;
+                            v_screenUV = ndc.xy * 0.5 + 0.5; 
                             v_color = a_color; v_color.a *= a_alpha; v_mix = a_mix; v_glow = a_glow;
                             float cIdx = a_charIdx; float row = floor(cIdx / u_cols); float col = mod(cIdx, u_cols);
                             vec2 uvBase = vec2(col, row) * u_cellSize; v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
@@ -6670,13 +6912,13 @@ class WebGLRenderer {
                      `;
                      finalFS = `
                         precision mediump float;
-                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         uniform sampler2D u_texture; uniform sampler2D u_shadowMask; uniform float u_time; uniform float u_dissolveEnabled; uniform float u_dissolveSize;
                         float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
                         void main() {
                             bool isHighPriority = (v_mix >= 9.5);
                             float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
-                            float shadow = texture2D(u_shadowMask, v_screenUV).a;
+                            float shadow = texture2D(u_shadowMask, v_shadowUV).a;
                             float tex1 = texture2D(u_texture, v_uv).a;
                             float finalAlpha = tex1;
                             if (useMix >= 3.0) { finalAlpha = 1.0; }
@@ -6814,6 +7056,22 @@ class WebGLRenderer {
         };
         // Static Position Buffer
         this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
+        // Depth Buffer (Static Instance) - Now Vec3 (WorldX, Y-Offset, BaseZ)
+        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 12, this.gl.STATIC_DRAW);
+        const depthData = new Float32Array(totalCells * 3);
+        // Generate random world positions for columns (Forest)
+        const colData = new Float32Array(this.grid.cols * 3);
+        const spreadX = 1000.0; // Increased density (narrower width)
+        const spreadZ = 3000.0; // Longer draw distance
+        const spreadY = 6000.0; // Vertical scatter range
+        for(let c=0; c<this.grid.cols; c++) {
+            // Random X
+            colData[c*3+0] = (Math.random() - 0.5) * spreadX; 
+            // Random Y Offset (Vertical Scatter)
+            colData[c*3+1] = (Math.random() - 0.5) * spreadY;
+            // Random Z
+            colData[c*3+2] = -(Math.random() * spreadZ); 
+        }
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
         const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
@@ -6822,8 +7080,15 @@ class WebGLRenderer {
              const row = Math.floor(i / this.grid.cols);
              posData[i*2] = col * cw + cw * 0.5 + xOff;
              posData[i*2+1] = row * ch + ch * 0.5 + yOff;
+             depthData[i*3+0] = colData[col*3+0];
+             depthData[i*3+1] = colData[col*3+1];
+             depthData[i*3+2] = colData[col*3+2];
         }
+        // Fix: Explicitly bind posBuffer before uploading posData
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, depthData);
         // Dynamic Buffers
         this.charBuffer = ensureBuf(this.charBuffer, totalCells * 2); // Uint16
         this.colorBuffer = ensureBuf(this.colorBuffer, totalCells * 4); // Uint32 (RGBA)
@@ -6891,6 +7156,11 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(8);
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
+        // 9: Depth (Static Instance, Vec3: X, Y-Offset, Z)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
+        this.gl.enableVertexAttribArray(9);
+        this.gl.vertexAttribPointer(9, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(9, 1);
         this.gl.bindVertexArray(null);
     }
     _drawFullscreenTexture(texture, opacity, blurAmt) {
@@ -7355,7 +7625,11 @@ class WebGLRenderer {
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
             this.gl.enableVertexAttribArray(0); 
             this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), 0, 0, 0, s.clearAlpha);
+            // Apply Background Color for Fade
+            const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+            const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+            const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         }
         // 2. Draw Cells
@@ -7381,6 +7655,51 @@ class WebGLRenderer {
         this.gl.uniform1i(this.gl.getUniformLocation(this.program, 'u_shadowMask'), 1);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+        // --- 3D Camera Update ---
+        this._updateCamera();
+        // Handle potentially stringified boolean from UI select
+        const isModeActive = (s.renderMode3D === true || s.renderMode3D === 'true');
+        const is3D = isModeActive ? 1.0 : 0.0;
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
+        // Pass infinite scroll uniforms
+        const wrapSizeX = 1000.0;
+        const wrapSizeY = 6000.0;
+        const wrapSizeZ = 3000.0;
+        // New Uniforms for Aspect Ratio and Culling
+        const cellScaleX = d.cellWidth / atlas.cellSize;
+        const cellScaleY = d.cellHeight / atlas.cellSize;
+        this.gl.uniform2f(this.gl.getUniformLocation(this.program, 'u_cellScale'), cellScaleX, cellScaleY);
+        const camFwdX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+        const camFwdY = Math.sin(this.camera.pitch);
+        const camFwdZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_camForward'), camFwdX, camFwdY, camFwdZ);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_drawDistance'), 3000.0);
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_cameraPos'), this.camera.x, this.camera.y, this.camera.z);
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_wrapSize'), wrapSizeX, wrapSizeY, wrapSizeZ);
+        if (isModeActive) {
+            const aspect = this.w / this.h;
+            const fov = 60 * Math.PI / 180;
+            // Perspective
+            const proj = this._makePerspective(fov, aspect, 1.0, 5000.0);
+            // Camera Pos
+            const camX = this.camera.x;
+            const camY = this.camera.y;
+            const camZ = this.camera.z;
+            // Look Direction
+            const lookDirX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+            const lookDirY = Math.sin(this.camera.pitch);
+            const lookDirZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+            const targetX = camX + lookDirX;
+            const targetY = camY + lookDirY;
+            const targetZ = camZ + lookDirZ;
+            const view = this._makeLookAt(camX, camY, camZ, targetX, targetY, targetZ, 0, 1, 0);
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, proj);
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, view);
+        } else {
+             const ident = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, ident);
+             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, ident);
+        }
         // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
         const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
         const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
@@ -7401,7 +7720,10 @@ class WebGLRenderer {
         // --- POST PROCESS (Bloom) ---
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-        this.gl.clearColor(0, 0, 0, 1);
+        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+        this.gl.clearColor(br, bg, bb, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
         const blurAmt = s.smoothingEnabled ? s.smoothingAmount : 0;
@@ -7453,6 +7775,106 @@ class WebGLRenderer {
                 }
             }
         }
+    }
+    _updateCamera() {
+        const isActive = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+        if (!isActive) return;
+        // --- 1. Input Processing (Blocked when menu is open) ---
+        if (!this._isMenuOpen()) {
+            // Mouse Look (Yaw/Pitch)
+            const fov = 60 * Math.PI / 180;
+            this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; 
+            this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
+            // Clamp Pitch
+            const pitchLimit = Math.PI / 2 - 0.1;
+            this.camera.pitch = Math.max(-pitchLimit, Math.min(pitchLimit, this.camera.pitch));
+        }
+        // --- 2. Physics & Position Update (Always runs) ---
+        // Calculate Forward Vector
+        const forwardX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+        const forwardY = Math.sin(this.camera.pitch);
+        const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+        // Apply constant forward flight (Fly Speed)
+        const speed = this.config.state.flySpeed || 15.0;
+        this.camera.x += forwardX * speed;
+        this.camera.y += forwardY * speed;
+        this.camera.z += forwardZ * speed;
+        // Strafe Logic with Momentum
+        const rightX = -forwardZ;
+        const rightZ = forwardX;
+        // Up Vector is roughly (0,1,0) for world strafe or relative? 
+        // Let's stick to simple World Y for Up/Down strafe to match previous feel
+        let accX = 0;
+        let accY = 0;
+        let accZ = 0;
+        // Input (Blocked if menu open)
+        if (!this._isMenuOpen()) {
+            const accel = 2.0; // Acceleration per frame
+            if (this.keys.ArrowUp) accY += accel;
+            if (this.keys.ArrowDown) accY -= accel;
+            if (this.keys.ArrowLeft) {
+                accX -= rightX * accel;
+                accZ -= rightZ * accel;
+            }
+            if (this.keys.ArrowRight) {
+                accX += rightX * accel;
+                accZ += rightZ * accel;
+            }
+        }
+        // Apply Acceleration to Velocity
+        this.camera.vx += accX;
+        this.camera.vy += accY;
+        this.camera.vz += accZ;
+        // Apply Friction
+        const friction = 0.90;
+        this.camera.vx *= friction;
+        this.camera.vy *= friction;
+        this.camera.vz *= friction;
+        // Slow-to-stop: Round down if velocity is negligible
+        if (Math.abs(this.camera.vx) < 0.05) this.camera.vx = 0;
+        if (Math.abs(this.camera.vy) < 0.05) this.camera.vy = 0;
+        if (Math.abs(this.camera.vz) < 0.05) this.camera.vz = 0;
+        // Apply Velocity to Position
+        this.camera.x += this.camera.vx;
+        this.camera.y += this.camera.vy;
+        this.camera.z += this.camera.vz;
+        // Clamp Y Position (Code Bounds)
+        const limitY = 3000.0; // Half of spreadY (2000)
+        this.camera.y = Math.max(-limitY, Math.min(limitY, this.camera.y));
+    }
+    _makePerspective(fov, aspect, near, far) {
+        const f = 1.0 / Math.tan(fov / 2);
+        const nf = 1 / (near - far);
+        return new Float32Array([
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) * nf, -1,
+            0, 0, (2 * far * near) * nf, 0
+        ]);
+    }
+    _makeLookAt(ex, ey, ez, tx, ty, tz, ux, uy, uz) {
+        const z0 = ex - tx, z1 = ey - ty, z2 = ez - tz;
+        let len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
+        const zx = z0 * len, zy = z1 * len, zz = z2 * len;
+        const x0 = uy * zz - uz * zy, x1 = uz * zx - ux * zz, x2 = ux * zy - uy * zx;
+        len = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2);
+        if (!len) {
+            // zero length vector
+            return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        }
+        len = 1 / len;
+        const xx = x0 * len, xy = x1 * len, xz = x2 * len;
+        const y0 = zy * xz - zz * xy, y1 = zz * xx - zx * xz, y2 = zx * xy - zy * xx;
+        // len = Math.sqrt(y0*y0 + y1*y1 + y2*y2); // Should be 1 already if up is normalized and perpendicular
+        // Just normalize to be safe
+        len = 1 / Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2);
+        const yx = y0 * len, yy = y1 * len, yz = y2 * len;
+        return new Float32Array([
+            xx, yx, zx, 0,
+            xy, yy, zy, 0,
+            xz, yz, zz, 0,
+            -(xx * ex + xy * ey + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1
+        ]);
     }
 }
 // --- SimulationSystem.js ---
@@ -7826,11 +8248,40 @@ class StreamManager {
         }
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
+        // In 3D Mode, the world is volumetric (spread over Z-axis).
+        // Increase spawn density proportionally to maintain visual fullness.
+        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
+        if (is3D) {
+            // Z-Spread is ~4000. Grid width is 3x.
+            // Adjust multiplier to balance density with the increased column count.
+            const multiplier = 10; 
+            streamCount *= multiplier;
+            eraserCount *= multiplier;
+        }
         for (let k = 0; k < columns.length; k++) {
             const col = columns[k];
             if (streamCount <= 0 && eraserCount <= 0) break;
             const spawnIdx = this.grid.getIndex(col, 0);
             let isTopBlocked = false;
+            // In 3D mode, columns overlap in screen space but are separated by depth.
+            // We should relax the "blocked" check or ignore it entirely for 3D?
+            // Actually, in 3D mode, `grid.decays` represents the state of that *specific logical column*.
+            // Since we reused the 2D grid structure (cols * rows) and just scattered them visually,
+            // "Blocking" still applies to the *same logical column*.
+            // If we have more streams than columns, we will run out of columns!
+            // Wait. The grid size is fixed (cols * rows).
+            // If we spawn 20x more streams, they can only occupy available columns.
+            // If we only have `cols` columns, we can't spawn more than `cols` streams active at the top at once.
+            // THE PROBLEM: The 3D effect scatters the *columns*, but the number of columns is still `grid.cols`.
+            // Increasing spawn count just makes us hit the "isTopBlocked" limit instantly.
+            // Solution: We need more *logical columns* in 3D mode to support the volume.
+            // But resizing the grid array is expensive and tied to screen width.
+            // If we want "more tracers", we might need to allow multiple streams per column? 
+            // No, the simulation logic assumes one state per cell.
+            // Real Solution: The Grid Resolution (cols) needs to be higher in 3D mode?
+            // Or we just accept that "more tracers" means "all columns are active more often".
+            // Let's proceed with increasing the count limit first. 
+            // It will ensure that we utilize every available column chance.
             if (spawnIdx !== -1) {
                 if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
                 if (this.grid.decays[spawnIdx] > 0) {
@@ -7843,7 +8294,7 @@ class StreamManager {
                 eraserCount--;
                 continue; 
             } 
-            else if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
+            else if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
                 // Cluster Logic: 10-20% chance to spawn a neighbor
@@ -7855,7 +8306,7 @@ class StreamManager {
                         let blockedN = false;
                         if (idxN !== -1 && this.grid.decays[idxN] > 0) blockedN = true;
                         const lastStreamN = this.lastStreamInColumn[neighbor];
-                        if (!blockedN && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
+                        if ((!blockedN || is3D) && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
                             this._spawnStreamAt(neighbor, false);
                             streamCount--;
                         }
@@ -7966,9 +8417,19 @@ class StreamManager {
         }
     }
     _handleStreamCompletion(stream) {
-        stream.active = false;
-        if (!stream.isEraser) {
-            this._spawnStreamAt(stream.x, true);
+        const s = this.config.state;
+        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
+        if (is3D && !stream.isEraser) {
+            // In 3D, recycle stream to top to maintain consistent density
+            stream.y = -1;
+            stream.age = 0;
+            stream.delay = 0;
+            stream.active = true;
+        } else {
+            stream.active = false;
+            if (!stream.isEraser) {
+                this._spawnStreamAt(stream.x, true);
+            }
         }
     }
     _spawnStreamAt(x, forceEraser) {
@@ -8024,7 +8485,10 @@ class StreamManager {
     }
     _initializeTracerStream(stream, s) {
         stream.len = this.grid.rows + 10; 
-        stream.visibleLen = this.grid.rows * 4; 
+        // Calculate required lifespan based on speed to ensure it reaches bottom
+        const travelDuration = stream.len * stream.tickInterval;
+        // Add buffer for decay visibility
+        stream.visibleLen = travelDuration + (this.grid.rows * 4);
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
         for (let i = 0; i < stream.len; i++) {
             if (Math.random() < s.holeRate) stream.holes.add(i);
@@ -9003,6 +9467,8 @@ class UIManager {
     _generateGlobalSettings() {
         return [
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
+            { cat: 'Global', id: 'renderMode3D', type: 'select', label: 'View Mode', options: [{label:'Classic 2D', value:false}, {label:'3D Perspective', value:true}] },
+            { cat: 'Global', id: 'backgroundColor', type: 'color', label: 'Background Color' },
             { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
             { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
             { cat: 'Global', id: 'colorMixType', type: 'range', label: 'Mix Type', min: 0, max: 1, step: 0.05, transform: v => v < 0.3 ? 'Stream Colors' : (v > 0.7 ? 'Character Colors' : 'Mixed'), description: "Controls whether colors are assigned per-stream or per-character." },
@@ -10286,7 +10752,8 @@ class UIManager {
                                 disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                             }
                         } else {
-                            inp.value = val;
+                            // Handle boolean values in select dropdowns correctly
+                            inp.value = String(val);
                         }
                     } 
                 }
@@ -10301,7 +10768,11 @@ class UIManager {
                         let target = rule; 
                         let expected = true; 
                         if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
-                        const actual = !!this.c.get(target); 
+                        // Handle boolean vs string "true"/"false" mismatch
+                        let actualVal = this.c.get(target);
+                        if (actualVal === 'true') actualVal = true;
+                        if (actualVal === 'false') actualVal = false;
+                        const actual = !!actualVal; 
                         if (actual !== expected) { conditionsMet = false; break; } 
                     }
                     if(conditionsMet) row.classList.remove('control-disabled'); 
@@ -10527,8 +10998,11 @@ class MatrixKernel {
      * @private
      */
     _resize() {
+        // In 3D mode, triple the horizontal resolution to provide more columns for scattering
+        const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+        const widthMult = is3D ? 3.0 : 1.0;
         this.grid.resize(
-            window.innerWidth / this.config.state.stretchX,
+            (window.innerWidth * widthMult) / this.config.state.stretchX,
             window.innerHeight / this.config.state.stretchY
         );
         this.renderer.resize();

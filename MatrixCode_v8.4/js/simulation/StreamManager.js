@@ -135,6 +135,14 @@ class StreamManager {
                 eraserCount--;
                 continue; 
             } 
+            // Upward Tracer Spawn Logic
+            else if (s.upwardTracerEnabled && Math.random() < s.upwardTracerChance) {
+                // Ensure we don't spawn if the column is busy with a just-spawned stream (optional, but good for clarity)
+                // Upward tracers can overlap anything, so we might not need strict gap checks against downward streams.
+                // But let's respect a minimal gap to avoid visual noise if desired.
+                this._spawnUpwardTracerAt(col);
+                continue;
+            }
             else if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false);
                 streamCount--;
@@ -175,6 +183,14 @@ class StreamManager {
         if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
         
         const lastStream = this.lastStreamInColumn[col];
+        
+        // In 3D mode, erasers must ONLY spawn on columns that have active tracers.
+        // Spawning on empty columns wastes the eraser count and fails to clear the visual clutter.
+        const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+        if (is3D) {
+            if (!lastStream || !lastStream.active || lastStream.isEraser) return false;
+        }
+
         if (lastStream && lastStream.active && !lastStream.isEraser) {
             if (this.config.state.allowTinyStreams) {
                 const s = this.config.state;
@@ -223,6 +239,25 @@ class StreamManager {
             
             stream.tickTimer = stream.tickInterval;
 
+            // Handle Upward Tracers (Scanners)
+            if (stream.isUpward) {
+                if (isReverse) {
+                    stream.y++; // Move down in reverse
+                    if (stream.y > rows + 5) {
+                        stream.active = false;
+                        continue;
+                    }
+                } else {
+                    stream.y--; // Move up in forward
+                    if (stream.y < -5) {
+                        stream.active = false;
+                        continue;
+                    }
+                }
+                this._writeHead(stream, frame);
+                continue; 
+            }
+
             if (isReverse) {
                 stream.y--;
                 
@@ -256,10 +291,13 @@ class StreamManager {
                         continue;
                     }
 
+                    // In 3D mode, ignore collision with existing trails to allow high density
+                    const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
                     const nextY = stream.y + 1;
                     if (nextY < rows) {
                         const nextIdx = grid.getIndex(stream.x, nextY);
-                        if (nextIdx !== -1 && decays[nextIdx] > 0) {
+                        // Only check for blockage if NOT in 3D mode
+                        if (!is3D && nextIdx !== -1 && decays[nextIdx] > 0) {
                             stream.active = false;
                             continue; 
                         }
@@ -360,7 +398,12 @@ class StreamManager {
 
     _initializeTracerStream(stream, s) {
         stream.len = this.grid.rows + 10; 
-        stream.visibleLen = this.grid.rows * 4; 
+        
+        // Calculate required lifespan based on speed to ensure it reaches bottom
+        const travelDuration = stream.len * stream.tickInterval;
+        // Add buffer for decay visibility
+        stream.visibleLen = travelDuration + (this.grid.rows * 4);
+
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
 
         for (let i = 0; i < stream.len; i++) {
@@ -380,6 +423,11 @@ class StreamManager {
     _writeHead(stream, frame) {
         const idx = this.grid.getIndex(stream.x, stream.y);
         if (idx === -1) return;
+
+        if (stream.isUpward) {
+            this._handleUpwardHead(idx, this.config.state);
+            return;
+        }
 
         if (stream.isEraser) {
             this._handleEraserHead(idx);
@@ -484,6 +532,51 @@ class StreamManager {
 
         } else {
             this.grid.clearCell(idx);
+        }
+    }
+
+    _spawnUpwardTracerAt(x) {
+        const s = this.config.state;
+        const stream = this._initializeUpwardTracerStream(x, s);
+        this.activeStreams.push(stream);
+        // We don't update lastStreamInColumn because upward tracers are non-blocking overlays
+    }
+
+    _initializeUpwardTracerStream(x, s) {
+        const baseTick = Math.max(1, 21 - s.streamSpeed);
+        // Apply speed multiplier (faster scanners look better)
+        const speedMult = s.upwardTracerSpeedMult || 1.5; 
+        const tickInterval = Math.max(1, baseTick / speedMult);
+
+        return {
+            x,
+            y: this.grid.rows + 2, // Start below bottom
+            active: true,
+            delay: 0,
+            age: 0,
+            len: 1, // Conceptually length 1 head
+            isUpward: true,
+            visibleLen: 1000, // Long life
+            mode: 'STANDARD',
+            tickInterval: tickInterval,
+            tickTimer: 0
+        };
+    }
+
+    _handleUpwardHead(idx, s) {
+        // Only interact if the cell is ACTIVE (has a character)
+        if (this.grid.state[idx] === CELL_STATE.ACTIVE) {
+            // Light it up!
+            this.grid.glows[idx] = s.upwardTracerGlow;
+            
+            // Boost brightness temporarily
+            this.grid.brightness[idx] = 2.0; 
+            
+            // Optional: Force color to tracer color?
+            // this.grid.colors[idx] = this.config.derived.tracerColorUint32;
+            
+            // Reset decay to keep it visible? 
+            // No, let it follow its natural lifecycle. Just flash the glow.
         }
     }
 }
