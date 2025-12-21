@@ -243,6 +243,7 @@ class ConfigurationManager {
             "ttlMaxSeconds": 8,
             "supermanIncludeColors": true,
             "renderingEngine": "canvas",
+            "renderMode3D": false,
             "dissolveMinSize": 19,
             "crashMovieFps": true
         };

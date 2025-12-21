@@ -84,6 +84,11 @@ class WebGLRenderer {
         this.mouseY = 0.5;
         this._setupMouseTracking();
 
+        // --- 3D Camera State ---
+        this.camera = { x: 0, y: 0, z: 1000, pitch: 0, yaw: 0 };
+        this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        this._setupKeyboardTracking();
+
         this._initShaders();
         this._initBuffers();
         this._initBloomBuffers();
@@ -131,6 +136,20 @@ class WebGLRenderer {
         };
         window.addEventListener('mousemove', this._mouseMoveHandler);
         window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
+    }
+
+    _setupKeyboardTracking() {
+        window.addEventListener('keydown', (e) => {
+            if (this.keys.hasOwnProperty(e.code)) {
+                this.keys[e.code] = true;
+                if(this.config.state.renderMode3D) e.preventDefault();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (this.keys.hasOwnProperty(e.code)) {
+                this.keys[e.code] = false;
+            }
+        });
     }
 
     _createShader(type, source) {
@@ -259,6 +278,10 @@ class WebGLRenderer {
             uniform vec2 u_stretch;
             uniform float u_mirror;
             
+            uniform mat4 u_projection;
+            uniform mat4 u_view;
+            uniform float u_is3D;
+
             uniform float u_dissolveEnabled;
             uniform float u_dissolveScale;
 
@@ -269,6 +292,7 @@ class WebGLRenderer {
             ${varying} float v_glow;
             ${varying} float v_prog;
             ${varying} vec2 v_screenUV; // For sampling Shadow Mask
+            ${varying} vec2 v_shadowUV; // NEW: Grid-space UV
 
             void main() {
                 // Decay Scale Logic
@@ -287,6 +311,9 @@ class WebGLRenderer {
                 vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
                 vec2 worldPos = a_pos + centerPos;
                 
+                // Calculate Shadow UV before transformations
+                v_shadowUV = worldPos / u_gridSize;
+                
                 // Mirror/Stretch - Pivot around GRID center, not screen center
                 vec2 gridCenter = u_gridSize * 0.5;
                 worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
@@ -294,14 +321,21 @@ class WebGLRenderer {
                 
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
 
-                // Clip Space
-                vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
-                clip.y = -clip.y;
-                gl_Position = vec4(clip, 0.0, 1.0);
+                if (u_is3D > 0.5) {
+                    // 3D Mode
+                    vec2 centered = worldPos - (u_resolution * 0.5);
+                    // Map Y to negative so it falls "down" in 3D space
+                    gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, 0.0, 1.0);
+                } else {
+                    // 2D Mode (Legacy Clip Space)
+                    vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
+                    clip.y = -clip.y;
+                    gl_Position = vec4(clip, 0.0, 1.0);
+                }
                 
                 // Pass Attributes
-                v_screenUV = clip * 0.5 + 0.5; // -1..1 -> 0..1
-                // v_screenUV.y = 1.0 - v_screenUV.y; // REMOVED: Match Texture Coords (0=Bottom, 1=Top)
+                vec3 ndc = gl_Position.xyz / gl_Position.w;
+                v_screenUV = ndc.xy * 0.5 + 0.5;
 
                 v_color = a_color;
                 v_color.a *= a_alpha;
@@ -338,6 +372,7 @@ class WebGLRenderer {
                     ${varyingIn} float v_glow;
                     ${varyingIn} float v_prog;
                     ${varyingIn} vec2 v_screenUV;
+                    ${varyingIn} vec2 v_shadowUV;
                     
                     uniform sampler2D u_texture;
                     uniform sampler2D u_shadowMask; // <-- New Input
@@ -397,7 +432,7 @@ class WebGLRenderer {
                         float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
         
                         // Sample Shadow Mask
-                        float shadow = ${texture2D}(u_shadowMask, v_screenUV).a;
+                        float shadow = ${texture2D}(u_shadowMask, v_shadowUV).a;
                         
                         // Sample Texture with Effects
                         float tex1 = getProcessedAlpha(v_uv);
@@ -492,20 +527,29 @@ class WebGLRenderer {
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
                         uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
-                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         void main() {
                             float scale = 1.0;
                             v_prog = 0.0;
                             if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; scale = max(0.1, 1.0 - v_prog); }
                             vec2 centerPos = (a_quad - 0.5) * u_cellSize * scale;
                             vec2 worldPos = a_pos + centerPos;
+                            v_shadowUV = worldPos / u_gridSize;
                             vec2 gridCenter = u_gridSize * 0.5;
                             worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
                             worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
                             if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
-                            vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
-                            gl_Position = vec4(clip, 0.0, 1.0);
-                            v_screenUV = clip * 0.5 + 0.5; // v_screenUV.y = 1.0 - v_screenUV.y; // Removed flip
+                            
+                            if (u_is3D > 0.5) {
+                                vec2 centered = worldPos - (u_resolution * 0.5);
+                                gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, 0.0, 1.0);
+                            } else {
+                                vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
+                                gl_Position = vec4(clip, 0.0, 1.0);
+                            }
+                            vec3 ndc = gl_Position.xyz / gl_Position.w;
+                            v_screenUV = ndc.xy * 0.5 + 0.5; 
                             v_color = a_color; v_color.a *= a_alpha; v_mix = a_mix; v_glow = a_glow;
                             float cIdx = a_charIdx; float row = floor(cIdx / u_cols); float col = mod(cIdx, u_cols);
                             vec2 uvBase = vec2(col, row) * u_cellSize; v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
@@ -514,14 +558,14 @@ class WebGLRenderer {
                      `;
                      finalFS = `
                         precision mediump float;
-                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         uniform sampler2D u_texture; uniform sampler2D u_shadowMask; uniform float u_time; uniform float u_dissolveEnabled; uniform float u_dissolveSize;
                         float random(vec2 st) { return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123); }
                         void main() {
                             bool isHighPriority = (v_mix >= 9.5);
                             float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
                             
-                            float shadow = texture2D(u_shadowMask, v_screenUV).a;
+                            float shadow = texture2D(u_shadowMask, v_shadowUV).a;
                             float tex1 = texture2D(u_texture, v_uv).a;
                             float finalAlpha = tex1;
                             if (useMix >= 3.0) { finalAlpha = 1.0; }
@@ -1376,6 +1420,35 @@ class WebGLRenderer {
         
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+
+        // --- 3D Camera Update ---
+        this._updateCamera();
+        const is3D = s.renderMode3D ? 1.0 : 0.0;
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
+        
+        if (s.renderMode3D) {
+            const aspect = this.w / this.h;
+            const fov = 60 * Math.PI / 180;
+            // Distance: Ensure we see the whole grid. 
+            // Grid is roughly centered at 0,0. Dimensions are approx w/h.
+            const dist = Math.max(this.w, this.h) * 1.2;
+            
+            const proj = this._makePerspective(fov, aspect, 1.0, 20000.0);
+            
+            // Orbit Camera Logic
+            const camX = dist * Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+            const camY = dist * Math.sin(this.camera.pitch);
+            const camZ = dist * Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+            
+            const view = this._makeLookAt(camX, camY, camZ, 0, 0, 0, 0, 1, 0);
+            
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, proj);
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, view);
+        } else {
+             const ident = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, ident);
+             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, ident);
+        }
         
         // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
         const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
@@ -1474,5 +1547,85 @@ class WebGLRenderer {
                 }
             }
         }
+    }
+
+    _updateCamera() {
+        if (!this.config.state.renderMode3D) return;
+
+        const speed = 10.0;
+        const rotSpeed = 0.02;
+
+        // Move camera based on keys (FPS style or orbit? "direction" -> maybe plane tilt or camera move)
+        // User said: "camera view will be simply moving forward through whatever code is falling"
+        // But also "user can use the up/down/left/right arrows on the keyboard to choose the direction"
+        // Let's interpret arrows as moving the camera's position relative to the code plane.
+        // Or rotating the view?
+        // Let's try Rotation (Orbit) or Pan.
+        // Given "viewed through a TV monitor", maybe we rotate around the code.
+        
+        // Let's go with:
+        // Left/Right = Yaw (Rotate around Y axis)
+        // Up/Down = Pitch (Rotate around X axis) or Zoom?
+        // Let's do simple translation for now as it's safer for "choose direction".
+        
+        // Actually, "moving forward through whatever code is falling" implies Z movement.
+        // But user wants arrows to choose direction. 
+        // Let's do:
+        // Up/Down: Move Camera Y
+        // Left/Right: Move Camera X
+        // And we just set a fixed Z for the camera.
+        
+        // Wait, "moving forward through" implies we are travelling deep into the code.
+        // Maybe the arrows control the angle of the "fall"?
+        
+        // Let's stick to a simple free camera for now.
+        // Arrows rotate the camera LookAt direction?
+        
+        if (this.keys.ArrowUp) this.camera.pitch -= rotSpeed;
+        if (this.keys.ArrowDown) this.camera.pitch += rotSpeed;
+        if (this.keys.ArrowLeft) this.camera.yaw -= rotSpeed;
+        if (this.keys.ArrowRight) this.camera.yaw += rotSpeed;
+        
+        // Clamp pitch
+        this.camera.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.pitch));
+    }
+
+    _makePerspective(fov, aspect, near, far) {
+        const f = 1.0 / Math.tan(fov / 2);
+        const nf = 1 / (near - far);
+        return new Float32Array([
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) * nf, -1,
+            0, 0, (2 * far * near) * nf, 0
+        ]);
+    }
+
+    _makeLookAt(ex, ey, ez, tx, ty, tz, ux, uy, uz) {
+        const z0 = ex - tx, z1 = ey - ty, z2 = ez - tz;
+        let len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
+        const zx = z0 * len, zy = z1 * len, zz = z2 * len;
+
+        const x0 = uy * zz - uz * zy, x1 = uz * zx - ux * zz, x2 = ux * zy - uy * zx;
+        len = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2);
+        if (!len) {
+            // zero length vector
+            return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        }
+        len = 1 / len;
+        const xx = x0 * len, xy = x1 * len, xz = x2 * len;
+
+        const y0 = zy * xz - zz * xy, y1 = zz * xx - zx * xz, y2 = zx * xy - zy * xx;
+        // len = Math.sqrt(y0*y0 + y1*y1 + y2*y2); // Should be 1 already if up is normalized and perpendicular
+        // Just normalize to be safe
+        len = 1 / Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2);
+        const yx = y0 * len, yy = y1 * len, yz = y2 * len;
+
+        return new Float32Array([
+            xx, yx, zx, 0,
+            xy, yy, zy, 0,
+            xz, yz, zz, 0,
+            -(xx * ex + xy * ey + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1
+        ]);
     }
 }
