@@ -421,11 +421,18 @@ class WebGLRenderer {
                     // Since a_depth.y is wrapped, the whole column wraps.
                     finalPos.y += charY;
                     
-                    // Quad local offset
+                    // Quad local offset (Size)
                     vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                     
-                    // Final 3D Pos
-                    gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y, finalPos.z, 1.0);
+                    // Billboarding Logic (Spherical):
+                    // 1. Transform Center Position to View Space
+                    vec4 viewPos = u_view * vec4(finalPos.x, -finalPos.y, finalPos.z, 1.0);
+                    
+                    // 2. Add Quad Offset in View Space (Camera Facing)
+                    viewPos.xy += quadOffset;
+                    
+                    // 3. Project
+                    gl_Position = u_projection * viewPos;
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -651,7 +658,11 @@ class WebGLRenderer {
                                 float charY = worldPos.y - (u_resolution.y * 0.5);
                                 finalPos.y += charY;
                                 vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
-                                gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y, finalPos.z, 1.0);
+                                
+                                // Billboarding
+                                vec4 viewPos = u_view * vec4(finalPos.x, -finalPos.y, finalPos.z, 1.0);
+                                viewPos.xy += quadOffset;
+                                gl_Position = u_projection * viewPos;
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
