@@ -1728,43 +1728,58 @@ class WebGLRenderer {
 
         // --- 2. Physics & Position Update (Always runs) ---
         
-        // Calculate Forward Vector (Direction we are looking)
+        // Calculate Forward Vector
         const forwardX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
         const forwardY = Math.sin(this.camera.pitch);
         const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
 
-        // Apply constant forward flight
+        // Apply constant forward flight (Fly Speed)
         const speed = this.config.state.flySpeed || 15.0;
         this.camera.x += forwardX * speed;
         this.camera.y += forwardY * speed;
         this.camera.z += forwardZ * speed;
 
-        // Strafe Input (Blocked when menu is open)
+        // Strafe Logic with Momentum
+        const rightX = -forwardZ;
+        const rightZ = forwardX;
+        // Up Vector is roughly (0,1,0) for world strafe or relative? 
+        // Let's stick to simple World Y for Up/Down strafe to match previous feel
+        
+        let accX = 0;
+        let accY = 0;
+        let accZ = 0;
+        
+        // Input (Blocked if menu open)
         if (!this._isMenuOpen()) {
-            const rightX = -forwardZ;
-            const rightZ = forwardX;
+            const accel = 2.0; // Acceleration per frame
             
-            let moveX = 0;
-            let moveY = 0;
-            let moveZ = 0;
-            
-            const strafeSpeed = 2.0;
-
-            if (this.keys.ArrowUp) moveY = 1;
-            if (this.keys.ArrowDown) moveY = -1;
+            if (this.keys.ArrowUp) accY += accel;
+            if (this.keys.ArrowDown) accY -= accel;
             if (this.keys.ArrowLeft) {
-                moveX -= rightX;
-                moveZ -= rightZ;
+                accX -= rightX * accel;
+                accZ -= rightZ * accel;
             }
             if (this.keys.ArrowRight) {
-                moveX += rightX;
-                moveZ += rightZ;
+                accX += rightX * accel;
+                accZ += rightZ * accel;
             }
-
-            this.camera.x += moveX * strafeSpeed;
-            this.camera.y += moveY * strafeSpeed;
-            this.camera.z += moveZ * strafeSpeed;
         }
+
+        // Apply Acceleration to Velocity
+        this.camera.vx += accX;
+        this.camera.vy += accY;
+        this.camera.vz += accZ;
+
+        // Apply Friction
+        const friction = 0.90;
+        this.camera.vx *= friction;
+        this.camera.vy *= friction;
+        this.camera.vz *= friction;
+
+        // Apply Velocity to Position
+        this.camera.x += this.camera.vx;
+        this.camera.y += this.camera.vy;
+        this.camera.z += this.camera.vz;
     }
 
     _makePerspective(fov, aspect, near, far) {
