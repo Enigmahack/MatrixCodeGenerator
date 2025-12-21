@@ -79,12 +79,47 @@ class StreamManager {
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
 
+        // In 3D Mode, the world is volumetric (spread over Z-axis).
+        // Increase spawn density proportionally to maintain visual fullness.
+        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
+        if (is3D) {
+            // Z-Spread is ~4000. Normal depth is effectively "1 layer".
+            // A multiplier of 15-20x feels appropriate for this depth.
+            const multiplier = 15; 
+            streamCount *= multiplier;
+            eraserCount *= multiplier;
+        }
+
         for (let k = 0; k < columns.length; k++) {
             const col = columns[k];
             if (streamCount <= 0 && eraserCount <= 0) break;
 
             const spawnIdx = this.grid.getIndex(col, 0);
             let isTopBlocked = false;
+            
+            // In 3D mode, columns overlap in screen space but are separated by depth.
+            // We should relax the "blocked" check or ignore it entirely for 3D?
+            // Actually, in 3D mode, `grid.decays` represents the state of that *specific logical column*.
+            // Since we reused the 2D grid structure (cols * rows) and just scattered them visually,
+            // "Blocking" still applies to the *same logical column*.
+            // If we have more streams than columns, we will run out of columns!
+            
+            // Wait. The grid size is fixed (cols * rows).
+            // If we spawn 20x more streams, they can only occupy available columns.
+            // If we only have `cols` columns, we can't spawn more than `cols` streams active at the top at once.
+            // THE PROBLEM: The 3D effect scatters the *columns*, but the number of columns is still `grid.cols`.
+            // Increasing spawn count just makes us hit the "isTopBlocked" limit instantly.
+            
+            // Solution: We need more *logical columns* in 3D mode to support the volume.
+            // But resizing the grid array is expensive and tied to screen width.
+            // If we want "more tracers", we might need to allow multiple streams per column? 
+            // No, the simulation logic assumes one state per cell.
+            
+            // Real Solution: The Grid Resolution (cols) needs to be higher in 3D mode?
+            // Or we just accept that "more tracers" means "all columns are active more often".
+            
+            // Let's proceed with increasing the count limit first. 
+            // It will ensure that we utilize every available column chance.
             
             if (spawnIdx !== -1) {
                 if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
@@ -95,6 +130,10 @@ class StreamManager {
 
             const lastStream = this.lastStreamInColumn[col];
 
+            // In 3D, we might want to allow tighter vertical stacking (ignore gaps)?
+            // Let's reduce gap requirements in 3D slightly to pack them in.
+            // Or rely on the multiplier.
+            
             if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, true);
                 eraserCount--;
