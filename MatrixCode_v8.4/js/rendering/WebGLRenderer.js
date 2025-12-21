@@ -130,14 +130,59 @@ class WebGLRenderer {
         }
     }
 
+    _isMenuOpen() {
+        const panel = document.getElementById('settingsPanel');
+        return panel && panel.classList.contains('open');
+    }
+
     _setupMouseTracking() {
+        // Click to capture pointer in 3D mode
+        this.cvs.addEventListener('mousedown', () => {
+            const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+            if (is3D && !this._isMenuOpen()) {
+                this.cvs.requestPointerLock();
+            }
+        });
+
         this._mouseMoveHandler = (e) => {
-            const rect = this.cvs.getBoundingClientRect();
-            this.mouseX = (e.clientX - rect.left) / rect.width;
-            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            if (this._isMenuOpen()) return;
+
+            // If pointer is locked, use delta movement for infinite turning
+            if (document.pointerLockElement === this.cvs) {
+                // Normalize delta relative to screen size to keep sensitivity consistent
+                // Accumulate directly into mouseX/Y but wrap/clamp isn't strictly needed for the look logic 
+                // since we map it to angles in _updateCamera. 
+                // However, our _updateCamera expects 0..1 values currently.
+                // Let's adapt _updateCamera to handle continuous accumulation or modify this to update yaw/pitch directly.
+                
+                // Better approach: Pass deltas to a tracking object, or accumulate virtual mouse coordinates.
+                // Let's simply add the delta to the existing 0..1 mouseX/Y, allowing them to go <0 or >1.
+                // The camera logic uses (mouseX - 0.5) * Scale.
+                // So if mouseX keeps growing, Yaw keeps rotating. This is perfect for infinite turning.
+                
+                const sensitivity = 0.002;
+                this.mouseX += e.movementX * sensitivity;
+                this.mouseY += e.movementY * sensitivity;
+                
+                // Clamp Pitch (Y) to prevent flipping over (optional, but good for FPS feel)
+                // Let's leave Y unclamped here and let _updateCamera handle pitch clamping if needed, 
+                // or just let it spin if that's the desired "fly" feel. 
+                // Standard FPS clamps pitch.
+                
+            } else {
+                // Fallback for 2D or unlocked 3D (standard cursor tracking)
+                const rect = this.cvs.getBoundingClientRect();
+                this.mouseX = (e.clientX - rect.left) / rect.width;
+                this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            }
         };
         this._touchMoveHandler = (e) => {
-            if (e.touches.length > 0) this._mouseMoveHandler(e.touches[0]);
+            if (this._isMenuOpen()) return;
+            if (e.touches.length > 0) {
+                const rect = this.cvs.getBoundingClientRect();
+                this.mouseX = (e.clientX - rect.left) / rect.width;
+                this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
+            }
         };
         window.addEventListener('mousemove', this._mouseMoveHandler);
         window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
@@ -159,6 +204,7 @@ class WebGLRenderer {
 
     _setupScrollTracking() {
         window.addEventListener('wheel', (e) => {
+            if (this._isMenuOpen()) return;
             if (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true') {
                 e.preventDefault();
                 // Scroll Up (Negative Delta) -> Increase Speed
@@ -1664,6 +1710,9 @@ class WebGLRenderer {
     _updateCamera() {
         const isActive = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
         if (!isActive) return;
+        
+        // Block updates if menu is open
+        if (this._isMenuOpen()) return;
 
         // Fly-Through Physics
         const friction = 0.95;
@@ -1671,8 +1720,12 @@ class WebGLRenderer {
         // Mouse Look (Yaw/Pitch)
         // Map mouse 0..1 to Angles
         const fov = 60 * Math.PI / 180;
-        this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; // Increased sensitivity
+        this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; 
         this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
+        
+        // Clamp Pitch to avoid gimbal lock/flipping
+        const pitchLimit = Math.PI / 2 - 0.1;
+        this.camera.pitch = Math.max(-pitchLimit, Math.min(pitchLimit, this.camera.pitch));
 
         // Calculate Forward Vector (Direction we are looking)
         // Note: Initial view is -Z. 
