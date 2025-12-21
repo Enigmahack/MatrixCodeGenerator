@@ -89,7 +89,7 @@ class WebGLRenderer {
         // x,y,z = World Position
         // vx,vy,vz = Velocity
         this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, pitch: 0, yaw: 0 };
-        this.flySpeed = 15.0; // Default Fly Speed
+        // flySpeed is now managed by config.state.flySpeed
         this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
         this._setupKeyboardTracking();
         this._setupScrollTracking();
@@ -210,10 +210,13 @@ class WebGLRenderer {
                 // Scroll Up (Negative Delta) -> Increase Speed
                 // Scroll Down (Positive Delta) -> Decrease Speed
                 const delta = e.deltaY * -0.05; 
-                this.flySpeed += delta;
+                let newSpeed = (this.config.state.flySpeed || 15.0) + delta;
                 
                 // Clamp speed reasonably (e.g. -50 to 100)
-                this.flySpeed = Math.max(-50.0, Math.min(100.0, this.flySpeed));
+                newSpeed = Math.max(-50.0, Math.min(100.0, newSpeed));
+                
+                // Save to config (updates profile automatically via ConfigurationManager logic)
+                this.config.set('flySpeed', newSpeed);
             }
         }, { passive: false });
     }
@@ -1735,9 +1738,10 @@ class WebGLRenderer {
         const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
 
         // Apply constant forward flight
-        this.camera.x += forwardX * this.flySpeed;
-        this.camera.y += forwardY * this.flySpeed;
-        this.camera.z += forwardZ * this.flySpeed;
+        const speed = this.config.state.flySpeed || 15.0;
+        this.camera.x += forwardX * speed;
+        this.camera.y += forwardY * speed;
+        this.camera.z += forwardZ * speed;
 
         // Strafe Input (Arrows) relative to View
         // Right Vector = Cross(Forward, Up)
