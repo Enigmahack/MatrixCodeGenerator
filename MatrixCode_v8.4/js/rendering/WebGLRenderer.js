@@ -89,8 +89,10 @@ class WebGLRenderer {
         // x,y = strafe position, z = forward travel distance
         // vx,vy = current strafe velocity
         this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0 };
+        this.flySpeed = 15.0; // Default Fly Speed
         this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
         this._setupKeyboardTracking();
+        this._setupScrollTracking();
 
         this._initShaders();
         this._initBuffers();
@@ -153,6 +155,21 @@ class WebGLRenderer {
                 this.keys[e.code] = false;
             }
         });
+    }
+
+    _setupScrollTracking() {
+        window.addEventListener('wheel', (e) => {
+            if (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true') {
+                e.preventDefault();
+                // Scroll Up (Negative Delta) -> Increase Speed
+                // Scroll Down (Positive Delta) -> Decrease Speed
+                const delta = e.deltaY * -0.05; 
+                this.flySpeed += delta;
+                
+                // Clamp speed reasonably (e.g. -50 to 100)
+                this.flySpeed = Math.max(-50.0, Math.min(100.0, this.flySpeed));
+            }
+        }, { passive: false });
     }
 
     _createShader(type, source) {
@@ -1649,7 +1666,7 @@ class WebGLRenderer {
         const friction = 0.95;
 
         // Forward motion: Move positive Z effectively (shader logic will wrap)
-        this.camera.z += 15.0; 
+        this.camera.z += this.flySpeed; 
 
         // Mouse Look (Yaw/Pitch)
         // Map mouse 0..1 to Angles
