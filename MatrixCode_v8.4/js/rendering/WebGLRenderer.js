@@ -86,9 +86,9 @@ class WebGLRenderer {
         this._setupMouseTracking();
 
         // --- 3D Camera State ---
-        // x,y = strafe position, z = forward travel distance
-        // vx,vy = current strafe velocity
-        this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0 };
+        // x,y,z = World Position
+        // vx,vy,vz = Velocity
+        this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, pitch: 0, yaw: 0 };
         this.flySpeed = 15.0; // Default Fly Speed
         this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
         this._setupKeyboardTracking();
@@ -288,7 +288,7 @@ class WebGLRenderer {
             layout(location=6) ${attribute} float a_glow;     // Glow Amount
             layout(location=7) ${attribute} float a_mix;      // Mix Factor
             layout(location=8) ${attribute} float a_nextChar; // Next Char Index
-            layout(location=9) ${attribute} vec2 a_depth;     // World X, Base Z
+            layout(location=9) ${attribute} vec3 a_depth;     // World X, Y-Offset, Base Z
 
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
@@ -304,8 +304,8 @@ class WebGLRenderer {
             uniform float u_is3D;
             
             // New uniforms for infinite scroll
-            uniform float u_cameraZ;
-            uniform float u_depthRange;
+            uniform vec3 u_cameraPos;
+            uniform vec3 u_wrapSize; // X, Y, Z dimensions of forest
 
             uniform float u_dissolveEnabled;
             uniform float u_dissolveScale;
@@ -347,36 +347,36 @@ class WebGLRenderer {
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
 
                 if (u_is3D > 0.5) {
-                    // 3D Mode (Infinite Scroll + Scatter)
-                    // a_depth.x = World X Position
-                    // a_depth.y = Base Z Depth
+                    // 3D Mode (Infinite Volumetric Scroll)
+                    // a_depth = Base World Position (X, Y-Offset, Z)
                     
-                    // Logic: Objects approach from -Range to 0.
-                    // If u_cameraZ increases (move forward), objects appear to move +Z relative to cam.
-                    float relZ = a_depth.y + u_cameraZ; 
-                    float wrappedZ = mod(relZ, u_depthRange);
+                    // 1. Calculate Relative Position (World - Camera)
+                    vec3 basePos = vec3(a_depth.x, a_depth.y, a_depth.z);
+                    vec3 diff = basePos - u_cameraPos;
                     
-                    // Final Z: Map 0..Range to -Range..0
-                    float finalZ = -u_depthRange + wrappedZ; 
+                    // 2. Wrap coordinates to keep cells within u_wrapSize box centered on camera
+                    vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
                     
-                    // We use the scattered X, but keep Y relative to screen center or grid center?
-                    // a_pos.y is 0..H. Let's center Y too.
-                    float centeredY = worldPos.y - (u_resolution.y * 0.5);
+                    // 3. Reconstruct World Position
+                    vec3 finalPos = u_cameraPos + wrappedDiff;
                     
-                    // Construct 3D World Pos
-                    // X = Scattered X + Quad Offset
-                    // Y = Centered Y + Quad Offset
+                    // 4. Apply Column Logic (Vertical Characters)
+                    // Y: We need to respect the character's vertical position within the column (worldPos.y)
+                    // But we also want to wrap Y if the camera goes up/down too far.
+                    // The a_depth.y gives us a random column offset.
+                    // worldPos.y is 0..ScreenHeight.
+                    // Let's center worldPos.y
+                    float charY = worldPos.y - (u_resolution.y * 0.5);
                     
-                    // Re-calculate centerPos relative to cell center
-                    // We can just add centerPos to the scattered world center?
-                    // worldPos already includes centerPos.
-                    // We need to strip the 2D grid X and replace it.
+                    // Combined Y: Column Base Y + Character Y
+                    // Since a_depth.y is wrapped, the whole column wraps.
+                    finalPos.y += charY;
                     
                     // Quad local offset
                     vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                     
                     // Final 3D Pos
-                    gl_Position = u_projection * u_view * vec4(a_depth.x + quadOffset.x, -centeredY, finalZ, 1.0);
+                    gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y, finalPos.z, 1.0);
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -576,11 +576,11 @@ class WebGLRenderer {
                         precision mediump float;
                         attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
-                        attribute vec2 a_depth;
+                        attribute vec3 a_depth;
                         uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
                         uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
-                        uniform float u_cameraZ; uniform float u_depthRange;
+                        uniform vec3 u_cameraPos; uniform vec3 u_wrapSize;
                         varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
                         void main() {
                             float scale = 1.0;
@@ -595,12 +595,14 @@ class WebGLRenderer {
                             if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
                             
                             if (u_is3D > 0.5) {
-                                float relZ = a_depth.y + u_cameraZ;
-                                float wrappedZ = mod(relZ, u_depthRange);
-                                float finalZ = -u_depthRange + wrappedZ;
-                                float centeredY = worldPos.y - (u_resolution.y * 0.5);
+                                vec3 basePos = vec3(a_depth.x, a_depth.y, a_depth.z);
+                                vec3 diff = basePos - u_cameraPos;
+                                vec3 wrappedDiff = mod(diff + u_wrapSize * 0.5, u_wrapSize) - u_wrapSize * 0.5;
+                                vec3 finalPos = u_cameraPos + wrappedDiff;
+                                float charY = worldPos.y - (u_resolution.y * 0.5);
+                                finalPos.y += charY;
                                 vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
-                                gl_Position = u_projection * u_view * vec4(a_depth.x + quadOffset.x, -centeredY, finalZ, 1.0);
+                                gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y, finalPos.z, 1.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
@@ -789,19 +791,23 @@ class WebGLRenderer {
         // Static Position Buffer
         this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
         
-        // Depth Buffer (Static Instance) - Now Vec2 (WorldX, BaseZ)
-        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 8, this.gl.STATIC_DRAW);
-        const depthData = new Float32Array(totalCells * 2);
+        // Depth Buffer (Static Instance) - Now Vec3 (WorldX, Y-Offset, BaseZ)
+        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 12, this.gl.STATIC_DRAW);
+        const depthData = new Float32Array(totalCells * 3);
         
         // Generate random world positions for columns (Forest)
-        const colData = new Float32Array(this.grid.cols * 2);
-        const spreadX = 3000.0; // Tighten spread to increase density
+        const colData = new Float32Array(this.grid.cols * 3);
+        const spreadX = 4000.0; 
+        const spreadZ = 4000.0;
+        const spreadY = 2000.0; // Vertical scatter range
         
         for(let c=0; c<this.grid.cols; c++) {
-            // Random X: Spread nicely but keep streams intact
-            colData[c*2+0] = (Math.random() - 0.5) * spreadX; 
-            // Random Z: Depth
-            colData[c*2+1] = -(Math.random() * 3000.0); 
+            // Random X
+            colData[c*3+0] = (Math.random() - 0.5) * spreadX; 
+            // Random Y Offset (Vertical Scatter)
+            colData[c*3+1] = (Math.random() - 0.5) * spreadY;
+            // Random Z
+            colData[c*3+2] = -(Math.random() * spreadZ); 
         }
 
         const posData = new Float32Array(totalCells * 2);
@@ -813,8 +819,9 @@ class WebGLRenderer {
              posData[i*2] = col * cw + cw * 0.5 + xOff;
              posData[i*2+1] = row * ch + ch * 0.5 + yOff;
              
-             depthData[i*2+0] = colData[col*2+0];
-             depthData[i*2+1] = colData[col*2+1];
+             depthData[i*3+0] = colData[col*3+0];
+             depthData[i*3+1] = colData[col*3+1];
+             depthData[i*3+2] = colData[col*3+2];
         }
         
         // Fix: Explicitly bind posBuffer before uploading posData
@@ -905,10 +912,10 @@ class WebGLRenderer {
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
 
-        // 9: Depth (Static Instance, Vec2: X, Z)
+        // 9: Depth (Static Instance, Vec3: X, Y-Offset, Z)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
         this.gl.enableVertexAttribArray(9);
-        this.gl.vertexAttribPointer(9, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribPointer(9, 3, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(9, 1);
 
         this.gl.bindVertexArray(null);
@@ -1517,26 +1524,26 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
         
         // Pass infinite scroll uniforms
-        const depthRange = 2500.0;
-        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cameraZ'), this.camera.z);
-        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_depthRange'), depthRange);
+        const wrapSizeX = 4000.0;
+        const wrapSizeY = 2000.0;
+        const wrapSizeZ = 4000.0;
+        
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_cameraPos'), this.camera.x, this.camera.y, this.camera.z);
+        this.gl.uniform3f(this.gl.getUniformLocation(this.program, 'u_wrapSize'), wrapSizeX, wrapSizeY, wrapSizeZ);
         
         if (isModeActive) {
             const aspect = this.w / this.h;
             const fov = 60 * Math.PI / 180;
             
             // Perspective
-            const proj = this._makePerspective(fov, aspect, 1.0, depthRange + 1000.0);
+            const proj = this._makePerspective(fov, aspect, 1.0, 5000.0);
             
             // Camera Pos
             const camX = this.camera.x;
             const camY = this.camera.y;
-            const camZ = 0; 
+            const camZ = this.camera.z;
             
-            // Look Direction (Spherical Coordinates)
-            // Initial view is towards -Z (0,0,-1)
-            // Yaw rotates around Y, Pitch around X
-            
+            // Look Direction
             const lookDirX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
             const lookDirY = Math.sin(this.camera.pitch);
             const lookDirZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
@@ -1659,47 +1666,58 @@ class WebGLRenderer {
         if (!isActive) return;
 
         // Fly-Through Physics
-        const maxSpeed = 30.0;
-        const accelTime = 0.5; 
-        const fps = 60;
-        const accelPerFrame = maxSpeed / (accelTime * fps);
         const friction = 0.95;
-
-        // Forward motion: Move positive Z effectively (shader logic will wrap)
-        this.camera.z += this.flySpeed; 
 
         // Mouse Look (Yaw/Pitch)
         // Map mouse 0..1 to Angles
         const fov = 60 * Math.PI / 180;
-        // Scale mouse input for sensitivity
-        this.camera.yaw = (this.mouseX - 0.5) * fov * 2.5; 
-        this.camera.pitch = (this.mouseY - 0.5) * fov * 1.5;
+        this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; // Increased sensitivity
+        this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
 
-        // Strafe Input (Arrows)
-        // Up/Down = Y Axis
-        // Left/Right = X Axis
+        // Calculate Forward Vector (Direction we are looking)
+        // Note: Initial view is -Z. 
+        // Yaw rotates around Y. Pitch rotates around X (local).
+        const forwardX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+        const forwardY = Math.sin(this.camera.pitch);
+        const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+
+        // Apply constant forward flight
+        this.camera.x += forwardX * this.flySpeed;
+        this.camera.y += forwardY * this.flySpeed;
+        this.camera.z += forwardZ * this.flySpeed;
+
+        // Strafe Input (Arrows) relative to View
+        // Right Vector = Cross(Forward, Up)
+        // Up is (0,1,0) world up
+        // Right = Cross((fx,fy,fz), (0,1,0)) = (-fz, 0, fx) normalized
         
-        let tx = 0;
-        let ty = 0;
-        if (this.keys.ArrowUp) ty = 1; // Up moves Camera Up (Y+)
-        if (this.keys.ArrowDown) ty = -1;
-        if (this.keys.ArrowLeft) tx = -1;
-        if (this.keys.ArrowRight) tx = 1;
-
-        // Apply Acceleration
-        if (tx !== 0) this.camera.vx += tx * accelPerFrame;
-        else this.camera.vx *= friction;
+        // Simplified strafe (just X/Z plane mostly)
+        const rightX = -forwardZ;
+        const rightZ = forwardX;
         
-        if (ty !== 0) this.camera.vy += ty * accelPerFrame;
-        else this.camera.vy *= friction;
+        // Up Vector (Camera Up)
+        // Cross(Right, Forward)
+        
+        let moveX = 0;
+        let moveY = 0;
+        let moveZ = 0;
+        
+        const strafeSpeed = 2.0;
 
-        // Clamp Velocity
-        this.camera.vx = Math.max(-maxSpeed, Math.min(maxSpeed, this.camera.vx));
-        this.camera.vy = Math.max(-maxSpeed, Math.min(maxSpeed, this.camera.vy));
+        if (this.keys.ArrowUp) moveY = 1; // Global Up
+        if (this.keys.ArrowDown) moveY = -1;
+        if (this.keys.ArrowLeft) {
+            moveX -= rightX;
+            moveZ -= rightZ;
+        }
+        if (this.keys.ArrowRight) {
+            moveX += rightX;
+            moveZ += rightZ;
+        }
 
-        // Apply Velocity
-        this.camera.x += this.camera.vx;
-        this.camera.y += this.camera.vy;
+        this.camera.x += moveX * strafeSpeed;
+        this.camera.y += moveY * strafeSpeed;
+        this.camera.z += moveZ * strafeSpeed;
     }
 
     _makePerspective(fov, aspect, near, far) {
