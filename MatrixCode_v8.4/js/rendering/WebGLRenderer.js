@@ -334,9 +334,13 @@ class WebGLRenderer {
                     // a_depth.x = World X Position
                     // a_depth.y = Base Z Depth
                     
+                    // Logic: Objects approach from -Range to 0.
+                    // If u_cameraZ increases (move forward), objects appear to move +Z relative to cam.
                     float relZ = a_depth.y + u_cameraZ; 
                     float wrappedZ = mod(relZ, u_depthRange);
-                    float finalZ = -wrappedZ; 
+                    
+                    // Final Z: Map 0..Range to -Range..0
+                    float finalZ = -u_depthRange + wrappedZ; 
                     
                     // We use the scattered X, but keep Y relative to screen center or grid center?
                     // a_pos.y is 0..H. Let's center Y too.
@@ -576,7 +580,7 @@ class WebGLRenderer {
                             if (u_is3D > 0.5) {
                                 float relZ = a_depth.y + u_cameraZ;
                                 float wrappedZ = mod(relZ, u_depthRange);
-                                float finalZ = -wrappedZ;
+                                float finalZ = -u_depthRange + wrappedZ;
                                 float centeredY = worldPos.y - (u_resolution.y * 0.5);
                                 vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                                 gl_Position = u_projection * u_view * vec4(a_depth.x + quadOffset.x, -centeredY, finalZ, 1.0);
@@ -774,7 +778,7 @@ class WebGLRenderer {
         
         // Generate random world positions for columns (Forest)
         const colData = new Float32Array(this.grid.cols * 2);
-        const spreadX = 5000.0; // Total width of the forest
+        const spreadX = 3000.0; // Tighten spread to increase density
         
         for(let c=0; c<this.grid.cols; c++) {
             // Random X: Spread nicely but keep streams intact
@@ -1491,7 +1495,7 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
         
         // Pass infinite scroll uniforms
-        const depthRange = 2000.0;
+        const depthRange = 2500.0;
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cameraZ'), this.camera.z);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_depthRange'), depthRange);
         
@@ -1499,26 +1503,27 @@ class WebGLRenderer {
             const aspect = this.w / this.h;
             const fov = 60 * Math.PI / 180;
             
-            // Perspective: Far plane needs to cover the wrap distance
-            const proj = this._makePerspective(fov, aspect, 1.0, depthRange + 500.0);
+            // Perspective
+            const proj = this._makePerspective(fov, aspect, 1.0, depthRange + 1000.0);
             
-            // Fly-Through Camera:
-            // Camera is at (camX, camY, 0) in View Space relative to the scrolling world.
-            // Actually, we are scrolling the world Z in the shader relative to camera Z.
-            // So View Matrix just needs to handle X/Y strafing.
-            // We invert camera position for the view matrix translation.
-            
-            // To simulate "flying through", we move the camera position.
-            // The shader handles the Z-wrapping relative to this Z.
-            // We just need to position the camera at (cam.x, cam.y, 0) effectively, 
-            // but since we are looking DOWN the -Z axis, let's just use LookAt.
-            
+            // Camera Pos
             const camX = this.camera.x;
             const camY = this.camera.y;
-            const camZ = 0; // We handle Z travel in shader via u_cameraZ wrapping
+            const camZ = 0; 
             
-            // Look forward (towards -Z)
-            const view = this._makeLookAt(camX, camY, camZ, camX, camY, -100, 0, 1, 0);
+            // Look Direction (Spherical Coordinates)
+            // Initial view is towards -Z (0,0,-1)
+            // Yaw rotates around Y, Pitch around X
+            
+            const lookDirX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
+            const lookDirY = Math.sin(this.camera.pitch);
+            const lookDirZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
+            
+            const targetX = camX + lookDirX;
+            const targetY = camY + lookDirY;
+            const targetZ = camZ + lookDirZ;
+            
+            const view = this._makeLookAt(camX, camY, camZ, targetX, targetY, targetZ, 0, 1, 0);
             
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_projection'), false, proj);
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, 'u_view'), false, view);
@@ -1632,38 +1637,38 @@ class WebGLRenderer {
 
         // Fly-Through Physics
         const maxSpeed = 30.0;
-        const accelTime = 0.5; // seconds to max speed
+        const accelTime = 0.5; 
         const fps = 60;
         const accelPerFrame = maxSpeed / (accelTime * fps);
-        const friction = 0.95; // Slide friction
+        const friction = 0.95;
 
-        // Forward motion (constant)
-        this.camera.z += 10.0; // Fly speed
+        // Forward motion: Move positive Z effectively (shader logic will wrap)
+        this.camera.z += 15.0; 
+
+        // Mouse Look (Yaw/Pitch)
+        // Map mouse 0..1 to Angles
+        const fov = 60 * Math.PI / 180;
+        // Scale mouse input for sensitivity
+        this.camera.yaw = (this.mouseX - 0.5) * fov * 2.5; 
+        this.camera.pitch = (this.mouseY - 0.5) * fov * 1.5;
 
         // Strafe Input (Arrows)
-        // Up/Down = Y Axis (Standard 2D coordinates: Up is -Y in typical screen, but let's invert for 'pilot' feel?)
-        // User: "Up/Down... choose direction". Usually Up = Go Up (Screen Y-).
-        // Let's map Up Arrow -> Decrease Y (Go Up on screen).
+        // Up/Down = Y Axis
+        // Left/Right = X Axis
         
         let tx = 0;
         let ty = 0;
-        if (this.keys.ArrowUp) ty = -1;
-        if (this.keys.ArrowDown) ty = 1;
+        if (this.keys.ArrowUp) ty = 1; // Up moves Camera Up (Y+)
+        if (this.keys.ArrowDown) ty = -1;
         if (this.keys.ArrowLeft) tx = -1;
         if (this.keys.ArrowRight) tx = 1;
 
         // Apply Acceleration
-        if (tx !== 0) {
-            this.camera.vx += tx * accelPerFrame;
-        } else {
-            this.camera.vx *= friction; // Slide/Stop
-        }
+        if (tx !== 0) this.camera.vx += tx * accelPerFrame;
+        else this.camera.vx *= friction;
         
-        if (ty !== 0) {
-            this.camera.vy += ty * accelPerFrame;
-        } else {
-            this.camera.vy *= friction; // Slide/Stop
-        }
+        if (ty !== 0) this.camera.vy += ty * accelPerFrame;
+        else this.camera.vy *= friction;
 
         // Clamp Velocity
         this.camera.vx = Math.max(-maxSpeed, Math.min(maxSpeed, this.camera.vx));
