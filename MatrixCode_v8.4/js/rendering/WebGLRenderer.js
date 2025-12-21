@@ -271,7 +271,7 @@ class WebGLRenderer {
             layout(location=6) ${attribute} float a_glow;     // Glow Amount
             layout(location=7) ${attribute} float a_mix;      // Mix Factor
             layout(location=8) ${attribute} float a_nextChar; // Next Char Index
-            layout(location=9) ${attribute} float a_depth;    // Base Z Depth
+            layout(location=9) ${attribute} vec2 a_depth;     // World X, Base Z
 
             uniform vec2 u_resolution;
             uniform vec2 u_atlasSize;
@@ -330,19 +330,32 @@ class WebGLRenderer {
                 if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
 
                 if (u_is3D > 0.5) {
-                    // 3D Mode (Infinite Scroll)
-                    // We treat a_depth as the base offset.
-                    // u_cameraZ increases constantly.
-                    // We wrap the difference to keep cells within a visible range [-Range, 0] relative to camera
+                    // 3D Mode (Infinite Scroll + Scatter)
+                    // a_depth.x = World X Position
+                    // a_depth.y = Base Z Depth
                     
-                    float relZ = a_depth + u_cameraZ; 
+                    float relZ = a_depth.y + u_cameraZ; 
                     float wrappedZ = mod(relZ, u_depthRange);
-                    // Shift so it's in front of camera: -depthRange .. 0
                     float finalZ = -wrappedZ; 
                     
-                    vec2 centered = worldPos - (u_resolution * 0.5);
-                    // Use worldPos directly but replace Z
-                    gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, finalZ, 1.0);
+                    // We use the scattered X, but keep Y relative to screen center or grid center?
+                    // a_pos.y is 0..H. Let's center Y too.
+                    float centeredY = worldPos.y - (u_resolution.y * 0.5);
+                    
+                    // Construct 3D World Pos
+                    // X = Scattered X + Quad Offset
+                    // Y = Centered Y + Quad Offset
+                    
+                    // Re-calculate centerPos relative to cell center
+                    // We can just add centerPos to the scattered world center?
+                    // worldPos already includes centerPos.
+                    // We need to strip the 2D grid X and replace it.
+                    
+                    // Quad local offset
+                    vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
+                    
+                    // Final 3D Pos
+                    gl_Position = u_projection * u_view * vec4(a_depth.x + quadOffset.x, -centeredY, finalZ, 1.0);
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -542,7 +555,7 @@ class WebGLRenderer {
                         precision mediump float;
                         attribute vec2 a_quad; attribute vec2 a_pos; attribute float a_charIdx; attribute vec4 a_color;
                         attribute float a_alpha; attribute float a_decay; attribute float a_glow; attribute float a_mix; attribute float a_nextChar;
-                        attribute float a_depth;
+                        attribute vec2 a_depth;
                         uniform vec2 u_resolution; uniform vec2 u_atlasSize; uniform vec2 u_gridSize; uniform float u_cellSize; uniform float u_cols; uniform float u_decayDur;
                         uniform vec2 u_stretch; uniform float u_mirror;
                         uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
@@ -561,11 +574,12 @@ class WebGLRenderer {
                             if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
                             
                             if (u_is3D > 0.5) {
-                                float relZ = a_depth + u_cameraZ;
+                                float relZ = a_depth.y + u_cameraZ;
                                 float wrappedZ = mod(relZ, u_depthRange);
                                 float finalZ = -wrappedZ;
-                                vec2 centered = worldPos - (u_resolution * 0.5);
-                                gl_Position = u_projection * u_view * vec4(centered.x, -centered.y, finalZ, 1.0);
+                                float centeredY = worldPos.y - (u_resolution.y * 0.5);
+                                vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
+                                gl_Position = u_projection * u_view * vec4(a_depth.x + quadOffset.x, -centeredY, finalZ, 1.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
@@ -754,17 +768,21 @@ class WebGLRenderer {
         // Static Position Buffer
         this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
         
-        // Depth Buffer (Static Instance)
-        // One float per cell, but constant per column
-        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 4, this.gl.STATIC_DRAW);
-        const depthData = new Float32Array(totalCells);
-        // Pre-generate random depths for columns
-        const colDepths = new Float32Array(this.grid.cols);
-        for(let c=0; c<this.grid.cols; c++) {
-            // Random depth between 0 and -2000
-            colDepths[c] = -(Math.random() * 2000); 
-        }
+        // Depth Buffer (Static Instance) - Now Vec2 (WorldX, BaseZ)
+        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 8, this.gl.STATIC_DRAW);
+        const depthData = new Float32Array(totalCells * 2);
         
+        // Generate random world positions for columns (Forest)
+        const colData = new Float32Array(this.grid.cols * 2);
+        const spreadX = 5000.0; // Total width of the forest
+        
+        for(let c=0; c<this.grid.cols; c++) {
+            // Random X: Spread nicely but keep streams intact
+            colData[c*2+0] = (Math.random() - 0.5) * spreadX; 
+            // Random Z: Depth
+            colData[c*2+1] = -(Math.random() * 3000.0); 
+        }
+
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
         const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
@@ -774,7 +792,8 @@ class WebGLRenderer {
              posData[i*2] = col * cw + cw * 0.5 + xOff;
              posData[i*2+1] = row * ch + ch * 0.5 + yOff;
              
-             depthData[i] = colDepths[col];
+             depthData[i*2+0] = colData[col*2+0];
+             depthData[i*2+1] = colData[col*2+1];
         }
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
         
@@ -862,10 +881,10 @@ class WebGLRenderer {
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
 
-        // 9: Depth (Static Instance, Float)
+        // 9: Depth (Static Instance, Vec2: X, Z)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
         this.gl.enableVertexAttribArray(9);
-        this.gl.vertexAttribPointer(9, 1, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribPointer(9, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(9, 1);
 
         this.gl.bindVertexArray(null);
