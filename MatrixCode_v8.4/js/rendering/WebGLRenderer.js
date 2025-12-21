@@ -424,11 +424,28 @@ class WebGLRenderer {
                     // Quad local offset
                     vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                     
-                    // Final 3D Pos (World Space aligned)
-                    // Note: We apply quadOffset directly to X/Y. This means characters are 2D planes 
-                    // aligned with the world axes (facing -Z initially, but since we are inside them, 
-                    // they look like flat strips).
-                    gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y + quadOffset.y, finalPos.z, 1.0);
+                    // Cylindrical Billboarding Logic:
+                    // 1. Calculate direction from camera to character center (on XZ plane)
+                    vec3 centerPos = vec3(finalPos.x, -finalPos.y, finalPos.z);
+                    vec3 camPos = vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z); // Adjust for shader coordinate space? 
+                    // Actually, u_cameraPos is World Space. finalPos is World Space.
+                    // But in shader, we use -finalPos.y for Y.
+                    
+                    // Vector from Camera to Object
+                    vec3 look = centerPos - vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z);
+                    look.y = 0.0; // Flatten to horizontal plane
+                    look = normalize(look);
+                    
+                    // Right Vector (Cross World Up (0,1,0) and Look)
+                    vec3 right = cross(vec3(0.0, 1.0, 0.0), look);
+                    
+                    // Up Vector (World Up)
+                    vec3 up = vec3(0.0, 1.0, 0.0);
+                    
+                    // Construct Billboarded Position
+                    vec3 billboardPos = centerPos + (right * quadOffset.x) + (up * quadOffset.y);
+                    
+                    gl_Position = u_projection * u_view * vec4(billboardPos, 1.0);
                 } else {
                     // 2D Mode (Legacy Clip Space)
                     vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
@@ -655,8 +672,16 @@ class WebGLRenderer {
                                 finalPos.y += charY;
                                 vec2 quadOffset = (a_quad - 0.5) * u_cellSize * scale;
                                 
-                                // World Aligned
-                                gl_Position = u_projection * u_view * vec4(finalPos.x + quadOffset.x, -finalPos.y + quadOffset.y, finalPos.z, 1.0);
+                                // Cylindrical Billboarding
+                                vec3 centerPos = vec3(finalPos.x, -finalPos.y, finalPos.z);
+                                vec3 look = centerPos - vec3(u_cameraPos.x, -u_cameraPos.y, u_cameraPos.z);
+                                look.y = 0.0;
+                                look = normalize(look);
+                                vec3 right = cross(vec3(0.0, 1.0, 0.0), look);
+                                vec3 up = vec3(0.0, 1.0, 0.0);
+                                vec3 billboardPos = centerPos + (right * quadOffset.x) + (up * quadOffset.y);
+                                
+                                gl_Position = u_projection * u_view * vec4(billboardPos, 1.0);
                             } else {
                                 vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0; clip.y = -clip.y;
                                 gl_Position = vec4(clip, 0.0, 1.0);
