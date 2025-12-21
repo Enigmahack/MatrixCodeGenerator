@@ -1494,7 +1494,9 @@ class WebGLRenderer {
 
         // --- 3D Camera Update ---
         this._updateCamera();
-        const is3D = s.renderMode3D ? 1.0 : 0.0;
+        // Handle potentially stringified boolean from UI select
+        const isModeActive = (s.renderMode3D === true || s.renderMode3D === 'true');
+        const is3D = isModeActive ? 1.0 : 0.0;
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_is3D'), is3D);
         
         // Pass infinite scroll uniforms
@@ -1502,7 +1504,7 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_cameraZ'), this.camera.z);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_depthRange'), depthRange);
         
-        if (s.renderMode3D) {
+        if (isModeActive) {
             const aspect = this.w / this.h;
             const fov = 60 * Math.PI / 180;
             
@@ -1636,7 +1638,8 @@ class WebGLRenderer {
     }
 
     _updateCamera() {
-        if (!this.config.state.renderMode3D) return;
+        const isActive = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
+        if (!isActive) return;
 
         // Fly-Through Physics
         const maxSpeed = 30.0;

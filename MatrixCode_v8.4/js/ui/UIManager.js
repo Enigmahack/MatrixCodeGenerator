@@ -1548,7 +1548,8 @@ class UIManager {
                                 disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                             }
                         } else {
-                            inp.value = val;
+                            // Handle boolean values in select dropdowns correctly
+                            inp.value = String(val);
                         }
                     } 
                 }
@@ -1563,7 +1564,11 @@ class UIManager {
                         let target = rule; 
                         let expected = true; 
                         if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
-                        const actual = !!this.c.get(target); 
+                        // Handle boolean vs string "true"/"false" mismatch
+                        let actualVal = this.c.get(target);
+                        if (actualVal === 'true') actualVal = true;
+                        if (actualVal === 'false') actualVal = false;
+                        const actual = !!actualVal; 
                         if (actual !== expected) { conditionsMet = false; break; } 
                     }
                     if(conditionsMet) row.classList.remove('control-disabled'); 
