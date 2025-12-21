@@ -799,6 +799,9 @@ class WebGLRenderer {
              depthData[i*2+0] = colData[col*2+0];
              depthData[i*2+1] = colData[col*2+1];
         }
+        
+        // Fix: Explicitly bind posBuffer before uploading posData
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
         
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
