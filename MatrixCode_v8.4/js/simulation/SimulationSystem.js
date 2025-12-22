@@ -163,6 +163,7 @@ class SimulationSystem {
             if (ratio >= 1.0) {
                 grid.colors[idx] = baseColor;
                 grid.glows[idx] = 0; // Remove glow after transition
+                grid.mix[idx] = 0; // Clear Glimmer effect
                 
                 // If it was an Upward Tracer, revert type to allow future interaction?
                 // Or just keep it as is, it behaves like normal code now.
