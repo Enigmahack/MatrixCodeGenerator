@@ -230,7 +230,8 @@ const CELL_TYPE = {
     EMPTY: 0,
     TRAIL: 1,
     TRACER: 2,
-    ROTATOR: 3
+    ROTATOR: 3,
+    UPWARD_TRACER: 4
 };
 
     // =========================================================================

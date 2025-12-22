@@ -5,6 +5,7 @@ class StreamManager {
         this.activeStreams = [];
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.lastEraserInColumn = new Array(grid.cols).fill(null);
+        this.lastUpwardTracerInColumn = new Array(grid.cols).fill(null);
         this.modes = this._initializeModes(config);
         this.nextSpawnFrame = 0;
 
@@ -24,6 +25,7 @@ class StreamManager {
     resize(cols) {
         this.lastStreamInColumn = new Array(cols).fill(null);
         this.lastEraserInColumn = new Array(cols).fill(null);
+        this.lastUpwardTracerInColumn = new Array(cols).fill(null);
         this.activeStreams = [];
         
         // Rebuild columns pool
@@ -188,7 +190,10 @@ class StreamManager {
         // Spawning on empty columns wastes the eraser count and fails to clear the visual clutter.
         const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
         if (is3D) {
-            if (!lastStream || !lastStream.active || lastStream.isEraser) return false;
+            const hasActiveStream = (lastStream && lastStream.active && !lastStream.isEraser);
+            const hasActiveUpward = (this.lastUpwardTracerInColumn[col] && this.lastUpwardTracerInColumn[col].active);
+            
+            if (!hasActiveStream && !hasActiveUpward) return false;
         }
 
         if (lastStream && lastStream.active && !lastStream.isEraser) {
@@ -443,6 +448,7 @@ class StreamManager {
         if (decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             decays[idx] = 2;
+            this.grid.mix[idx] = 0; // Clear Glimmer/Effects immediately
         } else {
             this.grid.clearCell(idx);
         }
@@ -539,7 +545,7 @@ class StreamManager {
         const s = this.config.state;
         const stream = this._initializeUpwardTracerStream(x, s);
         this.activeStreams.push(stream);
-        // We don't update lastStreamInColumn because upward tracers are non-blocking overlays
+        this.lastUpwardTracerInColumn[x] = stream;
     }
 
     _initializeUpwardTracerStream(x, s) {
@@ -564,19 +570,26 @@ class StreamManager {
     }
 
     _handleUpwardHead(idx, s) {
-        // Only interact if the cell is ACTIVE (has a character)
-        if (this.grid.state[idx] === CELL_STATE.ACTIVE) {
+        // Only interact if the cell is ACTIVE (has a character) AND visible
+        // Prevents "resurrecting" fully faded characters which looks like spawning new ones
+        if (this.grid.state[idx] === CELL_STATE.ACTIVE && this.grid.alphas[idx] > 0.1) {
             // Light it up!
-            this.grid.glows[idx] = s.upwardTracerGlow;
+            this.grid.types[idx] = CELL_TYPE.UPWARD_TRACER;
             
-            // Boost brightness temporarily
-            this.grid.brightness[idx] = 2.0; 
+            // Reset age to trigger the "Flash" (Attack phase of upward tracer)
+            this.grid.ages[idx] = 1;
+            this.grid.decays[idx] = 1;
             
-            // Optional: Force color to tracer color?
-            // this.grid.colors[idx] = this.config.derived.tracerColorUint32;
-            
-            // Reset decay to keep it visible? 
-            // No, let it follow its natural lifecycle. Just flash the glow.
+            // Set to Tracer Color
+            this.grid.colors[idx] = this.config.derived.tracerColorUint32;
+            this.grid.glows[idx] = s.upwardTracerGlimmerGlow; // Use Glimmer Glow setting
+
+            // Glimmer Trigger
+            if (s.upwardTracerGlimmerChance > 0 && Math.random() < s.upwardTracerGlimmerChance) {
+                this.grid.mix[idx] = 30.0; // Flag as Glimmering
+            } else {
+                this.grid.mix[idx] = 0.0; // Clear potential old flags
+            }
         }
     }
 }

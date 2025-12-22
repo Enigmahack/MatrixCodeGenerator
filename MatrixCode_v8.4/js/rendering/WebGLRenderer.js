@@ -370,11 +370,13 @@ class WebGLRenderer {
             ${varying} float v_prog;
             ${varying} vec2 v_screenUV; // For sampling Shadow Mask
             ${varying} vec2 v_shadowUV; // NEW: Grid-space UV
+            ${varying} vec2 v_cellUV;   // NEW: Local Cell UV (0..1)
 
             void main() {
                 // Decay Scale Logic
                 float scale = 1.0;
                 v_prog = 0.0;
+                v_cellUV = a_quad; // Pass local coords
                 if (a_decay >= 2.0) {
                     v_prog = (a_decay - 2.0) / u_decayDur;
                     if (u_dissolveEnabled > 0.5) {
@@ -491,6 +493,7 @@ class WebGLRenderer {
                     ${varyingIn} float v_prog;
                     ${varyingIn} vec2 v_screenUV;
                     ${varyingIn} vec2 v_shadowUV;
+                    ${varyingIn} vec2 v_cellUV;
                     
                     uniform sampler2D u_texture;
                     uniform sampler2D u_shadowMask; // <-- New Input
@@ -502,7 +505,11 @@ class WebGLRenderer {
                     uniform float u_deteriorationEnabled;
                     uniform float u_deteriorationStrength;
                     uniform vec2 u_atlasSize;
+                    uniform vec2 u_gridSize; // <-- Added
+                    uniform float u_cellSize; // <-- Added
                     uniform vec4 u_overlapColor;
+                    uniform float u_glimmerSpeed;
+                    uniform float u_glimmerSize;
                     
                     // 0 = Base (Glyphs/Glow), 1 = Shadow
                     uniform int u_passType;
@@ -512,6 +519,12 @@ class WebGLRenderer {
                     // Pseudo-random function
                     float random(vec2 st) {
                         return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                    }
+                    
+                    vec2 random2(vec2 st) {
+                        st = vec2( dot(st,vec2(127.1,311.7)),
+                                   dot(st,vec2(269.5,183.3)) );
+                        return -1.0 + 2.0*fract(sin(st)*43758.5453123);
                     }
         
                     // Helper to apply all visual degradations (Dissolve + Ghosting) identically
@@ -558,7 +571,62 @@ class WebGLRenderer {
                         
                         // Default Standard Mode
                         float finalAlpha = tex1;
-        
+                        
+                        // GLIMMER LOGIC (State 30.0 -> useMix 20.0)
+                        float glimmer = 0.0;
+                        if (useMix >= 19.5) {
+                            useMix = 0.0; // Reset
+                            
+                            float rawTex = ${texture2D}(u_texture, v_uv).a;
+                            if (rawTex > 0.3) {
+                                // 1. Calculate Stable Cell ID (Row/Col) for Seeding
+                                // v_shadowUV is WorldPos/GridSize
+                                // WorldPos / CellSize = GridCoords
+                                vec2 cellGridPos = floor((v_shadowUV * u_gridSize) / u_cellSize);
+                                
+                                float speed = max(0.1, u_glimmerSpeed);
+                                // Time Cycle using Stable Cell ID
+                                float t = u_time * speed + random(cellGridPos * 0.01) * 10.0;
+                                float timeStep = floor(t); 
+                                
+                                // 4x4 Grid Subdivision
+                                vec2 blockPos = floor(v_cellUV * 4.0); // 0..3
+                                float myBlockIdx = blockPos.y * 4.0 + blockPos.x; // 0..15
+                                
+                                // Generate 4 "Target" Indices using STABLE seed
+                                vec2 seedBase = cellGridPos * 0.123 + vec2(mod(timeStep, 100.0) * 1.7, mod(timeStep, 100.0) * 2.3);
+                                
+                                float t1 = floor(random(seedBase + vec2(0.01, 0.0)) * 16.0);
+                                float t2 = floor(random(seedBase + vec2(0.13, 0.0)) * 16.0);
+                                float t3 = floor(random(seedBase + vec2(0.27, 0.0)) * 16.0);
+                                float t4 = floor(random(seedBase + vec2(0.49, 0.0)) * 16.0);
+                                
+                                // Check if my block is one of the winners
+                                if (abs(myBlockIdx - t1) < 0.1 || abs(myBlockIdx - t2) < 0.1 || 
+                                    abs(myBlockIdx - t3) < 0.1 || abs(myBlockIdx - t4) < 0.1) {
+                                    
+                                    // Shape: Rounded Box inside the 0..1 block UV
+                                    // Local UV for this block
+                                    vec2 localUV = fract(v_cellUV * 4.0);
+                                    
+                                    // Centered at 0.5
+                                    vec2 p = abs(localUV - 0.5);
+                                    // Box Size (0.45 = 0.9 total width, keeping small gap), Radius 0.15
+                                    vec2 b = vec2(0.35); 
+                                    float r = 0.15;
+                                    
+                                    float d = length(max(p - b, 0.0)) + min(max(p.x - b.x, p.y - b.y), 0.0) - r;
+                                    
+                                    // Render shape (aa)
+                                    float shape = 1.0 - smoothstep(-0.05, 0.05, d);
+                                    
+                                    glimmer = shape;
+                                    
+                                    if (glimmer > 0.1) finalAlpha = 1.0; 
+                                }
+                            }
+                        }
+
                         if (useMix >= 4.0) {
                             // Overlay Mode (Tracers/Effects)
                             // Use baseColor so tracers follow Stream Color.
@@ -629,7 +697,21 @@ class WebGLRenderer {
                             
                             col.rgb += (glowFactor * 0.3 * col.a);
                         }
-        
+
+                        if (glimmer > 0.0) {
+                            // 1. Turn the block White (mix base color to white)
+                            col.rgb = mix(col.rgb, vec3(1.0), glimmer);
+                            
+                            // 2. Add Bright Glow (Additively)
+                            // Use v_glow (from slider) to boost brightness significantly
+                            // We do NOT multiply by shadow here, allowing glimmer to pierce darkness
+                            vec3 glowBoost = vec3(v_glow * 0.3) * glimmer;
+                            col.rgb += glowBoost;
+                            
+                            // 3. Force Opaque
+                            col.a = max(col.a, 1.0);
+                        }
+
                         ${setFragColor} = vec4(col.rgb, col.a * finalAlpha);
                     }
                 `;
@@ -649,10 +731,11 @@ class WebGLRenderer {
                         uniform mat4 u_projection; uniform mat4 u_view; uniform float u_is3D;
                         uniform vec3 u_cameraPos; uniform vec3 u_camForward; uniform vec3 u_wrapSize; uniform float u_drawDistance;
                         uniform float u_dissolveEnabled; uniform float u_dissolveScale;
-                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV;
+                        varying vec2 v_uv; varying vec2 v_uv2; varying vec4 v_color; varying float v_mix; varying float v_glow; varying float v_prog; varying vec2 v_screenUV; varying vec2 v_shadowUV; varying vec2 v_cellUV;
                         void main() {
                             float scale = 1.0;
                             v_prog = 0.0;
+                            v_cellUV = a_quad;
                             if (a_decay >= 2.0) { v_prog = (a_decay - 2.0) / u_decayDur; if (u_dissolveEnabled > 0.5) scale = mix(1.0, u_dissolveScale, v_prog); }
                             vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
                             vec2 worldPos = a_pos + centerPos2D;
@@ -1598,6 +1681,8 @@ class WebGLRenderer {
         
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 2.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 0.4);
 
         // --- 3D Camera Update ---
         this._updateCamera();

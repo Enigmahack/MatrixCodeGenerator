@@ -120,10 +120,15 @@ class SimulationSystem {
         // --- TRACER COLOR FADE ---
         // Transitions from Tracer Color -> Stream Color based on Age
         // Only apply if NOT decaying (Erasers trigger decay)
-        if (decay < 2 && (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR)) {
-            const attack = s.tracerAttackFrames;
-            const hold = s.tracerHoldFrames;
-            const release = s.tracerReleaseFrames;
+        const isTracer = (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR);
+        const isUpward = (grid.types[idx] === CELL_TYPE.UPWARD_TRACER);
+
+        if (decay < 2 && (isTracer || isUpward)) {
+            const attack = isUpward ? s.upwardTracerAttackFrames : s.tracerAttackFrames;
+            const hold = isUpward ? s.upwardTracerHoldFrames : s.tracerHoldFrames;
+            const release = isUpward ? s.upwardTracerReleaseFrames : s.tracerReleaseFrames;
+            const targetGlow = isUpward ? s.upwardTracerGlow : s.tracerGlow;
+            
             const tracerColor = d.tracerColorUint32;
             const baseColor = grid.baseColors[idx];
 
@@ -135,7 +140,7 @@ class SimulationSystem {
             
             const activeAge = age - 1;
             
-            if (s.gradualColorStreams) {
+            if (s.gradualColorStreams && !isUpward) {
                 // Gradual Fade: Linearly interpolate over a long distance (e.g. 45 chars/frames)
                 // Starts fading immediately after attack+hold
                 const fadeStart = attack + hold;
@@ -158,6 +163,14 @@ class SimulationSystem {
             if (ratio >= 1.0) {
                 grid.colors[idx] = baseColor;
                 grid.glows[idx] = 0; // Remove glow after transition
+                
+                // If it was an Upward Tracer, revert type to allow future interaction?
+                // Or just keep it as is, it behaves like normal code now.
+                // Keeping as UPWARD_TRACER is fine, subsequent updates will skip this block
+                // because ratio >= 1.0 sets color to base and glow to 0. 
+                // Wait, this block executes every frame if decay < 2.
+                // If ratio >= 1.0, we just set color and glow=0.
+                // This effectively "resets" it to normal stream appearance.
             } else if (ratio > 0) {
                 // Blend
                 const tR = tracerColor & 0xFF;
@@ -173,11 +186,11 @@ class SimulationSystem {
                 const mB = Math.floor(tB + (bB - tB) * ratio);
                 
                 grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
-                grid.glows[idx] = s.tracerGlow * (1.0 - ratio);
+                grid.glows[idx] = targetGlow * (1.0 - ratio);
             } else {
                 // Hold Tracer
                 grid.colors[idx] = tracerColor;
-                grid.glows[idx] = s.tracerGlow;
+                grid.glows[idx] = targetGlow;
             }
         }
 
@@ -345,7 +358,11 @@ class SimulationSystem {
         }
         
         // Fading IN
-        const attack = s.tracerAttackFrames;
+        let attack = s.tracerAttackFrames;
+        if (this.grid.types[idx] === CELL_TYPE.UPWARD_TRACER) {
+            attack = s.upwardTracerAttackFrames;
+        }
+
         if (age <= attack && attack > 0) {
             return 0.95 * (age / attack) * b;
         }

@@ -4,9 +4,10 @@ Implement a wrapper to EXE/DMG? Screensaver wrapper?
 
 <- Bugs: 
 3D mode needs some refining but overall should be OK right now. Perhaps performance optimizations. 
+Also check the Y axis inversion settings. 
 
 Reverse tracer mode: 
-
+Fix the upwards glow - should be white, and has it's own trail settings. 
 
 <- Behavior: 
 
