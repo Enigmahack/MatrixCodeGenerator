@@ -6,6 +6,7 @@ class StreamManager {
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.lastEraserInColumn = new Array(grid.cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(grid.cols).fill(null);
+        this.columnSpeeds = new Float32Array(grid.cols);
         this.modes = this._initializeModes(config);
         this.nextSpawnFrame = 0;
 
@@ -26,6 +27,7 @@ class StreamManager {
         this.lastStreamInColumn = new Array(cols).fill(null);
         this.lastEraserInColumn = new Array(cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(cols).fill(null);
+        this.columnSpeeds = new Float32Array(cols);
         this.activeStreams = [];
         
         // Rebuild columns pool
@@ -78,11 +80,32 @@ class StreamManager {
             const tmp = columns[i]; columns[i] = columns[j]; columns[j] = tmp;
         }
 
+        // --- Glimmer Tracers (Independent) ---
+        if (s.upwardTracerEnabled && s.upwardTracerChance > 0) {
+            // Use steep power curve to limit density at mid-range frequencies
+            // At 0.51 (51%): 0.51^6 ~= 0.017. For 100 cols -> 1.7 spawns (1 or 2).
+            const rawCount = columns.length * Math.pow(s.upwardTracerChance, 6);
+            let countToSpawn = Math.floor(rawCount);
+            if (Math.random() < (rawCount - countToSpawn)) {
+                countToSpawn++;
+            }
+
+            for (let k = 0; k < countToSpawn && k < columns.length; k++) {
+                const col = columns[k];
+                // Prevent double-triggering unless high frequency
+                if (s.upwardTracerChance <= 0.5) {
+                    const last = this.lastUpwardTracerInColumn[col];
+                    if (last && last.active) continue;
+                }
+                this._spawnUpwardTracerAt(col);
+            }
+        }
+
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
 
         // In 3D Mode, the world is volumetric (spread over Z-axis).
-        // Increase spawn density proportionally to maintain visual fullness.
+        // ... (rest of method) ...
         const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
         if (is3D) {
             // Z-Spread is ~4000. Grid width is 3x.
@@ -99,30 +122,6 @@ class StreamManager {
             const spawnIdx = this.grid.getIndex(col, 0);
             let isTopBlocked = false;
             
-            // In 3D mode, columns overlap in screen space but are separated by depth.
-            // We should relax the "blocked" check or ignore it entirely for 3D?
-            // Actually, in 3D mode, `grid.decays` represents the state of that *specific logical column*.
-            // Since we reused the 2D grid structure (cols * rows) and just scattered them visually,
-            // "Blocking" still applies to the *same logical column*.
-            // If we have more streams than columns, we will run out of columns!
-            
-            // Wait. The grid size is fixed (cols * rows).
-            // If we spawn 20x more streams, they can only occupy available columns.
-            // If we only have `cols` columns, we can't spawn more than `cols` streams active at the top at once.
-            // THE PROBLEM: The 3D effect scatters the *columns*, but the number of columns is still `grid.cols`.
-            // Increasing spawn count just makes us hit the "isTopBlocked" limit instantly.
-            
-            // Solution: We need more *logical columns* in 3D mode to support the volume.
-            // But resizing the grid array is expensive and tied to screen width.
-            // If we want "more tracers", we might need to allow multiple streams per column? 
-            // No, the simulation logic assumes one state per cell.
-            
-            // Real Solution: The Grid Resolution (cols) needs to be higher in 3D mode?
-            // Or we just accept that "more tracers" means "all columns are active more often".
-            
-            // Let's proceed with increasing the count limit first. 
-            // It will ensure that we utilize every available column chance.
-            
             if (spawnIdx !== -1) {
                 if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
                 if (this.grid.decays[spawnIdx] > 0) {
@@ -132,21 +131,22 @@ class StreamManager {
 
             const lastStream = this.lastStreamInColumn[col];
 
+            // Resolve Speed for this column (Chain Consistency)
+            let colSpeed = this.columnSpeeds[col];
+            if (!lastStream || !lastStream.active) {
+                // New chain, new random speed
+                colSpeed = this._generateSpeed(s);
+                this.columnSpeeds[col] = colSpeed;
+            }
+
             if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
-                this._spawnStreamAt(col, true);
+                this._spawnStreamAt(col, true, colSpeed);
                 eraserCount--;
                 continue; 
             } 
-            // Upward Tracer Spawn Logic
-            else if (s.upwardTracerEnabled && Math.random() < s.upwardTracerChance) {
-                // Ensure we don't spawn if the column is busy with a just-spawned stream (optional, but good for clarity)
-                // Upward tracers can overlap anything, so we might not need strict gap checks against downward streams.
-                // But let's respect a minimal gap to avoid visual noise if desired.
-                this._spawnUpwardTracerAt(col);
-                continue;
-            }
-            else if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
-                this._spawnStreamAt(col, false);
+            
+            if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
+                this._spawnStreamAt(col, false, colSpeed);
                 streamCount--;
                 
                 // Cluster Logic: 10-20% chance to spawn a neighbor
@@ -160,8 +160,15 @@ class StreamManager {
                         
                         const lastStreamN = this.lastStreamInColumn[neighbor];
                         
+                        // Resolve Neighbor Speed
+                        let neighborSpeed = this.columnSpeeds[neighbor];
+                        if (!lastStreamN || !lastStreamN.active) {
+                            neighborSpeed = this._generateSpeed(s);
+                            this.columnSpeeds[neighbor] = neighborSpeed;
+                        }
+                        
                         if ((!blockedN || is3D) && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
-                            this._spawnStreamAt(neighbor, false);
+                            this._spawnStreamAt(neighbor, false, neighborSpeed);
                             streamCount--;
                         }
                     }
@@ -337,14 +344,23 @@ class StreamManager {
         } else {
             stream.active = false;
             if (!stream.isEraser) {
-                this._spawnStreamAt(stream.x, true);
+                // Reuse the same speed for the replacement if it's immediate
+                // But _spawnStreamAt doesn't take forced speed from here.
+                // However, since the column is still "active" (technically we just set active=false, 
+                // but _spawnStreams checks lastStreamInColumn which is THIS stream).
+                // Wait, if we set active=false, then next frame _spawnStreams will see it as inactive and gen new speed?
+                // The requirement is "when a stream column has a particular speed... all tracers... should be same speed".
+                // If it recycles immediately, it's the same stream effectively.
+                
+                // Let's pass the current stream's speed to the new spawn.
+                this._spawnStreamAt(stream.x, true, stream.tickInterval);
             }
         }
     }
 
-    _spawnStreamAt(x, forceEraser) {
+    _spawnStreamAt(x, forceEraser, forcedSpeed) {
         const s = this.config.state;
-        const stream = this._initializeStream(x, forceEraser, s);
+        const stream = this._initializeStream(x, forceEraser, s, forcedSpeed);
 
         this.modes[stream.mode].spawn(stream);
         this.activeStreams.push(stream);
@@ -354,17 +370,38 @@ class StreamManager {
         }
     }
 
-    _initializeStream(x, forceEraser, s) {
-        const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
-        const fontIdx = Math.floor(Math.random() * activeFonts.length);
-        
+    _generateSpeed(s) {
         const baseTick = Math.max(1, 21 - s.streamSpeed);
-        let tickInterval = baseTick;
-        
         if (s.desyncIntensity > 0) {
             const variance = baseTick * s.desyncIntensity * 0.8;
             const offset = (Math.random() * variance * 2) - variance;
-            tickInterval = Math.max(1, baseTick + offset);
+            return Math.max(1, baseTick + offset);
+        }
+        return baseTick;
+    }
+
+    recalculateSpeeds() {
+        const s = this.config.state;
+        for (let col = 0; col < this.grid.cols; col++) {
+            const newSpeed = this._generateSpeed(s);
+            this.columnSpeeds[col] = newSpeed;
+        }
+        
+        // Update active streams to match new column speeds immediately
+        for (const stream of this.activeStreams) {
+            if (stream.x >= 0 && stream.x < this.columnSpeeds.length) {
+                stream.tickInterval = this.columnSpeeds[stream.x];
+            }
+        }
+    }
+
+    _initializeStream(x, forceEraser, s, forcedSpeed) {
+        const activeFonts = this.config.derived.activeFonts || [{name:'MatrixEmbedded', chars: Utils.CHARS}];
+        const fontIdx = Math.floor(Math.random() * activeFonts.length);
+        
+        let tickInterval = forcedSpeed;
+        if (!tickInterval) {
+            tickInterval = this._generateSpeed(s);
         }
 
         const baseStream = {
@@ -448,7 +485,6 @@ class StreamManager {
         if (decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             decays[idx] = 2;
-            this.grid.mix[idx] = 0; // Clear Glimmer/Effects immediately
         } else {
             this.grid.clearCell(idx);
         }
@@ -558,7 +594,7 @@ class StreamManager {
             x,
             y: this.grid.rows + 2, // Start below bottom
             active: true,
-            delay: 0,
+            delay: Math.floor(Math.random() * 100), // Randomize release to prevent waves
             age: 0,
             len: 1, // Conceptually length 1 head
             isUpward: true,
@@ -573,23 +609,10 @@ class StreamManager {
         // Only interact if the cell is ACTIVE (has a character) AND visible
         // Prevents "resurrecting" fully faded characters which looks like spawning new ones
         if (this.grid.state[idx] === CELL_STATE.ACTIVE && this.grid.alphas[idx] > 0.1) {
-            // Light it up!
-            this.grid.types[idx] = CELL_TYPE.UPWARD_TRACER;
             
-            // Reset age to trigger the "Flash" (Attack phase of upward tracer)
-            this.grid.ages[idx] = 1;
-            this.grid.decays[idx] = 1;
-            
-            // Set to Tracer Color
-            this.grid.colors[idx] = this.config.derived.tracerColorUint32;
-            this.grid.glows[idx] = s.upwardTracerGlimmerGlow; // Use Glimmer Glow setting
-
-            // Glimmer Trigger
-            if (s.upwardTracerGlimmerChance > 0 && Math.random() < s.upwardTracerGlimmerChance) {
-                this.grid.mix[idx] = 30.0; // Flag as Glimmering
-            } else {
-                this.grid.mix[idx] = 0.0; // Clear potential old flags
-            }
+            // Mark as Glimmering immediately and store lifecycle state in complexStyles
+            this.grid.mix[idx] = 30.0; 
+            this.grid.complexStyles.set(idx, { type: 'glimmer', age: 1 });
         }
     }
 }

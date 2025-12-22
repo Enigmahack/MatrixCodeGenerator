@@ -196,10 +196,20 @@ class MatrixKernel {
             'tracerColor'
         ]);
 
+        const speedTriggers = new Set([
+            'streamSpeed',
+            'desyncIntensity'
+        ]);
+
         this.config.subscribe((key) => {
             // Resize the canvas and grid on resolution-related changes
             if (resizeTriggers.has(key) || key === 'ALL') {
                 this._resize();
+            }
+
+            // Recalculate stream speeds when timing settings change
+            if ((speedTriggers.has(key) || key === 'ALL') && this.simulation && this.simulation.streamManager) {
+                this.simulation.streamManager.recalculateSpeeds();
             }
 
             // Update renderer when smoothing settings change

@@ -435,9 +435,11 @@ class WebGLRenderer {
                     uniform vec2 u_atlasSize;
                     uniform vec2 u_gridSize; // <-- Added
                     uniform float u_cellSize; // <-- Added
+                    uniform vec2 u_cellScale; // <-- Added for correct grid indexing
                     uniform vec4 u_overlapColor;
                     uniform float u_glimmerSpeed;
                     uniform float u_glimmerSize;
+                    uniform float u_glimmerFill;
                     uniform float u_glimmerIntensity;
                     
                     // 0 = Base (Glyphs/Glow), 1 = Shadow
@@ -504,6 +506,7 @@ class WebGLRenderer {
                         // GLIMMER LOGIC (State 30.0 -> useMix 20.0)
                         float glimmer = 0.0;
                         if (useMix >= 19.5) {
+                            float gOpacity = clamp(useMix - 20.0, 0.0, 1.0);
                             useMix = 0.0; // Reset
                             
                             float rawTex = texture(u_texture, v_uv).a;
@@ -511,35 +514,84 @@ class WebGLRenderer {
                                 // 1. Calculate Stable Cell ID (Row/Col) for Seeding
                                 // v_shadowUV is WorldPos/GridSize
                                 // WorldPos / CellSize = GridCoords
-                                vec2 cellGridPos = floor((v_shadowUV * u_gridSize) / u_cellSize);
+                                // Use Rendered Cell Size (cellSize * scale) to map pixels to logical rows accurately
+                                vec2 renderSize = u_cellSize * u_cellScale;
+                                vec2 cellGridPos = floor((v_shadowUV * u_gridSize) / renderSize);
                                 
-                                float speed = max(0.1, u_glimmerSpeed);
+                                float speed = max(0.001, u_glimmerSpeed);
                                 // Time Cycle using Stable Cell ID
-                                float t = u_time * speed + random(cellGridPos * 0.01) * 10.0;
+                                // Use strict cell ID (no scaling) to ensure vertical neighbors are desynced
+                                float t = u_time * speed + random(cellGridPos) * 10.0;
                                 float timeStep = floor(t); 
                                 
-                                // 2x2 Grid Subdivision (Larger spots for better glow)
-                                vec2 blockPos = floor(v_cellUV * 2.0); // 0..1
-                                float myBlockIdx = blockPos.y * 2.0 + blockPos.x; // 0..3
-                                
-                                // Generate 1 Target Index using STABLE seed
+                                // Dynamic Grid & Fill
+                                float gridSize = max(2.0, floor(u_glimmerSize + 0.5));
+                                float fillCount = max(2.0, floor(u_glimmerFill + 0.5));
+                                float totalBlocks = gridSize * gridSize;
+
+                                // Generate Seed (Time Varying for random pattern per blink)
                                 vec2 seedBase = cellGridPos * 0.123 + vec2(mod(timeStep, 100.0) * 1.7, mod(timeStep, 100.0) * 2.3);
+
+                                // Rotation: 50% chance of 45 degrees
+                                float rRot = random(seedBase + vec2(0.8, 0.2));
+                                vec2 gridUV = v_cellUV;
+                                if (rRot > 0.5) {
+                                    float s = 0.7071; // sin(45)
+                                    float c = 0.7071; // cos(45)
+                                    vec2 cent = gridUV - 0.5;
+                                    gridUV = vec2(cent.x * c - cent.y * s, cent.x * s + cent.y * c) + 0.5;
+                                }
+
+                                vec2 blockPos = floor(gridUV * gridSize);
                                 
-                                float t1 = floor(random(seedBase + vec2(0.01, 0.0)) * 4.0);
+                                // Bounds Check (Rotated UVs might be out of 0..1 bounds)
+                                float myBlockIdx = -1.0;
+                                if (blockPos.x >= 0.0 && blockPos.x < gridSize && blockPos.y >= 0.0 && blockPos.y < gridSize) {
+                                    myBlockIdx = blockPos.y * gridSize + blockPos.x;
+                                }
                                 
-                                // Check if my block is the winner
-                                if (abs(myBlockIdx - t1) < 0.1) {
+                                // Random Walk
+                                bool isMatched = false;
+                                if (myBlockIdx >= 0.0) {
+                                    float curr = floor(random(seedBase + vec2(0.01, 0.0)) * totalBlocks);
+                                    if (abs(curr - myBlockIdx) < 0.1) isMatched = true;
+
+                                    float rVal = random(seedBase + vec2(0.05, 0.05));
+
+                                    for (int i = 1; i < 12; i++) {
+                                        if (float(i) >= fillCount) break;
+                                        
+                                        // Hash for direction
+                                        rVal = fract(rVal * 43.71 + float(i) * 1.3);
+                                        // Restrict to 4 directions (Orthogonal)
+                                        float dir = floor(rVal * 4.0);
+                                        
+                                        vec2 pos = vec2(mod(curr, gridSize), floor(curr / gridSize));
+                                        vec2 offset = vec2(0.0);
+                                        
+                                        if (dir < 1.0) offset = vec2(1,0);
+                                        else if (dir < 2.0) offset = vec2(-1,0);
+                                        else if (dir < 3.0) offset = vec2(0,1);
+                                        else offset = vec2(0,-1);
+                                        
+                                        pos = clamp(pos + offset, vec2(0.0), vec2(gridSize - 1.0));
+                                        curr = pos.y * gridSize + pos.x;
+                                        
+                                        if (abs(curr - myBlockIdx) < 0.1) isMatched = true;
+                                    }
+                                }
+                                
+                                // Check if my block is active
+                                if (isMatched) {
                                     
-                                    // Shape: Rounded Box inside the 0..1 block UV
-                                    // Local UV for this block
-                                    vec2 localUV = fract(v_cellUV * 2.0);
+                                    // Shape: Rounded Box inside the block
+                                    vec2 localUV = fract(gridUV * gridSize);
                                     
                                     // Centered at 0.5
                                     vec2 p = abs(localUV - 0.5);
                                     
-                                    // Box Size from Uniform (User Controlled)
-                                    // Max radius 0.45 keeps it within the 0.5 half-width with padding
-                                    float size = clamp(u_glimmerSize, 0.1, 0.45);
+                                    // Fixed Spot Size relative to block
+                                    float size = 0.35;
                                     vec2 b = vec2(size); 
                                     float r = 0.15;
                                     
@@ -552,6 +604,7 @@ class WebGLRenderer {
                                     float halo = 1.0 - smoothstep(0.0, 0.4, d);
                                     
                                     glimmer = core + (halo * 0.6);
+                                    glimmer *= gOpacity;
                                 }
                             }
                         }
@@ -627,6 +680,9 @@ class WebGLRenderer {
                             col.rgb += (glowFactor * 0.3 * col.a);
                         }
 
+                        // Base Alpha (Stream Fade)
+                        float streamAlpha = col.a * finalAlpha;
+
                         if (glimmer > 0.0) {
                             // 1. Turn the block White (mix base color to white)
                             // Clamp mixing factor to 1.0 to stay within white range
@@ -635,16 +691,15 @@ class WebGLRenderer {
                             // 2. Add Bright Glow (Additively)
                             // Use u_glimmerIntensity (from slider) to boost brightness significantly
                             // We do NOT multiply by shadow here, allowing glimmer to pierce darkness
-                            vec3 glowBoost = vec3(u_glimmerIntensity) * glimmer;
+                            // Scale by 0.3 to match standard glow intensity curve
+                            vec3 glowBoost = vec3(u_glimmerIntensity * 0.3) * glimmer;
                             col.rgb += glowBoost;
 
-                            // 3. Independent Light Source: Force Opacity
-                            // This allows the light to shine even if the character is fading in or dissolved
-                            col.a = max(col.a, min(1.0, glimmer));
-                            finalAlpha = max(finalAlpha, min(1.0, glimmer));
+                            // Force alpha to be at least the glimmer opacity
+                            streamAlpha = max(streamAlpha, glimmer);
                         }
 
-                        fragColor = vec4(col.rgb, col.a * finalAlpha);
+                        fragColor = vec4(col.rgb, streamAlpha);
                     }
                 `;
                 
@@ -1503,7 +1558,8 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 2.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 0.4);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
         this.gl.uniform1f(this.gl.getUniformLocation(this.program, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
 
         // --- 3D Camera Update ---

@@ -16,6 +16,36 @@ class SimulationSystem {
         this._manageOverlapGrid(frame);
         this._updateCells(frame, this.timeScale);
         
+        // --- Process Glimmer Lifecycles ---
+        const s = this.config.state;
+        for (const [idx, style] of this.grid.complexStyles) {
+            if (style.type === 'glimmer') {
+                const attack = s.upwardTracerAttackFrames;
+                const hold = s.upwardTracerHoldFrames;
+                const release = s.upwardTracerReleaseFrames;
+                
+                style.age++;
+                const activeAge = style.age - 1;
+                let alpha = 0.0;
+
+                if (activeAge <= attack) {
+                    alpha = (attack > 0) ? (activeAge / attack) : 1.0;
+                } else if (activeAge <= attack + hold) {
+                    alpha = 1.0;
+                } else if (activeAge <= attack + hold + release) {
+                    const releaseAge = activeAge - (attack + hold);
+                    alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
+                }
+
+                if (alpha > 0) {
+                    this.grid.mix[idx] = 30.0 + alpha;
+                } else {
+                    this.grid.mix[idx] = 0;
+                    this.grid.complexStyles.delete(idx);
+                }
+            }
+        }
+
         // Apply Glows (Additive)
         if (this.grid.envGlows) this.grid.envGlows.fill(0);
         this.glowSystem.update();
@@ -123,11 +153,11 @@ class SimulationSystem {
         const isTracer = (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR);
         const isUpward = (grid.types[idx] === CELL_TYPE.UPWARD_TRACER);
 
-        if (decay < 2 && (isTracer || isUpward)) {
-            const attack = isUpward ? s.upwardTracerAttackFrames : s.tracerAttackFrames;
-            const hold = isUpward ? s.upwardTracerHoldFrames : s.tracerHoldFrames;
-            const release = isUpward ? s.upwardTracerReleaseFrames : s.tracerReleaseFrames;
-            const targetGlow = isUpward ? s.upwardTracerGlow : s.tracerGlow;
+        if (decay < 2 && isTracer) {
+            const attack = s.tracerAttackFrames;
+            const hold = s.tracerHoldFrames;
+            const release = s.tracerReleaseFrames;
+            const targetGlow = s.tracerGlow;
             
             const tracerColor = d.tracerColorUint32;
             const baseColor = grid.baseColors[idx];
@@ -163,7 +193,9 @@ class SimulationSystem {
             if (ratio >= 1.0) {
                 grid.colors[idx] = baseColor;
                 grid.glows[idx] = 0; // Remove glow after transition
-                grid.mix[idx] = 0; // Clear Glimmer effect
+                // Only clear Glimmer (high mix values)
+                // Rotators use mix 0..1, so preserve values < 2.0
+                if (grid.mix[idx] >= 2.0) grid.mix[idx] = 0; 
                 
                 // If it was an Upward Tracer, revert type to allow future interaction?
                 // Or just keep it as is, it behaves like normal code now.
@@ -257,6 +289,8 @@ class SimulationSystem {
         const grid = this.grid;
         const mix = grid.mix[idx]; 
         const decay = grid.decays[idx];
+
+        if (Math.random() < 0.0001) console.log(`_handleRotator: idx=${idx} mix=${mix} decay=${decay} enabled=${s.rotatorEnabled}`);
 
         if (mix > 0) {
             this._progressRotator(idx, mix, s.rotatorCrossfadeFrames);

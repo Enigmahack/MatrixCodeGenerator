@@ -131,13 +131,12 @@ class ConfigurationManager {
             "tracerReleaseFrames": 4,
             "invertedTracerEnabled": true,
             "invertedTracerChance": 0.1,
-                    "upwardTracerEnabled": false,
-                    "upwardTracerChance": 0.02,
-                    "upwardTracerGlow": 8.0,
-            "upwardTracerSpeedMult": 1.0,
-            "upwardTracerGlimmerChance": 0.5,
-            "upwardTracerGlimmerSpeed": 2.0,
-            "upwardTracerGlimmerSize": 0.4, // Portion of character to illuminate
+                                "upwardTracerEnabled": false,
+                                "upwardTracerChance": 0.02,
+                                "upwardTracerGlow": 8.0,
+                                "upwardTracerSpeedMult": 1.0,
+                                "upwardTracerGlimmerSpeed": 2.0,            "upwardTracerGlimmerSize": 3, // Grid Size (2x2 to 6x6)
+            "upwardTracerGlimmerFill": 3, // Number of blocks to light up
             "upwardTracerGlimmerGlow": 10.0,
             
             "rotatorEnabled": true,
