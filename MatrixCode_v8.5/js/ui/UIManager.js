@@ -1365,24 +1365,24 @@ class UIManager {
                 this.updateSlotNames();
 
                 this.refresh('fontFamily'); // Special refresh for font list
-                this.dom.content.querySelectorAll('.accordion-content').forEach(accordionBody => {
-                    const allDepRows = accordionBody.querySelectorAll('[data-dep]');
-                    allDepRows.forEach(row => {
-                        try {
-                            const depRule = JSON.parse(row.getAttribute('data-dep')); 
-                            const rules = Array.isArray(depRule) ? depRule : [depRule]; 
-                            let conditionsMet = true;
-                            for (let rule of rules) { 
-                                let target = rule; 
-                                let expected = true; 
-                                if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
-                                const actual = !!this.c.get(target); 
-                                if (actual !== expected) { conditionsMet = false; break; } 
-                            }
-                            if(conditionsMet) row.classList.remove('control-disabled'); 
-                            else row.classList.add('control-disabled');
-                        } catch(e) { console.warn("Error processing dependency row:", e); }
-                    });
+                this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
+                    try {
+                        const depRule = JSON.parse(row.getAttribute('data-dep')); 
+                        const rules = Array.isArray(depRule) ? depRule : [depRule]; 
+                        let conditionsMet = true;
+                        for (let rule of rules) { 
+                            let target = rule; 
+                            let expected = true; 
+                            if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
+                            let actualVal = this.c.get(target);
+                            if (actualVal === 'true') actualVal = true;
+                            if (actualVal === 'false') actualVal = false;
+                            const actual = !!actualVal; 
+                            if (actual !== expected) { conditionsMet = false; break; } 
+                        }
+                        if(conditionsMet) row.classList.remove('control-disabled'); 
+                        else row.classList.add('control-disabled');
+                    } catch(e) { console.warn("Error processing dependency row:", e); }
                 });
                 return; 
             }

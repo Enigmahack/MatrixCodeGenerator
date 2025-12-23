@@ -1656,6 +1656,13 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
 
+        // Calculate Cell Scale (Aspect Ratio Correction)
+        // 3D Mode uses a 2.0 multiplier for visibility. 2D uses 1.0.
+        const scaleMult = is3D ? 2.0 : 1.0;
+        const cellScaleX = (d.cellWidth / atlas.cellSize) * scaleMult;
+        const cellScaleY = (d.cellHeight / atlas.cellSize) * scaleMult;
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
+
         // --- 3D Camera Update ---
         this._updateCamera();
         
@@ -1674,13 +1681,6 @@ class WebGLRenderer {
             const wrapSizeY = 6000.0;
             const wrapSizeZ = 3000.0;
             this.gl.uniform3f(this.gl.getUniformLocation(activeProgram, 'u_wrapSize'), wrapSizeX, wrapSizeY, wrapSizeZ);
-            
-            // Cell Scale (Aspect Ratio Correction)
-            // Double the base size in 3D mode to make characters more visible (User Request)
-            const scale3D = 2.0; 
-            const cellScaleX = (d.cellWidth / atlas.cellSize) * scale3D;
-            const cellScaleY = (d.cellHeight / atlas.cellSize) * scale3D;
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
             
             // Camera Vectors
             const camFwdX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
@@ -1712,7 +1712,7 @@ class WebGLRenderer {
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(activeProgram, 'u_view'), false, view);
         } else {
             // 2D Specifics (if any)
-            // Note: 2D shader does not have u_cellScale or matrices.
+            // Note: 2D shader does not have matrices.
         }
         
         // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8

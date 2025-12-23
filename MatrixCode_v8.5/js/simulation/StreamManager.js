@@ -52,6 +52,9 @@ class StreamManager {
     _manageStreams(frame, timeScale) {
         const { state: s, derived: d } = this.config;
         
+        // Independent Glimmer Management (Runs every frame)
+        this._manageGlimmer(s);
+
         // Spawn Logic
         if (frame >= this.nextSpawnFrame) {
             this._spawnStreams(s, d);
@@ -72,33 +75,49 @@ class StreamManager {
         this._processActiveStreams(frame, timeScale);
     }
 
+    _manageGlimmer(s) {
+        if (!s.upwardTracerEnabled || s.upwardTracerChance <= 0) return;
+
+        // 1. Calculate Active Density per Column
+        const colCounts = new Uint8Array(this.grid.cols);
+        for (let i = 0; i < this.activeStreams.length; i++) {
+            const stream = this.activeStreams[i];
+            if (stream.isUpward && stream.active) {
+                colCounts[stream.x]++;
+            }
+        }
+
+        // 2. Determine Density Limit (1, 2, or 3)
+        const limit = Math.ceil(s.upwardTracerChance * 3.0);
+        
+        // 3. Spawn Logic
+        // Since this runs every frame, we use a low probability to fill gaps organically.
+        const spawnChance = 0.05; 
+        const columns = this._columnsPool;
+        
+        // Shuffle for random distribution
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = columns[i]; columns[i] = columns[j]; columns[j] = tmp;
+        }
+
+        for (let k = 0; k < columns.length; k++) {
+            const col = columns[k];
+            if (colCounts[col] < limit) {
+                if (Math.random() < spawnChance) {
+                    this._spawnUpwardTracerAt(col);
+                    colCounts[col]++;
+                }
+            }
+        }
+    }
+
     _spawnStreams(s, d) {
         const columns = this._columnsPool;
         // Fisher-Yates Shuffle
         for (let i = columns.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             const tmp = columns[i]; columns[i] = columns[j]; columns[j] = tmp;
-        }
-
-        // --- Glimmer Tracers (Independent) ---
-        if (s.upwardTracerEnabled && s.upwardTracerChance > 0) {
-            // Use steep power curve to limit density at mid-range frequencies
-            // At 0.51 (51%): 0.51^6 ~= 0.017. For 100 cols -> 1.7 spawns (1 or 2).
-            const rawCount = columns.length * Math.pow(s.upwardTracerChance, 6);
-            let countToSpawn = Math.floor(rawCount);
-            if (Math.random() < (rawCount - countToSpawn)) {
-                countToSpawn++;
-            }
-
-            for (let k = 0; k < countToSpawn && k < columns.length; k++) {
-                const col = columns[k];
-                // Prevent double-triggering unless high frequency
-                if (s.upwardTracerChance <= 0.5) {
-                    const last = this.lastUpwardTracerInColumn[col];
-                    if (last && last.active) continue;
-                }
-                this._spawnUpwardTracerAt(col);
-            }
         }
 
         let streamCount = s.streamSpawnCount;
@@ -592,9 +611,10 @@ class StreamManager {
 
         return {
             x,
-            y: this.grid.rows + 2, // Start below bottom
+            // Randomize start position so they exist anywhere, not just from bottom
+            y: Math.floor(Math.random() * (this.grid.rows + 5)), 
             active: true,
-            delay: Math.floor(Math.random() * 100), // Randomize release to prevent waves
+            delay: 0, // Remove delay for immediate feedback
             age: 0,
             len: 1, // Conceptually length 1 head
             isUpward: true,

@@ -447,8 +447,8 @@ def combine_modular(source_dir, output_file):
         if os.path.exists(full_path):
             with open(full_path, 'r', encoding='utf-8') as f:
                 raw_js = f.read()
-                # Apply fix
-                fixed_js = fix_missing_braces(raw_js, rel_path)
+                # Disable brace fix - trust source is valid. Regex parsing of JS is fragile.
+                fixed_js = raw_js 
                 
                 js_combined += f"\n// --- {os.path.basename(rel_path)} ---\n"
                 js_combined += fixed_js + "\n"
