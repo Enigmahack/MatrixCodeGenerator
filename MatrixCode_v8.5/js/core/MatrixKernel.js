@@ -64,7 +64,6 @@ class MatrixKernel {
             MiniPulseEffect,
             DejaVuEffect,
             SupermanEffect,
-            FirewallEffect,
             ReverseEffect,
             BootEffect,
             CrashEffect
@@ -228,7 +227,6 @@ class MatrixKernel {
                 { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
                 { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-                { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
 
@@ -250,15 +248,9 @@ class MatrixKernel {
      * @private
      */
     _resize() {
-        // In 3D mode, triple the horizontal resolution to provide more columns for scattering
-        // Also triple the vertical resolution to allow longer streams before recycling
-        const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
-        const widthMult = is3D ? 12.0 : 1.0;
-        const heightMult = is3D ? 4.0 : 1.0;
-
         this.grid.resize(
-            (window.innerWidth * widthMult) / this.config.state.stretchX,
-            (window.innerHeight * heightMult) / this.config.state.stretchY
+            (window.innerWidth) / this.config.state.stretchX,
+            (window.innerHeight) / this.config.state.stretchY
         );
         this.renderer.resize();
     }
@@ -336,7 +328,6 @@ class MatrixKernel {
             { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
             { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-            { enabledKey: 'firewallEnabled', frequencyKey: 'firewallFrequencySeconds', effectName: 'Firewall' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 

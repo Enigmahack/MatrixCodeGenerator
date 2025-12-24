@@ -100,7 +100,6 @@ class UIManager {
     _generateGlobalSettings() {
         return [
             { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
-            { cat: 'Global', id: 'renderMode3D', type: 'select', label: 'View Mode', options: [{label:'Classic 2D', value:false}, {label:'3D Perspective', value:true}] },
             { cat: 'Global', id: 'backgroundColor', type: 'color', label: 'Background Color' },
             { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3 },
             { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, transform: v=>(v*100).toFixed(0)+'% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend." },
@@ -164,16 +163,9 @@ class UIManager {
             { cat: 'Appearance', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -100, max: 100, unit: 'px' },
             { cat: 'Appearance', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -100, max: 100, unit: 'px' },
             
-            // 2D Stretch Controls (Hidden in 3D)
-            { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1, dep: '!renderMode3D' },
-            { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1, dep: '!renderMode3D' },
-            
-            // 3D Stretch Controls (Only visible in 3D)
-            { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'X Stretch (3D)', min: 0.1, max: 5.0, step: 0.1, dep: 'renderMode3D' },
-            { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'Y Stretch (3D)', min: 0.1, max: 5.0, step: 0.1, dep: 'renderMode3D' },
-            { cat: 'Appearance', id: 'stretchZ', type: 'range', label: 'Z Stretch (3D)', min: 0.1, max: 5.0, step: 0.1, dep: 'renderMode3D' },
-            { cat: 'Appearance', id: 'drawDistance', type: 'range', label: 'Draw Distance (3D)', min: 1000, max: 8000, step: 100, dep: 'renderMode3D' },
-            { cat: 'Appearance', id: 'billboardEnabled', type: 'checkbox', label: 'Billboard Characters (3D)', dep: 'renderMode3D', description: 'Makes characters always face the camera in 3D mode.' },
+            // View Window Controls
+            { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
+            { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1 },
         ];
     }
 
@@ -266,17 +258,18 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_header', label: 'Clear Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse' },
-            { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: 'clearPulseEnabled', description: "Blend the outer edge (tracer color) to inner edge (code color)" },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: 'clearPulseEnabled' },
-            { cat: 'Effects', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: 'clearPulseEnabled', description: "Start at a full square" },
-            { cat: 'Effects', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: 'clearPulseEnabled' },
+            { cat: 'Effects', id: 'clearPulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'clearPulseEnabled', description: "Enables movie-accurate visual artifacts (tearing/lag) without dimming the screen." },
+            { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 15, max: 300, step: 5, unit: 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: "Blend the outer edge (tracer color) to inner edge (code color)" },
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: "Start at a full square" },
+            { cat: 'Effects', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse Storm' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
@@ -369,16 +362,6 @@ class UIManager {
             { cat: 'Effects', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams' },
             { cat: 'Effects', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', transform: v=>(v*100).toFixed(0)+'%' },
             { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
-        
-            { cat: 'Effects', type: 'accordion_header', label: 'Firewall Anomaly' }, 
-            { cat: 'Effects', type: 'button', label: 'Trigger Firewall Now', action: 'firewall', class: 'btn-info' },
-            { cat: 'Effects', id: 'firewallEnabled', type: 'checkbox', label: 'Enable Firewall Effects' },
-            { cat: 'Effects', id: 'firewallFrequencySeconds', type: 'range', label: 'Frequency', min: 30, max: 300, step: 10, unit: 's', dep: 'firewallEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'firewallEnabled' },
-            { cat: 'Effects', id: 'firewallRandomColorEnabled', type: 'checkbox', label: 'Random Color', dep: 'firewallEnabled' },
-            { cat: 'Effects', id: 'firewallColor', type: 'color', label: 'Firewall Color', dep: ['firewallEnabled', '!firewallRandomColorEnabled'] },
-            { cat: 'Effects', id: 'firewallReverseDurationFrames', type: 'range', label: 'Reverse Duration', min: 5, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the code reverses before erasure.' },
-            { cat: 'Effects', id: 'firewallEraseDurationFrames', type: 'range', label: 'Erase Flash Duration', min: 10, max: 100, unit: 'fr', dep: 'firewallEnabled', description: 'Frames the column flashes white/red before clearing.' },
             
             { cat: 'Effects', type: 'accordion_header', label: 'Time Manipulation' },
             { cat: 'Effects', type: 'button', label: 'Trigger Reverse Time', action: 'reverse_time', class: 'btn-warn' },
@@ -419,7 +402,6 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
-            { cat: 'System', type: 'keybinder', id: 'Firewall', label: 'Firewall' },
             { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
         
@@ -1348,7 +1330,6 @@ class UIManager {
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
-        if(action === 'firewall') { if(this.effects.trigger('Firewall')) this.notifications.show('Firewall Breach Detected', 'danger'); else this.notifications.show('Firewall active...', 'info'); }
         if(action === 'reverse_time') { if(this.effects.trigger('ReverseTime')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
     }
 

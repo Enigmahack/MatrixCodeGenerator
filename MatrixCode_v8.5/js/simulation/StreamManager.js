@@ -123,17 +123,6 @@ class StreamManager {
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
 
-        // In 3D Mode, the world is volumetric (spread over Z-axis).
-        // ... (rest of method) ...
-        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
-        if (is3D) {
-            // Z-Spread is ~4000. Grid width is 3x.
-            // Adjust multiplier to balance density with the increased column count.
-            const multiplier = 10; 
-            streamCount *= multiplier;
-            eraserCount *= multiplier;
-        }
-
         for (let k = 0; k < columns.length; k++) {
             const col = columns[k];
             if (streamCount <= 0 && eraserCount <= 0) break;
@@ -164,7 +153,7 @@ class StreamManager {
                 continue; 
             } 
             
-            if ((!isTopBlocked || is3D) && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
+            if (!isTopBlocked && streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false, colSpeed);
                 streamCount--;
                 
@@ -186,7 +175,7 @@ class StreamManager {
                             this.columnSpeeds[neighbor] = neighborSpeed;
                         }
                         
-                        if ((!blockedN || is3D) && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
+                        if (!blockedN && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
                             this._spawnStreamAt(neighbor, false, neighborSpeed);
                             streamCount--;
                         }
@@ -211,16 +200,6 @@ class StreamManager {
         if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
         
         const lastStream = this.lastStreamInColumn[col];
-        
-        // In 3D mode, erasers must ONLY spawn on columns that have active tracers.
-        // Spawning on empty columns wastes the eraser count and fails to clear the visual clutter.
-        const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
-        if (is3D) {
-            const hasActiveStream = (lastStream && lastStream.active && !lastStream.isEraser);
-            const hasActiveUpward = (this.lastUpwardTracerInColumn[col] && this.lastUpwardTracerInColumn[col].active);
-            
-            if (!hasActiveStream && !hasActiveUpward) return false;
-        }
 
         if (lastStream && lastStream.active && !lastStream.isEraser) {
             if (this.config.state.allowTinyStreams) {
@@ -323,12 +302,10 @@ class StreamManager {
                     }
 
                     // In 3D mode, ignore collision with existing trails to allow high density
-                    const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
                     const nextY = stream.y + 1;
                     if (nextY < rows) {
                         const nextIdx = grid.getIndex(stream.x, nextY);
-                        // Only check for blockage if NOT in 3D mode
-                        if (!is3D && nextIdx !== -1 && decays[nextIdx] > 0) {
+                        if (nextIdx !== -1 && decays[nextIdx] > 0) {
                             stream.active = false;
                             continue; 
                         }
@@ -351,29 +328,18 @@ class StreamManager {
     }
 
     _handleStreamCompletion(stream) {
-        const s = this.config.state;
-        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
-        
-        if (is3D && !stream.isEraser) {
-            // In 3D, recycle stream to top to maintain consistent density
-            stream.y = -1;
-            stream.age = 0;
-            stream.delay = 0;
-            stream.active = true;
-        } else {
-            stream.active = false;
-            if (!stream.isEraser) {
-                // Reuse the same speed for the replacement if it's immediate
-                // But _spawnStreamAt doesn't take forced speed from here.
-                // However, since the column is still "active" (technically we just set active=false, 
-                // but _spawnStreams checks lastStreamInColumn which is THIS stream).
-                // Wait, if we set active=false, then next frame _spawnStreams will see it as inactive and gen new speed?
-                // The requirement is "when a stream column has a particular speed... all tracers... should be same speed".
-                // If it recycles immediately, it's the same stream effectively.
-                
-                // Let's pass the current stream's speed to the new spawn.
-                this._spawnStreamAt(stream.x, true, stream.tickInterval);
-            }
+        stream.active = false;
+        if (!stream.isEraser) {
+            // Reuse the same speed for the replacement if it's immediate
+            // But _spawnStreamAt doesn't take forced speed from here.
+            // However, since the column is still "active" (technically we just set active=false, 
+            // but _spawnStreams checks lastStreamInColumn which is THIS stream).
+            // Wait, if we set active=false, then next frame _spawnStreams will see it as inactive and gen new speed?
+            // The requirement is "when a stream column has a particular speed... all tracers... should be same speed".
+            // If it recycles immediately, it's the same stream effectively.
+            
+            // Let's pass the current stream's speed to the new spawn.
+            this._spawnStreamAt(stream.x, true, stream.tickInterval);
         }
     }
 

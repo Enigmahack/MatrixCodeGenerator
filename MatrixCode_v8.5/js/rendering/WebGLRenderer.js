@@ -52,15 +52,6 @@ class WebGLRenderer {
         this.mouseY = 0.5;
         this._setupMouseTracking();
 
-        // --- 3D Camera State ---
-        // x,y,z = World Position
-        // vx,vy,vz = Velocity
-        this.camera = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, pitch: 0, yaw: 0 };
-        // flySpeed is now managed by config.state.flySpeed
-        this.keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
-        this._setupKeyboardTracking();
-        this._setupScrollTracking();
-
         this._initShaders();
         this._initBuffers();
         this._initBloomBuffers();
@@ -91,8 +82,7 @@ class WebGLRenderer {
         }
         if (this.gl) {
             if (this.program2D) this.gl.deleteProgram(this.program2D);
-            if (this.program3D) this.gl.deleteProgram(this.program3D);
-            if (this.program && this.program !== this.program2D && this.program !== this.program3D) this.gl.deleteProgram(this.program);
+            if (this.program && this.program !== this.program2D) this.gl.deleteProgram(this.program);
             
             if (this.bloomProgram) this.gl.deleteProgram(this.bloomProgram);
             if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);
@@ -106,45 +96,13 @@ class WebGLRenderer {
     }
 
     _setupMouseTracking() {
-        // Click to capture pointer in 3D mode
-        this.cvs.addEventListener('mousedown', () => {
-            const is3D = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
-            if (is3D && !this._isMenuOpen()) {
-                this.cvs.requestPointerLock();
-            }
-        });
-
         this._mouseMoveHandler = (e) => {
             if (this._isMenuOpen()) return;
 
-            // If pointer is locked, use delta movement for infinite turning
-            if (document.pointerLockElement === this.cvs) {
-                // Normalize delta relative to screen size to keep sensitivity consistent
-                // Accumulate directly into mouseX/Y but wrap/clamp isn't strictly needed for the look logic 
-                // since we map it to angles in _updateCamera. 
-                // However, our _updateCamera expects 0..1 values currently.
-                // Let's adapt _updateCamera to handle continuous accumulation or modify this to update yaw/pitch directly.
-                
-                // Better approach: Pass deltas to a tracking object, or accumulate virtual mouse coordinates.
-                // Let's simply add the delta to the existing 0..1 mouseX/Y, allowing them to go <0 or >1.
-                // The camera logic uses (mouseX - 0.5) * Scale.
-                // So if mouseX keeps growing, Yaw keeps rotating. This is perfect for infinite turning.
-                
-                const sensitivity = 0.002;
-                this.mouseX += e.movementX * sensitivity;
-                this.mouseY -= e.movementY * sensitivity; // Inverted Y for standard FPS feel
-                
-                // Clamp Pitch (Y) to prevent flipping over (optional, but good for FPS feel)
-                // Let's leave Y unclamped here and let _updateCamera handle pitch clamping if needed, 
-                // or just let it spin if that's the desired "fly" feel. 
-                // Standard FPS clamps pitch.
-                
-            } else {
-                // Fallback for 2D or unlocked 3D (standard cursor tracking)
-                const rect = this.cvs.getBoundingClientRect();
-                this.mouseX = (e.clientX - rect.left) / rect.width;
-                this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
-            }
+            // Fallback for 2D or unlocked 3D (standard cursor tracking)
+            const rect = this.cvs.getBoundingClientRect();
+            this.mouseX = (e.clientX - rect.left) / rect.width;
+            this.mouseY = 1.0 - ((e.clientY - rect.top) / rect.height);
         };
         this._touchMoveHandler = (e) => {
             if (this._isMenuOpen()) return;
@@ -158,42 +116,7 @@ class WebGLRenderer {
         window.addEventListener('touchmove', this._touchMoveHandler, { passive: true });
     }
 
-    _setupKeyboardTracking() {
-        window.addEventListener('keydown', (e) => {
-            if (this.keys.hasOwnProperty(e.code)) {
-                this.keys[e.code] = true;
-                if(this.config.state.renderMode3D) e.preventDefault();
-            }
-        });
-        window.addEventListener('keyup', (e) => {
-            if (this.keys.hasOwnProperty(e.code)) {
-                this.keys[e.code] = false;
-            }
-        });
-    }
 
-    _setupScrollTracking() {
-        window.addEventListener('wheel', (e) => {
-            if (this._isMenuOpen()) return;
-            if (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true') {
-                e.preventDefault();
-                // Scroll Up (Negative Delta) -> Increase Speed (Forward)
-                // Scroll Down (Positive Delta) -> Decrease Speed (Stop)
-                
-                // Normalize direction to ensure consistent step size regardless of mouse wheel driver variance
-                const direction = Math.sign(e.deltaY);
-                const step = 2.0;
-                
-                let newSpeed = (this.config.state.flySpeed || 15.0) - (direction * step);
-                
-                // Clamp speed reasonably (0 to 40 for "somewhat slow" controlled flight)
-                newSpeed = Math.max(0.0, Math.min(40.0, newSpeed));
-                
-                // Save to config (updates profile automatically via ConfigurationManager logic)
-                this.config.set('flySpeed', newSpeed);
-            }
-        }, { passive: false });
-    }
 
     _createShader(type, source) {
         const shader = this.gl.createShader(type);
@@ -238,7 +161,6 @@ class WebGLRenderer {
                     vec2 worldPos = pos + (a_quad * size);
                     vec2 uv = worldPos / u_gridSize;
                     gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-                    gl_Position.y = -gl_Position.y;
                     v_uv = a_quad;
                     v_alpha = a_alpha;
                     v_blur = a_blur;
@@ -360,131 +282,7 @@ class WebGLRenderer {
                 }
             `;
     
-            // 3D Vertex Shader
-            const matrixVS3D = matrixVS_Common + `
-                uniform vec2 u_resolution;
-                uniform vec2 u_atlasSize;
-                uniform vec2 u_gridSize;
-                uniform float u_cellSize;
-                uniform vec2 u_cellScale;
-                uniform float u_cols;
-                uniform float u_decayDur;
-                uniform vec2 u_stretch;
-                uniform float u_stretchZ;
-                uniform float u_mirror;
-                uniform float u_billboard;
-                
-                uniform mat4 u_projection;
-                uniform mat4 u_view;
-                
-                uniform vec3 u_cameraPos;
-                uniform vec3 u_camForward;
-                uniform vec3 u_wrapSize;
-                uniform float u_drawDistance;
-                uniform vec3 u_layerOffset;
-    
-                uniform float u_dissolveEnabled;
-                uniform float u_dissolveScale;
-    
-                void main() {
-                    // Decay Scale Logic
-                    float scale = 1.0;
-                    v_prog = 0.0;
-                    v_cellUV = a_quad;
-                    if (a_decay >= 2.0) {
-                        v_prog = (a_decay - 2.0) / u_decayDur;
-                        if (u_dissolveEnabled > 0.5) {
-                            scale = mix(1.0, u_dissolveScale, v_prog);
-                        } else {
-                            scale = 1.0;
-                        }
-                    }
-                    
-                    // Shadow UV (Approximate using 2D logic for texture effect consistency)
-                    vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
-                    vec2 worldPos = a_pos + centerPos2D;
-                    v_shadowUV = worldPos / u_gridSize;
-                    
-                    // 3D Mode (Infinite Volumetric Scroll)
-                    vec3 stretchFactors = vec3(u_stretch.x, u_stretch.y, u_stretchZ);
-                    vec3 effectiveWrap = u_wrapSize * stretchFactors;
-    
-                    vec3 rawBasePos = vec3(a_depth.x, a_depth.y, a_depth.z);
-                    vec3 basePos = rawBasePos + u_layerOffset;
-                    vec3 scaledBasePos = basePos * stretchFactors;
-    
-                    vec3 diff = scaledBasePos - u_cameraPos;
-                    vec3 wrappedDiff = mod(diff + effectiveWrap * 0.5, effectiveWrap) - effectiveWrap * 0.5;
-                    vec3 finalPos = u_cameraPos + wrappedDiff;
-                    
-                    // Apply Column Logic (Fix: Use stretched center)
-                    vec2 stretchedCenter = a_pos;
-                    vec2 gridCenter = u_gridSize * 0.5;
-                    stretchedCenter.x = (stretchedCenter.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
-                    stretchedCenter.y = (stretchedCenter.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
-                    if (u_mirror < 0.0) stretchedCenter.x = u_resolution.x - stretchedCenter.x;
-    
-                    float charY = (u_resolution.y * 0.5) - stretchedCenter.y;
-                    finalPos.y += charY;
-                    
-                                    // Culling
-                                    float dist = length(finalPos - u_cameraPos);
-                                    vec3 toObj = normalize(finalPos - u_cameraPos);
-                                    float viewDot = dot(toObj, u_camForward);
-                                    
-                                    // Use drawDistance for culling
-                                    if (dist > u_drawDistance || (dist > 100.0 && viewDot < 0.4)) {
-                                        scale = 0.0;
-                                    }
-                    
-                                    // Fade (Opacity based, not Scale based)
-                                    float fade = 1.0 - smoothstep(u_drawDistance * 0.8, u_drawDistance * 0.98, dist);
-                                    // scale *= fade; // Disabled growing effect
-                    
-                                    if (scale < 0.01) scale = 0.0;    
-                    // Quad local offset
-                    vec2 aspectOffset = vec2(a_quad.x - 0.5, 0.5 - a_quad.y) * u_cellSize * u_cellScale * scale;
-                    vec3 vertexPos = finalPos;
-    
-                    if (u_billboard > 0.5) {
-                        vec3 camRight = vec3(u_view[0][0], u_view[1][0], u_view[2][0]);
-                        vec3 camUp = vec3(u_view[0][1], u_view[1][1], u_view[2][1]);
-                        vertexPos += (camRight * aspectOffset.x) + (camUp * aspectOffset.y);
-                    } else {
-                        vertexPos.x += aspectOffset.x;
-                        vertexPos.y += aspectOffset.y;
-                    }
-                    
-                    gl_Position = u_projection * u_view * vec4(vertexPos, 1.0);
-                    if (scale < 0.01) gl_Position = vec4(0.0);
-                    
-                                    // Attributes
-                                    vec3 ndc = gl_Position.xyz / gl_Position.w;
-                                    v_screenUV = ndc.xy * 0.5 + 0.5;
-                    
-                                    v_color = a_color;
-                                    v_color.a *= a_alpha * fade;
-                                    v_mix = a_mix;
-                                    v_glow = a_glow;    
-                    // UV 1
-                    float cIdx = a_charIdx;
-                    float row = floor(cIdx / u_cols);
-                    float col = mod(cIdx, u_cols);
-                    vec2 uvBase = vec2(col, row) * u_cellSize;
-                    v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
-    
-                    // UV 2
-                    if (a_mix > 0.0) {
-                        float cIdx2 = a_nextChar;
-                        float row2 = floor(cIdx2 / u_cols);
-                        float col2 = mod(cIdx2, u_cols);
-                        vec2 uvBase2 = vec2(col2, row2) * u_cellSize;
-                        v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
-                    } else {
-                        v_uv2 = v_uv;
-                    }
-                }
-            `;
+
     
             // Optimized Fragment Shader (Shared)
             const matrixFS = `#version 300 es
@@ -792,7 +590,6 @@ class WebGLRenderer {
             `;
             
             this.program2D = this._createProgram(matrixVS2D, matrixFS);
-            this.program3D = this._createProgram(matrixVS3D, matrixFS);
             this.program = this.program2D; // Default fallback
     
             // Keep existing Bloom/Color programs
@@ -926,25 +723,6 @@ class WebGLRenderer {
         // Static Position Buffer
         this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
         
-        // Depth Buffer (Static Instance) - Now Vec3 (WorldX, Y-Offset, BaseZ)
-        this.depthBuffer = ensureBuf(this.depthBuffer, totalCells * 12, this.gl.STATIC_DRAW);
-        const depthData = new Float32Array(totalCells * 3);
-        
-        // Generate random world positions for columns (Forest)
-        const colData = new Float32Array(this.grid.cols * 3);
-        const spreadX = 2000.0; // Increased density (narrower width)
-        const spreadZ = 4000.0; // Longer draw distance
-        const spreadY = 8000.0; // Vertical scatter range
-        
-        for(let c=0; c<this.grid.cols; c++) {
-            // Random X
-            colData[c*3+0] = (Math.random() - 0.5) * spreadX; 
-            // Random Y Offset (Vertical Scatter)
-            colData[c*3+1] = (Math.random() - 0.5) * spreadY;
-            // Random Z
-            colData[c*3+2] = -(Math.random() * spreadZ); 
-        }
-
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
         const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
@@ -953,18 +731,11 @@ class WebGLRenderer {
              const row = Math.floor(i / this.grid.cols);
              posData[i*2] = col * cw + cw * 0.5 + xOff;
              posData[i*2+1] = row * ch + ch * 0.5 + yOff;
-             
-             depthData[i*3+0] = colData[col*3+0];
-             depthData[i*3+1] = colData[col*3+1];
-             depthData[i*3+2] = colData[col*3+2];
         }
         
         // Fix: Explicitly bind posBuffer before uploading posData
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
-        
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, depthData);
 
         // Dynamic Buffers
         this.charBuffer = ensureBuf(this.charBuffer, totalCells * 2); // Uint16
@@ -1046,12 +817,6 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(8);
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
-
-        // 9: Depth (Static Instance, Vec3: X, Y-Offset, Z)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.depthBuffer);
-        this.gl.enableVertexAttribArray(9);
-        this.gl.vertexAttribPointer(9, 3, this.gl.FLOAT, false, 0, 0);
-        this.gl.vertexAttribDivisor(9, 1);
 
         this.gl.bindVertexArray(null);
     }
@@ -1261,7 +1026,7 @@ class WebGLRenderer {
                 continue; 
             }
 
-            // PRIORITY 2: HARD OVERRIDE (Deja Vu, Firewall, etc.)
+            // PRIORITY 2: HARD OVERRIDE (Deja Vu, etc.)
             // These usually indicate a logic change or interruption.
             const ov = ovActive[i];
             if (ov) {
@@ -1522,10 +1287,9 @@ class WebGLRenderer {
                                     let ptr = 0;
                                     for (const rect of r.rects) {
                                         const x1 = (rect.x / cols) * 2.0 - 1.0;
-                                        // Invert Y: 0 is Top (+1), Rows is Bottom (-1)
-                                        const y1 = 1.0 - (rect.y / rows) * 2.0; 
+                                        const y1 = (rect.y / rows) * 2.0 - 1.0; 
                                         const x2 = ((rect.x + rect.w) / cols) * 2.0 - 1.0;
-                                        const y2 = 1.0 - ((rect.y + rect.h) / rows) * 2.0;
+                                        const y2 = ((rect.y + rect.h) / rows) * 2.0 - 1.0;
                                         
                                         // Triangle 1
                                         data[ptr++] = x1; data[ptr++] = y1;
@@ -1558,11 +1322,11 @@ class WebGLRenderer {
                                     
                                     // Convert to Clip Space
                                     // X: 0..cols -> -1..1
-                                    // Y: 0..rows -> 1..-1 (Inverted)
-                                    const ax = (t1.x / cols) * 2.0 - 1.0; const ay = 1.0 - (t1.y / rows) * 2.0;
-                                    const bx = (t2.x / cols) * 2.0 - 1.0; const by = 1.0 - (t2.y / rows) * 2.0;
-                                    const cx = (b1.x / cols) * 2.0 - 1.0; const cy = 1.0 - (b1.y / rows) * 2.0;
-                                    const dx = (b2.x / cols) * 2.0 - 1.0; const dy = 1.0 - (b2.y / rows) * 2.0;
+                                    // Y: 0..rows -> -1..1
+                                    const ax = (t1.x / cols) * 2.0 - 1.0; const ay = (t1.y / rows) * 2.0 - 1.0;
+                                    const bx = (t2.x / cols) * 2.0 - 1.0; const by = (t2.y / rows) * 2.0 - 1.0;
+                                    const cx = (b1.x / cols) * 2.0 - 1.0; const cy = (b1.y / rows) * 2.0 - 1.0;
+                                    const dx = (b2.x / cols) * 2.0 - 1.0; const dy = (b2.y / rows) * 2.0 - 1.0;
                                     
                                     // Triangle 1: t1, t2, b1
                                     data[ptr++] = ax; data[ptr++] = ay;
@@ -1578,10 +1342,10 @@ class WebGLRenderer {
                             } 
                             // Legacy/Fallback Triangle support (if needed, though we moved to strip)
                             else if (r.p1 && r.p2 && r.p3) {
-                                const x1 = (r.p1.x / cols) * 2.0 - 1.0; const y1 = 1.0 - (r.p1.y / rows) * 2.0;
-                                const x2 = (r.p2.x / cols) * 2.0 - 1.0; const y2 = 1.0 - (r.p2.y / rows) * 2.0;
-                                const x3 = (r.p3.x / cols) * 2.0 - 1.0; const y3 = 1.0 - (r.p3.y / rows) * 2.0;
-                                vertices = new Float32Array([x1, y1, x2, y2, x3, y3]);
+                                const x1 = (r.p1.x / cols) * 2.0 - 1.0; const ay = (r.p1.y / rows) * 2.0 - 1.0;
+                                const x2 = (r.p2.x / cols) * 2.0 - 1.0; const by = (r.p2.y / rows) * 2.0 - 1.0;
+                                const x3 = (r.p3.x / cols) * 2.0 - 1.0; const cy = (r.p3.y / rows) * 2.0 - 1.0;
+                                vertices = new Float32Array([x1, ay, x2, by, x3, cy]);
                             }
 
                             if (vertices) {
@@ -1619,8 +1383,7 @@ class WebGLRenderer {
 
         // 2. Draw Cells
         // Determine Program based on mode
-        const is3D = (s.renderMode3D === true || s.renderMode3D === 'true');
-        const activeProgram = is3D ? this.program3D : this.program2D;
+        const activeProgram = this.program2D;
         this.gl.useProgram(activeProgram);
         
         // --- Shared Uniforms ---
@@ -1657,63 +1420,11 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
 
         // Calculate Cell Scale (Aspect Ratio Correction)
-        // 3D Mode uses a 2.0 multiplier for visibility. 2D uses 1.0.
-        const scaleMult = is3D ? 2.0 : 1.0;
+        const scaleMult = 1.0;
         const cellScaleX = (d.cellWidth / atlas.cellSize) * scaleMult;
         const cellScaleY = (d.cellHeight / atlas.cellSize) * scaleMult;
         this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
 
-        // --- 3D Camera Update ---
-        this._updateCamera();
-        
-        // --- 3D Specific Uniforms ---
-        if (is3D) {
-            // Z Stretch
-            const stretchZ = (s.stretchZ !== undefined) ? s.stretchZ : 1.0;
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_stretchZ'), stretchZ);
-            
-            // Billboard
-            const billboard = (s.billboardEnabled) ? 1.0 : 0.0;
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_billboard'), billboard);
-            
-            // Infinite Scroll
-            const wrapSizeX = 1000.0;
-            const wrapSizeY = 6000.0;
-            const wrapSizeZ = 3000.0;
-            this.gl.uniform3f(this.gl.getUniformLocation(activeProgram, 'u_wrapSize'), wrapSizeX, wrapSizeY, wrapSizeZ);
-            
-            // Camera Vectors
-            const camFwdX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
-            const camFwdY = Math.sin(this.camera.pitch);
-            const camFwdZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
-            this.gl.uniform3f(this.gl.getUniformLocation(activeProgram, 'u_camForward'), camFwdX, camFwdY, camFwdZ);
-            
-            const drawDist = (s.drawDistance !== undefined) ? s.drawDistance : 3000.0;
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_drawDistance'), drawDist);
-            this.gl.uniform3f(this.gl.getUniformLocation(activeProgram, 'u_cameraPos'), this.camera.x, this.camera.y, this.camera.z);
-            
-            // Matrices
-            const aspect = this.w / this.h;
-            const fov = 60 * Math.PI / 180;
-            const proj = this._makePerspective(fov, aspect, 1.0, 5000.0);
-            
-            const camX = this.camera.x;
-            const camY = this.camera.y;
-            const camZ = this.camera.z;
-            const lookDirX = camFwdX;
-            const lookDirY = camFwdY;
-            const lookDirZ = camFwdZ;
-            const targetX = camX + lookDirX;
-            const targetY = camY + lookDirY;
-            const targetZ = camZ + lookDirZ;
-            const view = this._makeLookAt(camX, camY, camZ, targetX, targetY, targetZ, 0, 1, 0);
-            
-            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(activeProgram, 'u_projection'), false, proj);
-            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(activeProgram, 'u_view'), false, view);
-        } else {
-            // 2D Specifics (if any)
-            // Note: 2D shader does not have matrices.
-        }
         
         // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
         const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
@@ -1736,27 +1447,7 @@ class WebGLRenderer {
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
         
         // Draw Main Pass
-        if (is3D) {
-            // Multi-Layer Rendering for Density
-            const layers = 3;
-            // Match spread constants from resize()
-            const spreadX = 2000.0;
-            const spreadY = 8000.0;
-            const spreadZ = 4000.0;
-            
-            for (let i = 0; i < layers; i++) {
-                const factor = i / layers;
-                // Shift layers to fill gaps
-                this.gl.uniform3f(this.gl.getUniformLocation(activeProgram, 'u_layerOffset'), 
-                    spreadX * factor, 
-                    spreadY * factor, 
-                    -spreadZ * factor);
-                
-                this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
-            }
-        } else {
-            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
-        }
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
         this.gl.bindVertexArray(null);
 
         // --- POST PROCESS (Bloom) ---
@@ -1834,126 +1525,4 @@ class WebGLRenderer {
         }
     }
 
-    _updateCamera() {
-        const isActive = (this.config.state.renderMode3D === true || this.config.state.renderMode3D === 'true');
-        if (!isActive) return;
-        
-        // --- 1. Input Processing (Blocked when menu is open) ---
-        if (!this._isMenuOpen()) {
-            // Mouse Look (Yaw/Pitch)
-            const fov = 60 * Math.PI / 180;
-            this.camera.yaw = (this.mouseX - 0.5) * fov * 4.0; 
-            this.camera.pitch = (this.mouseY - 0.5) * fov * 2.5;
-            
-            // Clamp Pitch
-            const pitchLimit = Math.PI / 2 - 0.1;
-            this.camera.pitch = Math.max(-pitchLimit, Math.min(pitchLimit, this.camera.pitch));
-        }
-
-        // --- 2. Physics & Position Update (Always runs) ---
-        
-        // Calculate Forward Vector
-        const forwardX = Math.sin(this.camera.yaw) * Math.cos(this.camera.pitch);
-        const forwardY = Math.sin(this.camera.pitch);
-        const forwardZ = -Math.cos(this.camera.yaw) * Math.cos(this.camera.pitch);
-
-        // Apply constant forward flight (Fly Speed)
-        let speed = this.config.state.flySpeed || 15.0;
-        // Deadzone for fly speed to allow full stop
-        if (Math.abs(speed) < 2.1) speed = 0.0;
-
-        this.camera.x += forwardX * speed;
-        this.camera.y += forwardY * speed;
-        this.camera.z += forwardZ * speed;
-
-        // Strafe Logic with Momentum
-        const rightX = -forwardZ;
-        const rightZ = forwardX;
-        // Up Vector is roughly (0,1,0) for world strafe or relative? 
-        // Let's stick to simple World Y for Up/Down strafe to match previous feel
-        
-        let accX = 0;
-        let accY = 0;
-        let accZ = 0;
-        
-        // Input (Blocked if menu open)
-        if (!this._isMenuOpen()) {
-            const accel = 2.0; // Acceleration per frame
-            
-            if (this.keys.ArrowUp) accY += accel;
-            if (this.keys.ArrowDown) accY -= accel;
-            if (this.keys.ArrowLeft) {
-                accX -= rightX * accel;
-                accZ -= rightZ * accel;
-            }
-            if (this.keys.ArrowRight) {
-                accX += rightX * accel;
-                accZ += rightZ * accel;
-            }
-        }
-
-        // Apply Acceleration to Velocity
-        this.camera.vx += accX;
-        this.camera.vy += accY;
-        this.camera.vz += accZ;
-
-        // Apply Friction
-        const friction = 0.85;
-        this.camera.vx *= friction;
-        this.camera.vy *= friction;
-        this.camera.vz *= friction;
-
-        // Slow-to-stop: Round down if velocity is negligible
-        if (Math.abs(this.camera.vx) < 1.0) this.camera.vx = 0;
-        if (Math.abs(this.camera.vy) < 1.0) this.camera.vy = 0;
-        if (Math.abs(this.camera.vz) < 1.0) this.camera.vz = 0;
-
-        // Apply Velocity to Position
-        this.camera.x += this.camera.vx;
-        this.camera.y += this.camera.vy;
-        this.camera.z += this.camera.vz;
-
-        // Clamp Y Position (Code Bounds)
-        const limitY = 3000.0; // Half of spreadY (2000)
-        this.camera.y = Math.max(-limitY, Math.min(limitY, this.camera.y));
-    }
-
-    _makePerspective(fov, aspect, near, far) {
-        const f = 1.0 / Math.tan(fov / 2);
-        const nf = 1 / (near - far);
-        return new Float32Array([
-            f / aspect, 0, 0, 0,
-            0, f, 0, 0,
-            0, 0, (far + near) * nf, -1,
-            0, 0, (2 * far * near) * nf, 0
-        ]);
-    }
-
-    _makeLookAt(ex, ey, ez, tx, ty, tz, ux, uy, uz) {
-        const z0 = ex - tx, z1 = ey - ty, z2 = ez - tz;
-        let len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
-        const zx = z0 * len, zy = z1 * len, zz = z2 * len;
-
-        const x0 = uy * zz - uz * zy, x1 = uz * zx - ux * zz, x2 = ux * zy - uy * zx;
-        len = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2);
-        if (!len) {
-            // zero length vector
-            return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
-        }
-        len = 1 / len;
-        const xx = x0 * len, xy = x1 * len, xz = x2 * len;
-
-        const y0 = zy * xz - zz * xy, y1 = zz * xx - zx * xz, y2 = zx * xy - zy * xx;
-        // len = Math.sqrt(y0*y0 + y1*y1 + y2*y2); // Should be 1 already if up is normalized and perpendicular
-        // Just normalize to be safe
-        len = 1 / Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2);
-        const yx = y0 * len, yy = y1 * len, yz = y2 * len;
-
-        return new Float32Array([
-            xx, yx, zx, 0,
-            xy, yy, zy, 0,
-            xz, yz, zz, 0,
-            -(xx * ex + xy * ey + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1
-        ]);
-    }
 }

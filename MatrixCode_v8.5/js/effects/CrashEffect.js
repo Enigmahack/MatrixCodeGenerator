@@ -307,7 +307,7 @@ void main() {
         // Update Fading Triangles (Reveals)
         for (let i = this.supermanState.fadingReveals.length - 1; i >= 0; i--) {
             const t = this.supermanState.fadingReveals[i];
-            t.alpha -= 0.05 * step; // Fade out speed adjusted
+            t.alpha -= 0.01 * step; // Fade out speed adjusted
             if (t.alpha <= 0) {
                 this.supermanState.fadingReveals.splice(i, 1);
             }

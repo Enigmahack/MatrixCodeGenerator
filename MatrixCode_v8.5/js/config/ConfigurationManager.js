@@ -14,7 +14,6 @@ class ConfigurationManager {
 
         // Define keys that are shared across all profiles (Global Settings)
         this.SHARED_KEYS = new Set([
-            'renderMode3D', // The switcher itself
             'showFpsCounter',
             'debugEnabled',
             'keyBindings',
@@ -23,12 +22,6 @@ class ConfigurationManager {
             'renderingEngine',
             // 'savedPresets' is handled by this.slots
         ]);
-
-        // Initialize Profiles
-        this.profiles = {
-            '2D': {},
-            '3D': {}
-        };
 
         // Keys that affect derived values (safe superset to ensure correctness)
         this._derivedKeys = new Set([
@@ -113,9 +106,6 @@ class ConfigurationManager {
             "fontOffsetY": 0,
             "stretchX": 1,
             "stretchY": 1.1,
-            "stretchZ": 1.0,
-            "billboardEnabled": false,
-            "drawDistance": 3000,
             "decayFadeDurationFrames": 24,
             "streamSpawnCount": 2,
             "eraserSpawnCount": 2,
@@ -173,6 +163,7 @@ class ConfigurationManager {
             "pulseInstantStart": false,
             "pulseCircular": false,
             "clearPulseEnabled": true,
+            "clearPulseMovieAccurate": true,
             "clearPulseUseTracerGlow": true,
             "clearPulseFrequencySeconds": 235,
             "clearPulseDurationSeconds": 1.1,
@@ -221,12 +212,6 @@ class ConfigurationManager {
             "rainbowStreamEnabled": false,
             "rainbowStreamChance": 0.5,
             "rainbowStreamIntensity": 50,
-            "firewallEnabled": false,
-            "firewallFrequencySeconds": 150,
-            "firewallRandomColorEnabled": true,
-            "firewallColor": "#00ff00",
-            "firewallReverseDurationFrames": 20,
-            "firewallEraseDurationFrames": 50,
             "bootSequenceEnabled": false,
             "crashEnabled": true,
             "crashFrequencySeconds": 600,
@@ -247,7 +232,6 @@ class ConfigurationManager {
               "MiniPulse": "e",
               "DejaVu": "r",
               "Superman": "t",
-              "Firewall": "y",
               "ToggleUI": " ",
               "BootSequence": "b",
               "CrashSequence": "x",
@@ -274,8 +258,6 @@ class ConfigurationManager {
             "ttlMaxSeconds": 8,
             "supermanIncludeColors": true,
             "renderingEngine": "canvas",
-            "renderMode3D": false,
-            "flySpeed": 15.0,
             "dissolveMinSize": 19,
             "crashMovieFps": true
         };
@@ -468,19 +450,11 @@ class ConfigurationManager {
                 
                 // Handle new profile structure vs legacy flat structure
                 if (parsed.profiles) {
-                    this.profiles = parsed.profiles;
-                    this.state = { ...this.defaults, ...parsed.state };
+                    // Flatten profiles - prioritize 2D if exists, otherwise take state
+                    const p2d = parsed.profiles['2D'] || {};
+                    this.state = { ...this.defaults, ...parsed.state, ...p2d };
                 } else {
-                    // Migration: Treat existing flat state as the initial state for BOTH profiles
-                    // This ensures a smooth transition without losing settings
-                    const migrated = { ...this.defaults, ...parsed };
-                    
-                    // Populate initial profiles with migrated data (filtering out non-specifics is optional but cleaner)
-                    // For safety, we clone the full migrated state into both.
-                    this.profiles['2D'] = this._deepClone(migrated);
-                    this.profiles['3D'] = this._deepClone(migrated);
-                    
-                    this.state = migrated;
+                    this.state = { ...this.defaults, ...parsed };
                 }
                 
                 // Migration: Ensure streamPalette exists
@@ -497,9 +471,8 @@ class ConfigurationManager {
                     this.state.eraserStopChance = 25;
                 }
             } else {
-                // First run: Clone defaults to profiles
-                this.profiles['2D'] = this._deepClone(this.defaults);
-                this.profiles['3D'] = this._deepClone(this.defaults);
+                // First run: Clone defaults
+                this.state = this._deepClone(this.defaults);
             }
         } catch (e) {
             console.warn('Failed to load configuration:', e);
@@ -511,10 +484,9 @@ class ConfigurationManager {
      */
     save() {
         try {
-            // Save state AND profiles
+            // Save state
             const data = {
-                state: this.state,
-                profiles: this.profiles
+                state: this.state
             };
             localStorage.setItem(this.storageKey, JSON.stringify(data));
         } catch (e) {
@@ -538,12 +510,6 @@ class ConfigurationManager {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
-
-        // Special handling for renderMode3D (Profile Switching)
-        if (key === 'renderMode3D') {
-            this._handleModeSwitch(value);
-            return; 
-        }
 
         // Special handling for shaderEnabled
         if (key === 'shaderEnabled') {
@@ -614,12 +580,6 @@ class ConfigurationManager {
         
         this.state[key] = value; // Update the actual key's value
 
-        // Sync with Current Profile if Specific
-        if (!this.SHARED_KEYS.has(key)) {
-            const currentMode = (this.state.renderMode3D === true || this.state.renderMode3D === 'true') ? '3D' : '2D';
-            this.profiles[currentMode][key] = value;
-        }
-
         // Only recompute derived values when relevant keys change (preserves behavior, improves perf)
         if (this._derivedKeys.has(key) || key === 'ALL') {
             this.updateDerivedValues();
@@ -629,49 +589,6 @@ class ConfigurationManager {
         this.notify(key);
     }
 
-    /**
-     * Handles switching between 2D and 3D profiles.
-     * @private
-     * @param {boolean|string} newModeValue - The new value for renderMode3D.
-     */
-    _handleModeSwitch(newModeValue) {
-        const isNew3D = (newModeValue === true || newModeValue === 'true');
-        const isOld3D = (this.state.renderMode3D === true || this.state.renderMode3D === 'true');
-        
-        if (isNew3D === isOld3D) return;
-
-        const oldMode = isOld3D ? '3D' : '2D';
-        const newMode = isNew3D ? '3D' : '2D';
-
-        // 1. Save current specific settings to Old Profile
-        // (This is redundant if we sync on set(), but safe for bulk changes or init)
-        for (const k in this.state) {
-            if (!this.SHARED_KEYS.has(k)) {
-                this.profiles[oldMode][k] = this.state[k];
-            }
-        }
-
-        // 2. Load settings from New Profile
-        const targetProfile = this.profiles[newMode];
-        // Merge target profile into state, but respect Shared Keys (don't overwrite them from profile if they exist there by mistake)
-        // Actually, we overwrite specific keys in state with profile keys.
-        // If a key is missing in profile (e.g. new feature), we keep current state or default?
-        // Let's assume profile has valid data or fallback to current state.
-        
-        for (const k in targetProfile) {
-            if (!this.SHARED_KEYS.has(k)) {
-                this.state[k] = targetProfile[k];
-            }
-        }
-
-        // 3. Update the switch itself
-        this.state.renderMode3D = newModeValue;
-
-        // 4. Finalize
-        this.updateDerivedValues();
-        this.save();
-        this.notify('ALL'); // Trigger full UI and Renderer refresh
-    }
 
     /**
      * Resets the application state to its default values.
