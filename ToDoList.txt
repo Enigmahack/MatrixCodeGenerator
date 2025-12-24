@@ -6,6 +6,7 @@ Go through code and fix all comments.
 <- Bugs: 
 Fix python script
 Fix performance for low-end machines
+Fix debug info
 
 <- Behavior:
 Better toast messaging; errors related to missing fonts, etc.
@@ -18,4 +19,3 @@ Quantized Retract: same as above but inwards.
 Quantized Expansion: like the pulse, but with the rendered scene transition.
 
 Star Power - Make the glitter use the glimmer effect.
- 
