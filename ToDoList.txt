@@ -1,10 +1,14 @@
 ToDo: 
 Implement a multi-monitor configuration? 
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
+Go through code and fix all comments.
 
 <- Bugs: 
+Fix python script
+Fix performance for low-end machines
 
-<- Behavior: 
+<- Behavior:
+Better toast messaging; errors related to missing fonts, etc.
 
 <- Look:
 Quantized Pulse: The rectangular pulse effect shown in resurrections.
