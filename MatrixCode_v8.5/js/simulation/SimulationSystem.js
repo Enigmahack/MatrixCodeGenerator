@@ -89,7 +89,17 @@ class SimulationSystem {
     }
 
     _initWorker() {
-        this.worker = new Worker('js/simulation/SimulationWorker.js');
+        const embeddedWorker = document.getElementById('simulation-worker-source');
+        
+        if (embeddedWorker) {
+            console.log("[SimulationSystem] Using embedded worker source.");
+            const blob = new Blob([embeddedWorker.textContent], { type: 'text/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            this.worker = new Worker(workerUrl);
+        } else {
+            console.log("[SimulationSystem] Using external worker file.");
+            this.worker = new Worker('js/simulation/SimulationWorker.js');
+        }
         
         this.worker.onmessage = (e) => {
             // Handle messages from worker (e.g., debug logs, sync ticks)

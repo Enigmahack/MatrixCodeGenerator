@@ -111,6 +111,8 @@ def get_dependency_order(source_dir):
             pass
         
         for file in files:
+            if file == 'main.js': continue # Skip Electron entry point
+            if file == 'SimulationWorker.js': continue # Skip Worker (handled separately)
             if file.endswith(".js"):
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, source_dir).replace('\\', '/')
@@ -453,13 +455,48 @@ def combine_modular(source_dir, output_file):
                 js_combined += f"\n// --- {os.path.basename(rel_path)} ---\n"
                 js_combined += fixed_js + "\n"
 
+    # 5. Worker Bundle (SimulationWorker.js)
+    worker_block = ""
+    worker_path = os.path.join(source_dir, 'js/simulation/SimulationWorker.js')
+    if os.path.exists(worker_path):
+        print("  - Bundling SimulationWorker.js...")
+        
+        # Dependencies required by Worker (Manual Order)
+        # Note: These files are also in the main JS bundle, but Workers need their own definitions.
+        worker_deps = [
+            'js/core/Utils.js',
+            'js/data/CellGrid.js',
+            'js/simulation/StreamModes.js',
+            'js/simulation/StreamManager.js',
+            'js/effects/GlowSystem.js'
+        ]
+        
+        worker_code = ""
+        
+        # Concatenate Dependencies
+        for dep in worker_deps:
+            d_path = os.path.join(source_dir, dep)
+            if os.path.exists(d_path):
+                with open(d_path, 'r', encoding='utf-8') as f:
+                    worker_code += f"\n// --- Worker Dep: {os.path.basename(dep)} ---\n"
+                    worker_code += f.read() + "\n"
+                    
+        # Add Worker Logic
+        with open(worker_path, 'r', encoding='utf-8') as f:
+            w_content = f.read()
+            # Remove importScripts calls as we bundled them
+            w_content = re.sub(r'importScripts\(.*?\);', '', w_content)
+            worker_code += "\n// --- SimulationWorker.js ---\n" + w_content
+            
+        worker_block = f'<script id="simulation-worker-source" type="javascript/worker">\n{worker_code}\n</script>\n'
+
     # Construct HTML
     html_content = re.sub(r'<link rel="stylesheet" href="css/style.css">', 
                           f'<style>\n{css_block}\n</style>', 
                           html_content)
     
     # Remove existing script references
-    html_content = re.sub(r'<script src="js/.*?".*?></script>', '', html_content)
+    html_content = re.sub(r'<script src="(js/.*?|main\.js)".*?></script>', '', html_content)
     
     # Inject Combined Content
     # We prefer to put assets (shaders/presets) in the head or early body
@@ -469,6 +506,7 @@ def combine_modular(source_dir, output_file):
     combined_payload = f"""
 {shaders_block}
 {presets_block}
+{worker_block}
 <script>
 {js_combined}
 </script>
@@ -495,7 +533,7 @@ def refresh_dev_index(source_dir):
         content = f.read()
         
     # Remove existing script tags
-    content = re.sub(r'\s*<script src="js/.*?".*?></script>', '', content)
+    content = re.sub(r'\s*<script src="(js/.*?|main\.js)".*?></script>', '', content)
     
     # Generate new
     load_order = get_dependency_order(source_dir)
