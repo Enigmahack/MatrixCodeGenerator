@@ -369,6 +369,7 @@ class WebGLRenderer {
                 uniform float u_glimmerSize;
                 uniform float u_glimmerFill; // Unused in optimized version (baked into texture density)
                 uniform float u_glimmerIntensity;
+                uniform float u_glimmerFlicker; // Controls spread of flicker
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
@@ -535,19 +536,25 @@ class WebGLRenderer {
 
                             // 5. Apply Luminosity & Flicker
                             // "Bad Connection / Fluorescent" Flicker
-                            // 1. Primary Flicker Cycle (Variable speed per cell)
-                            float cycleSpeed = 10.0 + (cellRand * 20.0);
-                            float flickerBase = sin(u_time * cycleSpeed + (cellRand * 100.0));
+                            float flicker = 1.0;
                             
-                            // 2. Hard Cutout (Thresholding)
-                            // Occasional complete dropouts. If base wave is low, light cuts out.
-                            float cutout = smoothstep(-0.4, -0.2, flickerBase);
-                            
-                            // 3. High Frequency Jitter (When ON)
-                            // Simulates the electrical noise
-                            float jitter = 0.7 + 0.6 * fract(sin(dot(vec2(u_time, cellRand), vec2(12.9898,78.233))) * 43758.5453);
-                            
-                            float flicker = cutout * jitter;
+                            // Flicker Spread Control:
+                            // u_glimmerFlicker determines probability of a cell being "faulty"
+                            if (cellRand < u_glimmerFlicker) {
+                                // 1. Primary Flicker Cycle (Variable speed per cell)
+                                float cycleSpeed = 10.0 + (cellRand * 20.0);
+                                float flickerBase = sin(u_time * cycleSpeed + (cellRand * 100.0));
+                                
+                                // 2. Hard Cutout (Thresholding)
+                                // Occasional complete dropouts. If base wave is low, light cuts out.
+                                float cutout = smoothstep(-0.4, -0.2, flickerBase);
+                                
+                                // 3. High Frequency Jitter (When ON)
+                                // Simulates the electrical noise
+                                float jitter = 0.7 + 0.6 * fract(sin(dot(vec2(u_time, cellRand), vec2(12.9898,78.233))) * 43758.5453);
+                                
+                                flicker = cutout * jitter;
+                            }
                             
                             // Combine: Shape * NoiseModulation * Flicker * Opacity
                             glimmer = shape * (0.4 + (0.6 * activeVal)) * flicker;
@@ -1495,6 +1502,7 @@ class WebGLRenderer {
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
 
         // Calculate Cell Scale (Aspect Ratio Correction)
         const scaleMult = 1.0;

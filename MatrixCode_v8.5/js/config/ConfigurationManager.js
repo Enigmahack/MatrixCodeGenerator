@@ -133,6 +133,7 @@ class ConfigurationManager {
                                 "upwardTracerGlimmerSpeed": 2.0,            "upwardTracerGlimmerSize": 3, // Grid Size (2x2 to 6x6)
             "upwardTracerGlimmerFill": 3, // Number of blocks to light up
             "upwardTracerGlimmerGlow": 10.0,
+            "upwardTracerGlimmerFlicker": 0.5,
             
             "rotatorEnabled": true,
             "rotatorChance": 0.13,
