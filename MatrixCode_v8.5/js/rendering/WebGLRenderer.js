@@ -452,18 +452,48 @@ class WebGLRenderer {
                             float cellRand = random(seed);
 
                             // 2. Determine Shape/Position
-                            // Default: Side Bars (Tall Thin)
+                            // "Lamp illuminating pattern from behind" - Shapes are geometric/tech
                             vec2 center = vec2(0.5);
-                            vec2 sizeBounds = vec2(0.06, 0.42); // Thin, Tall
+                            vec2 sizeBounds = vec2(0.1, 0.1); // Default
                             float rotation = 0.0;
                             
-                            if (cellRand < 0.35) {
-                                // Left Side (Closer to Center)
-                                center = vec2(0.25, 0.5);
+                            // Probability Distribution:
+                            // 0.00 - 0.30: Vertical Bars (30%)
+                            // 0.30 - 0.60: Horizontal Bars (30%)
+                            // 0.60 - 0.80: Small Rects/Blocks (20%)
+                            // 0.80 - 1.00: Diagonals (20%)
+                            
+                            if (cellRand < 0.15) {
+                                // Vertical Left
+                                center = vec2(0.2, 0.5);
+                                sizeBounds = vec2(0.08, 0.45);
+                            } else if (cellRand < 0.30) {
+                                // Vertical Right
+                                center = vec2(0.8, 0.5);
+                                sizeBounds = vec2(0.08, 0.45);
+                            } else if (cellRand < 0.40) {
+                                // Horizontal Top
+                                center = vec2(0.5, 0.8);
+                                sizeBounds = vec2(0.45, 0.08);
+                            } else if (cellRand < 0.50) {
+                                // Horizontal Bottom
+                                center = vec2(0.5, 0.2);
+                                sizeBounds = vec2(0.45, 0.08);
+                            } else if (cellRand < 0.60) {
+                                // Horizontal Middle
+                                center = vec2(0.5, 0.5);
+                                sizeBounds = vec2(0.45, 0.06);
                             } else if (cellRand < 0.70) {
-                                // Right Side (Closer to Center)
-                                center = vec2(0.75, 0.5);
-                            } else if (cellRand < 0.85) {
+                                // Small Rect Center
+                                center = vec2(0.5, 0.5);
+                                sizeBounds = vec2(0.15, 0.15);
+                            } else if (cellRand < 0.80) {
+                                // Small Rect Random Offset (based on fractional part of seed)
+                                float offX = fract(cellRand * 10.0) * 0.6 - 0.3; // -0.3 to 0.3
+                                float offY = fract(cellRand * 20.0) * 0.6 - 0.3;
+                                center = vec2(0.5 + offX, 0.5 + offY);
+                                sizeBounds = vec2(0.12, 0.12);
+                            } else if (cellRand < 0.90) {
                                 // Diagonal 1 (TL to BR)
                                 rotation = 0.785398; // +45 deg
                                 sizeBounds = vec2(0.05, 0.55); 
@@ -503,10 +533,12 @@ class WebGLRenderer {
                             
                             float shape = core + (halo * 0.4);
 
-                            // 5. Apply Luminosity (No blinking out)
-                            // Base brightness (0.3) + Noise modulation (0.7)
-                            // This ensures the bar is always visible but "shimmers" with the lightning data
-                            glimmer = shape * (0.3 + (0.7 * activeVal));
+                            // 5. Apply Luminosity & Flicker
+                            // "Lamp illuminating from behind" -> High intensity, slight flicker
+                            float flicker = 0.85 + 0.15 * sin(u_time * 15.0 + cellRand * 10.0);
+                            
+                            // Combine: Shape * NoiseModulation * Flicker * Opacity
+                            glimmer = shape * (0.4 + (0.6 * activeVal)) * flicker;
                             glimmer *= gOpacity;
 
                         }
