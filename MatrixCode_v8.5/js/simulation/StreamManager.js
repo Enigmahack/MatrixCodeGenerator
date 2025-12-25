@@ -577,8 +577,8 @@ class StreamManager {
 
         return {
             x,
-            // Randomize start position so they exist anywhere, not just from bottom
-            y: Math.floor(Math.random() * (this.grid.rows + 5)), 
+            // Always start at the bottom to ensure upward movement only
+            y: this.grid.rows, 
             active: true,
             delay: 0, // Remove delay for immediate feedback
             age: 0,

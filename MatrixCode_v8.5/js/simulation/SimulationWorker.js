@@ -77,7 +77,7 @@ class WorkerSimulationSystem {
                     // Move every 4-8 frames
                     style.moveInterval = Utils.randomInt(4, 8);
                     style.nextMove = style.age + style.moveInterval;
-                    style.moveDir = Math.random() < 0.7 ? -1 : 1; 
+                    style.moveDir = -1; 
                 } else {
                     style.mobile = false;
                 }

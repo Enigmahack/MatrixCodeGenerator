@@ -207,10 +207,8 @@ class SimulationSystem {
                     // Move every 4-8 frames
                     style.moveInterval = Utils.randomInt(4, 8);
                     style.nextMove = style.age + style.moveInterval;
-                    // Direction: -1 (Up) or 1 (Down). Mostly Up to follow flow? 
-                    // User said "not just fade upwards but actually move". 
-                    // Let's allow both, or mostly up. Random direction per instance.
-                    style.moveDir = Math.random() < 0.7 ? -1 : 1; 
+                    // Direction: Strictly Up (-1)
+                    style.moveDir = -1; 
                 } else {
                     style.mobile = false;
                 }
