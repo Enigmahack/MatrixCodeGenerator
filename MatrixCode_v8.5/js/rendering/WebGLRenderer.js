@@ -534,8 +534,20 @@ class WebGLRenderer {
                             float shape = core + (halo * 0.4);
 
                             // 5. Apply Luminosity & Flicker
-                            // "Lamp illuminating from behind" -> High intensity, slight flicker
-                            float flicker = 0.85 + 0.15 * sin(u_time * 15.0 + cellRand * 10.0);
+                            // "Bad Connection / Fluorescent" Flicker
+                            // 1. Primary Flicker Cycle (Variable speed per cell)
+                            float cycleSpeed = 10.0 + (cellRand * 20.0);
+                            float flickerBase = sin(u_time * cycleSpeed + (cellRand * 100.0));
+                            
+                            // 2. Hard Cutout (Thresholding)
+                            // Occasional complete dropouts. If base wave is low, light cuts out.
+                            float cutout = smoothstep(-0.4, -0.2, flickerBase);
+                            
+                            // 3. High Frequency Jitter (When ON)
+                            // Simulates the electrical noise
+                            float jitter = 0.7 + 0.6 * fract(sin(dot(vec2(u_time, cellRand), vec2(12.9898,78.233))) * 43758.5453);
+                            
+                            float flicker = cutout * jitter;
                             
                             // Combine: Shape * NoiseModulation * Flicker * Opacity
                             glimmer = shape * (0.4 + (0.6 * activeVal)) * flicker;
