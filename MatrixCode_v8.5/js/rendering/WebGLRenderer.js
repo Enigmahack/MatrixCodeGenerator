@@ -554,6 +554,15 @@ class WebGLRenderer {
                                 float jitter = 0.7 + 0.6 * fract(sin(dot(vec2(u_time, cellRand), vec2(12.9898,78.233))) * 43758.5453);
                                 
                                 flicker = cutout * jitter;
+                                
+                                // 4. Long Random Dropouts (The "Dead Cell" Effect)
+                                // Sample noise at a very slow speed
+                                vec2 dropoutUV = vec2(cellGridPos.x / 13.0, (u_time * 0.5) + cellRand * 50.0);
+                                float dropoutVal = texture(u_glimmerNoise, dropoutUV).r;
+                                // 20% chance to be completely dead at any moment for flickering cells
+                                if (dropoutVal < 0.2) {
+                                    flicker = 0.0;
+                                }
                             }
                             
                             // Combine: Shape * NoiseModulation * Flicker * Opacity

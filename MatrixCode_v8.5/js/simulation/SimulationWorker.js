@@ -62,37 +62,84 @@ class WorkerSimulationSystem {
         
         // Glimmer Speed now controls the shader animation (blink/shimmer), not character rotation.
 
-        for (const [idx, style] of this.grid.complexStyles) {
-            if (style.type === 'glimmer') {
-                const attack = s.upwardTracerAttackFrames;
-                const hold = s.upwardTracerHoldFrames;
-                const release = s.upwardTracerReleaseFrames;
-                const totalDuration = attack + hold + release;
-                
-                style.age++;
-                const activeAge = style.age - 1;
-                
-                // Ensure we use the underlying character
-                this.grid.effectChars[idx] = 0;
+        // We iterate over a copy of keys to safely mutate the map during iteration (for movement)
+        const indices = Array.from(this.grid.complexStyles.keys());
 
-                // --- Lifecycle / Fade Logic ---
-                let alpha = 0.0;
+        for (const idx of indices) {
+            const style = this.grid.complexStyles.get(idx);
+            if (!style || style.type !== 'glimmer') continue;
 
-                if (activeAge <= attack) {
-                    alpha = (attack > 0) ? (activeAge / attack) : 1.0;
-                } else if (activeAge <= attack + hold) {
-                    alpha = 1.0;
-                } else if (activeAge <= totalDuration) {
-                    const releaseAge = activeAge - (attack + hold);
-                    alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
-                }
-
-                if (activeAge <= totalDuration) {
-                    this.grid.mix[idx] = 30.0 + alpha;
+            // Initialize Mobility (One-time)
+            if (style.mobile === undefined) {
+                // 20% chance to be a "Moving" glimmer
+                if (Math.random() < 0.2) {
+                    style.mobile = true;
+                    // Move every 4-8 frames
+                    style.moveInterval = Utils.randomInt(4, 8);
+                    style.nextMove = style.age + style.moveInterval;
+                    style.moveDir = Math.random() < 0.7 ? -1 : 1; 
                 } else {
-                    this.grid.mix[idx] = 0;
-                    this.grid.complexStyles.delete(idx);
+                    style.mobile = false;
                 }
+            }
+
+            const attack = s.upwardTracerAttackFrames;
+            const hold = s.upwardTracerHoldFrames;
+            const release = s.upwardTracerReleaseFrames;
+            const totalDuration = attack + hold + release;
+            
+            style.age++;
+            const activeAge = style.age - 1;
+            
+            // --- Vertical Movement Logic ---
+            let currentIdx = idx;
+            if (style.mobile && activeAge >= style.nextMove && activeAge < totalDuration) {
+                const col = currentIdx % this.grid.cols;
+                const row = Math.floor(currentIdx / this.grid.cols);
+                const nextRow = row + style.moveDir;
+                
+                if (nextRow >= 0 && nextRow < this.grid.rows) {
+                    const nextIdx = currentIdx + (style.moveDir * this.grid.cols);
+                    
+                    if (!this.grid.complexStyles.has(nextIdx)) {
+                        // Move State
+                        this.grid.complexStyles.set(nextIdx, style);
+                        this.grid.complexStyles.delete(currentIdx);
+                        
+                        // Move Mix Value
+                        this.grid.mix[nextIdx] = this.grid.mix[currentIdx];
+                        this.grid.mix[currentIdx] = 0;
+                        
+                        // Move Effect Char
+                        this.grid.effectChars[nextIdx] = this.grid.effectChars[currentIdx];
+                        this.grid.effectChars[currentIdx] = 0;
+                        
+                        currentIdx = nextIdx;
+                        style.nextMove = activeAge + style.moveInterval;
+                    }
+                }
+            }
+            
+            // Ensure we use the underlying character
+            this.grid.effectChars[currentIdx] = 0;
+
+            // --- Lifecycle / Fade Logic ---
+            let alpha = 0.0;
+
+            if (activeAge <= attack) {
+                alpha = (attack > 0) ? (activeAge / attack) : 1.0;
+            } else if (activeAge <= attack + hold) {
+                alpha = 1.0;
+            } else if (activeAge <= totalDuration) {
+                const releaseAge = activeAge - (attack + hold);
+                alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
+            }
+
+            if (activeAge <= totalDuration) {
+                this.grid.mix[currentIdx] = 30.0 + alpha;
+            } else {
+                this.grid.mix[currentIdx] = 0;
+                this.grid.complexStyles.delete(currentIdx);
             }
         }
     }
