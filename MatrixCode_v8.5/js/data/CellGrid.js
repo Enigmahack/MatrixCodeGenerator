@@ -85,7 +85,7 @@ class CellGrid {
     /**
      * Resizes the grid based on new width and height.
      */
-    resize(width, height) {
+    resize(width, height, buffers = null) {
         const d = this.config.derived;
         if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
         if (!d || !d.cellWidth || !d.cellHeight) return;
@@ -93,8 +93,8 @@ class CellGrid {
         const newCols = Math.max(1, (width / d.cellWidth) | 0);
         const newRows = Math.max(1, (height / d.cellHeight) | 0);
 
-        if (newCols !== this.cols || newRows !== this.rows) {
-            this._resizeGrid(newCols, newRows);
+        if (newCols !== this.cols || newRows !== this.rows || buffers) {
+            this._resizeGrid(newCols, newRows, buffers);
         }
     }
 
@@ -252,80 +252,134 @@ class CellGrid {
         return this.state[idx];
     }
 
-    _resizeGrid(newCols, newRows) {
+    _resizeGrid(newCols, newRows, buffers = null) {
         const total = newCols * newRows;
 
-        // Core
-        this.state = new Uint8Array(total);
+        if (buffers) {
+            // Adopt provided buffers (SharedArrayBuffer views)
+            this.state = buffers.state;
+            this.chars = buffers.chars;
+            this.colors = buffers.colors;
+            this.baseColors = buffers.baseColors;
+            this.alphas = buffers.alphas;
+            this.glows = buffers.glows;
+            this.fontIndices = buffers.fontIndices;
 
-        // Primary
-        this.chars = new Uint16Array(total);
-        this.colors = new Uint32Array(total);
-        this.baseColors = new Uint32Array(total);
-        this.alphas = new Float32Array(total);
-        this.glows = new Float32Array(total);
-        this.fontIndices = new Uint8Array(total);
+            this.secondaryChars = buffers.secondaryChars;
+            this.secondaryColors = buffers.secondaryColors;
+            this.secondaryAlphas = buffers.secondaryAlphas;
+            this.secondaryGlows = buffers.secondaryGlows;
+            this.secondaryFontIndices = buffers.secondaryFontIndices;
 
-        // Secondary
-        this.secondaryChars = new Uint16Array(total);
-        this.secondaryColors = new Uint32Array(total);
-        this.secondaryAlphas = new Float32Array(total);
-        this.secondaryGlows = new Float32Array(total);
-        this.secondaryFontIndices = new Uint8Array(total);
+            this.mix = buffers.mix;
+            this.renderMode = buffers.renderMode;
 
-        // Mix / Mode
-        this.mix = new Float32Array(total);
-        this.renderMode = new Uint8Array(total);
+            this.overrideActive = buffers.overrideActive;
+            this.overrideChars = buffers.overrideChars;
+            this.overrideColors = buffers.overrideColors;
+            this.overrideAlphas = buffers.overrideAlphas;
+            this.overrideGlows = buffers.overrideGlows;
+            this.overrideFontIndices = buffers.overrideFontIndices;
 
-        // Override
-        this.overrideActive = new Uint8Array(total);
-        this.overrideChars = new Uint16Array(total);
-        this.overrideColors = new Uint32Array(total);
-        this.overrideAlphas = new Float32Array(total);
-        this.overrideGlows = new Float32Array(total);
-        this.overrideFontIndices = new Uint8Array(total);
+            this.effectActive = buffers.effectActive;
+            this.effectChars = buffers.effectChars;
+            this.effectColors = buffers.effectColors;
+            this.effectAlphas = buffers.effectAlphas;
+            this.effectFontIndices = buffers.effectFontIndices;
+            this.effectGlows = buffers.effectGlows;
 
-        // Effects
-        this.effectActive = new Uint8Array(total)
-        this.effectChars = new Uint16Array(total);
-        this.effectColors = new Uint32Array(total);
-        this.effectAlphas = new Float32Array(total);
-        this.effectFontIndices = new Uint8Array(total);
-        this.effectGlows = new Float32Array(total);
+            this.types = buffers.types;
+            this.decays = buffers.decays;
+            this.ages = buffers.ages;
+            this.brightness = buffers.brightness;
+            this.rotatorOffsets = buffers.rotatorOffsets;
+            this.cellLocks = buffers.cellLocks;
 
-        // Simulation
-        this.types = new Uint8Array(total);
-        this.decays = new Uint8Array(total);
-        this.ages = new Int32Array(total);
-        this.brightness = new Float32Array(total);
-        this.rotatorOffsets = new Uint8Array(total);
-        this.cellLocks = new Uint8Array(total);
-        
-        // Rotators
-        this.nextChars = new Uint16Array(total);
-        this.nextOverlapChars = new Uint16Array(total);
+            this.nextChars = buffers.nextChars;
+            this.nextOverlapChars = buffers.nextOverlapChars;
+            this.envGlows = buffers.envGlows;
 
-        // Environmental Glows (Additive, per frame)
-        this.envGlows = new Float32Array(total);
+        } else {
+            // Core
+            this.state = new Uint8Array(total);
 
-        // Initialize static data
-        const activeFonts = this.config.derived ? this.config.derived.activeFonts : null;
-        const fallbackChars = "012345789Z:<=>\"*+-._!|";
-        
-        for (let i = 0; i < total; i++) {
-            this.rotatorOffsets[i] = (Math.random() * 255) | 0;
+            // Primary
+            this.chars = new Uint16Array(total);
+            this.colors = new Uint32Array(total);
+            this.baseColors = new Uint32Array(total);
+            this.alphas = new Float32Array(total);
+            this.glows = new Float32Array(total);
+            this.fontIndices = new Uint8Array(total);
+
+            // Secondary
+            this.secondaryChars = new Uint16Array(total);
+            this.secondaryColors = new Uint32Array(total);
+            this.secondaryAlphas = new Float32Array(total);
+            this.secondaryGlows = new Float32Array(total);
+            this.secondaryFontIndices = new Uint8Array(total);
+
+            // Mix / Mode
+            this.mix = new Float32Array(total);
+            this.renderMode = new Uint8Array(total);
+
+            // Override
+            this.overrideActive = new Uint8Array(total);
+            this.overrideChars = new Uint16Array(total);
+            this.overrideColors = new Uint32Array(total);
+            this.overrideAlphas = new Float32Array(total);
+            this.overrideGlows = new Float32Array(total);
+            this.overrideFontIndices = new Uint8Array(total);
+
+            // Effects
+            this.effectActive = new Uint8Array(total)
+            this.effectChars = new Uint16Array(total);
+            this.effectColors = new Uint32Array(total);
+            this.effectAlphas = new Float32Array(total);
+            this.effectFontIndices = new Uint8Array(total);
+            this.effectGlows = new Float32Array(total);
+
+            // Simulation
+            this.types = new Uint8Array(total);
+            this.decays = new Uint8Array(total);
+            this.ages = new Int32Array(total);
+            this.brightness = new Float32Array(total);
+            this.rotatorOffsets = new Uint8Array(total);
+            this.cellLocks = new Uint8Array(total);
             
-            // Pre-populate random characters for varied effect snapshots
-            let charCode = 32; 
-            if (activeFonts && activeFonts.length > 0) {
-                const f = activeFonts[Math.floor(Math.random() * activeFonts.length)];
-                if (f.chars && f.chars.length > 0) {
-                    charCode = f.chars.charCodeAt(Math.floor(Math.random() * f.chars.length));
+            // Rotators
+            this.nextChars = new Uint16Array(total);
+            this.nextOverlapChars = new Uint16Array(total);
+
+            // Environmental Glows (Additive, per frame)
+            this.envGlows = new Float32Array(total);
+        }
+
+        // Initialize static data (Common to both modes)
+        // Note: For SAB, we might skip this if the worker handles initialization, 
+        // but it's safe to re-run or let the worker overwrite it.
+        // If we are the MAIN thread and just adopting SABs, we probably shouldn't random fill 
+        // because the Worker might be doing it.
+        // However, this random fill is for "initial static noise".
+        // Let's rely on the buffer content being zeroed or initialized elsewhere if buffers are passed.
+        
+        if (!buffers) {
+            const activeFonts = this.config.derived ? this.config.derived.activeFonts : null;
+            const fallbackChars = "012345789Z:<=>\"*+-._!|";
+            
+            for (let i = 0; i < total; i++) {
+                this.rotatorOffsets[i] = (Math.random() * 255) | 0;
+                
+                let charCode = 32; 
+                if (activeFonts && activeFonts.length > 0) {
+                    const f = activeFonts[Math.floor(Math.random() * activeFonts.length)];
+                    if (f.chars && f.chars.length > 0) {
+                        charCode = f.chars.charCodeAt(Math.floor(Math.random() * f.chars.length));
+                    }
+                } else {
+                    charCode = fallbackChars.charCodeAt(Math.floor(Math.random() * fallbackChars.length));
                 }
-            } else {
-                charCode = fallbackChars.charCodeAt(Math.floor(Math.random() * fallbackChars.length));
+                this.chars[i] = charCode;
             }
-            this.chars[i] = charCode;
         }
 
         this.activeIndices = new Set();

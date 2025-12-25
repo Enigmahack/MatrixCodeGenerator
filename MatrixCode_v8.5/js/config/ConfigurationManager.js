@@ -453,7 +453,11 @@ class ConfigurationManager {
                     // Flatten profiles - prioritize 2D if exists, otherwise take state
                     const p2d = parsed.profiles['2D'] || {};
                     this.state = { ...this.defaults, ...parsed.state, ...p2d };
+                } else if (parsed.state) {
+                    // Correctly unwrap 'state' property from saved JSON
+                    this.state = { ...this.defaults, ...parsed.state };
                 } else {
+                    // Legacy flat structure
                     this.state = { ...this.defaults, ...parsed };
                 }
                 

@@ -2,57 +2,229 @@ class SimulationSystem {
     constructor(grid, config) {
         this.grid = grid;
         this.config = config;
+        
+        // --- Web Worker Support ---
+        this.worker = null;
+        this.useWorker = false;
+        this.workerBuffers = null; // Store current SABs
+
+        // Check for SharedArrayBuffer support
+        // Note: functionality requires secure context (HTTPS/localhost) and cross-origin isolation headers.
+        if (typeof SharedArrayBuffer !== 'undefined') {
+            try {
+                // Test creation
+                new SharedArrayBuffer(10);
+                this.useWorker = true;
+                console.log("[SimulationSystem] SharedArrayBuffer supported. Initializing Simulation Worker.");
+            } catch (e) {
+                console.warn("[SimulationSystem] SharedArrayBuffer defined but creation failed. Fallback to main thread.", e);
+            }
+        } else {
+             console.log("[SimulationSystem] SharedArrayBuffer not supported. Fallback to main thread.");
+        }
+
+        if (this.useWorker) {
+            this._initWorker();
+            
+            // Intercept Grid Resize to manage Shared Memory
+            // This ensures MatrixKernel calls to grid.resize() trigger our memory management
+            const originalResize = this.grid.resize.bind(this.grid);
+            
+            this.grid.resize = (width, height) => {
+                // 1. Calculate Dimensions (Copied logic from CellGrid to know size)
+                const d = this.config.derived;
+                if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+                
+                const cols = Math.max(1, (width / d.cellWidth) | 0);
+                const rows = Math.max(1, (height / d.cellHeight) | 0);
+                const total = cols * rows;
+
+                // 2. Allocate Shared Buffers
+                this.workerBuffers = this._createSharedBuffers(total);
+
+                // 3. Resize Grid using Shared Buffers
+                originalResize(width, height, this.workerBuffers);
+
+                // 4. Update Worker
+                this.worker.postMessage({
+                    type: 'resize',
+                    width: width,
+                    height: height,
+                    buffers: this.workerBuffers,
+                    config: {
+                        state: JSON.parse(JSON.stringify(this.config.state)),
+                        derived: this.config.derived // Derived often has getters, ensure it's serializable or plain object?
+                        // ConfigurationManager.derived is usually a proxy or object. 
+                        // We might need to extract values if it's a Proxy.
+                        // Assuming standard object for now or that structuredClone handles it.
+                    }
+                });
+            };
+        }
+
         this.streamManager = new StreamManager(grid, config);
         this.glowSystem = new GlowSystem(grid);
-        this.grid.glowSystem = this.glowSystem; // Expose to Effects via Grid
+        this.grid.glowSystem = this.glowSystem; 
         
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.timeScale = 1.0;
+        
+        // Subscribe to config changes to keep worker in sync
+        if (this.useWorker) {
+            this.config.subscribe((key) => {
+                // Simple sync: send entire state on change. Optimized? No. Robust? Yes.
+                // We avoid sending on 'resolution' changes here because 'resize' handles that.
+                if (key !== 'resolution' && key !== 'stretchX' && key !== 'stretchY') {
+                    this.worker.postMessage({
+                        type: 'config',
+                        config: {
+                            state: JSON.parse(JSON.stringify(this.config.state)),
+                            derived: this.config.derived
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    _initWorker() {
+        this.worker = new Worker('js/simulation/SimulationWorker.js');
+        
+        this.worker.onmessage = (e) => {
+            // Handle messages from worker (e.g., debug logs, sync ticks)
+            if (e.data.type === 'log') console.log('[Worker]', e.data.message);
+        };
+        
+        // Initial setup message will be sent by the first resize() call 
+        // which happens immediately in MatrixKernel.initAsync()
+    }
+
+    _createSharedBuffers(total) {
+        // Helper to create a specific typed array view on a SAB
+        const createSAB = (bytes) => new SharedArrayBuffer(bytes);
+        
+        // Align to 4 bytes for safety/performance
+        const uint8Size = total;
+        const uint16Size = total * 2;
+        const uint32Size = total * 4;
+        const float32Size = total * 4;
+        const int32Size = total * 4;
+
+        const buffers = {
+            state: new Uint8Array(createSAB(uint8Size)),
+            
+            chars: new Uint16Array(createSAB(uint16Size)),
+            colors: new Uint32Array(createSAB(uint32Size)),
+            baseColors: new Uint32Array(createSAB(uint32Size)),
+            alphas: new Float32Array(createSAB(float32Size)),
+            glows: new Float32Array(createSAB(float32Size)),
+            fontIndices: new Uint8Array(createSAB(uint8Size)),
+
+            secondaryChars: new Uint16Array(createSAB(uint16Size)),
+            secondaryColors: new Uint32Array(createSAB(uint32Size)),
+            secondaryAlphas: new Float32Array(createSAB(float32Size)),
+            secondaryGlows: new Float32Array(createSAB(float32Size)),
+            secondaryFontIndices: new Uint8Array(createSAB(uint8Size)),
+
+            mix: new Float32Array(createSAB(float32Size)),
+            renderMode: new Uint8Array(createSAB(uint8Size)),
+
+            overrideActive: new Uint8Array(createSAB(uint8Size)),
+            overrideChars: new Uint16Array(createSAB(uint16Size)),
+            overrideColors: new Uint32Array(createSAB(uint32Size)),
+            overrideAlphas: new Float32Array(createSAB(float32Size)),
+            overrideGlows: new Float32Array(createSAB(float32Size)),
+            overrideFontIndices: new Uint8Array(createSAB(uint8Size)),
+
+            effectActive: new Uint8Array(createSAB(uint8Size)),
+            effectChars: new Uint16Array(createSAB(uint16Size)),
+            effectColors: new Uint32Array(createSAB(uint32Size)),
+            effectAlphas: new Float32Array(createSAB(float32Size)),
+            effectFontIndices: new Uint8Array(createSAB(uint8Size)),
+            effectGlows: new Float32Array(createSAB(float32Size)),
+
+            types: new Uint8Array(createSAB(uint8Size)),
+            decays: new Uint8Array(createSAB(uint8Size)),
+            ages: new Int32Array(createSAB(int32Size)),
+            brightness: new Float32Array(createSAB(float32Size)),
+            rotatorOffsets: new Uint8Array(createSAB(uint8Size)),
+            cellLocks: new Uint8Array(createSAB(uint8Size)),
+
+            nextChars: new Uint16Array(createSAB(uint16Size)),
+            nextOverlapChars: new Uint16Array(createSAB(uint16Size)),
+            envGlows: new Float32Array(createSAB(float32Size))
+        };
+        
+        return buffers;
     }
 
     update(frame) {
-        this.streamManager.update(frame, this.timeScale);
-        this._manageOverlapGrid(frame);
-        this._updateCells(frame, this.timeScale);
-        
-        // --- Process Glimmer Lifecycles ---
+        if (this.useWorker && this.worker) {
+            // Offload to Worker
+            this.worker.postMessage({
+                type: 'update',
+                frame: frame
+            });
+            // Main thread does NOTHING for simulation logic
+            // It just renders whatever is in the SharedBuffers
+        } else {
+            // Fallback: Local Logic
+            this.streamManager.update(frame, this.timeScale);
+            this._manageOverlapGrid(frame);
+            this._updateCells(frame, this.timeScale);
+            
+            // Local Glimmer Lifecycle (Copy-paste logic from Worker/Original)
+            this._updateGlimmerLifecycle();
+
+            if (this.grid.envGlows) this.grid.envGlows.fill(0);
+            this.glowSystem.update();
+            this.glowSystem.apply();
+
+            if (this.grid.cellLocks) this.grid.cellLocks.fill(0);
+        }
+    }
+    
+    _updateGlimmerLifecycle() {
         const s = this.config.state;
+        const d = this.config.derived;
+        
+        // Glimmer Speed now controls the shader animation (blink/shimmer), not character rotation.
+        // We removed the rotation logic entirely as requested.
+
         for (const [idx, style] of this.grid.complexStyles) {
             if (style.type === 'glimmer') {
                 const attack = s.upwardTracerAttackFrames;
                 const hold = s.upwardTracerHoldFrames;
                 const release = s.upwardTracerReleaseFrames;
+                const totalDuration = attack + hold + release;
                 
                 style.age++;
                 const activeAge = style.age - 1;
+                
+                // Ensure we use the underlying character (Visual Highlight Only)
+                this.grid.effectChars[idx] = 0;
+
+                // --- Lifecycle / Fade Logic ---
                 let alpha = 0.0;
 
                 if (activeAge <= attack) {
                     alpha = (attack > 0) ? (activeAge / attack) : 1.0;
                 } else if (activeAge <= attack + hold) {
                     alpha = 1.0;
-                } else if (activeAge <= attack + hold + release) {
+                } else if (activeAge <= totalDuration) {
                     const releaseAge = activeAge - (attack + hold);
                     alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
                 }
 
-                if (alpha > 0) {
+                if (activeAge <= totalDuration) {
+                    // Keep alive even if alpha is 0 (start of attack)
                     this.grid.mix[idx] = 30.0 + alpha;
                 } else {
                     this.grid.mix[idx] = 0;
                     this.grid.complexStyles.delete(idx);
                 }
             }
-        }
-
-        // Apply Glows (Additive)
-        if (this.grid.envGlows) this.grid.envGlows.fill(0);
-        this.glowSystem.update();
-        this.glowSystem.apply();
-
-        if (this.grid.cellLocks) {
-            this.grid.cellLocks.fill(0);
         }
     }
 

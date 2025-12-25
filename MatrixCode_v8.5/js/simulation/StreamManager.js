@@ -596,6 +596,9 @@ class StreamManager {
         // Prevents "resurrecting" fully faded characters which looks like spawning new ones
         if (this.grid.state[idx] === CELL_STATE.ACTIVE && this.grid.alphas[idx] > 0.1) {
             
+            // 25% chance to leave a "blank" (gap) in the glimmer trail
+            if (Math.random() < 0.25) return;
+
             // Mark as Glimmering immediately and store lifecycle state in complexStyles
             this.grid.mix[idx] = 30.0; 
             this.grid.complexStyles.set(idx, { type: 'glimmer', age: 1 });

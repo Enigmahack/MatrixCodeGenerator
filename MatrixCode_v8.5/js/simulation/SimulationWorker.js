@@ -1,0 +1,426 @@
+
+// SimulationWorker.js
+// Handles physics/simulation logic in a separate thread.
+
+// 1. Import Dependencies (Synchronous in Workers)
+importScripts('../core/Utils.js');
+importScripts('../data/CellGrid.js');
+importScripts('../effects/GlowSystem.js');
+importScripts('../simulation/StreamModes.js');
+importScripts('../simulation/StreamManager.js');
+
+// 2. Global State
+let grid = null;
+let streamManager = null;
+let glowSystem = null;
+let config = { 
+    state: {}, 
+    derived: {} 
+}; 
+
+// Mock ConfigurationManager interface for StreamManager
+const configManagerMock = {
+    get state() { return config.state; },
+    get derived() { return config.derived; }
+};
+
+// 3. Simulation System (Simplified for Worker)
+class WorkerSimulationSystem {
+    constructor(grid, config) {
+        this.grid = grid;
+        this.config = config;
+        this.streamManager = new StreamManager(grid, config);
+        this.glowSystem = new GlowSystem(grid);
+        this.grid.glowSystem = this.glowSystem;
+        
+        this.overlapInitialized = false;
+        this._lastOverlapDensity = null;
+        this.timeScale = 1.0;
+    }
+
+    update(frame) {
+        this.streamManager.update(frame, this.timeScale);
+        this._manageOverlapGrid(frame);
+        this._updateCells(frame, this.timeScale);
+        
+        // Glimmer Lifecycles (Refactored to method)
+        this._updateGlimmerLifecycle();
+
+        // Apply Glows
+        if (this.grid.envGlows) this.grid.envGlows.fill(0);
+        this.glowSystem.update();
+        this.glowSystem.apply();
+
+        if (this.grid.cellLocks) {
+            this.grid.cellLocks.fill(0);
+        }
+    }
+
+    _updateGlimmerLifecycle() {
+        const s = this.config.state;
+        const d = this.config.derived;
+        
+        // Glimmer Speed now controls the shader animation (blink/shimmer), not character rotation.
+
+        for (const [idx, style] of this.grid.complexStyles) {
+            if (style.type === 'glimmer') {
+                const attack = s.upwardTracerAttackFrames;
+                const hold = s.upwardTracerHoldFrames;
+                const release = s.upwardTracerReleaseFrames;
+                const totalDuration = attack + hold + release;
+                
+                style.age++;
+                const activeAge = style.age - 1;
+                
+                // Ensure we use the underlying character
+                this.grid.effectChars[idx] = 0;
+
+                // --- Lifecycle / Fade Logic ---
+                let alpha = 0.0;
+
+                if (activeAge <= attack) {
+                    alpha = (attack > 0) ? (activeAge / attack) : 1.0;
+                } else if (activeAge <= attack + hold) {
+                    alpha = 1.0;
+                } else if (activeAge <= totalDuration) {
+                    const releaseAge = activeAge - (attack + hold);
+                    alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
+                }
+
+                if (activeAge <= totalDuration) {
+                    this.grid.mix[idx] = 30.0 + alpha;
+                } else {
+                    this.grid.mix[idx] = 0;
+                    this.grid.complexStyles.delete(idx);
+                }
+            }
+        }
+    }
+
+    // Copied from SimulationSystem.js (Logic is identical)
+    _manageOverlapGrid(frame) {
+        const s = this.config.state;
+
+        if (!s.overlapEnabled) {
+            if (this.overlapInitialized) {
+                this.overlapInitialized = false;
+                if (this.grid.secondaryChars && typeof this.grid.secondaryChars.fill === 'function') {
+                    this.grid.secondaryChars.fill(32); 
+                }
+            }
+            return;
+        }
+        
+        const activeFonts = this.config.derived.activeFonts;
+        const numFonts = activeFonts.length;
+        const currentDensity = s.overlapDensity;
+        
+        const ovRgb = Utils.hexToRgb(s.overlapColor);
+        const ovColor = Utils.packAbgr(ovRgb.r, ovRgb.g, ovRgb.b);
+
+        const setOverlapChar = (i) => {
+            let fIdx;
+            if (this.grid.types[i] === CELL_TYPE.EMPTY) {
+                fIdx = Math.floor(Math.random() * numFonts);
+            } else {
+                fIdx = this.grid.fontIndices[i];
+            }
+            
+            const fontData = activeFonts[fIdx] || activeFonts[0];
+            const chars = fontData.chars;
+            let code = 32;
+            if (chars && chars.length > 0) {
+                const r = Math.floor(Math.random() * chars.length);
+                code = chars[r].charCodeAt(0);
+            }
+            
+            this.grid.secondaryChars[i] = code;
+            this.grid.secondaryColors[i] = ovColor;
+        };
+
+        if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
+            const N = this.grid.secondaryChars.length;
+            for (let i = 0; i < N; i++) {
+                if (this.grid.overrideActive[i] !== 0) continue;
+                if (Math.random() < currentDensity) {
+                    setOverlapChar(i);
+                } else {
+                    this.grid.secondaryChars[i] = 32; 
+                }
+            }
+            this.overlapInitialized = true;
+            this._lastOverlapDensity = currentDensity;
+        }
+    }
+
+    _updateCells(frame, timeScale = 1.0) {
+        if (timeScale <= 0) return;
+        if (timeScale < 1.0) {
+            if (Math.random() > timeScale) return;
+        }
+
+        const s = this.config.state;
+        const d = this.config.derived;
+        const grid = this.grid;
+
+        for (const idx of grid.activeIndices) {
+            this._updateCell(idx, frame, s, d);
+        }
+    }
+
+    _updateCell(idx, frame, s, d) {
+        const grid = this.grid;
+
+        if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
+        if (grid.overrideActive[idx] !== 0) return;
+
+        const decay = grid.decays[idx];
+        if (decay === 0) return;
+
+        let age = grid.ages[idx];
+        if (age > 0) {
+            age = age + 1;
+            grid.ages[idx] = age;
+        }
+
+        const isTracer = (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR);
+        const isUpward = (grid.types[idx] === CELL_TYPE.UPWARD_TRACER);
+
+        if (decay < 2 && isTracer) {
+            const attack = s.tracerAttackFrames;
+            const hold = s.tracerHoldFrames;
+            const release = s.tracerReleaseFrames;
+            const targetGlow = s.tracerGlow;
+            
+            const tracerColor = d.tracerColorUint32;
+            const baseColor = grid.baseColors[idx];
+
+            let ratio = 0; 
+            const activeAge = age - 1;
+            
+            if (s.gradualColorStreams && !isUpward) {
+                const fadeStart = attack + hold;
+                const fadeLen = 45.0; 
+                if (activeAge > fadeStart) {
+                    ratio = Math.min(1.0, (activeAge - fadeStart) / fadeLen);
+                }
+            } else {
+                if (activeAge > attack + hold) {
+                    if (release > 0) {
+                        ratio = Math.min(1.0, (activeAge - (attack + hold)) / release);
+                    } else {
+                        ratio = 1.0;
+                    }
+                }
+            }
+            
+            if (ratio >= 1.0) {
+                grid.colors[idx] = baseColor;
+                grid.glows[idx] = 0; 
+                if (grid.mix[idx] >= 2.0) grid.mix[idx] = 0; 
+            } else if (ratio > 0) {
+                const tR = tracerColor & 0xFF;
+                const tG = (tracerColor >> 8) & 0xFF;
+                const tB = (tracerColor >> 16) & 0xFF;
+                const bR = baseColor & 0xFF;
+                const bG = (baseColor >> 8) & 0xFF;
+                const bB = (baseColor >> 16) & 0xFF;
+                const mR = Math.floor(tR + (bR - tR) * ratio);
+                const mG = Math.floor(tG + (bG - tG) * ratio);
+                const mB = Math.floor(tB + (bB - tB) * ratio);
+                grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
+                grid.glows[idx] = targetGlow * (1.0 - ratio);
+            } else {
+                grid.colors[idx] = tracerColor;
+                grid.glows[idx] = targetGlow;
+            }
+        }
+
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && grid.types[idx] === CELL_TYPE.ROTATOR) {
+            this._handleRotator(idx, frame, s, d);
+        }
+
+        if (grid.complexStyles.has(idx)) {
+            const style = grid.complexStyles.get(idx);
+            if (style.cycle) {
+                const newHue = (style.h + style.speed) % 360;
+                style.h = newHue; 
+                const rgb = Utils.hslToRgb(newHue, style.s, style.l);
+                grid.colors[idx] = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
+            }
+        }
+
+        if (decay >= 2) {
+            let useBase = true;
+            if (grid.complexStyles.has(idx)) {
+                const style = grid.complexStyles.get(idx);
+                if (style.cycle) useBase = false;
+            }
+            if (useBase) {
+                 grid.colors[idx] = grid.baseColors[idx];
+                 grid.glows[idx] = 0;
+            } else {
+                grid.glows[idx] = 0;
+            }
+            grid.decays[idx]++;
+            const newDecay = grid.decays[idx];
+            if (newDecay > s.decayFadeDurationFrames + 2) {
+                grid.clearCell(idx);
+                return;
+            }
+            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
+        } else {
+            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
+        }
+        
+        // Run Glimmer Lifecycle (Rotation/Fade)
+        this._updateGlimmerLifecycle();
+    }
+    
+    _handleRotator(idx, frame, s, d) {
+        const grid = this.grid;
+        const mix = grid.mix[idx]; 
+        const decay = grid.decays[idx];
+
+        if (mix > 0) {
+            const step = 1.0 / Math.max(1, s.rotatorCrossfadeFrames);
+            const newMix = mix + step;
+            if (newMix >= 1.0) {
+                const target = grid.getRotatorTarget(idx, false); 
+                if (target) {
+                    grid.chars[idx] = target.charCodeAt(0);
+                    if (s.overlapEnabled) {
+                        const ovTarget = grid.getRotatorTarget(idx, true);
+                        if (ovTarget) grid.secondaryChars[idx] = ovTarget.charCodeAt(0);
+                    }
+                }
+                grid.mix[idx] = 0;
+                grid.nextChars[idx] = 0;
+                grid.nextOverlapChars[idx] = 0;
+            } else {
+                grid.mix[idx] = newMix;
+            }
+        } else if (s.rotatorEnabled && (decay === 1 || (s.rotateDuringFade && decay > 1))) {
+            let effectiveCycle = d.rotatorCycleFrames;
+            if (s.rotatorDesyncEnabled) {
+                const variancePercent = s.rotatorDesyncVariance / 100;
+                const maxVariance = d.rotatorCycleFrames * variancePercent;
+                const offsetNorm = (grid.rotatorOffsets[idx] / 127.5) - 1.0;
+                effectiveCycle = Math.max(1, Math.round(d.rotatorCycleFrames + (offsetNorm * maxVariance)));
+            }
+
+            if (frame % effectiveCycle === 0) {
+                const fontIdx = grid.fontIndices[idx];
+                const activeFonts = this.config.derived.activeFonts;
+                const fontData = activeFonts[fontIdx] || activeFonts[0];
+                const charSet = fontData.chars;
+                
+                const nextChar = Utils.getUniqueChar(grid.getChar(idx), charSet); // Use Utils directly
+                // Note: Utils.getUniqueChar takes (exclude, charSet) but Utils signature is (exclude) because Utils.CHARS is default.
+                // We need to support custom charSet. Utils.getUniqueChar isn't set up for that in standard Utils.
+                // Let's implement local helper or fix. Utils.js: "if (!charSet) charSet = Utils.CHARS;"
+                // The provided Utils.js doesn't have the charSet parameter in getUniqueChar.
+                // It only has (exclude).
+                // So I will just use a local helper here.
+                
+                let nextCode = 32;
+                if (nextChar) nextCode = nextChar.charCodeAt(0);
+                else {
+                    // Fallback
+                     const r = Math.floor(Math.random() * charSet.length);
+                     nextCode = charSet[r].charCodeAt(0);
+                }
+                
+                let nextOvCode = 0;
+                if (s.overlapEnabled) {
+                    const r2 = Math.floor(Math.random() * charSet.length);
+                    nextOvCode = charSet[r2].charCodeAt(0);
+                }
+
+                if (s.rotatorCrossfadeFrames <= 1) {
+                    grid.chars[idx] = nextCode;
+                    if (nextOvCode) grid.secondaryChars[idx] = nextOvCode;
+                } else {
+                    grid.mix[idx] = 0.01; 
+                    grid.setRotatorTarget(idx, String.fromCharCode(nextCode), false);
+                    if (nextOvCode) {
+                        grid.setRotatorTarget(idx, String.fromCharCode(nextOvCode), true);
+                    }
+                }
+            }
+        }
+    }
+
+    _calculateAlpha(idx, age, decay, fadeDurationFrames) {
+        const s = this.config.state;
+        const b = this.grid.brightness[idx];
+        
+        if (decay >= 2) {
+            const ratio = (decay - 2) / fadeDurationFrames;
+            const fade = Math.pow(Math.max(0, 1.0 - ratio), 2.0);
+            return 0.95 * fade * b;
+        }
+        
+        let attack = s.tracerAttackFrames;
+        if (this.grid.types[idx] === CELL_TYPE.UPWARD_TRACER) {
+            attack = s.upwardTracerAttackFrames;
+        }
+
+        if (age <= attack && attack > 0) {
+            return 0.95 * (age / attack) * b;
+        }
+        return 0.95 * b;
+    }
+}
+
+let simSystem = null;
+
+// 4. Message Handler
+self.onmessage = function(e) {
+    const msg = e.data;
+
+    switch(msg.type) {
+        case 'init':
+            // 1. Setup Config
+            config.state = msg.config.state;
+            config.derived = msg.config.derived;
+            
+            // 2. Setup Grid with Shared Buffers
+            grid = new CellGrid(configManagerMock);
+            
+            // Reconstruct Views
+            grid.resize(msg.width, msg.height, msg.buffers);
+            
+            // 3. Setup Simulation
+            simSystem = new WorkerSimulationSystem(grid, configManagerMock);
+            
+            // console.log("[SimulationWorker] Initialized");
+            break;
+
+        case 'config':
+            config.state = msg.config.state;
+            config.derived = msg.config.derived;
+            // Handle resizes if necessary?
+            // Usually init handles resize via buffer swap, but dynamic resize sends 'init' again?
+            // If just config tweak, we update state.
+            break;
+
+        case 'resize':
+             // Re-bind buffers if they changed
+             if (grid) {
+                 config.state = msg.config.state; // Ensure latest state for resize calc
+                 config.derived = msg.config.derived;
+                 grid.resize(msg.width, msg.height, msg.buffers);
+                 if (simSystem) simSystem.streamManager.resize(grid.cols);
+             }
+             break;
+
+        case 'update':
+            if (simSystem) {
+                simSystem.update(msg.frame);
+                // No need to post back data, it's in SharedArrayBuffer
+                // We can post a 'tick' for sync if needed, but not strictly required for purely visual detached sim.
+            }
+            break;
+    }
+};
