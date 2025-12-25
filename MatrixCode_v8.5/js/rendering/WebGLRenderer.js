@@ -474,11 +474,11 @@ class WebGLRenderer {
                             }
 
                             // 3. Sample Noise Texture (Luminosity Modulator)
-                            // Use constant moderate speed for the shimmer animation itself
-                            float scroll = u_time * 0.3; 
+                            // Remove continuous scrolling. Pattern is static per timeStep.
                             
                             // Map Cell Position to Texture Space
-                            vec2 noiseUV = vec2(cellGridPos.x / 64.0, (cellGridPos.y / 64.0) - scroll);
+                            vec2 noiseUV = vec2(cellGridPos.x / 64.0, cellGridPos.y / 64.0);
+                            // Apply random offset based on seed
                             noiseUV += vec2(cellRand * 123.0, cellRand * 456.0);
 
                             float activeVal = texture(u_glimmerNoise, noiseUV).r;
