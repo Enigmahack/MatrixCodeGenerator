@@ -439,10 +439,17 @@ class WebGLRenderer {
                         
                         float rawTex = texture(u_texture, v_uv).a;
                         if (rawTex > 0.3) {
-                            // 1. Calculate Stable Seed
+                            // 1. Calculate Seed with Time Step (Pattern Switching)
+                            // u_glimmerSpeed controls the frequency of pattern changes (Hz)
+                            float switchFreq = max(0.01, u_glimmerSpeed);
+                            float timeStep = floor(u_time * switchFreq);
+                            
                             vec2 renderSize = u_cellSize * u_cellScale; 
                             vec2 cellGridPos = floor((v_shadowUV * u_gridSize) / renderSize);
-                            float cellRand = random(cellGridPos); // Stable random per cell
+                            
+                            // Perturb seed with timeStep to switch patterns
+                            vec2 seed = cellGridPos + vec2(timeStep * 37.0, timeStep * 11.0);
+                            float cellRand = random(seed);
 
                             // 2. Determine Shape/Position
                             // Default: Side Bars (Tall Thin)
@@ -467,9 +474,8 @@ class WebGLRenderer {
                             }
 
                             // 3. Sample Noise Texture (Luminosity Modulator)
-                            // We treat the whole cell as one "block" for noise purposes (gridSize=1 effective)
-                            float speed = max(0.001, u_glimmerSpeed);
-                            float scroll = u_time * speed * 0.2; 
+                            // Use constant moderate speed for the shimmer animation itself
+                            float scroll = u_time * 0.3; 
                             
                             // Map Cell Position to Texture Space
                             vec2 noiseUV = vec2(cellGridPos.x / 64.0, (cellGridPos.y / 64.0) - scroll);
