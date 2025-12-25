@@ -1,24 +1,21 @@
 ToDo: 
 Implement a multi-monitor configuration? 
 Implement a wrapper to EXE/DMG? Screensaver wrapper?
+Go through code and fix all comments.
 
 <- Bugs: 
-3D mode needs some refining but overall should be OK right now. Perhaps performance optimizations. 
-Also check the Y axis inversion settings. 
+Fix python script
+Fix performance for low-end machines
+Fix debug info
 
-Reverse tracer mode: 
-Fix the upwards glow - should be white, and has it's own trail settings. 
-
-<- Behavior: 
+<- Behavior:
+Better toast messaging; errors related to missing fonts, etc.
 
 <- Look:
-Resurrection Pulse: The rectangular grid stretch and rescale pulse effect shown in resurrections.
+Quantized Pulse: The rectangular pulse effect shown in resurrections.
 
-Image interpolation? 
+Quantized Retract: same as above but inwards. 
 
-3D mode
-(WIP, needs behaviour fixing)
+Quantized Expansion: like the pulse, but with the rendered scene transition.
 
- 
-Star Power - Make the glitter do something different, like a luminscent effect through the entire star power stream. Also, full stream mode doesn't work. 
- 
+Star Power - Make the glitter use the glimmer effect.
