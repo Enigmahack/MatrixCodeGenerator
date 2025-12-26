@@ -92,6 +92,14 @@ class EffectRegistry {
                     for (let i = 0; i < total; i++) apply(i);
                 }
             }
+            
+            render(ctx, derived) {
+                this.effects.forEach(e => {
+                    if (e.active && typeof e.render === 'function') {
+                        e.render(ctx, derived);
+                    }
+                });
+            }
         }
 
         class AbstractEffect {

@@ -523,7 +523,7 @@ class SimulationSystem {
         const mix = grid.mix[idx]; 
         const decay = grid.decays[idx];
 
-        if (Math.random() < 0.0001) console.log(`_handleRotator: idx=${idx} mix=${mix} decay=${decay} enabled=${s.rotatorEnabled}`);
+        // if (Math.random() < 0.0001) console.log(`_handleRotator: idx=${idx} mix=${mix} decay=${decay} enabled=${s.rotatorEnabled}`);
 
         if (mix > 0) {
             this._progressRotator(idx, mix, s.rotatorCrossfadeFrames);

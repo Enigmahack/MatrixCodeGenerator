@@ -66,7 +66,8 @@ class MatrixKernel {
             SupermanEffect,
             ReverseEffect,
             BootEffect,
-            CrashEffect
+            CrashEffect,
+            QuantizedPulseEffect
         ];
         effects.forEach((EffectClass) => {
             if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
@@ -93,6 +94,12 @@ class MatrixKernel {
         this.fontMgr = new FontManager(this.config, this.notifications);
         this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
         this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
+
+        // Overlay Canvas Setup
+        this.overlayCanvas = document.getElementById('overlayCanvas');
+        if (this.overlayCanvas) {
+            this.overlayCtx = this.overlayCanvas.getContext('2d');
+        }
 
         // Subscribe to font changes to invalidate rendering caches
         this.fontMgr.subscribe(() => {
@@ -227,6 +234,7 @@ class MatrixKernel {
                 { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
                 { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
+                { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
 
@@ -253,6 +261,11 @@ class MatrixKernel {
             (window.innerHeight) / this.config.state.stretchY
         );
         this.renderer.resize();
+
+        if (this.overlayCanvas) {
+            this.overlayCanvas.width = window.innerWidth;
+            this.overlayCanvas.height = window.innerHeight;
+        }
     }
 
     /**
@@ -310,6 +323,13 @@ class MatrixKernel {
         }
 
         this.renderer.render(this.frame);
+
+        // Render Overlay Effects
+        if (this.overlayCtx) {
+            this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+            this.effectRegistry.render(this.overlayCtx, this.config.derived);
+        }
+
         requestAnimationFrame((nextTime) => this._loop(nextTime));
     }
 
@@ -328,6 +348,7 @@ class MatrixKernel {
             { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
             { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
+            { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 

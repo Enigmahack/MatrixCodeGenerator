@@ -286,6 +286,12 @@ class UIManager {
             { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
         
+            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
+            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseSpeed', type: 'range', label: 'Initial Speed', min: 5, max: 30, unit: 'fr', dep: 'quantizedPulseEnabled' },
+
             { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
             { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
             { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
@@ -401,6 +407,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'Pulse', label: 'Pulse' },
             { cat: 'System', type: 'keybinder', id: 'ClearPulse', label: 'Clear Pulse' },
             { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
+            { cat: 'System', type: 'keybinder', id: 'QuantizedPulse', label: 'Quantized Pulse' },
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
@@ -1329,6 +1336,7 @@ class UIManager {
         if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
+        if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse')) this.notifications.show('Quantized Pulse Triggered', 'success'); else this.notifications.show('Quantized Pulse active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'reverse_time') { if(this.effects.trigger('ReverseTime')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
