@@ -48,6 +48,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             enabled: s.quantizedPulseEnabled,
             freq: s.quantizedPulseFrequencySeconds,
             duration: s.quantizedPulseDurationSeconds || 2.0,
+            initialSpeed: s.quantizedPulseSpeed || 10,
             fadeFrames: fadeFrames,
             fadeInFrames: fadeInFrames,
             baseDelay: 2.0,     // Much faster start (was 8)
@@ -116,7 +117,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         }, 60000); // 60 seconds
         
         // Resize map with Padding to allow off-screen expansion
-        this.mapPad = 8;
+        this.mapPad = 60; // Increased padding for consistent edge behavior
         this.mapCols = this.g.cols + this.mapPad * 2;
         this.mapRows = this.g.rows + this.mapPad * 2;
         const total = this.mapCols * this.mapRows;
@@ -152,8 +153,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         const cy = Math.floor((this.g.rows / 2) / 4) * 4;
         
         this._addBlock(cx, cy);
+        
         this.origin = {x: cx, y: cy};
-        this.blocksAdded = 1;
+        this.blocksAdded = 1; 
         
         this.currentDelay = s.baseDelay;
         this.nextExpandTime = this.currentDelay;
@@ -509,6 +511,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             return;
         }
 
+        this.localFrame++;
         const s = this._getEffectiveState();
         
         // 1. Run Shadow Sim & Update Overrides
@@ -535,53 +538,116 @@ class QuantizedPulseEffect extends AbstractEffect {
             return;
         }
         
-        // Duration Check REMOVED: Effect must run until expansion completes to trigger Swap.
-        // if (s.duration > 0 && (Date.now() - this.startTime) > s.duration * 1000) {
-        //    this.beginFade();
-        //    return;
-        // }
+        // Time-Based Expansion Control
+        const elapsed = Date.now() - this.startTime;
+        const durationMs = s.duration * 1000; 
+        
+        // 1. Hard Time Limit (Duration + 1s buffer)
+        if (elapsed > durationMs + 1000) {
+            this._swapAndStop();
+            return;
+        }
 
-        // Removed catchTimer logic for consistent speed
-
-        // Fix: Explicitly track startup vs expansion phases to prevent stalling
-        const isStartup = this.blocksAdded < 5;
-        const hasFrontier = this.frontier.length > 0;
-
-        if (isStartup || hasFrontier) {
-            if (--this.nextExpandTime <= 0) {
-                
-                if (isStartup) {
-                    this._updateStart(s);
-                } else {
-                    this._updateExpansion(s);
+        // 2. Off-Screen Check (If all frontier blocks are outside visible bounds)
+        // Only check periodically or if we have enough blocks to be meaningful
+        if (this.localFrame % 10 === 0 && this.frontier.length > 0) {
+            let allOffScreen = true;
+            const b = 4; // Buffer
+            const minX = -b, maxX = this.g.cols + b;
+            const minY = -b, maxY = this.g.rows + b;
+            
+            for (const f of this.frontier) {
+                if (f.x >= minX && f.x < maxX && f.y >= minY && f.y < maxY) {
+                    allOffScreen = false;
+                    break;
                 }
+            }
+            
+            if (allOffScreen) {
+                this._swapAndStop();
+                return;
+            }
+        }
 
-                this.currentDelay = Math.max(s.minDelay, this.currentDelay * s.acceleration);
-                this.nextExpandTime = Math.max(1, Math.floor(this.currentDelay));
+        const progress = Math.min(1.0, elapsed / durationMs);
+        
+        // Calibrate target to VISIBLE screen area (exclude padding)
+        // This ensures the duration setting maps to "Time to fill screen"
+        const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
+        
+        // Initial Speed modulates the exponent: 
+        // High Speed (30) -> Exponent 1.0 (Linear)
+        // Default (10) -> Exponent 2.5 (Slow Start)
+        // Low Speed (5) -> Exponent 3.0 (Very Slow Start)
+        const exponent = Math.max(1.0, 3.5 - (s.initialSpeed / 10));
+        const targetBlocks = Math.floor(totalVisibleBlocks * Math.pow(progress, exponent));
+        
+        let needed = targetBlocks - this.blocksAdded;
+        
+        // 1. Tendrils are the primary expansion driver during tendril phase
+        // They run every frame to provide aggressive, prioritised growth
+        if (progress > 0.3) {
+            this._updateTendrils(s);
+        }
+
+        // 2. Throttled Expansion Tick (Every 3 frames)
+        // This ensures the main expansion 'blob' fills gaps but doesn't lead the growth.
+        // Also allows Yellow (isNew) lines to be visible for a few frames to allow flicker.
+        if (this.localFrame % 3 === 0) {
+            if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
+                 // During Tendril Phase (>30%), significantly throttle main expansion 
+                 // to let tendrils be the primary growth mechanism.
+                 const burstCap = (progress > 0.3) ? 10 : 600;
+                 let burst = Math.min(needed, burstCap);
+                 
+                 // Minimum burst to keep animation fluid
+                 if (burst < 1) burst = 1;
+                 
+                 // Run expansion loop
+                 this._updateExpansionBurst(burst);
             }
         }
 
         this._updateLines(s);
-        this._updateTendrils(s);
 
-        // Check for completion
-        if (this.frontier.length === 0 && this.lines.length === 0 && this.tendrils.length === 0) {
-            this._swapAndStop();
-            return;
-        } 
-        
-        if (this.blocks.length > 8000) {
-            this._swapAndStop();
-            return;
-        }
     }
 
     _updateTendrils(s) {
-        // TENDRILS DISABLED
-        // Use of tendrils caused blocks to spawn outside the main perimeter and corrupted the frontier
-        // with stale entries, causing the expansion loop to stall.
-        // This method is intentionally left empty to disable the feature.
-        return;
+        // Limit attempts per frame to avoid lag and over-spiking
+        const attempts = 6; // Increased to be the primary driver
+        const maxDist = 3;
+        
+        for (let i = 0; i < attempts; i++) {
+            if (this.frontier.length === 0) break;
+            
+            // Pick random frontier block
+            const idx = Math.floor(Math.random() * this.frontier.length);
+            const f = this.frontier[idx];
+            
+            // Pick ONE random direction to extend
+            const dirs = [{x:0, y:-4}, {x:4, y:0}, {x:0, y:4}, {x:-4, y:0}];
+            const d = dirs[Math.floor(Math.random() * dirs.length)];
+            
+            for (let dist = 1; dist <= maxDist; dist++) {
+                const tx = f.x + (d.x * dist);
+                const ty = f.y + (d.y * dist);
+                
+                // Don't extend into occupied space
+                if (this._isOccupied(tx, ty)) break;
+                
+                // Add the block ("Lock in")
+                this._addBlock(tx, ty, this.burstCounter);
+                
+                // Check for Code
+                if (this._hasCode(tx, ty)) {
+                    // Found code! We connected. Stop extending.
+                    break; 
+                }
+                
+                // If no code, loop continues to next dist, adding the next block...
+                // Until maxDist (3) is reached, at which point loop ends (Automatic Lock).
+            }
+        }
     }
 
     _hasCode(x, y) {
@@ -602,7 +668,17 @@ class QuantizedPulseEffect extends AbstractEffect {
             if (this.lines[i].persistence > 0) {
                 this.lines[i].persistence--;
             } else {
-                this.lines[i].alpha -= s.lineFadeSpeed;
+                let speed;
+                if (this.lines[i].isNew) {
+                    speed = s.lineFadeSpeed; // Use standard fade for yellow lines
+                } else {
+                    // Use configurable fade for Green lines
+                    // If setting is 0, fade is instant (speed = 1.0)
+                    const duration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
+                    speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
+                }
+                
+                this.lines[i].alpha -= speed;
                 if (this.lines[i].alpha <= 0) this.lines.splice(i, 1);
             }
         }
@@ -636,14 +712,28 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
     }
 
-    _updateExpansion(s) {
+    _updateExpansionBurst(count) {
         // CYCLE START: Merge previous new lines (turn them green)
-        this.lines.forEach(l => l.isNew = false);
+        const greenDuration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
+        
+        // Use a loop that allows removal (iterate backwards or filter)
+        for (let i = this.lines.length - 1; i >= 0; i--) {
+            const l = this.lines[i];
+            if (l.isNew) {
+                if (greenDuration <= 0.01) {
+                    // Immediate removal if fade is 0
+                    this.lines.splice(i, 1);
+                } else {
+                    l.isNew = false;
+                    // Start fading immediately (persistence = 0)
+                    // The duration is controlled solely by the alpha decay rate
+                    l.persistence = 0; 
+                    l.alpha = 1.0;
+                }
+            }
+        }
 
-        // SCALING FIX: Burst count scales with frontier size to maintain visual speed
-        // Tuned to 2.5% to provide a controlled but consistent expansion speed.
-        let burstCount = Math.max(2, Math.ceil(this.frontier.length * 0.025));
-        if (burstCount > 100) burstCount = 100; // Safety Cap
+        let burstCount = count;
         
         // Increment Burst Counter (1..16383)
         this.burstCounter = (this.burstCounter + 1) & 0x3FFF; 
@@ -964,15 +1054,27 @@ class QuantizedPulseEffect extends AbstractEffect {
         ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
         
         for (const l of this.lines) {
-            ctx.globalAlpha = l.alpha * masterAlpha;
-            ctx.beginPath();
+            let lineAlpha = l.alpha * masterAlpha;
             
             // Two-Cycle Logic: New lines are Yellow (Perimeter), Old are Green (Code)
             if (l.isNew) {
                 ctx.strokeStyle = '#FFFF00'; 
+                ctx.shadowColor = '#FFFF00'; // Match Shadow to Yellow
+                
+                // Flicker Logic: 40% chance to dim (More frequent)
+                // Range: 0.1 to 0.6 (More noticeable dimming)
+                if (Math.random() < 0.4) {
+                    lineAlpha *= (0.1 + Math.random() * 0.5);
+                }
             } else {
-                ctx.strokeStyle = '#00FF00'; 
+                // Use Primary Stream Color for solidified lines
+                const col = derived.streamColorStr || '#00FF00';
+                ctx.strokeStyle = col; 
+                ctx.shadowColor = col; 
             }
+            
+            ctx.globalAlpha = lineAlpha;
+            ctx.beginPath();
             
             const lx = l.x * cw;
             const ly = l.y * ch;

@@ -189,6 +189,7 @@ class ConfigurationManager {
             "quantizedPulseFadeInFrames": 5,
             "quantizedPulseFadeFrames": 15,
             "quantizedPulseSpeed": 10,
+            "quantizedPulseGreenFadeSeconds": 0.5,
             "dejaVuEnabled": true,
             "dejaVuFrequencySeconds": 350,
             "dejaVuDurationSeconds": 5,
