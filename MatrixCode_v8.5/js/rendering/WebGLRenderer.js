@@ -1131,6 +1131,13 @@ class WebGLRenderer {
                     uAlphas[i] = ovAlphas[i];
                     uDecays[i] = 0;
                     uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    
+                    // CRITICAL FIX: Allow underlying mix state (e.g. Glimmer) to pass through Override
+                    // If the override wants to force specific behavior, it should use effectActive modes.
+                    // For standard overrides (QuantizedPulse), we want to inherit the simulation's visual state (mix).
+                    if (gMix[i] > 0) {
+                        uMix[i] = gMix[i];
+                    }
                 }
                 continue;
             }

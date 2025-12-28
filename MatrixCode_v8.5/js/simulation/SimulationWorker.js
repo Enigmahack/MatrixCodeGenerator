@@ -462,6 +462,75 @@ self.onmessage = function(e) {
              }
              break;
 
+        case 'replace_state':
+            console.log("[SimulationWorker] Received replace_state request");
+            if (simSystem && msg.state) {
+                const sm = simSystem.streamManager;
+                const s = msg.state;
+                
+                // Rehydrate Active Streams (Array -> Set for holes)
+                // Note: The objects in s.activeStreams are clones created by postMessage.
+                // We modify them in place to restore functionality.
+                const rehydratedStreams = (s.activeStreams || []).map(st => {
+                     if (Array.isArray(st.holes)) {
+                         st.holes = new Set(st.holes);
+                     }
+                     return st;
+                });
+
+                sm.activeStreams = rehydratedStreams;
+                sm.nextSpawnFrame = s.nextSpawnFrame || 0;
+                
+                // Typed Arrays need explicit copy if not shared (passed as ArrayBuffer usually)
+                if (s.columnSpeeds) sm.columnSpeeds = new Float32Array(s.columnSpeeds);
+                
+                // Reconstruct Column References
+                // Because QuantizedPulseEffect pre-mapped these arrays to the serialized objects in activeStreams,
+                // and postMessage preserves the object identity graph (topology),
+                // s.lastStreamInColumn[i] ALREADY points to the correct object inside s.activeStreams.
+                // We don't need to manually re-link them.
+                if (s.lastStreamInColumn) sm.lastStreamInColumn = s.lastStreamInColumn;
+                if (s.lastEraserInColumn) sm.lastEraserInColumn = s.lastEraserInColumn;
+                if (s.lastUpwardTracerInColumn) sm.lastUpwardTracerInColumn = s.lastUpwardTracerInColumn;
+                
+                // Sync Overlap State
+                if (s.overlapInitialized !== undefined) simSystem.overlapInitialized = s.overlapInitialized;
+                if (s._lastOverlapDensity !== undefined) simSystem._lastOverlapDensity = s._lastOverlapDensity;
+                
+                // Sync Complex Styles (Glimmer/Upward Tracers)
+                if (s.complexStyles && Array.isArray(s.complexStyles)) {
+                    simSystem.grid.complexStyles.clear();
+                    for (const [key, value] of s.complexStyles) {
+                        simSystem.grid.complexStyles.set(key, value);
+                    }
+                }
+                
+                // CRITICAL: Rebuild Active Indices
+                // We prefer the explicit list sent from main thread to avoid SAB race conditions.
+                if (grid && grid.state) {
+                    grid.activeIndices.clear();
+                    if (s.activeIndices && Array.isArray(s.activeIndices)) {
+                        for (const idx of s.activeIndices) {
+                            grid.activeIndices.add(idx);
+                        }
+                        console.log(`[SimulationWorker] Replaced activeIndices with ${s.activeIndices.length} entries.`);
+                    } else {
+                        // Fallback: Scan SAB (May be risky if not propagated)
+                        console.warn("[SimulationWorker] activeIndices missing in replace_state! Scanning SAB...");
+                        const total = grid.cols * grid.rows;
+                        for(let i=0; i<total; i++) {
+                            if (grid.state[i] === 1) { // CELL_STATE.ACTIVE
+                                grid.activeIndices.add(i);
+                            }
+                        }
+                        console.log(`[SimulationWorker] Scanned ${grid.activeIndices.size} active cells.`);
+                    }
+                }
+                
+                console.log("[SimulationWorker] State Swap Complete.");
+            }
+            break;
+
         case 'update':
             if (simSystem) {
                 simSystem.update(msg.frame);

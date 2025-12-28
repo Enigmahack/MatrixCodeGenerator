@@ -58,6 +58,8 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.active = false;
         this.isFading = false;
         this.fadeAlpha = 1.0;
+        this.swapped = false;
+        this.swapTimer = 0;
         
         if (this.timeoutId) {
             clearTimeout(this.timeoutId);
@@ -71,6 +73,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.tendrils = [];
         this.blocksAdded = 0;
         if (this.map) this.map.fill(0);
+        this.g.clearAllOverrides();
     }
     
     beginFade() {
@@ -89,11 +92,7 @@ class QuantizedPulseEffect extends AbstractEffect {
 
     trigger() {
         if (this.active) return false;
-        // Safety check: if blocks exist, we are effectively active (or zombies), so prevent trigger
-        if (this.blocks && this.blocks.length > 0) {
-             // Force stop to clean up zombies
-             this.stop();
-        }
+        if (this.blocks && this.blocks.length > 0) this.stop();
         
         this.active = true;
         this.isFading = false;
@@ -103,13 +102,14 @@ class QuantizedPulseEffect extends AbstractEffect {
         const s = this._getEffectiveState();
         this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
 
-        if (s.duration > 0) {
-            this.timeoutId = setTimeout(() => {
-                this.beginFade();
-            }, s.duration * 1000);
-        }
+        // INIT SHADOW WORLD (Full Simulation)
+        this._initShadowWorld();
+
+        this.timeoutId = setTimeout(() => {
+            this.stop(); // Fail-safe
+        }, 60000); // 60 seconds
         
-        // Resize map if needed
+        // Resize map
         const total = this.g.cols * this.g.rows;
         if (!this.map || this.map.length !== total) {
             this.map = new Uint16Array(total);
@@ -119,13 +119,15 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.mapCols = this.g.cols;
         this.burstCounter = 0;
 
-        // Reset all arrays (reuse if possible, but assignment is cleaner for GC in this case)
         this.blocks = [];
         this.lines = [];
         this.frontier = [];
         this.tendrils = [];
         this.blocksAdded = 0;
         this.catchTimer = 0;
+        this.localFrame = 0;
+        this.swapTimer = 0;
+        this.swapped = false;
         
         const cx = Math.floor((this.g.cols / 2) / 4) * 4;
         const cy = Math.floor((this.g.rows / 2) / 4) * 4;
@@ -140,60 +142,282 @@ class QuantizedPulseEffect extends AbstractEffect {
         return true;
     }
 
+    _initShadowWorld() {
+        // Create a Shadow Grid and Simulation to run the "New World"
+        // This ensures settings match exactly and allows for a state swap later.
+        
+        // 1. Setup Shadow Grid
+        this.shadowGrid = new CellGrid(this.c);
+        const d = this.c.derived;
+        // Resize to match main grid dimensions
+        const w = this.g.cols * d.cellWidth;
+        const h = this.g.rows * d.cellHeight;
+        this.shadowGrid.resize(w, h);
+        
+        // 2. Setup Shadow Simulation
+        // We force main thread execution for simplicity of buffer access
+        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c);
+        this.shadowSim.useWorker = false;
+        if (this.shadowSim.worker) {
+            this.shadowSim.worker.terminate();
+            this.shadowSim.worker = null;
+        }
+        
+        // 3. Warm Up (Pre-simulate to create density)
+        // Run 400 frames to populate the screen (approx 6-7 seconds of sim time)
+        // This ensures density matches a long-running state.
+        this.shadowSim.timeScale = 1.0;
+        for (let i = 0; i < 400; i++) {
+            this.shadowSim.update(i);
+        }
+        this.localFrame = 400;
+    }
+
+    _updateShadowWorld() {
+        if (!this.shadowSim || !this.shadowGrid) return;
+        
+        // 1. Advance Shadow Simulation
+        this.localFrame++;
+        this.shadowSim.update(this.localFrame);
+        
+        // 2. Copy Shadow State to Main Grid's OVERRIDE Layer
+        // This effectively projects the "New World" onto the "Old World"
+        // where overrideActive is set (inside the pulse).
+        const g = this.g;
+        const sg = this.shadowGrid;
+        
+        g.overrideChars.set(sg.chars);
+        g.overrideColors.set(sg.colors);
+        g.overrideAlphas.set(sg.alphas);
+        g.overrideGlows.set(sg.glows);
+        
+        // Note: We do NOT copy 'types', 'decays' etc to Override, 
+        // because Override is purely visual. Logic state stays in shadowSim.
+    }
+
+    _swapAndStop() {
+        console.log("[QuantizedPulse] Swapping Reality...");
+        
+        try {
+            const g = this.g;
+            const sg = this.shadowGrid;
+            
+            if (!sg) {
+                this.stop();
+                return;
+            }
+            
+            // 1. Commit Buffer State
+            g.state.set(sg.state); 
+            g.chars.set(sg.chars);
+            g.colors.set(sg.colors);
+            g.baseColors.set(sg.baseColors); 
+            g.alphas.set(sg.alphas);
+            g.glows.set(sg.glows);
+            g.fontIndices.set(sg.fontIndices);
+            g.renderMode.set(sg.renderMode); 
+            
+            g.types.set(sg.types);
+            g.decays.set(sg.decays);
+            g.ages.set(sg.ages);
+            g.brightness.set(sg.brightness);
+            g.rotatorOffsets.set(sg.rotatorOffsets);
+            g.cellLocks.set(sg.cellLocks);
+            
+            g.nextChars.set(sg.nextChars);
+            g.nextOverlapChars.set(sg.nextOverlapChars);
+            
+            // Copy Secondary Layer
+            g.secondaryChars.set(sg.secondaryChars);
+            g.secondaryColors.set(sg.secondaryColors);
+            g.secondaryAlphas.set(sg.secondaryAlphas);
+            g.secondaryGlows.set(sg.secondaryGlows);
+            g.secondaryFontIndices.set(sg.secondaryFontIndices);
+            
+            // Copy Mix State
+            g.mix.set(sg.mix);
+            
+            // 2. Commit Active Indices
+            if (sg.activeIndices.size === 0) {
+                console.warn("[QuantizedPulse] Shadow World empty! Aborting swap.");
+                this.stop();
+                return;
+            }
+            g.activeIndices.clear();
+            for (const idx of sg.activeIndices) {
+                g.activeIndices.add(idx);
+            }
+            
+            // 3. Commit Complex Objects
+            g.complexStyles.clear();
+            for (const [key, value] of sg.complexStyles) {
+                g.complexStyles.set(key, {...value});
+            }
+            
+            // 4. SWAP STREAM MANAGER STATE (Safe Serialization)
+            if (window.matrix && window.matrix.simulation) {
+                const mainSim = window.matrix.simulation;
+                const shadowMgr = this.shadowSim.streamManager;
+                
+                // Serialize activeStreams (Convert Sets to Arrays)
+                // We map original objects to new serialized objects to preserve references
+                const streamMap = new Map();
+                const serializedStreams = shadowMgr.activeStreams.map(s => {
+                    const copy = {...s};
+                    if (copy.holes instanceof Set) {
+                        copy.holes = Array.from(copy.holes);
+                    }
+                    streamMap.set(s, copy);
+                    return copy;
+                });
+                
+                // Serialize Reference Arrays using the map
+                const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                
+                const state = {
+                    activeStreams: serializedStreams, 
+                    columnSpeeds: shadowMgr.columnSpeeds,   
+                    lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                    lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                    lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                    nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                    overlapInitialized: this.shadowSim.overlapInitialized,
+                    _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                    complexStyles: Array.from(this.shadowGrid.complexStyles.entries()),
+                    activeIndices: Array.from(sg.activeIndices) // Explicitly send active indices
+                };
+                
+                // Adjust nextSpawnFrame
+                const frameOffset = mainSim.frame || 0; 
+                state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
+
+                if (mainSim.useWorker && mainSim.worker) {
+                    mainSim.worker.postMessage({
+                        type: 'replace_state',
+                        state: state
+                    });
+                    // Force config sync
+                    mainSim.worker.postMessage({
+                        type: 'config',
+                        config: {
+                            state: JSON.parse(JSON.stringify(this.c.state)),
+                            derived: this.c.derived
+                        }
+                    });
+                } else {
+                    // Main Thread Injection (Rehydrate Sets immediately)
+                    state.activeStreams.forEach(s => {
+                        if (Array.isArray(s.holes)) s.holes = new Set(s.holes);
+                    });
+                    
+                    const mainMgr = mainSim.streamManager;
+                    mainMgr.activeStreams = state.activeStreams;
+                    mainMgr.columnSpeeds.set(state.columnSpeeds);
+                    mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                    mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                    mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                    mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                    
+                    mainSim.overlapInitialized = state.overlapInitialized;
+                    mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                    
+                    // Inject Active Indices
+                    if (state.activeIndices) {
+                        mainSim.grid.activeIndices.clear();
+                        state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                    }
+                }
+            }
+            
+            // 5. Start Transition
+            this.swapped = true;
+            
+        } catch (e) {
+            console.error("[QuantizedPulse] Swap failed:", e);
+            this.g.clearAllOverrides();
+            this.stop();
+        }
+    }
+
     _addBlock(x, y, burstId = 0) {
+        // Prevent duplicate adds
         if (this._isOccupied(x, y)) return;
 
         this.blocks.push({x, y});
         
+        // Update Map: Set Occupied (Bit 0) and BurstID (Bits 2-15)
         if (x >= 0 && y >= 0 && x < this.mapCols && y < this.g.rows) {
-            // Set Occupied (Bit 0) and BurstID (Bits 2-15)
-            // Clear Frontier (Bit 1)
-            this.map[y * this.mapCols + x] = (this.map[y * this.mapCols + x] & ~2) | 1 | (burstId << 2);
+            const idx = y * this.mapCols + x;
+            this.map[idx] = (this.map[idx] & ~2) | 1 | (burstId << 2);
+            
+            // REVEAL: Set Override Active (Show New World)
+            const bs = 4;
+            for(let by=0; by<bs; by++) {
+                for(let bx=0; bx<bs; bx++) {
+                     const gx = x + bx;
+                     const gy = y + by;
+                     if (gx < this.g.cols && gy < this.g.rows) {
+                         const cellIdx = gy * this.g.cols + gx;
+                         // Enable CHAR override (Mode 1)
+                         // This forces the renderer to use overrideChars/Colors instead of Primary
+                         this.g.overrideActive[cellIdx] = 1; 
+                     }
+                }
+            }
         }
 
         const bs = 4;
-
-        const potentialNeighbors = [
-            {x: x, y: y - bs, side: 0}, 
-            {x: x + bs, y: y, side: 1}, 
-            {x: x, y: y + bs, side: 2}, 
-            {x: x - bs, y: y, side: 3}  
+        const neighbors = [
+            {x: x, y: y - bs, side: 0}, // Top
+            {x: x + bs, y: y, side: 1}, // Right
+            {x: x, y: y + bs, side: 2}, // Bottom
+            {x: x - bs, y: y, side: 3}  // Left
         ];
 
-        potentialNeighbors.forEach(pn => {
+        for (const pn of neighbors) {
+            // Check if neighbor exists and is occupied
             if (this._isOccupied(pn.x, pn.y)) {
-                // Check if neighbor is part of the current expansion burst
-                let isNewInCycle = false;
+                
+                // Determine if this is a "merged" neighbor (same burst) or "boundary" neighbor (old burst)
+                let isSameBurst = false;
                 if (pn.x >= 0 && pn.x < this.mapCols && pn.y >= 0 && pn.y < this.g.rows) {
                      const nbVal = this.map[pn.y * this.mapCols + pn.x];
                      const nbBurst = nbVal >> 2;
-                     // Only consider it "new in cycle" if burstId matches AND burstId is > 0
-                     // (burstId 0 is reserved for initial or non-burst blocks)
-                     if (burstId > 0 && nbBurst === burstId) isNewInCycle = true;
+                     // If both are part of the SAME non-zero burst, they are merged (no line)
+                     if (burstId > 0 && nbBurst === burstId) isSameBurst = true;
                 }
                 
-                if (!isNewInCycle) {
+                // If different bursts (or one is start/old), draw a boundary line
+                if (!isSameBurst) {
                     let lx, ly, lw, lh;
-                    if (pn.side === 0) { lx = x; ly = y; lw = bs; lh = 0; }
-                    else if (pn.side === 1) { lx = x + bs; ly = y; lw = 0; lh = bs; }
-                    else if (pn.side === 2) { lx = x; ly = y + bs; lw = bs; lh = 0; }
-                    else if (pn.side === 3) { lx = x; ly = y; lw = 0; lh = bs; }
+                    if (pn.side === 0) { lx = x; ly = y; lw = bs; lh = 0; }      // Top Edge
+                    else if (pn.side === 1) { lx = x + bs; ly = y; lw = 0; lh = bs; } // Right Edge
+                    else if (pn.side === 2) { lx = x; ly = y + bs; lw = bs; lh = 0; } // Bottom Edge
+                    else if (pn.side === 3) { lx = x; ly = y; lw = 0; lh = bs; }      // Left Edge
                     
                     const s = this._getEffectiveState();
-                    const persistence = s.fadeFrames > 0 ? Math.floor(5 + Math.random() * 10) : 0;
+                    const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10; // Increased persistence
                     
-                    this.lines.push({x: lx, y: ly, w: lw, h: lh, alpha: 1.0, persistence: persistence});
+                    // Add Line: marked as 'isNew' for the yellow-flash effect
+                    this.lines.push({
+                        x: lx, y: ly, w: lw, h: lh, 
+                        alpha: 1.0, 
+                        persistence: persistence, 
+                        isNew: true 
+                    });
                 }
             } else {
+                // Neighbor is empty -> Add to frontier
                 if (pn.x >= 0 && pn.x < this.g.cols && pn.y >= 0 && pn.y < this.g.rows) {
                     const pIdx = pn.y * this.mapCols + pn.x;
-                    if ((this.map[pIdx] & 2) === 0) {
+                    // If not occupied (Bit 0) and not already frontier (Bit 1)
+                    if ((this.map[pIdx] & 3) === 0) {
                         this.frontier.push({x: pn.x, y: pn.y});
-                        this.map[pIdx] |= 2;
+                        this.map[pIdx] |= 2; // Set Frontier Bit
                     }
                 }
             }
-        });
+        }
     }
 
     _isOccupied(x, y) {
@@ -204,9 +428,60 @@ class QuantizedPulseEffect extends AbstractEffect {
         return (this.map[y * this.mapCols + x] & 1) !== 0;
     }
 
+    _applyMask() {
+        // Re-apply override flags for ALL active blocks
+        // This is necessary because EffectRegistry clears overrides every frame.
+        const bs = 4;
+        const g = this.g;
+        const sg = this.shadowGrid;
+        
+        for (const b of this.blocks) {
+            for(let by=0; by<bs; by++) {
+                const gy = b.y + by;
+                if (gy >= this.g.rows) continue;
+                const rowOffset = gy * this.g.cols;
+                for(let bx=0; bx<bs; bx++) {
+                     const gx = b.x + bx;
+                     if (gx < this.g.cols) {
+                         const idx = rowOffset + gx;
+                         g.overrideActive[idx] = 1; 
+                         // Sync Mix State (Glimmer/Rotator) for the Reveal
+                         // This allows the New World to show advanced visual states
+                         if (sg) {
+                             g.mix[idx] = sg.mix[idx];
+                         }
+                     }
+                }
+            }
+        }
+    }
+
     update() {
         if (!this.active) return;
+        
+        // Transition Buffer Logic
+        if (this.swapped) {
+            this.swapTimer++;
+            // Keep applying mask to show Override layer (which holds New World snapshot)
+            this._applyMask(); 
+            
+            if (this.swapTimer > 5) { // Wait 5 frames for Worker sync
+                // Cleanup and Finish
+                this.g.clearAllOverrides();
+                this.stop();
+                this.shadowGrid = null;
+                this.shadowSim = null;
+            }
+            return;
+        }
+
         const s = this._getEffectiveState();
+        
+        // 1. Run Shadow Sim & Update Overrides
+        this._updateShadowWorld();
+        
+        // Re-apply Mask (Crucial: EffectRegistry clears it)
+        this._applyMask();
         
         // Handle Fade In
         if (this.fadeInAlpha < 1.0) {
@@ -223,18 +498,22 @@ class QuantizedPulseEffect extends AbstractEffect {
             return;
         }
         
-        // Duration Check
-        if (s.duration > 0 && (Date.now() - this.startTime) > s.duration * 1000) {
-            this.beginFade();
-            return;
-        }
+        // Duration Check REMOVED: Effect must run until expansion completes to trigger Swap.
+        // if (s.duration > 0 && (Date.now() - this.startTime) > s.duration * 1000) {
+        //    this.beginFade();
+        //    return;
+        // }
 
         // Removed catchTimer logic for consistent speed
 
-        if (this.frontier.length > 0 || this.blocksAdded < 5) {
+        // Fix: Explicitly track startup vs expansion phases to prevent stalling
+        const isStartup = this.blocksAdded < 5;
+        const hasFrontier = this.frontier.length > 0;
+
+        if (isStartup || hasFrontier) {
             if (--this.nextExpandTime <= 0) {
                 
-                if (this.blocksAdded < 5) {
+                if (isStartup) {
                     this._updateStart(s);
                 } else {
                     this._updateExpansion(s);
@@ -248,88 +527,24 @@ class QuantizedPulseEffect extends AbstractEffect {
         this._updateLines(s);
         this._updateTendrils(s);
 
+        // Check for completion
         if (this.frontier.length === 0 && this.lines.length === 0 && this.tendrils.length === 0) {
-            this.active = false;
+            this._swapAndStop();
+            return;
         } 
         
-        if (this.blocks.length > 8000) this.active = false;
+        if (this.blocks.length > 8000) {
+            this._swapAndStop();
+            return;
+        }
     }
 
     _updateTendrils(s) {
-        if (this.blocks.length === 0) return;
-        
-        const MAX_TENDRILS = 12;
-        const SPAWN_RATE = 0.2;
-        
-        if (this.tendrils.length < MAX_TENDRILS && Math.random() < SPAWN_RATE) {
-            if (this.frontier.length > 0) {
-                const start = this.frontier[Math.floor(Math.random() * this.frontier.length)];
-                const used = this.tendrils.some(t => t.path.some(b => b.x === start.x && b.y === start.y));
-                if (!used) {
-                    this.tendrils.push({
-                        path: [{x: start.x, y: start.y}],
-                        searchCount: 0
-                    });
-                }
-            }
-        }
-        
-        for (let i = this.tendrils.length - 1; i >= 0; i--) {
-            const t = this.tendrils[i];
-            const path = t.path;
-            const tip = path[path.length - 1];
-            
-            // Check if tip is now occupied by main blob (overcome)
-            if (this._isOccupied(tip.x, tip.y)) {
-                this.tendrils.splice(i, 1);
-                continue;
-            }
-
-            if (this._hasCode(tip.x, tip.y)) {
-                 this._hardenTendril(path);
-                 this.tendrils.splice(i, 1);
-                 continue;
-            }
-            
-            // Search Limit (10 changes)
-            if (t.searchCount >= 10) {
-                 this._hardenTendril(path);
-                 this.tendrils.splice(i, 1);
-                 continue;
-            }
-
-            const neighbors = [
-                {x: tip.x, y: tip.y - 4},
-                {x: tip.x + 4, y: tip.y},
-                {x: tip.x, y: tip.y + 4},
-                {x: tip.x - 4, y: tip.y}
-            ];
-                 
-            const candidates = neighbors.filter(n => 
-                !this._isOccupied(n.x, n.y) && 
-                !path.some(tb => tb.x === n.x && tb.y === n.y) &&
-                n.x >= 0 && n.x < this.mapCols && n.y >= 0 && n.y < this.g.rows
-            );
-            
-            if (candidates.length > 0) {
-                const next = candidates[Math.floor(Math.random() * candidates.length)];
-                path.push(next);
-                if (path.length > 3) {
-                    path.shift(); 
-                }
-                
-                t.searchCount++;
-                
-                if (this._hasCode(next.x, next.y)) {
-                    this._hardenTendril(path);
-                    this.tendrils.splice(i, 1);
-                }
-            } else {
-                // Stuck -> Harden
-                this._hardenTendril(path);
-                this.tendrils.splice(i, 1);
-            }
-        }
+        // TENDRILS DISABLED
+        // Use of tendrils caused blocks to spawn outside the main perimeter and corrupted the frontier
+        // with stale entries, causing the expansion loop to stall.
+        // This method is intentionally left empty to disable the feature.
+        return;
     }
 
     _hasCode(x, y) {
@@ -341,12 +556,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         const idx = this.g.getIndex(gx, gy);
         return (this.g.state && this.g.state[idx] === 1);
     }
+    
+    // _hardenTendril removed
 
-    _hardenTendril(path) {
-        path.forEach(b => {
-             this._addBlock(b.x, b.y, this.burstCounter);
-        });
-    }
 
     _updateLines(s) {
         for (let i = this.lines.length - 1; i >= 0; i--) {
@@ -386,18 +598,74 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     _updateExpansion(s) {
-        let burstCount = Math.ceil(1 / Math.max(0.2, this.currentDelay));
-        if (burstCount > 12) burstCount = 12; 
+        // CYCLE START: Merge previous new lines (turn them green)
+        this.lines.forEach(l => l.isNew = false);
+
+        // SCALING FIX: Burst count scales with frontier size to maintain visual speed
+        // Tuned to 2.5% to provide a controlled but consistent expansion speed.
+        let burstCount = Math.max(2, Math.ceil(this.frontier.length * 0.025));
+        if (burstCount > 100) burstCount = 100; // Safety Cap
         
         // Increment Burst Counter (1..16383)
         this.burstCounter = (this.burstCounter + 1) & 0x3FFF; 
         if (this.burstCounter === 0) this.burstCounter = 1;
 
-        for(let b=0; b<burstCount; b++) {
-            if (this.frontier.length === 0) break;
+        let processed = 0;
+        let attempts = 0;
+        // Scale safety break with burstCount
+        const maxAttempts = burstCount * 8 + 50; 
 
-            let totalWeight = 0;
-            const weights = this.frontier.map(f => {
+        while (processed < burstCount && this.frontier.length > 0 && attempts < maxAttempts) {
+            attempts++;
+            
+            // 1. TOURNAMENT SELECTION (O(k) vs O(N))
+            // Pick K candidates at random, choose the one with the highest weight
+            const K = 4; // Sample size
+            let bestIdx = -1;
+            let bestWeight = -1;
+
+            for (let k = 0; k < K; k++) {
+                const idx = Math.floor(Math.random() * this.frontier.length);
+                const f = this.frontier[idx];
+                
+                // Lazy Validation: Check map to see if this frontier node is still valid
+                if (f.x >= 0 && f.x < this.mapCols && f.y >= 0 && f.y < this.g.rows) {
+                     const val = this.map[f.y * this.mapCols + f.x];
+                     // If occupied (Bit 0) or no longer marked as frontier (Bit 1 cleared), it's stale
+                     if ((val & 1) !== 0 || (val & 2) === 0) {
+                         // Clean up stale entry immediately using O(1) swap-pop
+                         const last = this.frontier.pop();
+                         
+                         // If we didn't just pop the element at 'idx' (i.e. we popped the end, and 'idx' is somewhere else)
+                         if (idx < this.frontier.length) {
+                             this.frontier[idx] = last;
+                             
+                             // CRITICAL FIX: If bestIdx pointed to the element that was at the end (which just moved to idx),
+                             // we must update bestIdx to point to its new location (idx).
+                             if (bestIdx === this.frontier.length) {
+                                 bestIdx = idx;
+                             }
+                         }
+                         
+                         k--; // Retry this sample
+                         if (this.frontier.length === 0) break;
+                         continue;
+                     }
+                } else {
+                    // Out of bounds - remove
+                    const last = this.frontier.pop();
+                     if (idx < this.frontier.length) {
+                         this.frontier[idx] = last;
+                         if (bestIdx === this.frontier.length) {
+                             bestIdx = idx;
+                         }
+                     }
+                    k--;
+                    if (this.frontier.length === 0) break;
+                    continue;
+                }
+
+                // Calculate Weight for this candidate
                 let w = 1.0; 
                 const dx = Math.abs(f.x - this.origin.x);
                 const dy = Math.abs(f.y - this.origin.y);
@@ -412,101 +680,115 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this._isOccupied(f.x - 4, f.y)) neighbors++;
                 if (neighbors >= 2) { w += 10.0; }
 
-                w += Math.random() * 5.0;
-                totalWeight += w;
-                return w;
-            });
-
-            let r = Math.random() * totalWeight;
-            let winnerIdx = -1;
-            for(let i=0; i<weights.length; i++) {
-                r -= weights[i];
-                if (r <= 0) { winnerIdx = i; break; }
+                w += Math.random() * 5.0; // Random noise
+                
+                if (w > bestWeight) {
+                    bestWeight = w;
+                    bestIdx = idx;
+                }
             }
-            if (winnerIdx === -1 && weights.length > 0) winnerIdx = weights.length - 1;
 
-            if (winnerIdx !== -1) {
-                const winner = this.frontier[winnerIdx];
-                if (winner.x >= 0 && winner.y >= 0 && winner.x < this.mapCols && winner.y < this.g.rows) {
-                    this.map[winner.y * this.mapCols + winner.x] &= ~2;
-                }
+            if (this.frontier.length === 0) break;
+            if (bestIdx === -1) continue; // Should not happen if frontier has valid items
+
+            const winner = this.frontier[bestIdx];
+            
+            // Remove winner from frontier (Bit 1 clear + array removal)
+            if (winner.x >= 0 && winner.y >= 0 && winner.x < this.mapCols && winner.y < this.g.rows) {
+                this.map[winner.y * this.mapCols + winner.x] &= ~2; // Clear Frontier Bit
+            }
+            
+            const last = this.frontier.pop();
+            if (bestIdx < this.frontier.length) {
+                this.frontier[bestIdx] = last;
+            }
+            
+            if (!this._isOccupied(winner.x, winner.y)) {
+                this._addBlock(winner.x, winner.y, this.burstCounter);
+                processed++;
                 
-                // Swap-pop removal (O(1))
-                const last = this.frontier.pop();
-                if (winnerIdx < this.frontier.length) {
-                    this.frontier[winnerIdx] = last;
-                }
+                // GROUP ADDITION LOGIC (Weighted for ~66% Groups, ~33% Singles)
+                const rand = Math.random();
                 
-                if (!this._isOccupied(winner.x, winner.y)) {
-                    this._addBlock(winner.x, winner.y, this.burstCounter);
-                    
-                    // GROUP ADDITION LOGIC
-                    const rand = Math.random();
-                    
-                    // 30% chance for 2x2 (Big Square)
-                    if (rand < 0.3) {
-                        const candidates = [
-                            [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}],    
-                            [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}],  
-                            [{x:4,y:0}, {x:0,y:-4}, {x:4,y:-4}],  
-                            [{x:-4,y:0}, {x:0,y:-4}, {x:-4,y:-4}] 
-                        ];
-                        
-                        for(const cluster of candidates) {
-                            const valid = cluster.some(offset => 
-                                !this._isOccupied(winner.x + offset.x, winner.y + offset.y)
-                            );
-                            
-                            if (valid) {
-                                cluster.forEach(offset => {
-                                    const tx = winner.x + offset.x;
-                                    const ty = winner.y + offset.y;
-                                    this._addBlock(tx, ty, this.burstCounter);
-                                    const exIdx = this.frontier.findIndex(f => f.x === tx && f.y === ty);
-                                    if (exIdx !== -1) {
-                                        if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) {
-                                            this.map[ty * this.mapCols + tx] &= ~2;
-                                        }
-                                        const l = this.frontier.pop();
-                                        if (exIdx < this.frontier.length) {
-                                            this.frontier[exIdx] = l;
-                                        }
-                                    }
-                                });
-                                break; 
-                            }
+                // 15% chance for 2x3 or 3x2 (Large Rectangles)
+                if (rand < 0.15) {
+                     const candidates = [
+                        // 2x3 (Vertical)
+                        [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}, {x:0,y:8}, {x:4,y:8}],
+                        [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}, {x:0,y:8}, {x:-4,y:8}],
+                        // 3x2 (Horizontal)
+                        [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}],
+                        [{x:4,y:0}, {x:8,y:0}, {x:0,y:-4}, {x:4,y:-4}, {x:8,y:-4}]
+                     ];
+                     const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                     cluster.forEach(offset => {
+                        const tx = winner.x + offset.x;
+                        const ty = winner.y + offset.y;
+                        if (!this._isOccupied(tx, ty)) {
+                            this._addBlock(tx, ty, this.burstCounter);
+                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
                         }
+                     });
+                }
+                // 15% chance for 2x2 (Square)
+                else if (rand < 0.30) {
+                    const candidates = [
+                        [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}],    
+                        [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}],  
+                        [{x:4,y:0}, {x:0,y:-4}, {x:4,y:-4}],  
+                        [{x:-4,y:0}, {x:0,y:-4}, {x:-4,y:-4}] 
+                    ];
+                    const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                    cluster.forEach(offset => {
+                        const tx = winner.x + offset.x;
+                        const ty = winner.y + offset.y;
+                        if (!this._isOccupied(tx, ty)) {
+                            this._addBlock(tx, ty, this.burstCounter);
+                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
+                        }
+                    });
+                }
+                // 15% chance for 1x3 or 3x1 (Long Strips) - NEW
+                else if (rand < 0.45) {
+                    const candidates = [
+                        // 3x1 (Horizontal)
+                        [{x:4,y:0}, {x:8,y:0}],      // Right
+                        [{x:-4,y:0}, {x:-8,y:0}],    // Left
+                        [{x:-4,y:0}, {x:4,y:0}],     // Center
+                        // 1x3 (Vertical)
+                        [{x:0,y:4}, {x:0,y:8}],      // Down
+                        [{x:0,y:-4}, {x:0,y:-8}],    // Up
+                        [{x:0,y:-4}, {x:0,y:4}]      // Center
+                    ];
+                    const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                    cluster.forEach(offset => {
+                        const tx = winner.x + offset.x;
+                        const ty = winner.y + offset.y;
+                        if (!this._isOccupied(tx, ty)) {
+                            this._addBlock(tx, ty, this.burstCounter);
+                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
+                        }
+                    });
+                }
+                // 35% chance for 1x2 or 2x1 (Small Rects)
+                else if (rand < 0.80) {
+                    const type = Math.random() < 0.5 ? 'h' : 'v';
+                    let extra = null;
+                    if (type === 'h') {
+                        if (!this._isOccupied(winner.x + 4, winner.y)) extra = {x: winner.x + 4, y: winner.y};
+                        else if (!this._isOccupied(winner.x - 4, winner.y)) extra = {x: winner.x - 4, y: winner.y};
+                    } 
+                    if (!extra) { 
+                        if (!this._isOccupied(winner.x, winner.y + 4)) extra = {x: winner.x, y: winner.y + 4};
+                        else if (!this._isOccupied(winner.x, winner.y - 4)) extra = {x: winner.x, y: winner.y - 4};
                     }
-                    // 50% chance for 1x2 or 2x1 (Rectangle)
-                    else if (rand < 0.8) {
-                        const type = Math.random() < 0.5 ? 'h' : 'v';
-                        let extra = null;
-                        
-                        if (type === 'h') {
-                            if (!this._isOccupied(winner.x + 4, winner.y)) extra = {x: winner.x + 4, y: winner.y};
-                            else if (!this._isOccupied(winner.x - 4, winner.y)) extra = {x: winner.x - 4, y: winner.y};
-                        } 
-                        
-                        if (!extra) { 
-                             if (!this._isOccupied(winner.x, winner.y + 4)) extra = {x: winner.x, y: winner.y + 4};
-                             else if (!this._isOccupied(winner.x, winner.y - 4)) extra = {x: winner.x, y: winner.y - 4};
-                        }
-                        
-                        if (extra) {
-                            this._addBlock(extra.x, extra.y, this.burstCounter);
-                            const exIdx = this.frontier.findIndex(f => f.x === extra.x && f.y === extra.y);
-                            if (exIdx !== -1) {
-                                if (extra.x >= 0 && extra.y >= 0 && extra.x < this.mapCols && extra.y < this.g.rows) {
-                                    this.map[extra.y * this.mapCols + extra.x] &= ~2;
-                                }
-                                const l = this.frontier.pop();
-                                if (exIdx < this.frontier.length) {
-                                    this.frontier[exIdx] = l;
-                                }
-                            }
-                        }
+                    if (extra) {
+                        this._addBlock(extra.x, extra.y, this.burstCounter);
+                        if (extra.x >= 0 && extra.y >= 0 && extra.x < this.mapCols && extra.y < this.g.rows) this.map[extra.y * this.mapCols + extra.x] &= ~2;
                     }
                 }
+                // Remaining 20%: Single (winner only) - Do nothing extra
+
             }
         }
     }
@@ -573,11 +855,21 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         ctx.shadowBlur = 0; 
         
+        // Internal Lines (Merge Lines) - Use Code Color (Green)
+        ctx.strokeStyle = '#00FF00'; // Matrix Green for internal structure
         ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
         
         for (const l of this.lines) {
             ctx.globalAlpha = l.alpha * masterAlpha;
             ctx.beginPath();
+            
+            // Two-Cycle Logic: New lines are Yellow (Perimeter), Old are Green (Code)
+            if (l.isNew) {
+                ctx.strokeStyle = '#FFFF00'; 
+            } else {
+                ctx.strokeStyle = '#00FF00'; 
+            }
+            
             const lx = l.x * cw;
             const ly = l.y * ch;
             const lPxW = l.w * cw;
@@ -588,7 +880,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
         
         ctx.setLineDash([]); 
-        ctx.globalAlpha = 1.0; // Reset for safety (though canvas usually isolates)
+        ctx.globalAlpha = 1.0; 
         ctx.shadowBlur = 0;
     }
 }
