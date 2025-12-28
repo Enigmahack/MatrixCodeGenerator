@@ -294,6 +294,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseSpeed', type: 'range', label: 'Initial Speed', min: 5, max: 30, unit: 'fr', dep: 'quantizedPulseEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },

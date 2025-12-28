@@ -31,6 +31,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.isFading = false;
         this.fadeAlpha = 1.0;
         this.fadeInAlpha = 0.0;
+        
+        this.isExpanding = false; // Tracks if the pulse is actively growing
+        this.isFinishing = false; // Legacy flag, replaced by isExpanding logic
 
         // Flash State
         this.flashIntensity = null; 
@@ -62,6 +65,7 @@ class QuantizedPulseEffect extends AbstractEffect {
     stop() {
         this.active = false;
         this.isFading = false;
+        this.isFinishing = false;
         this.fadeAlpha = 1.0;
         this.swapped = false;
         this.swapTimer = 0;
@@ -97,12 +101,34 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
     }
 
+    resetExpansion() {
+        this.isExpanding = false;
+        this.swapped = false;
+        this.swapTimer = 0;
+        
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        
+        // Clear Expansion State ONLY
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        if (this.map) this.map.fill(0);
+        // Do NOT clear flashes or overrides here
+    }
+
     trigger() {
-        if (this.active) return false;
-        if (this.blocks && this.blocks.length > 0) this.stop();
+        // If already expanding, reset the expansion part but keep flashes
+        if (this.isExpanding) this.resetExpansion();
         
         this.active = true;
+        this.isExpanding = true;
         this.isFading = false;
+        this.isFinishing = false;
         this.fadeAlpha = 1.0;
         this.startTime = Date.now();
         
@@ -113,11 +139,11 @@ class QuantizedPulseEffect extends AbstractEffect {
         this._initShadowWorld();
 
         this.timeoutId = setTimeout(() => {
-            this.stop(); // Fail-safe
-        }, 60000); // 60 seconds
+            this._finishExpansion(); // Force finish
+        }, 60000); 
         
-        // Resize map with Padding to allow off-screen expansion
-        this.mapPad = 60; // Increased padding for consistent edge behavior
+        // Resize map
+        this.mapPad = 60; 
         this.mapCols = this.g.cols + this.mapPad * 2;
         this.mapRows = this.g.rows + this.mapPad * 2;
         const total = this.mapCols * this.mapRows;
@@ -128,14 +154,13 @@ class QuantizedPulseEffect extends AbstractEffect {
             this.map.fill(0);
         }
 
-        // Resize Flash Intensity (On-screen only)
+        // Resize Flash Intensity (Preserve existing if size matches)
         const totalGrid = this.g.cols * this.g.rows;
         if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
             this.flashIntensity = new Float32Array(totalGrid);
-        } else {
-            this.flashIntensity.fill(0);
+            this.activeFlashes.clear();
         }
-        this.activeFlashes.clear();
+        // Do NOT clear activeFlashes or flashIntensity here to allow persistence
 
         this.burstCounter = 0;
 
@@ -216,142 +241,115 @@ class QuantizedPulseEffect extends AbstractEffect {
         // because Override is purely visual. Logic state stays in shadowSim.
     }
 
-    _swapAndStop() {
-        console.log("[QuantizedPulse] Swapping Reality...");
+    _finishExpansion() {
+        // console.log("[QuantizedPulse] Finishing Expansion...");
         
         try {
             const g = this.g;
             const sg = this.shadowGrid;
             
-            if (!sg) {
-                this.stop();
-                return;
-            }
-            
-            // 1. Commit Buffer State
-            g.state.set(sg.state); 
-            g.chars.set(sg.chars);
-            g.colors.set(sg.colors);
-            g.baseColors.set(sg.baseColors); 
-            g.alphas.set(sg.alphas);
-            g.glows.set(sg.glows);
-            g.fontIndices.set(sg.fontIndices);
-            g.renderMode.set(sg.renderMode); 
-            
-            g.types.set(sg.types);
-            g.decays.set(sg.decays);
-            g.ages.set(sg.ages);
-            g.brightness.set(sg.brightness);
-            g.rotatorOffsets.set(sg.rotatorOffsets);
-            g.cellLocks.set(sg.cellLocks);
-            
-            g.nextChars.set(sg.nextChars);
-            g.nextOverlapChars.set(sg.nextOverlapChars);
-            
-            // Copy Secondary Layer
-            g.secondaryChars.set(sg.secondaryChars);
-            g.secondaryColors.set(sg.secondaryColors);
-            g.secondaryAlphas.set(sg.secondaryAlphas);
-            g.secondaryGlows.set(sg.secondaryGlows);
-            g.secondaryFontIndices.set(sg.secondaryFontIndices);
-            
-            // Copy Mix State
-            g.mix.set(sg.mix);
-            
-            // 2. Commit Active Indices
-            if (sg.activeIndices.size === 0) {
-                console.warn("[QuantizedPulse] Shadow World empty! Aborting swap.");
-                this.stop();
-                return;
-            }
-            g.activeIndices.clear();
-            for (const idx of sg.activeIndices) {
-                g.activeIndices.add(idx);
-            }
-            
-            // 3. Commit Complex Objects
-            g.complexStyles.clear();
-            for (const [key, value] of sg.complexStyles) {
-                g.complexStyles.set(key, {...value});
-            }
-            
-            // 4. SWAP STREAM MANAGER STATE (Safe Serialization)
-            if (window.matrix && window.matrix.simulation) {
-                const mainSim = window.matrix.simulation;
-                const shadowMgr = this.shadowSim.streamManager;
+            if (sg) {
+                // ... (Buffer Commit logic same as before, simplified for brevity in thought, but full copy in code)
+                // 1. Commit Buffer State
+                g.state.set(sg.state); 
+                g.chars.set(sg.chars);
+                g.colors.set(sg.colors);
+                g.baseColors.set(sg.baseColors); 
+                g.alphas.set(sg.alphas);
+                g.glows.set(sg.glows);
+                g.fontIndices.set(sg.fontIndices);
+                g.renderMode.set(sg.renderMode); 
                 
-                // Serialize activeStreams (Convert Sets to Arrays)
-                // We map original objects to new serialized objects to preserve references
-                const streamMap = new Map();
-                const serializedStreams = shadowMgr.activeStreams.map(s => {
-                    const copy = {...s};
-                    if (copy.holes instanceof Set) {
-                        copy.holes = Array.from(copy.holes);
+                g.types.set(sg.types);
+                g.decays.set(sg.decays);
+                g.ages.set(sg.ages);
+                g.brightness.set(sg.brightness);
+                g.rotatorOffsets.set(sg.rotatorOffsets);
+                g.cellLocks.set(sg.cellLocks);
+                
+                g.nextChars.set(sg.nextChars);
+                g.nextOverlapChars.set(sg.nextOverlapChars);
+                
+                // Copy Secondary Layer
+                g.secondaryChars.set(sg.secondaryChars);
+                g.secondaryColors.set(sg.secondaryColors);
+                g.secondaryAlphas.set(sg.secondaryAlphas);
+                g.secondaryGlows.set(sg.secondaryGlows);
+                g.secondaryFontIndices.set(sg.secondaryFontIndices);
+                
+                // Copy Mix State
+                g.mix.set(sg.mix);
+                
+                // 2. Commit Active Indices
+                if (sg.activeIndices.size > 0) {
+                    g.activeIndices.clear();
+                    for (const idx of sg.activeIndices) {
+                        g.activeIndices.add(idx);
                     }
-                    streamMap.set(s, copy);
-                    return copy;
-                });
+                }
                 
-                // Serialize Reference Arrays using the map
-                const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                // 3. Commit Complex Objects
+                g.complexStyles.clear();
+                for (const [key, value] of sg.complexStyles) {
+                    g.complexStyles.set(key, {...value});
+                }
                 
-                const state = {
-                    activeStreams: serializedStreams, 
-                    columnSpeeds: shadowMgr.columnSpeeds,   
-                    lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
-                    lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
-                    lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
-                    nextSpawnFrame: shadowMgr.nextSpawnFrame,
-                    overlapInitialized: this.shadowSim.overlapInitialized,
-                    _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
-                    complexStyles: Array.from(this.shadowGrid.complexStyles.entries()),
-                    activeIndices: Array.from(sg.activeIndices) // Explicitly send active indices
-                };
-                
-                // Adjust nextSpawnFrame
-                const frameOffset = mainSim.frame || 0; 
-                state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
+                // 4. SWAP STREAM MANAGER STATE
+                if (window.matrix && window.matrix.simulation) {
+                    const mainSim = window.matrix.simulation;
+                    const shadowMgr = this.shadowSim.streamManager;
+                    
+                    const streamMap = new Map();
+                    const serializedStreams = shadowMgr.activeStreams.map(s => {
+                        const copy = {...s};
+                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                        streamMap.set(s, copy);
+                        return copy;
+                    });
+                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                    
+                    const state = {
+                        activeStreams: serializedStreams, 
+                        columnSpeeds: shadowMgr.columnSpeeds,   
+                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                        overlapInitialized: this.shadowSim.overlapInitialized,
+                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                        activeIndices: Array.from(sg.activeIndices)
+                    };
+                    
+                    const frameOffset = mainSim.frame || 0; 
+                    state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
 
-                if (mainSim.useWorker && mainSim.worker) {
-                    mainSim.worker.postMessage({
-                        type: 'replace_state',
-                        state: state
-                    });
-                    // Force config sync
-                    mainSim.worker.postMessage({
-                        type: 'config',
-                        config: {
-                            state: JSON.parse(JSON.stringify(this.c.state)),
-                            derived: this.c.derived
+                    if (mainSim.useWorker && mainSim.worker) {
+                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
+                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                    } else {
+                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
+                        const mainMgr = mainSim.streamManager;
+                        mainMgr.activeStreams = state.activeStreams;
+                        mainMgr.columnSpeeds.set(state.columnSpeeds);
+                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                        mainSim.overlapInitialized = state.overlapInitialized;
+                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                        if (state.activeIndices) {
+                            mainSim.grid.activeIndices.clear();
+                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
                         }
-                    });
-                } else {
-                    // Main Thread Injection (Rehydrate Sets immediately)
-                    state.activeStreams.forEach(s => {
-                        if (Array.isArray(s.holes)) s.holes = new Set(s.holes);
-                    });
-                    
-                    const mainMgr = mainSim.streamManager;
-                    mainMgr.activeStreams = state.activeStreams;
-                    mainMgr.columnSpeeds.set(state.columnSpeeds);
-                    mainMgr.lastStreamInColumn = state.lastStreamInColumn;
-                    mainMgr.lastEraserInColumn = state.lastEraserInColumn;
-                    mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                    mainMgr.nextSpawnFrame = state.nextSpawnFrame;
-                    
-                    mainSim.overlapInitialized = state.overlapInitialized;
-                    mainSim._lastOverlapDensity = state._lastOverlapDensity;
-                    
-                    // Inject Active Indices
-                    if (state.activeIndices) {
-                        mainSim.grid.activeIndices.clear();
-                        state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
                     }
                 }
             }
             
-            // 5. Start Transition
-            this.swapped = true;
+            // 5. End Expansion Phase
+            this.resetExpansion(); // Stops expanding, keeps active for flashes
+            this.g.clearAllOverrides(); // Clear overrides (except what updateFlashes restores)
+            this.shadowGrid = null;
+            this.shadowSim = null;
             
         } catch (e) {
             console.error("[QuantizedPulse] Swap failed:", e);
@@ -495,47 +493,32 @@ class QuantizedPulseEffect extends AbstractEffect {
     update() {
         if (!this.active) return;
         
-        // Transition Buffer Logic
-        if (this.swapped) {
-            this.swapTimer++;
-            // Keep applying mask to show Override layer (which holds New World snapshot)
-            this._applyMask(); 
-            
-            if (this.swapTimer > 5) { // Wait 5 frames for Worker sync
-                // Cleanup and Finish
-                this.g.clearAllOverrides();
-                this.stop();
-                this.shadowGrid = null;
-                this.shadowSim = null;
-            }
+        // 1. Process Flash Decays (Independent of Expansion)
+        // This ensures flashes fade out naturally even if expansion is done or stopped.
+        if (this.activeFlashes.size > 0) {
+            this._updateFlashes();
+        }
+        
+        // 2. Check for Full Completion
+        if (!this.isExpanding && this.activeFlashes.size === 0) {
+            this.stop(); // Fully deactivate
             return;
         }
+
+        // 3. Expansion Logic
+        if (!this.isExpanding) return;
 
         this.localFrame++;
         const s = this._getEffectiveState();
         
-        // 1. Run Shadow Sim & Update Overrides
+        // Run Shadow Sim & Update Overrides
         this._updateShadowWorld();
-        
-        // Re-apply Mask (Crucial: EffectRegistry clears it)
         this._applyMask();
-        
-        // Update Flash Brightness
-        this._updateFlashes();
         
         // Handle Fade In
         if (this.fadeInAlpha < 1.0) {
             this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
             if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
-        }
-        
-        if (this.isFading) {
-            const decay = 1.0 / Math.max(1, s.fadeFrames);
-            this.fadeAlpha -= decay;
-            if (this.fadeAlpha <= 0) {
-                this.stop();
-            }
-            return;
         }
         
         // Time-Based Expansion Control
@@ -544,15 +527,14 @@ class QuantizedPulseEffect extends AbstractEffect {
         
         // 1. Hard Time Limit (Duration + 1s buffer)
         if (elapsed > durationMs + 1000) {
-            this._swapAndStop();
+            this._finishExpansion();
             return;
         }
 
-        // 2. Off-Screen Check (If all frontier blocks are outside visible bounds)
-        // Only check periodically or if we have enough blocks to be meaningful
+        // 2. Off-Screen Check
         if (this.localFrame % 10 === 0 && this.frontier.length > 0) {
             let allOffScreen = true;
-            const b = 4; // Buffer
+            const b = 4;
             const minX = -b, maxX = this.g.cols + b;
             const minY = -b, maxY = this.g.rows + b;
             
@@ -564,52 +546,40 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
             
             if (allOffScreen) {
-                this._swapAndStop();
+                this._finishExpansion();
                 return;
             }
         }
 
         const progress = Math.min(1.0, elapsed / durationMs);
         
-        // Calibrate target to VISIBLE screen area (exclude padding)
-        // This ensures the duration setting maps to "Time to fill screen"
+        // Calibrate target to VISIBLE screen area
         const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
         
-        // Initial Speed modulates the exponent: 
-        // High Speed (30) -> Exponent 1.0 (Linear)
-        // Default (10) -> Exponent 2.5 (Slow Start)
-        // Low Speed (5) -> Exponent 3.0 (Very Slow Start)
-        const exponent = Math.max(1.0, 3.5 - (s.initialSpeed / 10));
-        const targetBlocks = Math.floor(totalVisibleBlocks * Math.pow(progress, exponent));
+        // Initial Speed modulates the exponent
+        const exponent = Math.max(1.0, 3.0 - (s.initialSpeed / 10));
+        
+        // Multiply by 1.5 to ensure coverage
+        const targetBlocks = Math.floor((totalVisibleBlocks * 1.5) * Math.pow(progress, exponent));
         
         let needed = targetBlocks - this.blocksAdded;
         
-        // 1. Tendrils are the primary expansion driver during tendril phase
-        // They run every frame to provide aggressive, prioritised growth
-        if (progress > 0.3) {
+        // 1. Tendrils Logic
+        if (progress > 0.35 && needed > 0) {
             this._updateTendrils(s);
         }
 
-        // 2. Throttled Expansion Tick (Every 3 frames)
-        // This ensures the main expansion 'blob' fills gaps but doesn't lead the growth.
-        // Also allows Yellow (isNew) lines to be visible for a few frames to allow flicker.
+        // 2. Throttled Expansion Tick
         if (this.localFrame % 3 === 0) {
             if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
-                 // During Tendril Phase (>30%), significantly throttle main expansion 
-                 // to let tendrils be the primary growth mechanism.
-                 const burstCap = (progress > 0.3) ? 10 : 600;
+                 const burstCap = 600;
                  let burst = Math.min(needed, burstCap);
-                 
-                 // Minimum burst to keep animation fluid
                  if (burst < 1) burst = 1;
-                 
-                 // Run expansion loop
                  this._updateExpansionBurst(burst);
             }
         }
 
         this._updateLines(s);
-
     }
 
     _updateTendrils(s) {
@@ -958,10 +928,16 @@ class QuantizedPulseEffect extends AbstractEffect {
             this.flashIntensity[idx] = intensity;
             
             if (intensity > 0) {
+                // Enable Override for this cell (CHAR mode)
+                // This allows the Main Sim's 'mix' (Glimmer/Rotator) to show through 
+                // while we override the Color/Glow for the flash.
+                g.overrideActive[idx] = 1; 
+
                 // Apply Flash to Glow (Visual Brightness)
                 // This adds brightness in the character's OWN color in the shader
-                // A boost of 4.0 is strong enough to trigger significant bloom
-                g.overrideGlows[idx] += 4.0 * intensity;
+                // Use configurable Border Illumination setting
+                const illumination = this.c.state.quantizedPulseBorderIllumination !== undefined ? this.c.state.quantizedPulseBorderIllumination : 4.0;
+                g.overrideGlows[idx] += illumination * intensity;
                 
                 // Also boost the base color saturation towards its max intensity
                 const col = g.overrideColors[idx];
@@ -992,7 +968,7 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     render(ctx, derived) {
-        if (!this.active) return;
+        if (!this.active || !this.isExpanding) return;
         const s = this.c.state;
         const cw = derived.cellWidth * s.stretchX;
         const ch = derived.cellHeight * s.stretchY;
