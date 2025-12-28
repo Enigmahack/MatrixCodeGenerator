@@ -1115,7 +1115,7 @@ class WebGLRenderer {
                     uAlphas[i] = ovAlphas[i];
                     uDecays[i] = 0;
                     uGlows[i] = (gEnvGlows ? gEnvGlows[i] : 0);
-                } else { // CHAR
+                } else { // CHAR (Mode 1) or FULL (Mode 3)
                     mChars[i] = mapChar(ovChars[i]);
                     
                     const mode = gMode[i];
@@ -1132,11 +1132,14 @@ class WebGLRenderer {
                     uDecays[i] = 0;
                     uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                     
-                    // CRITICAL FIX: Allow underlying mix state (e.g. Glimmer) to pass through Override
-                    // If the override wants to force specific behavior, it should use effectActive modes.
-                    // For standard overrides (QuantizedPulse), we want to inherit the simulation's visual state (mix).
-                    if (gMix[i] > 0) {
-                        uMix[i] = gMix[i];
+                    if (ov === 3) {
+                         // FULL OVERRIDE: Use Override Mix (New World state)
+                         uMix[i] = grid.overrideMix[i];
+                    } else {
+                         // CHAR OVERRIDE: Inherit Main Mix (Old World state)
+                         if (gMix[i] > 0) {
+                             uMix[i] = gMix[i];
+                         }
                     }
                 }
                 continue;

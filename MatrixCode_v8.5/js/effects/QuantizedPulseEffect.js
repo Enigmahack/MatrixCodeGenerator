@@ -31,6 +31,10 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.isFading = false;
         this.fadeAlpha = 1.0;
         this.fadeInAlpha = 0.0;
+
+        // Flash State
+        this.flashIntensity = null; 
+        this.activeFlashes = new Set();
     }
 
     _getEffectiveState() {
@@ -73,6 +77,8 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.tendrils = [];
         this.blocksAdded = 0;
         if (this.map) this.map.fill(0);
+        this.activeFlashes.clear();
+        if (this.flashIntensity) this.flashIntensity.fill(0);
         this.g.clearAllOverrides();
     }
     
@@ -109,14 +115,27 @@ class QuantizedPulseEffect extends AbstractEffect {
             this.stop(); // Fail-safe
         }, 60000); // 60 seconds
         
-        // Resize map
-        const total = this.g.cols * this.g.rows;
+        // Resize map with Padding to allow off-screen expansion
+        this.mapPad = 8;
+        this.mapCols = this.g.cols + this.mapPad * 2;
+        this.mapRows = this.g.rows + this.mapPad * 2;
+        const total = this.mapCols * this.mapRows;
+        
         if (!this.map || this.map.length !== total) {
             this.map = new Uint16Array(total);
         } else {
             this.map.fill(0);
         }
-        this.mapCols = this.g.cols;
+
+        // Resize Flash Intensity (On-screen only)
+        const totalGrid = this.g.cols * this.g.rows;
+        if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
+            this.flashIntensity = new Float32Array(totalGrid);
+        } else {
+            this.flashIntensity.fill(0);
+        }
+        this.activeFlashes.clear();
+
         this.burstCounter = 0;
 
         this.blocks = [];
@@ -346,22 +365,34 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.blocks.push({x, y});
         
         // Update Map: Set Occupied (Bit 0) and BurstID (Bits 2-15)
-        if (x >= 0 && y >= 0 && x < this.mapCols && y < this.g.rows) {
-            const idx = y * this.mapCols + x;
+        const mx = x + this.mapPad;
+        const my = y + this.mapPad;
+        
+        if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
+            const idx = my * this.mapCols + mx;
             this.map[idx] = (this.map[idx] & ~2) | 1 | (burstId << 2);
             
-            // REVEAL: Set Override Active (Show New World)
-            const bs = 4;
-            for(let by=0; by<bs; by++) {
-                for(let bx=0; bx<bs; bx++) {
-                     const gx = x + bx;
-                     const gy = y + by;
-                     if (gx < this.g.cols && gy < this.g.rows) {
-                         const cellIdx = gy * this.g.cols + gx;
-                         // Enable CHAR override (Mode 1)
-                         // This forces the renderer to use overrideChars/Colors instead of Primary
-                         this.g.overrideActive[cellIdx] = 1; 
-                     }
+            // REVEAL: Set Override Active (Show New World) - On-screen only
+            if (x >= -4 && y >= -4 && x < this.g.cols && y < this.g.rows) {
+                const bs = 4;
+                for(let by=0; by<bs; by++) {
+                    for(let bx=0; bx<bs; bx++) {
+                         const gx = x + bx;
+                         const gy = y + by;
+                         if (gx >= 0 && gy >= 0 && gx < this.g.cols && gy < this.g.rows) {
+                             const cellIdx = gy * this.g.cols + gx;
+                             // Enable CHAR override (Mode 3 = FULL, allows overrideMix)
+                             this.g.overrideActive[cellIdx] = 3; 
+                             // Sync Mix State (Glimmer/Rotator) for the Reveal
+                             if (this.shadowGrid) {
+                                 this.g.overrideMix[cellIdx] = this.shadowGrid.mix[cellIdx];
+                             }
+                             
+                             // Trigger Flash
+                             this.flashIntensity[cellIdx] = 1.0;
+                             this.activeFlashes.add(cellIdx);
+                         }
+                    }
                 }
             }
         }
@@ -380,10 +411,12 @@ class QuantizedPulseEffect extends AbstractEffect {
                 
                 // Determine if this is a "merged" neighbor (same burst) or "boundary" neighbor (old burst)
                 let isSameBurst = false;
-                if (pn.x >= 0 && pn.x < this.mapCols && pn.y >= 0 && pn.y < this.g.rows) {
-                     const nbVal = this.map[pn.y * this.mapCols + pn.x];
+                const nmx = pn.x + this.mapPad;
+                const nmy = pn.y + this.mapPad;
+                
+                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
+                     const nbVal = this.map[nmy * this.mapCols + nmx];
                      const nbBurst = nbVal >> 2;
-                     // If both are part of the SAME non-zero burst, they are merged (no line)
                      if (burstId > 0 && nbBurst === burstId) isSameBurst = true;
                 }
                 
@@ -396,9 +429,8 @@ class QuantizedPulseEffect extends AbstractEffect {
                     else if (pn.side === 3) { lx = x; ly = y; lw = 0; lh = bs; }      // Left Edge
                     
                     const s = this._getEffectiveState();
-                    const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10; // Increased persistence
+                    const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10;
                     
-                    // Add Line: marked as 'isNew' for the yellow-flash effect
                     this.lines.push({
                         x: lx, y: ly, w: lw, h: lh, 
                         alpha: 1.0, 
@@ -408,8 +440,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 }
             } else {
                 // Neighbor is empty -> Add to frontier
-                if (pn.x >= 0 && pn.x < this.g.cols && pn.y >= 0 && pn.y < this.g.rows) {
-                    const pIdx = pn.y * this.mapCols + pn.x;
+                const nmx = pn.x + this.mapPad;
+                const nmy = pn.y + this.mapPad;
+                
+                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
+                    const pIdx = nmy * this.mapCols + nmx;
                     // If not occupied (Bit 0) and not already frontier (Bit 1)
                     if ((this.map[pIdx] & 3) === 0) {
                         this.frontier.push({x: pn.x, y: pn.y});
@@ -421,11 +456,10 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     _isOccupied(x, y) {
-        if (x < 0 || y < 0 || x >= this.mapCols) return false; // Bounds check (y check implied by index range but safer to be explicit if rows needed)
-        // Actually simple bounds check is good
-        if (y >= this.g.rows) return false;
-        
-        return (this.map[y * this.mapCols + x] & 1) !== 0;
+        const mx = x + this.mapPad;
+        const my = y + this.mapPad;
+        if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) return false;
+        return (this.map[my * this.mapCols + mx] & 1) !== 0;
     }
 
     _applyMask() {
@@ -444,11 +478,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                      const gx = b.x + bx;
                      if (gx < this.g.cols) {
                          const idx = rowOffset + gx;
-                         g.overrideActive[idx] = 1; 
+                         g.overrideActive[idx] = 3; 
                          // Sync Mix State (Glimmer/Rotator) for the Reveal
                          // This allows the New World to show advanced visual states
                          if (sg) {
-                             g.mix[idx] = sg.mix[idx];
+                             g.overrideMix[idx] = sg.mix[idx];
                          }
                      }
                 }
@@ -482,6 +516,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         
         // Re-apply Mask (Crucial: EffectRegistry clears it)
         this._applyMask();
+        
+        // Update Flash Brightness
+        this._updateFlashes();
         
         // Handle Fade In
         if (this.fadeInAlpha < 1.0) {
@@ -586,8 +623,10 @@ class QuantizedPulseEffect extends AbstractEffect {
             const fIdx = this.frontier.findIndex(f => f.x === next.x && f.y === next.y);
             if (fIdx !== -1) {
                 const f = this.frontier[fIdx];
-                if (f.x >= 0 && f.y >= 0 && f.x < this.mapCols && f.y < this.g.rows) {
-                    this.map[f.y * this.mapCols + f.x] &= ~2;
+                const mx = f.x + this.mapPad;
+                const my = f.y + this.mapPad;
+                if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
+                    this.map[my * this.mapCols + mx] &= ~2;
                 }
                 const l = this.frontier.pop();
                 if (fIdx < this.frontier.length) {
@@ -629,8 +668,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 const f = this.frontier[idx];
                 
                 // Lazy Validation: Check map to see if this frontier node is still valid
-                if (f.x >= 0 && f.x < this.mapCols && f.y >= 0 && f.y < this.g.rows) {
-                     const val = this.map[f.y * this.mapCols + f.x];
+                const mx = f.x + this.mapPad;
+                const my = f.y + this.mapPad;
+
+                if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
+                     const val = this.map[my * this.mapCols + mx];
                      // If occupied (Bit 0) or no longer marked as frontier (Bit 1 cleared), it's stale
                      if ((val & 1) !== 0 || (val & 2) === 0) {
                          // Clean up stale entry immediately using O(1) swap-pop
@@ -694,8 +736,10 @@ class QuantizedPulseEffect extends AbstractEffect {
             const winner = this.frontier[bestIdx];
             
             // Remove winner from frontier (Bit 1 clear + array removal)
-            if (winner.x >= 0 && winner.y >= 0 && winner.x < this.mapCols && winner.y < this.g.rows) {
-                this.map[winner.y * this.mapCols + winner.x] &= ~2; // Clear Frontier Bit
+            const wmx = winner.x + this.mapPad;
+            const wmy = winner.y + this.mapPad;
+            if (wmx >= 0 && wmy >= 0 && wmx < this.mapCols && wmy < this.mapRows) {
+                this.map[wmy * this.mapCols + wmx] &= ~2; // Clear Frontier Bit
             }
             
             const last = this.frontier.pop();
@@ -726,7 +770,9 @@ class QuantizedPulseEffect extends AbstractEffect {
                         const ty = winner.y + offset.y;
                         if (!this._isOccupied(tx, ty)) {
                             this._addBlock(tx, ty, this.burstCounter);
-                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
+                            const tmx = tx + this.mapPad;
+                            const tmy = ty + this.mapPad;
+                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
                         }
                      });
                 }
@@ -744,7 +790,9 @@ class QuantizedPulseEffect extends AbstractEffect {
                         const ty = winner.y + offset.y;
                         if (!this._isOccupied(tx, ty)) {
                             this._addBlock(tx, ty, this.burstCounter);
-                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
+                            const tmx = tx + this.mapPad;
+                            const tmy = ty + this.mapPad;
+                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
                         }
                     });
                 }
@@ -766,7 +814,9 @@ class QuantizedPulseEffect extends AbstractEffect {
                         const ty = winner.y + offset.y;
                         if (!this._isOccupied(tx, ty)) {
                             this._addBlock(tx, ty, this.burstCounter);
-                            if (tx >= 0 && ty >= 0 && tx < this.mapCols && ty < this.g.rows) this.map[ty * this.mapCols + tx] &= ~2;
+                            const tmx = tx + this.mapPad;
+                            const tmy = ty + this.mapPad;
+                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
                         }
                     });
                 }
@@ -784,7 +834,9 @@ class QuantizedPulseEffect extends AbstractEffect {
                     }
                     if (extra) {
                         this._addBlock(extra.x, extra.y, this.burstCounter);
-                        if (extra.x >= 0 && extra.y >= 0 && extra.x < this.mapCols && extra.y < this.g.rows) this.map[extra.y * this.mapCols + extra.x] &= ~2;
+                        const emx = extra.x + this.mapPad;
+                        const emy = extra.y + this.mapPad;
+                        if (emx >= 0 && emy >= 0 && emx < this.mapCols && emy < this.mapRows) this.map[emy * this.mapCols + emx] &= ~2;
                     }
                 }
                 // Remaining 20%: Single (winner only) - Do nothing extra
@@ -795,6 +847,58 @@ class QuantizedPulseEffect extends AbstractEffect {
 
     applyToGrid(grid) {
         // No grid overrides
+    }
+
+    _updateFlashes() {
+        if (this.activeFlashes.size === 0) return;
+        
+        const g = this.g;
+        const decay = 1.0 / 30.0; // Fade over ~0.5 seconds (double speed)
+        const toRemove = [];
+        
+        for (const idx of this.activeFlashes) {
+            let intensity = this.flashIntensity[idx];
+            if (intensity <= 0) {
+                toRemove.push(idx);
+                continue;
+            }
+            
+            // Decrease Intensity
+            intensity -= decay;
+            this.flashIntensity[idx] = intensity;
+            
+            if (intensity > 0) {
+                // Apply Flash to Glow (Visual Brightness)
+                // This adds brightness in the character's OWN color in the shader
+                // A boost of 4.0 is strong enough to trigger significant bloom
+                g.overrideGlows[idx] += 4.0 * intensity;
+                
+                // Also boost the base color saturation towards its max intensity
+                const col = g.overrideColors[idx];
+                const r = col & 0xFF;
+                const gVal = (col >> 8) & 0xFF;
+                const b = (col >> 16) & 0xFF;
+                const a = (col >> 24) & 0xFF;
+                
+                // Scale up towards 255 without shifting hue to white
+                const maxVal = Math.max(r, gVal, b, 1);
+                const targetScale = 255 / maxVal;
+                const scale = 1.0 + (targetScale - 1.0) * intensity;
+                
+                const rNew = Math.min(255, Math.floor(r * scale));
+                const gNew = Math.min(255, Math.floor(gVal * scale));
+                const bNew = Math.min(255, Math.floor(b * scale));
+                
+                g.overrideColors[idx] = (a << 24) | (bNew << 16) | (gNew << 8) | rNew;
+            } else {
+                toRemove.push(idx);
+            }
+        }
+        
+        for (const idx of toRemove) {
+            this.activeFlashes.delete(idx);
+            this.flashIntensity[idx] = 0;
+        }
     }
 
     render(ctx, derived) {

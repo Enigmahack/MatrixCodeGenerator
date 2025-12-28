@@ -14,7 +14,8 @@ const RENDER_MODE = {
 const OVERRIDE_MODE = {
     NONE: 0,
     CHAR: 1,
-    SOLID: 2
+    SOLID: 2,
+    FULL: 3
 };
 
 class CellGrid {
@@ -54,6 +55,7 @@ class CellGrid {
         this.overrideColors = null; // Uint32
         this.overrideAlphas = null; // Float32
         this.overrideGlows = null;  // Float32
+        this.overrideMix = null;    // Float32 (New: For FULL mode)
         this.overrideFontIndices = null; // Uint8
 
         // --- Passive Layer (Effects) ---
@@ -279,6 +281,7 @@ class CellGrid {
             this.overrideColors = buffers.overrideColors;
             this.overrideAlphas = buffers.overrideAlphas;
             this.overrideGlows = buffers.overrideGlows;
+            this.overrideMix = buffers.overrideMix;
             this.overrideFontIndices = buffers.overrideFontIndices;
 
             this.effectActive = buffers.effectActive;
@@ -328,6 +331,7 @@ class CellGrid {
             this.overrideColors = new Uint32Array(total);
             this.overrideAlphas = new Float32Array(total);
             this.overrideGlows = new Float32Array(total);
+            this.overrideMix = new Float32Array(total);
             this.overrideFontIndices = new Uint8Array(total);
 
             // Effects
