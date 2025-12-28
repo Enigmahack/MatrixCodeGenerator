@@ -51,11 +51,11 @@ class QuantizedPulseEffect extends AbstractEffect {
             enabled: s.quantizedPulseEnabled,
             freq: s.quantizedPulseFrequencySeconds,
             duration: s.quantizedPulseDurationSeconds || 2.0,
-            initialSpeed: s.quantizedPulseSpeed || 10,
+            initialSpeed: 10,   // Hard-coded as requested (was s.quantizedPulseSpeed || 10)
             fadeFrames: fadeFrames,
             fadeInFrames: fadeInFrames,
-            baseDelay: 2.0,     // Much faster start (was 8)
-            acceleration: 0.98, // Very subtle acceleration (was 0.94)
+            baseDelay: 1.0,     // Much faster start (was 8)
+            acceleration: 1, // Very subtle acceleration (was 0.94)
             minDelay: 0.5,      // Keep top speed cap same
             blockSize: 4,
             lineFadeSpeed: lineSpeed 
@@ -69,6 +69,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.fadeAlpha = 1.0;
         this.swapped = false;
         this.swapTimer = 0;
+        this.growthPhase = 0;
         
         if (this.timeoutId) {
             clearTimeout(this.timeoutId);
@@ -131,6 +132,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.isFinishing = false;
         this.fadeAlpha = 1.0;
         this.startTime = Date.now();
+        this.growthPhase = 0; // 0: Start, 1: NSEW, 2: NS, 3: Full
         
         const s = this._getEffectiveState();
         this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
@@ -188,6 +190,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         return true;
     }
 
+    // ... (unchanged methods: _initShadowWorld, _updateShadowWorld, _finishExpansion, _addBlock, _isOccupied, _applyMask) ...
     _initShadowWorld() {
         // Create a Shadow Grid and Simulation to run the "New World"
         // This ensures settings match exactly and allows for a state swap later.
@@ -236,6 +239,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         g.overrideColors.set(sg.colors);
         g.overrideAlphas.set(sg.alphas);
         g.overrideGlows.set(sg.glows);
+        g.overrideNextChars.set(sg.nextChars);
         
         // Note: We do NOT copy 'types', 'decays' etc to Override, 
         // because Override is purely visual. Logic state stays in shadowSim.
@@ -348,6 +352,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             // 5. End Expansion Phase
             this.resetExpansion(); // Stops expanding, keeps active for flashes
             this.g.clearAllOverrides(); // Clear overrides (except what updateFlashes restores)
+            this._updateFlashes(); // Re-apply flashes on the NEW grid state to prevent 1-frame snap
             this.shadowGrid = null;
             this.shadowSim = null;
             
@@ -374,6 +379,19 @@ class QuantizedPulseEffect extends AbstractEffect {
             
             // REVEAL: Set Override Active (Show New World) - On-screen only
             if (x >= -4 && y >= -4 && x < this.g.cols && y < this.g.rows) {
+                const centerX = this.g.cols / 2;
+                const centerY = this.g.rows / 2;
+                const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
+                
+                // Calculate Scale for this block (center of 4x4)
+                const bx = x + 2;
+                const by = y + 2;
+                const dx = bx - centerX;
+                const dy = by - centerY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                let scale = Math.max(0, 1.0 - (dist / maxDist));
+                scale = Math.pow(scale, 1.5);
+                
                 const bs = 4;
                 for(let by=0; by<bs; by++) {
                     for(let bx=0; bx<bs; bx++) {
@@ -388,8 +406,8 @@ class QuantizedPulseEffect extends AbstractEffect {
                                  this.g.overrideMix[cellIdx] = this.shadowGrid.mix[cellIdx];
                              }
                              
-                             // Trigger Flash
-                             this.flashIntensity[cellIdx] = 1.0;
+                             // Initial Flash
+                             this.flashIntensity[cellIdx] = 1.0 * scale;
                              this.activeFlashes.add(cellIdx);
                          }
                     }
@@ -493,99 +511,197 @@ class QuantizedPulseEffect extends AbstractEffect {
     update() {
         if (!this.active) return;
         
-        // 1. Process Flash Decays (Independent of Expansion)
-        // This ensures flashes fade out naturally even if expansion is done or stopped.
-        if (this.activeFlashes.size > 0) {
-            this._updateFlashes();
-        }
-        
-        // 2. Check for Full Completion
-        if (!this.isExpanding && this.activeFlashes.size === 0) {
-            this.stop(); // Fully deactivate
-            return;
-        }
-
-        // 3. Expansion Logic
-        if (!this.isExpanding) return;
-
-        this.localFrame++;
-        const s = this._getEffectiveState();
-        
-        // Run Shadow Sim & Update Overrides
-        this._updateShadowWorld();
-        this._applyMask();
-        
-        // Handle Fade In
-        if (this.fadeInAlpha < 1.0) {
-            this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
-            if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
-        }
-        
-        // Time-Based Expansion Control
-        const elapsed = Date.now() - this.startTime;
-        const durationMs = s.duration * 1000; 
-        
-        // 1. Hard Time Limit (Duration + 1s buffer)
-        if (elapsed > durationMs + 1000) {
-            this._finishExpansion();
-            return;
-        }
-
-        // 2. Off-Screen Check
-        if (this.localFrame % 10 === 0 && this.frontier.length > 0) {
-            let allOffScreen = true;
-            const b = 4;
-            const minX = -b, maxX = this.g.cols + b;
-            const minY = -b, maxY = this.g.rows + b;
+        // 1. Expansion Logic (If active)
+        if (this.isExpanding) {
+            this.localFrame++;
+            const s = this._getEffectiveState();
             
-            for (const f of this.frontier) {
-                if (f.x >= minX && f.x < maxX && f.y >= minY && f.y < maxY) {
-                    allOffScreen = false;
-                    break;
+            // Run Shadow Sim & Update Overrides
+            this._updateShadowWorld();
+            this._applyMask();
+            this._updateBorderIllumination(); // CONTINUOUS BORDER ILLUMINATION
+            
+            // Handle Fade In
+            if (this.fadeInAlpha < 1.0) {
+                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
+                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
+            }
+            
+            // Time-Based Expansion Control
+            const elapsed = Date.now() - this.startTime;
+            const durationMs = s.duration * 1000; 
+            
+            // 1. Hard Time Limit (Duration + 1s buffer)
+            if (elapsed > durationMs + 1000) {
+                this._finishExpansion();
+                // Continue to update flashes even after finish
+            }
+            // 2. Off-Screen Check (Optimization)
+            else if (this.localFrame % 10 === 0 && this.frontier.length > 0) {
+                let allOffScreen = true;
+                const b = 4;
+                const minX = -b, maxX = this.g.cols + b;
+                const minY = -b, maxY = this.g.rows + b;
+                
+                for (const f of this.frontier) {
+                    if (f.x >= minX && f.x < maxX && f.y >= minY && f.y < maxY) {
+                        allOffScreen = false;
+                        break;
+                    }
+                }
+                
+                if (allOffScreen) {
+                    this._finishExpansion();
+                    // Continue to update flashes
                 }
             }
             
-            if (allOffScreen) {
-                this._finishExpansion();
-                return;
+            if (this.isExpanding) {
+                // --- SEQUENCED GROWTH LOGIC ---
+                if (this.growthPhase === 0) {
+                    // Initial Center Quad (Done in trigger)
+                    this.growthPhase = 1;
+                    this.nextExpandTime = this.localFrame + 10;
+                }
+                else if (this.growthPhase === 1) {
+                    // Phase 1: N, S, E, W
+                    if (this.localFrame >= this.nextExpandTime) {
+                        const offsets = [{x:0, y:-4}, {x:0, y:4}, {x:-4, y:0}, {x:4, y:0}];
+                        for (const o of offsets) {
+                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
+                        }
+                        this.growthPhase = 2;
+                        this.nextExpandTime = this.localFrame + 10;
+                    }
+                }
+                else if (this.growthPhase === 2) {
+                    // Phase 2: N, S (Extended)
+                    if (this.localFrame >= this.nextExpandTime) {
+                        const offsets = [{x:0, y:-8}, {x:0, y:8}];
+                        for (const o of offsets) {
+                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
+                        }
+                        this.growthPhase = 3;
+                    }
+                }
+                else {
+                    // Phase 3: Standard Expansion
+                    const progress = Math.min(1.0, elapsed / durationMs);
+                    const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
+                    const exponent = Math.max(1.0, 3.0 - (10 / 10)); 
+                    const targetBlocks = Math.floor((totalVisibleBlocks * 1.5) * Math.pow(progress, exponent));
+                    
+                    let needed = targetBlocks - this.blocksAdded;
+                    
+                    // Dynamic Tendril Frequency: Slower duration = Slower tendrils
+                    // Example: 2s -> every 4 frames. 10s -> every 20 frames.
+                    const tendrilFreq = Math.max(2, Math.floor(s.duration * 2));
+                    
+                    if (needed > 0 && this.localFrame % tendrilFreq === 0) {
+                        this._updateTendrils(s);
+                    }
+                    if (this.localFrame % 3 === 0) {
+                        if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
+                             const burstCap = 600;
+                             let burst = Math.min(needed, burstCap);
+                             if (burst < 1) burst = 1;
+                             this._updateExpansionBurst(burst);
+                        }
+                    }
+                }
+                
+                this._updateLines(s);
             }
         }
+        
+        // 2. Process Flashes (ALWAYS run this, regardless of expansion state)
+        // This ensures flashes decay properly after the swap/finish
+        this._updateFlashes();
 
-        const progress = Math.min(1.0, elapsed / durationMs);
-        
-        // Calibrate target to VISIBLE screen area
-        const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
-        
-        // Initial Speed modulates the exponent
-        const exponent = Math.max(1.0, 3.0 - (s.initialSpeed / 10));
-        
-        // Multiply by 1.5 to ensure coverage
-        const targetBlocks = Math.floor((totalVisibleBlocks * 1.5) * Math.pow(progress, exponent));
-        
-        let needed = targetBlocks - this.blocksAdded;
-        
-        // 1. Tendrils Logic
-        if (progress > 0.35 && needed > 0) {
-            this._updateTendrils(s);
+        // 3. Check for Full Completion
+        // Stop ONLY if not expanding AND no active flashes
+        if (!this.isExpanding && this.activeFlashes.size === 0) {
+            this.stop(); 
         }
+    }
+    
+    _updateBorderIllumination() {
+        const bs = 4;
+        const centerX = this.g.cols / 2;
+        const centerY = this.g.rows / 2;
+        // Max distance is corner to center
+        const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
+        
+        // Iterate only over lines (The visual border)
+        for (const l of this.lines) {
+            if (!l.isNew) continue; // Skip old/green lines
+            
+            // Calculate scale based on distance from center
+            // 1.0 at center, 0.0 at edge
+            const dx = (l.x + (l.w > 0 ? l.w/2 : 0)) - centerX;
+            const dy = (l.y + (l.h > 0 ? l.h/2 : 0)) - centerY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            // Smooth falloff: (1 - dist/max)^1.5
+            let scale = Math.max(0, 1.0 - (dist / maxDist));
+            scale = Math.pow(scale, 1.5); // Quadratic-ish falloff
 
-        // 2. Throttled Expansion Tick
-        if (this.localFrame % 3 === 0) {
-            if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
-                 const burstCap = 600;
-                 let burst = Math.min(needed, burstCap);
-                 if (burst < 1) burst = 1;
-                 this._updateExpansionBurst(burst);
+            let isHorizontal = (l.w > 0);
+            
+            if (isHorizontal) {
+                const isTopOccupied = this._isOccupied(l.x, l.y - 4);
+                const isBottomOccupied = this._isOccupied(l.x, l.y);
+                
+                if (isTopOccupied && !isBottomOccupied) {
+                    this._illuminateSpan(l.x, l.y - 1, 4, 1, scale);
+                }
+                else if (isBottomOccupied && !isTopOccupied) {
+                    this._illuminateSpan(l.x, l.y, 4, 1, scale);
+                }
+            } else {
+                const isLeftOccupied = this._isOccupied(l.x - 4, l.y);
+                const isRightOccupied = this._isOccupied(l.x, l.y);
+                
+                if (isLeftOccupied && !isRightOccupied) {
+                    this._illuminateSpan(l.x - 1, l.y, 1, 4, scale);
+                }
+                else if (isRightOccupied && !isLeftOccupied) {
+                    this._illuminateSpan(l.x, l.y, 1, 4, scale);
+                }
             }
         }
-
-        this._updateLines(s);
+    }
+    
+    _illuminateSpan(x, y, w, h, scale = 1.0) {
+        // Illuminate a strip of pixels (w x h)
+        // Check if they are valid AND contain a character in the New World (ShadowGrid)
+        // If so, boost flash.
+        
+        if (!this.shadowGrid) return;
+        
+        for(let py = y; py < y + h; py++) {
+            if (py < 0 || py >= this.g.rows) continue;
+            for(let px = x; px < x + w; px++) {
+                if (px < 0 || px >= this.g.cols) continue;
+                
+                const idx = py * this.g.cols + px;
+                
+                // Check if Shadow Grid has a character here (New World Stream)
+                if (this.shadowGrid.chars[idx] !== 0) {
+                     // Found a stream char!
+                     // Sustain the flash
+                     this.flashIntensity[idx] = 1.0 * scale; 
+                     this.activeFlashes.add(idx);
+                }
+            }
+        }
     }
 
     _updateTendrils(s) {
-        // Limit attempts per frame to avoid lag and over-spiking
-        const attempts = 6; // Increased to be the primary driver
-        const maxDist = 3;
+        // Limit attempts per frame
+        const attempts = 6; 
+        const maxSearch = 3; // Search up to 4 spots
+        const maxBlind = 3;  
         
         for (let i = 0; i < attempts; i++) {
             if (this.frontier.length === 0) break;
@@ -594,28 +710,44 @@ class QuantizedPulseEffect extends AbstractEffect {
             const idx = Math.floor(Math.random() * this.frontier.length);
             const f = this.frontier[idx];
             
-            // Pick ONE random direction to extend
+            // Pick ONE random direction to extend (Orthogonal/Edge only)
             const dirs = [{x:0, y:-4}, {x:4, y:0}, {x:0, y:4}, {x:-4, y:0}];
             const d = dirs[Math.floor(Math.random() * dirs.length)];
             
-            for (let dist = 1; dist <= maxDist; dist++) {
-                const tx = f.x + (d.x * dist);
-                const ty = f.y + (d.y * dist);
+            // 1. Scan Phase (Look Ahead)
+            let limit = 0;
+            let foundTarget = false;
+            
+            for (let k = 0; k < maxSearch; k++) {
+                const tx = f.x + (d.x * k);
+                const ty = f.y + (d.y * k);
                 
-                // Don't extend into occupied space
+                // If blocked by existing pulse block, stop scanning
                 if (this._isOccupied(tx, ty)) break;
                 
-                // Add the block ("Lock in")
-                this._addBlock(tx, ty, this.burstCounter);
+                limit++;
                 
-                // Check for Code
+                // Check for Code (Target)
                 if (this._hasCode(tx, ty)) {
-                    // Found code! We connected. Stop extending.
-                    break; 
+                    foundTarget = true;
+                    break; // Lock on!
                 }
-                
-                // If no code, loop continues to next dist, adding the next block...
-                // Until maxDist (3) is reached, at which point loop ends (Automatic Lock).
+            }
+            
+            // 2. Constraint Phase
+            // If we didn't lock onto code, constrain the extension
+            if (!foundTarget) {
+                limit = Math.min(limit, maxBlind);
+            }
+            
+            // 3. Build Phase
+            // If limit > 0, we can extend
+            if (limit > 0) {
+                for (let k = 0; k < limit; k++) {
+                    const tx = f.x + (d.x * k);
+                    const ty = f.y + (d.y * k);
+                    this._addBlock(tx, ty, this.burstCounter);
+                }
             }
         }
     }
@@ -710,16 +842,62 @@ class QuantizedPulseEffect extends AbstractEffect {
         if (this.burstCounter === 0) this.burstCounter = 1;
 
         let processed = 0;
+        
+        // --- PHASE 1: PRIORITY FILL (Holes / 1x1 Quads) ---
+        // Scan frontier for any nodes with >= 3 neighbors. Fill them immediately.
+        
+        for (let i = this.frontier.length - 1; i >= 0; i--) {
+            if (processed >= burstCount) break;
+            
+            const f = this.frontier[i];
+            
+            // Validation
+            const mx = f.x + this.mapPad;
+            const my = f.y + this.mapPad;
+            if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) {
+                const last = this.frontier.pop();
+                if (i < this.frontier.length) this.frontier[i] = last;
+                continue;
+            }
+            
+            const val = this.map[my * this.mapCols + mx];
+            if ((val & 1) !== 0 || (val & 2) === 0) {
+                 const last = this.frontier.pop();
+                 if (i < this.frontier.length) this.frontier[i] = last;
+                 continue;
+            }
+            
+            // Check Neighbors
+            let neighbors = 0;
+            if (this._isOccupied(f.x, f.y - 4)) neighbors++;
+            if (this._isOccupied(f.x + 4, f.y)) neighbors++;
+            if (this._isOccupied(f.x, f.y + 4)) neighbors++;
+            if (this._isOccupied(f.x - 4, f.y)) neighbors++;
+            
+            // If it's a hole (>=3 neighbors), fill it!
+            if (neighbors >= 3) {
+                const wmx = f.x + this.mapPad;
+                const wmy = f.y + this.mapPad;
+                this.map[wmy * this.mapCols + wmx] &= ~2; 
+                
+                const last = this.frontier.pop();
+                if (i < this.frontier.length) this.frontier[i] = last;
+                
+                if (!this._isOccupied(f.x, f.y)) {
+                    this._addBlock(f.x, f.y, this.burstCounter);
+                    processed++;
+                }
+            }
+        }
+        // --- PHASE 2: WEIGHTED EXPANSION ---
         let attempts = 0;
-        // Scale safety break with burstCount
         const maxAttempts = burstCount * 8 + 50; 
 
         while (processed < burstCount && this.frontier.length > 0 && attempts < maxAttempts) {
             attempts++;
             
-            // 1. TOURNAMENT SELECTION (O(k) vs O(N))
-            // Pick K candidates at random, choose the one with the highest weight
-            const K = 4; // Sample size
+            // Standard expansion (K=10 is sufficient as holes are handled)
+            const K = 10; 
             let bestIdx = -1;
             let bestWeight = -1;
 
@@ -727,62 +905,54 @@ class QuantizedPulseEffect extends AbstractEffect {
                 const idx = Math.floor(Math.random() * this.frontier.length);
                 const f = this.frontier[idx];
                 
-                // Lazy Validation: Check map to see if this frontier node is still valid
+                // Validation
                 const mx = f.x + this.mapPad;
                 const my = f.y + this.mapPad;
 
                 if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
                      const val = this.map[my * this.mapCols + mx];
-                     // If occupied (Bit 0) or no longer marked as frontier (Bit 1 cleared), it's stale
                      if ((val & 1) !== 0 || (val & 2) === 0) {
-                         // Clean up stale entry immediately using O(1) swap-pop
                          const last = this.frontier.pop();
-                         
-                         // If we didn't just pop the element at 'idx' (i.e. we popped the end, and 'idx' is somewhere else)
                          if (idx < this.frontier.length) {
                              this.frontier[idx] = last;
-                             
-                             // CRITICAL FIX: If bestIdx pointed to the element that was at the end (which just moved to idx),
-                             // we must update bestIdx to point to its new location (idx).
-                             if (bestIdx === this.frontier.length) {
-                                 bestIdx = idx;
-                             }
+                             if (bestIdx === this.frontier.length) bestIdx = idx;
                          }
-                         
-                         k--; // Retry this sample
+                         k--; 
                          if (this.frontier.length === 0) break;
                          continue;
                      }
                 } else {
-                    // Out of bounds - remove
                     const last = this.frontier.pop();
                      if (idx < this.frontier.length) {
                          this.frontier[idx] = last;
-                         if (bestIdx === this.frontier.length) {
-                             bestIdx = idx;
-                         }
+                         if (bestIdx === this.frontier.length) bestIdx = idx;
                      }
                     k--;
                     if (this.frontier.length === 0) break;
                     continue;
                 }
 
-                // Calculate Weight for this candidate
-                let w = 1.0; 
+                // Calculate Weight (Distance based + Axis Bias)
+                // Normalize to Aspect Ratio so we reach edges roughly same time
+                const ratio = this.g.cols / Math.max(1, this.g.rows);
+                
                 const dx = Math.abs(f.x - this.origin.x);
                 const dy = Math.abs(f.y - this.origin.y);
+                const scaledDy = dy * ratio;
                 
-                if (dx < 4 || dy < 4) { w += 80.0; } 
-                else if (dx < 12 || dy < 12) { w += 20.0; } 
-
-                let neighbors = 0;
-                if (this._isOccupied(f.x, f.y - 4)) neighbors++;
-                if (this._isOccupied(f.x + 4, f.y)) neighbors++;
-                if (this._isOccupied(f.x, f.y + 4)) neighbors++;
-                if (this._isOccupied(f.x - 4, f.y)) neighbors++;
-                if (neighbors >= 2) { w += 10.0; }
-
-                w += Math.random() * 5.0; // Random noise
+                // Elliptical Distance
+                const dist = Math.sqrt(dx*dx + scaledDy*scaledDy);
+                
+                let w = 1.0; 
+                w += Math.max(0, 100 - dist);
+                
+                // Axis Bias: Normalized (0..1) so it doesn't grow with distance
+                // Prevents "runaway" edges where being far out makes you MORE attractive.
+                // Multiplier 15.0 gives a constant preference for axes vs diagonal.
+                const axisBias = Math.abs(dx - scaledDy) / (dist + 1.0);
+                w += axisBias * 15.0; 
+                
+                w += Math.random() * 5.0; 
                 
                 if (w > bestWeight) {
                     bestWeight = w;
@@ -791,7 +961,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
 
             if (this.frontier.length === 0) break;
-            if (bestIdx === -1) continue; // Should not happen if frontier has valid items
+            if (bestIdx === -1) continue; 
 
             const winner = this.frontier[bestIdx];
             
@@ -811,7 +981,16 @@ class QuantizedPulseEffect extends AbstractEffect {
                 this._addBlock(winner.x, winner.y, this.burstCounter);
                 processed++;
                 
-                // GROUP ADDITION LOGIC (Weighted for ~66% Groups, ~33% Singles)
+                // Only do Group Additions if we aren't filling a hole
+                // If neighbors >= 3, we likely just plugged a gap, so stop.
+                let winnerNeighbors = 0;
+                if (this._isOccupied(winner.x, winner.y - 4)) winnerNeighbors++;
+                if (this._isOccupied(winner.x + 4, winner.y)) winnerNeighbors++;
+                if (this._isOccupied(winner.x, winner.y + 4)) winnerNeighbors++;
+                if (this._isOccupied(winner.x - 4, winner.y)) winnerNeighbors++;
+                
+                if (winnerNeighbors < 3) {
+                    // GROUP ADDITION LOGIC (Weighted for ~66% Groups, ~33% Singles)
                 const rand = Math.random();
                 
                 // 15% chance for 2x3 or 3x2 (Large Rectangles)
@@ -856,7 +1035,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                         }
                     });
                 }
-                // 15% chance for 1x3 or 3x1 (Long Strips) - NEW
+                // 15% chance for 1x3 or 3x1 (Long Strips)
                 else if (rand < 0.45) {
                     const candidates = [
                         // 3x1 (Horizontal)
@@ -881,7 +1060,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                     });
                 }
                 // 35% chance for 1x2 or 2x1 (Small Rects)
-                else if (rand < 0.80) {
+                else if (rand < 0.90) {
                     const type = Math.random() < 0.5 ? 'h' : 'v';
                     let extra = null;
                     if (type === 'h') {
@@ -899,10 +1078,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                         if (emx >= 0 && emy >= 0 && emx < this.mapCols && emy < this.mapRows) this.map[emy * this.mapCols + emx] &= ~2;
                     }
                 }
-                // Remaining 20%: Single (winner only) - Do nothing extra
+                // Remaining 10%: Single (winner only) - Do nothing extra
 
             }
         }
+    }
     }
 
     applyToGrid(grid) {
@@ -931,7 +1111,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 // Enable Override for this cell (CHAR mode)
                 // This allows the Main Sim's 'mix' (Glimmer/Rotator) to show through 
                 // while we override the Color/Glow for the flash.
-                g.overrideActive[idx] = 1; 
+                // NOTE: If it's already Mode 3 (Pulse Reveal), we KEEP it Mode 3.
+                // Mode 3 supports overrides just like Mode 1, but includes mix states.
+                if (g.overrideActive[idx] !== 3) {
+                     g.overrideActive[idx] = 1; 
+                }
 
                 // Apply Flash to Glow (Visual Brightness)
                 // This adds brightness in the character's OWN color in the shader
@@ -972,20 +1156,21 @@ class QuantizedPulseEffect extends AbstractEffect {
         const s = this.c.state;
         const cw = derived.cellWidth * s.stretchX;
         const ch = derived.cellHeight * s.stretchY;
-        const colorStr = '#FFFF00'; 
+        const colorStr = '#FFFF6E';
         
         const masterAlpha = this.fadeAlpha * this.fadeInAlpha;
         
         ctx.lineCap = 'butt';
         ctx.lineWidth = Math.max(1, cw * 0.15); 
         
-        ctx.beginPath();
         ctx.strokeStyle = colorStr;
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 25; // Increased illumination
         ctx.shadowColor = colorStr;
         ctx.globalAlpha = masterAlpha;
         
-        ctx.setLineDash([cw * 0.5, cw * 0.5, cw * 1.5, cw * 0.5]);
+        // Split paths for different dash patterns
+        const hPath = new Path2D();
+        const vPath = new Path2D();
 
         for (const b of this.blocks) {
             const nTop = this._isOccupied(b.x, b.y - 4);
@@ -998,12 +1183,21 @@ class QuantizedPulseEffect extends AbstractEffect {
             const bw = 4 * cw;
             const bh = 4 * ch;
 
-            if (!nTop) { ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by); }
-            if (!nRight) { ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh); }
-            if (!nBottom) { ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw, by + bh); }
-            if (!nLeft) { ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh); }
+            if (!nTop) { hPath.moveTo(bx, by); hPath.lineTo(bx + bw, by); }
+            if (!nRight) { vPath.moveTo(bx + bw, by); vPath.lineTo(bx + bw, by + bh); }
+            if (!nBottom) { hPath.moveTo(bx, by + bh); hPath.lineTo(bx + bw, by + bh); }
+            if (!nLeft) { vPath.moveTo(bx, by); vPath.lineTo(bx, by + bh); }
         }
-        ctx.stroke();
+        
+        // 1. Draw Horizontal (Standard Pattern)
+        // [0.5, 0.5, 1.5, 0.5]
+        ctx.setLineDash([cw * 0.5, cw * 0.5, cw * 1.5, cw * 0.5]);
+        ctx.stroke(hPath);
+        
+        // 2. Draw Vertical (Randomized/Small Pattern)
+        // [0.2, 0.3, 0.5, 0.3, 1.2, 0.5] - Includes smaller 0.2 bits
+        ctx.setLineDash([cw * 0.2, cw * 0.3, cw * 0.5, cw * 0.3, cw * 1.2, cw * 0.5]);
+        ctx.stroke(vPath);
 
         // Render Tendrils
         if (this.tendrils.length > 0) {
@@ -1026,25 +1220,25 @@ class QuantizedPulseEffect extends AbstractEffect {
         ctx.shadowBlur = 0; 
         
         // Internal Lines (Merge Lines) - Use Code Color (Green)
-        ctx.strokeStyle = '#00FF00'; // Matrix Green for internal structure
+        ctx.strokeStyle = derived.streamColorStr; // Matrix Green for internal structure
         ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
         
         for (const l of this.lines) {
             let lineAlpha = l.alpha * masterAlpha;
             
-            // Two-Cycle Logic: New lines are Yellow (Perimeter), Old are Green (Code)
-            if (l.isNew) {
-                ctx.strokeStyle = '#FFFF00'; 
-                ctx.shadowColor = '#FFFF00'; // Match Shadow to Yellow
-                
-                // Flicker Logic: 40% chance to dim (More frequent)
-                // Range: 0.1 to 0.6 (More noticeable dimming)
+                        // Two-Cycle Logic: New lines are Yellow (Perimeter), Old are Green (Code)
+                        if (l.isNew) {
+                            ctx.strokeStyle = colorStr; 
+                            ctx.shadowBlur = 25;
+                            ctx.shadowColor = colorStr; // Match Shadow to Gold
+                            
+                            // Flicker Logic: 40% chance to dim (More frequent)                // Range: 0.1 to 0.6 (More noticeable dimming)
                 if (Math.random() < 0.4) {
                     lineAlpha *= (0.1 + Math.random() * 0.5);
                 }
             } else {
                 // Use Primary Stream Color for solidified lines
-                const col = derived.streamColorStr || '#00FF00';
+                const col = derived.streamColorStr;
                 ctx.strokeStyle = col; 
                 ctx.shadowColor = col; 
             }

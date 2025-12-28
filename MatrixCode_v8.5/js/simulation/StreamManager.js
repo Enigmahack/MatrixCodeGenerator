@@ -132,9 +132,6 @@ class StreamManager {
             
             if (spawnIdx !== -1) {
                 if (this.grid.cellLocks && this.grid.cellLocks[spawnIdx] === 1) continue;
-                if (this.grid.decays[spawnIdx] > 0) {
-                    isTopBlocked = true;
-                }
             }
 
             const lastStream = this.lastStreamInColumn[col];
@@ -330,15 +327,6 @@ class StreamManager {
     _handleStreamCompletion(stream) {
         stream.active = false;
         if (!stream.isEraser) {
-            // Reuse the same speed for the replacement if it's immediate
-            // But _spawnStreamAt doesn't take forced speed from here.
-            // However, since the column is still "active" (technically we just set active=false, 
-            // but _spawnStreams checks lastStreamInColumn which is THIS stream).
-            // Wait, if we set active=false, then next frame _spawnStreams will see it as inactive and gen new speed?
-            // The requirement is "when a stream column has a particular speed... all tracers... should be same speed".
-            // If it recycles immediately, it's the same stream effectively.
-            
-            // Let's pass the current stream's speed to the new spawn.
             this._spawnStreamAt(stream.x, true, stream.tickInterval);
         }
     }
@@ -424,11 +412,8 @@ class StreamManager {
     }
 
     _initializeTracerStream(stream, s) {
-        stream.len = this.grid.rows + 10; 
-        
-        // Calculate required lifespan based on speed to ensure it reaches bottom
-        const travelDuration = stream.len * stream.tickInterval;
-        // Add buffer for decay visibility
+        stream.len = this.grid.rows; 
+        const travelDuration = stream.len // * stream.tickInterval;
         stream.visibleLen = travelDuration + (this.grid.rows * 4);
 
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
@@ -443,7 +428,6 @@ class StreamManager {
         } else if (s.rainbowStreamEnabled && Math.random() < s.rainbowStreamChance) {
             stream.mode = 'RAINBOW';
         }
-
         return stream;
     }
 

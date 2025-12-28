@@ -145,6 +145,8 @@ class SimulationSystem {
             overrideColors: new Uint32Array(createSAB(uint32Size)),
             overrideAlphas: new Float32Array(createSAB(float32Size)),
             overrideGlows: new Float32Array(createSAB(float32Size)),
+            overrideMix: new Float32Array(createSAB(float32Size)),
+            overrideNextChars: new Uint16Array(createSAB(uint16Size)),
             overrideFontIndices: new Uint8Array(createSAB(uint8Size)),
 
             effectActive: new Uint8Array(createSAB(uint8Size)),
@@ -199,9 +201,6 @@ class SimulationSystem {
         const s = this.config.state;
         const d = this.config.derived;
         
-        // Glimmer Speed now controls the shader animation (blink/shimmer), not character rotation.
-        // We removed the rotation logic entirely as requested.
-
         // We iterate over a copy of keys to safely mutate the map during iteration (for movement)
         const indices = Array.from(this.grid.complexStyles.keys());
         
@@ -429,14 +428,6 @@ class SimulationSystem {
                 // Only clear Glimmer (high mix values)
                 // Rotators use mix 0..1, so preserve values < 2.0
                 if (grid.mix[idx] >= 2.0) grid.mix[idx] = 0; 
-                
-                // If it was an Upward Tracer, revert type to allow future interaction?
-                // Or just keep it as is, it behaves like normal code now.
-                // Keeping as UPWARD_TRACER is fine, subsequent updates will skip this block
-                // because ratio >= 1.0 sets color to base and glow to 0. 
-                // Wait, this block executes every frame if decay < 2.
-                // If ratio >= 1.0, we just set color and glow=0.
-                // This effectively "resets" it to normal stream appearance.
             } else if (ratio > 0) {
                 // Blend
                 const tR = tracerColor & 0xFF;
@@ -480,8 +471,6 @@ class SimulationSystem {
         // Handle Decay / Alpha
         if (decay >= 2) {
             // Ensure trails are Stream Color, not Tracer Color
-            // BUT: If it's a cycling effect (StarPower), the baseColor is outdated. 
-            // The effect logic above keeps grid.colors updated, so we shouldn't overwrite it.
             let useBase = true;
             if (grid.complexStyles.has(idx)) {
                 const style = grid.complexStyles.get(idx);
@@ -522,8 +511,6 @@ class SimulationSystem {
         const grid = this.grid;
         const mix = grid.mix[idx]; 
         const decay = grid.decays[idx];
-
-        // if (Math.random() < 0.0001) console.log(`_handleRotator: idx=${idx} mix=${mix} decay=${decay} enabled=${s.rotatorEnabled}`);
 
         if (mix > 0) {
             this._progressRotator(idx, mix, s.rotatorCrossfadeFrames);

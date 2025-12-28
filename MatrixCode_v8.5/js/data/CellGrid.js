@@ -56,6 +56,7 @@ class CellGrid {
         this.overrideAlphas = null; // Float32
         this.overrideGlows = null;  // Float32
         this.overrideMix = null;    // Float32 (New: For FULL mode)
+        this.overrideNextChars = null; // Uint16 (New: For FULL mode rotators)
         this.overrideFontIndices = null; // Uint8
 
         // --- Passive Layer (Effects) ---
@@ -282,6 +283,7 @@ class CellGrid {
             this.overrideAlphas = buffers.overrideAlphas;
             this.overrideGlows = buffers.overrideGlows;
             this.overrideMix = buffers.overrideMix;
+            this.overrideNextChars = buffers.overrideNextChars;
             this.overrideFontIndices = buffers.overrideFontIndices;
 
             this.effectActive = buffers.effectActive;
@@ -332,6 +334,7 @@ class CellGrid {
             this.overrideAlphas = new Float32Array(total);
             this.overrideGlows = new Float32Array(total);
             this.overrideMix = new Float32Array(total);
+            this.overrideNextChars = new Uint16Array(total);
             this.overrideFontIndices = new Uint8Array(total);
 
             // Effects

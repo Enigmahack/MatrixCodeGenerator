@@ -364,11 +364,6 @@ class WorkerSimulationSystem {
                 
                 const nextChar = Utils.getUniqueChar(grid.getChar(idx), charSet); // Use Utils directly
                 // Note: Utils.getUniqueChar takes (exclude, charSet) but Utils signature is (exclude) because Utils.CHARS is default.
-                // We need to support custom charSet. Utils.getUniqueChar isn't set up for that in standard Utils.
-                // Let's implement local helper or fix. Utils.js: "if (!charSet) charSet = Utils.CHARS;"
-                // The provided Utils.js doesn't have the charSet parameter in getUniqueChar.
-                // It only has (exclude).
-                // So I will just use a local helper here.
                 
                 let nextCode = 32;
                 if (nextChar) nextCode = nextChar.charCodeAt(0);

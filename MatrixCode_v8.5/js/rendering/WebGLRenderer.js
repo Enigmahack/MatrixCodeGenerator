@@ -1012,6 +1012,7 @@ class WebGLRenderer {
         const ovColors = grid.overrideColors;
         const ovAlphas = grid.overrideAlphas;
         const ovGlows = grid.overrideGlows;
+        const ovNextChars = grid.overrideNextChars;
 
         const effActive = grid.effectActive;
         const effChars = grid.effectChars;
@@ -1134,7 +1135,11 @@ class WebGLRenderer {
                     
                     if (ov === 3) {
                          // FULL OVERRIDE: Use Override Mix (New World state)
-                         uMix[i] = grid.overrideMix[i];
+                         const mixVal = grid.overrideMix[i];
+                         uMix[i] = mixVal;
+                         if (mixVal > 0) {
+                             mNext[i] = mapChar(ovNextChars[i]);
+                         }
                     } else {
                          // CHAR OVERRIDE: Inherit Main Mix (Old World state)
                          if (gMix[i] > 0) {
