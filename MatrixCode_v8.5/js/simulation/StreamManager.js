@@ -7,6 +7,7 @@ class StreamManager {
         this.lastEraserInColumn = new Array(grid.cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(grid.cols).fill(null);
         this.columnSpeeds = new Float32Array(grid.cols);
+        this.streamsPerColumn = new Int16Array(grid.cols); // Track active streams count
         this.modes = this._initializeModes(config);
         this.nextSpawnFrame = 0;
 
@@ -28,6 +29,7 @@ class StreamManager {
         this.lastEraserInColumn = new Array(cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(cols).fill(null);
         this.columnSpeeds = new Float32Array(cols);
+        this.streamsPerColumn = new Int16Array(cols);
         this.activeStreams = [];
         
         // Rebuild columns pool
@@ -138,7 +140,8 @@ class StreamManager {
 
             // Resolve Speed for this column (Chain Consistency)
             let colSpeed = this.columnSpeeds[col];
-            if (!lastStream || !lastStream.active) {
+            // Only generate a new speed if the column is completely empty of active streams
+            if (this.streamsPerColumn[col] === 0) {
                 // New chain, new random speed
                 colSpeed = this._generateSpeed(s);
                 this.columnSpeeds[col] = colSpeed;
@@ -193,12 +196,15 @@ class StreamManager {
     }
     
     _canSpawnEraser(col, minGap, minGapTypes) {
-        const lastEraser = this.lastEraserInColumn[col];
-        if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
-        
         const lastStream = this.lastStreamInColumn[col];
 
-        if (lastStream && lastStream.active && !lastStream.isEraser) {
+        // Prevent spawning an eraser if the column is empty or the last spawn was already an eraser.
+        if (!lastStream || lastStream.isEraser) return false;
+
+        const lastEraser = this.lastEraserInColumn[col];
+        if (lastEraser && lastEraser.active && lastEraser.y <= minGap) return false;
+
+        if (lastStream.active) {
             if (this.config.state.allowTinyStreams) {
                 const s = this.config.state;
                 const tinyGap = s.tracerAttackFrames + s.tracerHoldFrames + s.tracerReleaseFrames + 3;
@@ -221,13 +227,13 @@ class StreamManager {
         const isReverse = timeScale < 0;
         const speedMult = Math.abs(timeScale);
 
-        for (let i = this.activeStreams.length - 1; i >= 0; i--) {
-            const stream = this.activeStreams[i];
-            if (!stream.active) {
-                this.activeStreams.splice(i, 1);
-                continue;
-            }
-
+                for (let i = this.activeStreams.length - 1; i >= 0; i--) {
+                    const stream = this.activeStreams[i];
+                    if (!stream.active) {
+                        if (this.streamsPerColumn[stream.x] > 0) this.streamsPerColumn[stream.x]--;
+                        this.activeStreams.splice(i, 1);
+                        continue;
+                    }
             const headIdx = grid.getIndex(stream.x, Math.max(0, stream.y));
             if (headIdx !== -1 && cellLocks && cellLocks[headIdx] === 1) {
                 continue;
@@ -317,6 +323,12 @@ class StreamManager {
                 }
 
                 if (stream.y < stream.len) {
+                    // Debug: Clean up previous eraser position to prevent trails
+                    if (stream.isEraser && this.config.state.highlightErasers) {
+                        const prevIdx = grid.getIndex(stream.x, stream.y);
+                        if (prevIdx !== -1) grid.clearEffectOverride(prevIdx);
+                    }
+
                     stream.y++;
                     this._writeHead(stream, frame);
                 }
@@ -326,7 +338,13 @@ class StreamManager {
 
     _handleStreamCompletion(stream) {
         stream.active = false;
-        if (!stream.isEraser) {
+        const autoErase = this.config.state.autoEraserEnabled !== false;
+
+        // Prevent auto-eraser if an eraser is already running in this column
+        const last = this.lastStreamInColumn[stream.x];
+        const isBlocked = last && last !== stream && last.active && last.isEraser;
+
+        if (!stream.isEraser && autoErase && !isBlocked) {
             this._spawnStreamAt(stream.x, true, stream.tickInterval);
         }
     }
@@ -337,6 +355,7 @@ class StreamManager {
 
         this.modes[stream.mode].spawn(stream);
         this.activeStreams.push(stream);
+        this.streamsPerColumn[x]++;
         this.lastStreamInColumn[x] = stream;
         if (forceEraser) {
             this.lastEraserInColumn[x] = stream;
@@ -373,8 +392,17 @@ class StreamManager {
         const fontIdx = Math.floor(Math.random() * activeFonts.length);
         
         let tickInterval = forcedSpeed;
+        
+        // Enforce Column Speed Consistency
+        // If the column has an assigned speed, strictly use it to ensure Tracers and Erasers remain synchronized
+        if (this.columnSpeeds[x] > 0) {
+            tickInterval = this.columnSpeeds[x];
+        }
+
         if (!tickInterval) {
             tickInterval = this._generateSpeed(s);
+            // Ensure this new speed is recorded for the column
+            this.columnSpeeds[x] = tickInterval;
         }
 
         const baseStream = {
@@ -456,6 +484,12 @@ class StreamManager {
             decays[idx] = 2;
         } else {
             this.grid.clearCell(idx);
+        }
+
+        if (this.config.state.highlightErasers) {
+            // Debug: Show Eraser as Red 'E' using High Priority Effect layer (0xFF0000FF = Red)
+            // This overlays the 'E' without destroying the underlying simulation state (decay/clear)
+            this.grid.setHighPriorityEffect(idx, 'E', 0xFF0000FF, 1.0, 0, 0);
         }
     }
 
@@ -573,6 +607,18 @@ class StreamManager {
             tickInterval: tickInterval,
             tickTimer: 0
         };
+    }
+
+    addActiveStream(stream) {
+        if (!stream) return;
+        this.activeStreams.push(stream);
+        this.streamsPerColumn[stream.x]++;
+        this.lastStreamInColumn[stream.x] = stream;
+        if (stream.isEraser) {
+            this.lastEraserInColumn[stream.x] = stream;
+        } else if (stream.isUpward) {
+            this.lastUpwardTracerInColumn[stream.x] = stream;
+        }
     }
 
     _handleUpwardHead(idx, s) {

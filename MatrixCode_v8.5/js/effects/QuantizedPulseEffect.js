@@ -211,28 +211,103 @@ class QuantizedPulseEffect extends AbstractEffect {
             this.shadowSim.worker.terminate();
             this.shadowSim.worker = null;
         }
+
+        // 2b. Inject Random Streams to Break Synchronization
+        // This prevents "Empty Top" issues caused by all streams starting at 0, dying at X, 
+        // and spawning synchronized erasers that wipe the screen.
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        
+        // Ensure StreamManager has correct dimensions before injection
+        sm.resize(this.shadowGrid.cols);
+
+        // Improved Injection: Use shuffled columns to guarantee distribution
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        // Fisher-Yates Shuffle
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+        
+        // Target 75% of columns to be populated initially
+        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
+
+        for (let k = 0; k < injectionCount; k++) {
+            const col = columns[k];
+            
+            // Random Start Y (0 to Rows)
+            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
+            
+            // Create Tracer (forceEraser = false)
+            // Note: _initializeStream is internal but we need it here for correct state
+            const stream = sm._initializeStream(col, false, s);
+            stream.y = startY;
+            // Approximate age to match position (prevents premature death or infinite life)
+            stream.age = startY; 
+            
+            // Use helper to ensure counters (streamsPerColumn) are updated
+            sm.addActiveStream(stream);
+        }
         
         // 3. Warm Up (Pre-simulate to create density)
         // Run enough frames to populate the screen (approx 1.5x screen transit time)
         // This ensures density matches a long-running state.
         this.shadowSim.timeScale = 1.0;
         
-        const s = this.c.state;
         const avgSpeed = Math.max(1, 21 - (s.streamSpeed || 10)); // Est tick interval
-        const framesNeeded = Math.ceil(this.g.rows * avgSpeed * 1.5);
-        const warmupFrames = Math.max(400, Math.min(3000, framesNeeded));
+        const framesNeeded = Math.ceil(this.g.rows * avgSpeed * 5.0);
+        // Remove 8000 cap to support slow speeds on large screens
+        const warmupFrames = Math.max(1200, framesNeeded);
 
         for (let i = 0; i < warmupFrames; i++) {
             this.shadowSim.update(i);
         }
-        this.localFrame = warmupFrames;
+
+        // Dynamic Extension: Ensure Global AND Top Density
+        // We check for a target fill rate to ensure the screen is populated
+        let extraFrames = 0;
+        const maxExtra = 5000; // Increased max extra frames
+        const totalCells = this.shadowGrid.cols * this.shadowGrid.rows;
+        
+        // Target 2% global density
+        const targetActive = Math.floor(totalCells * 0.02);
+        
+        // Target 0.5% density in the TOP 20% of the screen to ensure new spawns are present
+        const topRows = Math.floor(this.shadowGrid.rows * 0.2);
+        const topCells = this.shadowGrid.cols * topRows;
+        const targetTopActive = Math.max(1, Math.floor(topCells * 0.005));
+        
+        while (extraFrames < maxExtra) {
+             let activeCount = 0;
+             let topActiveCount = 0;
+             
+             // Sparse sampling for performance (check every 5th cell)
+             for(let k=0; k<totalCells; k+=5) {
+                 if (this.shadowGrid.state[k] === 1) {
+                     activeCount++;
+                     // Check if this cell is in the top region
+                     const y = Math.floor(k / this.shadowGrid.cols);
+                     if (y < topRows) topActiveCount++;
+                 }
+             }
+             
+             // Scale up counts (since we sampled 1/5th)
+             const estimatedActive = activeCount * 5;
+             const estimatedTopActive = topActiveCount * 5;
+             
+             if (estimatedActive > targetActive && estimatedTopActive > targetTopActive) break;
+             
+             this.shadowSim.update(warmupFrames + extraFrames);
+             extraFrames++;
+        }
+        
+        this.localFrame = warmupFrames + extraFrames;
     }
 
     _updateShadowWorld() {
         if (!this.shadowSim || !this.shadowGrid) return;
         
         // 1. Advance Shadow Simulation
-        this.localFrame++;
         this.shadowSim.update(this.localFrame);
         
         // 2. Copy Shadow State to Main Grid's OVERRIDE Layer
