@@ -5,6 +5,9 @@ class EffectRegistry {
                 this.effects = []; 
             }
             register(effect) { this.effects.push(effect); }
+            registerDefaults() {
+                // ... (Load dynamically or manually)
+            }
             trigger(name, ...args) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(...args); return false; }
             
             update() { 

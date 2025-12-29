@@ -21,6 +21,14 @@ class MatrixKernel {
 
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
+
+        // Override console.error based on logErrors setting
+        const originalError = console.error;
+        console.error = (...args) => {
+            if (this.config.state.logErrors) {
+                originalError.apply(console, args);
+            }
+        };
     }
 
     async initAsync() {
@@ -67,7 +75,8 @@ class MatrixKernel {
             ReverseEffect,
             BootEffect,
             CrashEffect,
-            QuantizedPulseEffect
+            QuantizedPulseEffect,
+            QuantizedRetractEffect
         ];
         effects.forEach((EffectClass) => {
             if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
@@ -235,6 +244,7 @@ class MatrixKernel {
                 { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
                 { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
                 { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
+                { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
 
@@ -299,7 +309,24 @@ class MatrixKernel {
                          text += ` | Mem: ${used}MB`;
                      }
                      if (this.grid && this.grid.activeIndices) {
-                         text += ` | Cells: ${this.grid.activeIndices.length}`;
+                         const cellCount = this.grid.activeIndices.size;
+                         const sm = this.simulation.streamManager;
+                         // Safety check for streamManager
+                         const streams = sm ? sm.activeStreams : [];
+                         const tracers = streams.filter(s => !s.isEraser && !s.isUpward).length;
+                         const erasers = streams.filter(s => s.isEraser).length;
+                         
+                         let rotators = 0;
+                         for (const idx of this.grid.activeIndices) {
+                             if (this.grid.types[idx] === CELL_TYPE.ROTATOR) rotators++;
+                         }
+                         const shimmers = this.grid.complexStyles.size;
+
+                         text += ` | Cells: ${cellCount}`;
+                         text += ` | Tracers: ${tracers}`;
+                         text += ` | Erasers: ${erasers}`;
+                         text += ` | Rotators: ${rotators}`;
+                         text += ` | Shimmers: ${shimmers}`;
                      }
                 }
                 this.fpsDisplayElement.textContent = text;
@@ -349,6 +376,7 @@ class MatrixKernel {
             { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
             { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
             { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
+            { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 

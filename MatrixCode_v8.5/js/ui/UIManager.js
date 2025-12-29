@@ -108,7 +108,6 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
-            { cat: 'Global', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -395,6 +394,11 @@ class UIManager {
      */
     _generateSystemTab() {
         return [
+            { cat: 'System', type: 'accordion_header', label: 'Debug' },
+            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
+            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
+            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
+
             { cat: 'System', type: 'accordion_header', label: 'Configuration' },
             { cat: 'System', type: 'slot', idx: 0, id: 'slot_0' },
             { cat: 'System', type: 'slot', idx: 1, id: 'slot_1' },
