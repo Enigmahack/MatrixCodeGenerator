@@ -502,6 +502,32 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
         }
 
+        // --- NEW: Active Spawn Logic ---
+        // As the pulse expands, randomly spawn tracers in the revealed area.
+        // This ensures the effect doesn't just reveal empty space.
+        if (this.shadowSim && this.shadowSim.streamManager) {
+            const sm = this.shadowSim.streamManager;
+            // 30% chance to spawn a tracer in this new block
+            if (Math.random() < 0.3) {
+                // Pick random position within the 4x4 block
+                const spawnX = x + Math.floor(Math.random() * 4);
+                const spawnY = y + Math.floor(Math.random() * 4);
+                
+                if (spawnX >= 0 && spawnX < this.shadowGrid.cols && 
+                    spawnY >= 0 && spawnY < this.shadowGrid.rows) {
+                    
+                    // Only spawn if column isn't already too busy at this height?
+                    // Actually, force spawn is what we want to ensure visibility.
+                    
+                    const stream = sm._initializeStream(spawnX, false, this.c.state);
+                    stream.y = spawnY;
+                    stream.age = spawnY; // Match age to position
+                    
+                    sm.addActiveStream(stream);
+                }
+            }
+        }
+
         const bs = 4;
         const neighbors = [
             {x: x, y: y - bs, side: 0}, // Top
