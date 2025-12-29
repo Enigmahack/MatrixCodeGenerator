@@ -213,13 +213,19 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
         
         // 3. Warm Up (Pre-simulate to create density)
-        // Run 400 frames to populate the screen (approx 6-7 seconds of sim time)
+        // Run enough frames to populate the screen (approx 1.5x screen transit time)
         // This ensures density matches a long-running state.
         this.shadowSim.timeScale = 1.0;
-        for (let i = 0; i < 400; i++) {
+        
+        const s = this.c.state;
+        const avgSpeed = Math.max(1, 21 - (s.streamSpeed || 10)); // Est tick interval
+        const framesNeeded = Math.ceil(this.g.rows * avgSpeed * 1.5);
+        const warmupFrames = Math.max(400, Math.min(3000, framesNeeded));
+
+        for (let i = 0; i < warmupFrames; i++) {
             this.shadowSim.update(i);
         }
-        this.localFrame = 400;
+        this.localFrame = warmupFrames;
     }
 
     _updateShadowWorld() {
