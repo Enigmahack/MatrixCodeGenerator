@@ -273,9 +273,6 @@ class QuantizedPulseEffect extends AbstractEffect {
                 // We inject streams immediately BEFORE the effect starts to ensure the grid is full.
                 // This overrides any decay that happened during the long warmup.
                 
-                // Ensure StreamManager has correct dimensions
-                sm.resize(this.shadowGrid.cols);
-        
                 // Improved Injection: Use shuffled columns to guarantee distribution
                 const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
                 // Fisher-Yates Shuffle
@@ -402,7 +399,8 @@ class QuantizedPulseEffect extends AbstractEffect {
                     
                     const state = {
                         activeStreams: serializedStreams, 
-                        columnSpeeds: shadowMgr.columnSpeeds,   
+                        columnSpeeds: shadowMgr.columnSpeeds,
+                        streamsPerColumn: shadowMgr.streamsPerColumn,   
                         lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
                         lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
                         lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
@@ -423,6 +421,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                         const mainMgr = mainSim.streamManager;
                         mainMgr.activeStreams = state.activeStreams;
                         mainMgr.columnSpeeds.set(state.columnSpeeds);
+                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
                         mainMgr.lastStreamInColumn = state.lastStreamInColumn;
                         mainMgr.lastEraserInColumn = state.lastEraserInColumn;
                         mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
