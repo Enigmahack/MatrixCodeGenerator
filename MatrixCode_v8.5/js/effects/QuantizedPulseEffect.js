@@ -337,11 +337,19 @@ class QuantizedPulseEffect extends AbstractEffect {
         
                 
         
-                this.localFrame = warmupFrames + extraFrames;
+                        this.localFrame = warmupFrames + extraFrames;
         
-            }    }
-
-    _updateShadowWorld() {
+                
+        
+                    }
+        
+                
+        
+                
+        
+                
+        
+                    _updateShadowWorld() {
         if (!this.shadowSim || !this.shadowGrid) return;
         
         // 1. Advance Shadow Simulation
