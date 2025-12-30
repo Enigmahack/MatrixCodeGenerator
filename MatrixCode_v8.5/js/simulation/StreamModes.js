@@ -37,11 +37,11 @@ class StarPowerMode extends StreamMode {
                  hue = (hue + (frame * state.starPowerCycleSpeed)) % 360;
             }
         }
-        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
+        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed);
     }
 
-    _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
+    _createStyle(hue, saturation, lightness, cycle, speed) {
+        return { h: hue, s: saturation, l: lightness, cycle, speed, isEffect: true };
     }
 }
 
@@ -55,7 +55,7 @@ class RainbowMode extends StreamMode {
     }
 
     _createStyle(hue, saturation, lightness) {
-        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
+        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, isEffect: true };
     }
 }
 

@@ -30,6 +30,17 @@ class FontManager {
             this._ensureFontConfig(f.name);
         });
     }
+    
+    // Check if the current font family is actually available
+    if (key === 'fontFamily' || key === 'ALL') {
+        const currentFont = this.config.get('fontFamily');
+        const isDefault = currentFont === 'MatrixEmbedded';
+        const isLoaded = this.loadedFonts.some(f => f.name === currentFont);
+        
+        if (!isDefault && !isLoaded) {
+            this.notifications.show(`Font "${currentFont}" not found. Using fallback.`, 'warning');
+        }
+    }
   }
 
   /** Initialize: inject embedded font (if present) + open DB + load stored fonts. */
@@ -42,6 +53,7 @@ class FontManager {
       await this._loadFontsFromDB();
     } catch (error) {
       console.warn('Font DB Error:', error);
+      this.notifications.show('Failed to initialize Font Database', 'error');
     }
   }
 
@@ -104,6 +116,8 @@ class FontManager {
         };
         this.config.set('fontSettings', settings);
       }
+    } else {
+        this.notifications.show('Failed to load embedded font', 'error');
     }
   }
 
@@ -357,6 +371,7 @@ class FontManager {
         // Remove legacy style tag (if any)
         document.getElementById(`style-${id}`)?.remove();
 
+        const deletedFont = this.loadedFonts.find(font => font.name === id);
         this.loadedFonts = this.loadedFonts.filter(font => font.name !== id);
 
         // Deactivate in config to prevent rendering issues
@@ -368,10 +383,18 @@ class FontManager {
 
         if (this.config.state.fontFamily === id) {
           this.config.set('fontFamily', this.config.defaults.fontFamily);
+          this.notifications.show(`Deleted font was active. Reverted to default.`, 'warning');
+        } else {
+             this.notifications.show(`Deleted font: ${deletedFont ? deletedFont.display : id}`, 'success');
         }
 
         this._notify();
         resolve();
+      };
+      
+      store.delete(id).onerror = () => {
+          this.notifications.show('Failed to delete font', 'error');
+          resolve();
       };
     });
   }
@@ -392,7 +415,13 @@ class FontManager {
         this.loadedFonts = this.loadedFonts.filter(font => font.isEmbedded);
 
         this._notify();
+        this.notifications.show('All custom fonts deleted', 'success');
         resolve();
+      };
+      
+      store.clear().onerror = () => {
+          this.notifications.show('Failed to clear fonts', 'error');
+          resolve();
       };
     });
   }

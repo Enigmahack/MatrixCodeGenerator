@@ -56,6 +56,7 @@ class MatrixKernel {
     _initializeManagers() {
         this.config = new ConfigurationManager();
         this.notifications = new NotificationManager(this.config);
+        this.config.setNotificationManager(this.notifications);
         this.grid = new CellGrid(this.config);
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
@@ -164,6 +165,7 @@ class MatrixKernel {
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
                     } else if (action === 'BootSequence' || action === 'CrashSequence') { 
+                        if (action === 'CrashSequence' && !this.config.state.crashEnabled) return;
                         this.effectRegistry.trigger(action);
                         this.notifications.show(`${action} Triggered`, 'success');
                     }

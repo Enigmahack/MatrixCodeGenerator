@@ -235,6 +235,8 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
+            
+            { cat: 'Effects', type: 'header', label: 'Trilogy' }, // Sub-header
 
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
@@ -285,17 +287,6 @@ class UIManager {
             { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
         
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
-            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
-
-
             { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
             { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
             { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
@@ -331,7 +322,7 @@ class UIManager {
             { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
             
             { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', warning: "Photosensitivity Warning: Enabling this effect will cause pulsing lights and strobing effects that could be disruptive to those more sensitive to flashing lights. Please be aware of the impact this may have to those around you." },
+            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash' },
             { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 60, max: 600, step: 10, unit: 's', dep: 'crashEnabled' },
             { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled' },
             
@@ -349,11 +340,23 @@ class UIManager {
             { cat: 'Effects', id: 'crashEnableSuperman', type: 'checkbox', label: 'Enable Code Bolts', dep: 'crashEnabled' },
             { cat: 'Effects', id: 'crashEnableFlash', type: 'checkbox', label: 'Enable Flash/Fade', dep: 'crashEnabled' },
 
-            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', dep: 'crashEnabled' },
 
             { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
             { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
             { cat: 'Effects', type: 'button', label: 'Trigger Sequence Now', action: 'boot_crash_sequence', class: 'btn-warn' },
+
+            { cat: 'Effects', type: 'header', label: 'Resurrections' }, // Sub-header
+
+            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
+            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
 
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
 
@@ -364,7 +367,6 @@ class UIManager {
             { cat: 'Effects', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'Effects', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
@@ -394,11 +396,6 @@ class UIManager {
      */
     _generateSystemTab() {
         return [
-            { cat: 'System', type: 'accordion_header', label: 'Debug' },
-            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
-            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
-            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
-
             { cat: 'System', type: 'accordion_header', label: 'Configuration' },
             { cat: 'System', type: 'slot', idx: 0, id: 'slot_0' },
             { cat: 'System', type: 'slot', idx: 1, id: 'slot_1' },
@@ -429,6 +426,11 @@ class UIManager {
             { cat: 'System', type: 'header', label: 'CAUTION ZONE' }, // Use header for visual separation and text
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
         
+            { cat: 'System', type: 'accordion_header', label: 'Debug' },
+            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
+            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
+            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
+
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
             { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
@@ -1104,8 +1106,8 @@ class UIManager {
             const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[def.idx].name; inp.id = `slot-input-${def.idx}`; inp.name = `slot_name_${def.idx}`; inp.onchange = e => this.c.renameSlot(def.idx, e.target.value);
             inp.onfocus = e => e.target.value = '';
             const grp = document.createElement('div'); grp.className = 'slot-btn-group';
-            const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${def.idx}`; save.onclick = () => { this.c.saveToSlot(def.idx); this.notifications.show(`Saved Slot ${def.idx+1}`, 'success'); };
-            const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${def.idx}`; load.onclick = () => { if(this.c.loadFromSlot(def.idx)) this.notifications.show(`Loaded Slot ${def.idx+1}`, 'success'); };
+            const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${def.idx}`; save.onclick = () => { this.c.saveToSlot(def.idx); };
+            const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${def.idx}`; load.onclick = () => { this.c.loadFromSlot(def.idx); };
             grp.append(save, load); row.append(inp, grp);
         } else if (def.type === 'font_list') {
             row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row);
@@ -1324,7 +1326,7 @@ class UIManager {
      */
     handleAction(action) {
         if(action === 'reset' && confirm('Reset all settings?')) this.c.reset();
-        if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.notifications.show('Cache Cleared', 'success'));
+        if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts();
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();

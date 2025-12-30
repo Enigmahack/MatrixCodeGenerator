@@ -7,9 +7,11 @@ class ClearPulseEffect extends AbstractEffect {
         this.radius = 0;
         this.snap = null;
         const s = this._getEffectiveState();
-        this.autoTimer = s.clearPulseFrequencySeconds * 60;
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
+        this.autoTimer = s.clearPulseFrequencySeconds * fps;
         this.renderData = null;
         this.chunks = []; // For Movie Accurate Lag
+        this.frameAccumulator = 0;
     }
 
     _getEffectiveState() {
@@ -116,6 +118,7 @@ class ClearPulseEffect extends AbstractEffect {
         this.origin = { x: ox, y: oy };
 
         this.active = true;
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
         
         // Radius Init
         if (s.clearPulseMovieAccurate) {
@@ -125,7 +128,7 @@ class ClearPulseEffect extends AbstractEffect {
         }
 
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * 60);
+        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * fps);
         
         // Reset Chunks
         this.chunks = [];
@@ -137,15 +140,27 @@ class ClearPulseEffect extends AbstractEffect {
 
     update() {
         const s = this._getEffectiveState();
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
+
+        if (s.clearPulseMovieAccurate) {
+             this.frameAccumulator++;
+             if (this.frameAccumulator < 2) return;
+             this.frameAccumulator = 0;
+        } else {
+             this.frameAccumulator = 0;
+        }
+
         if (!this.active && s.clearPulseEnabled && this.autoTimer-- <= 0) {
             this.trigger();
-            this.autoTimer = s.clearPulseFrequencySeconds * 60;
+            this.autoTimer = s.clearPulseFrequencySeconds * fps;
         }
         if (!this.active) { this.renderData = null; return; }
 
-        this.radius += this.speed;
         const d = this.c.derived;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * fps);
+        
+        this.radius += this.speed;
 
         if (this.radius > maxDim + 400) { 
             this.active = false; 
@@ -171,7 +186,7 @@ class ClearPulseEffect extends AbstractEffect {
             const progress = this.radius / maxDim;
             if (progress > 0.15 && this.spawnedCount < 4 && this.spawnCooldown <= 0) {
                 const w = Utils.randomInt(Math.floor(this.g.cols * 0.5), this.g.cols);
-                let h = Utils.randomInt(5, 12);
+                let h = Utils.randomInt(6, 13);
                 let y = Utils.randomInt(Math.floor(this.g.rows * 0.2), Math.floor(this.g.rows * 0.8));
                 const x = Utils.randomInt(0, this.g.cols - w);
                 
@@ -200,7 +215,7 @@ class ClearPulseEffect extends AbstractEffect {
 
         let ratio = 1;
         if (s.clearPulseMovieAccurate) {
-             ratio = 1.6; // Locked 16:10 for Movie Accurate
+             ratio = 1.0; // Locked 1:1 for Movie Accurate
         } else if (!s.clearPulseCircular) {
             const canvasW = this.g.cols * d.cellWidth * s.stretchX;
             const canvasH = this.g.rows * d.cellHeight * s.stretchY;

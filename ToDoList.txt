@@ -4,16 +4,12 @@ Implement a wrapper to EXE/DMG? Screensaver wrapper?
 Go through code and fix all comments.
 
 <- Bugs: 
-Fix python script
 Fix performance for low-end machines
-Fix debug info
 
 <- Behavior:
 Better toast messaging; errors related to missing fonts, etc.
 
 <- Look:
-Quantized Pulse: The rectangular pulse effect shown in resurrections. (Current WIP; The behaviour is almost perfect but the visuals aren't quite right yet.) 
-
 Quantized Retract: same as above but inwards. This should be pretty easy once the above is done. 
 
 Quantized Expansion: like the pulse, but with the rendered scene transition. This will require taking some generated version, screenshooting the state and using that as the inner scene that stretches. 

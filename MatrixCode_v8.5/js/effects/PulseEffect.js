@@ -4,8 +4,10 @@ class PulseEffect extends AbstractEffect {
         this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
         this.snap = null; 
         const s = this._getEffectiveState();
-        this.autoTimer = s.pulseFrequencySeconds * 60;
+        const fps = s.pulseMovieAccurate ? 30 : 60;
+        this.autoTimer = s.pulseFrequencySeconds * fps;
         this.renderData = null; 
+        this.frameAccumulator = 0;
     }
 
     _getEffectiveState() {
@@ -48,6 +50,7 @@ class PulseEffect extends AbstractEffect {
         };
         
         const d = this.c.derived; const s = this._getEffectiveState(); const holdEnd = d.cycleDuration + d.holdFrames;
+        const fps = s.pulseMovieAccurate ? 30 : 60;
         const activeFonts = d.activeFonts;
         const numFonts = activeFonts.length;
         const fallbackChars = Utils.CHARS;
@@ -117,7 +120,7 @@ class PulseEffect extends AbstractEffect {
         }
         this.origin = {x: ox, y: oy};
 
-        this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * 60; 
+        this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * fps; 
         
         // Radius Init
         if (s.pulseMovieAccurate) {
@@ -127,7 +130,7 @@ class PulseEffect extends AbstractEffect {
         }
         
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-        this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+        this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
 
         // --- Dynamic Delay Chunks ---
         this.chunks = [];
@@ -139,7 +142,17 @@ class PulseEffect extends AbstractEffect {
     
     update() {
         const s = this._getEffectiveState();
-        if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
+        const fps = s.pulseMovieAccurate ? 30 : 60;
+
+        if (s.pulseMovieAccurate) {
+             this.frameAccumulator++;
+             if (this.frameAccumulator < 2) return;
+             this.frameAccumulator = 0;
+        } else {
+             this.frameAccumulator = 0;
+        }
+
+        if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * fps; }
         if(!this.active) { this.renderData = null; return; }
         
         const d = this.c.derived;
@@ -148,7 +161,7 @@ class PulseEffect extends AbstractEffect {
             if(--this.timer <= 0) { this.state = 'EXPANDING'; }
         } else {
             const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-            this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+            this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
             this.radius += this.speed; 
             if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
 

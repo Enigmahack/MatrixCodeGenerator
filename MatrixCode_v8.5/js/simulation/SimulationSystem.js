@@ -208,6 +208,9 @@ class SimulationSystem {
             const style = this.grid.complexStyles.get(idx);
             if (!style) continue;
 
+            // Pause Glimmer updates if cell is frozen by an effect (e.g. Pulse Pause)
+            if (this.grid.effectActive[idx] !== 0 || this.grid.overrideActive[idx] !== 0) continue;
+
             // --- TYPE 1: STANDARD GLIMMER (Upward Tracers) ---
             if (style.type === 'glimmer') {
                 // Initialize Mobility (One-time)
@@ -286,46 +289,8 @@ class SimulationSystem {
                     this.grid.complexStyles.delete(currentIdx);
                 }
             }
-            // --- TYPE 2: STAR POWER GLITTER (Embedded) ---
-            else if (style.glitter) {
-                // Use a transient 'glimmerAge' property on the existing style object
-                
-                // 1. Trigger Logic
-                if (style.glimmerAge === undefined) {
-                    // Chance to sparkle per frame (approx 1.5%)
-                    if (Math.random() < 0.015) {
-                        style.glimmerAge = 0;
-                    }
-                }
 
-                // 2. Lifecycle Logic
-                if (style.glimmerAge !== undefined) {
-                    style.glimmerAge++;
-                    
-                    // Fast Sparkle Curve
-                    const attack = 2;
-                    const hold = 2; 
-                    const release = 4;
-                    const total = attack + hold + release;
-                    
-                    let alpha = 0.0;
-                    if (style.glimmerAge <= attack) {
-                        alpha = style.glimmerAge / attack;
-                    } else if (style.glimmerAge <= attack + hold) {
-                        alpha = 1.0;
-                    } else if (style.glimmerAge <= total) {
-                        alpha = 1.0 - ((style.glimmerAge - (attack + hold)) / release);
-                    }
-                    
-                    if (style.glimmerAge <= total) {
-                        this.grid.mix[idx] = 30.0 + alpha;
-                    } else {
-                        // End of sparkle
-                        this.grid.mix[idx] = 0; // Reset mix (stops Glimmer)
-                        style.glimmerAge = undefined; // Reset trigger
-                    }
-                }
-            }
+
         }
     }
 

@@ -193,6 +193,8 @@ class ConfigurationManager {
             "quantizedPulseDurationSeconds": 2.0,
             "quantizedPulseGreenFadeSeconds": 0.5,
             "quantizedPulseBorderIllumination": 4.0,
+            "quantizedPulseFadeInFrames": 0,
+            "quantizedPulseFadeFrames": 0,
             "quantizedRetractEnabled": false,
             "quantizedRetractFrequencySeconds": 60,
             "dejaVuEnabled": true,
@@ -219,7 +221,6 @@ class ConfigurationManager {
             "starPowerRainbowMode": "char",
             "starPowerSaturation": 100,
             "starPowerIntensity": 51,
-            "starPowerGlitter": true,
             "starPowerColorCycle": true,
             "starPowerCycleSpeed": 3,
             "rainbowStreamEnabled": false,
@@ -615,6 +616,7 @@ class ConfigurationManager {
         // This ensures the desired default configuration is applied consistently.
         this.loadFromSlot(0);
         // The loadFromSlot method already calls updateDerivedValues(), save(), and notify('ALL')
+        this._showToast("Configuration Reset", "info");
     }
 
     /**
@@ -628,8 +630,10 @@ class ConfigurationManager {
                 data: this._deepClone(this.state) // Deep clone state
             };
             this.saveSlots();
+            this._showToast(`Saved to Slot ${index + 1}: ${this.slots[index].name}`, "success");
         } else {
             console.warn(`Attempted to save to non-existent slot index: ${index}`);
+            this._showToast(`Failed to save slot ${index + 1}`, "error");
         }
     }
 
@@ -645,6 +649,7 @@ class ConfigurationManager {
         this.updateDerivedValues();
         this.save();
         this.notify('ALL');
+        this._showToast(`Loaded Preset: ${this.slots[index].name}`, "success");
         return true;
     }
 
@@ -657,8 +662,10 @@ class ConfigurationManager {
         if (this.slots[index]) { // Ensure slot exists
             this.slots[index].name = name;
             this.saveSlots();
+            this._showToast(`Renamed Slot ${index + 1} to "${name}"`, "success");
         } else {
             console.warn(`Attempted to rename non-existent slot index: ${index}`);
+            this._showToast(`Failed to rename slot ${index + 1}`, "error");
         }
     }
 
@@ -765,6 +772,25 @@ class ConfigurationManager {
         if (activeFonts.length === 0) activeFonts.push({ name: 'MatrixEmbedded', chars: Utils.CHARS });
         
         this.derived.activeFonts = activeFonts;
+    }
+
+    /**
+     * Sets the NotificationManager instance for toast messages.
+     * @param {NotificationManager} notifications 
+     */
+    setNotificationManager(notifications) {
+        this.notifications = notifications;
+    }
+
+    /**
+     * Helper to show toast messages if NotificationManager is available.
+     * @param {string} message 
+     * @param {string} type 
+     */
+    _showToast(message, type = 'info') {
+        if (this.notifications) {
+            this.notifications.show(message, type);
+        }
     }
 }
 

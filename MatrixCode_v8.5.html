@@ -1116,10 +1116,10 @@ class StarPowerMode extends StreamMode {
                  hue = (hue + (frame * state.starPowerCycleSpeed)) % 360;
             }
         }
-        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
+        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed);
     }
-    _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
+    _createStyle(hue, saturation, lightness, cycle, speed) {
+        return { h: hue, s: saturation, l: lightness, cycle, speed, isEffect: true };
     }
 }
 class RainbowMode extends StreamMode {
@@ -1130,7 +1130,7 @@ class RainbowMode extends StreamMode {
         return this._createStyle(stream.baseHue, 100, state.rainbowStreamIntensity);
     }
     _createStyle(hue, saturation, lightness) {
-        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
+        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, isEffect: true };
     }
 }
     // =========================================================================
@@ -2674,6 +2674,8 @@ class ConfigurationManager {
             "quantizedPulseDurationSeconds": 2.0,
             "quantizedPulseGreenFadeSeconds": 0.5,
             "quantizedPulseBorderIllumination": 4.0,
+            "quantizedPulseFadeInFrames": 0,
+            "quantizedPulseFadeFrames": 0,
             "quantizedRetractEnabled": false,
             "quantizedRetractFrequencySeconds": 60,
             "dejaVuEnabled": true,
@@ -2700,7 +2702,6 @@ class ConfigurationManager {
             "starPowerRainbowMode": "char",
             "starPowerSaturation": 100,
             "starPowerIntensity": 51,
-            "starPowerGlitter": true,
             "starPowerColorCycle": true,
             "starPowerCycleSpeed": 3,
             "rainbowStreamEnabled": false,
@@ -3073,6 +3074,7 @@ class ConfigurationManager {
         // This ensures the desired default configuration is applied consistently.
         this.loadFromSlot(0);
         // The loadFromSlot method already calls updateDerivedValues(), save(), and notify('ALL')
+        this._showToast("Configuration Reset", "info");
     }
     /**
      * Saves the current application state to a specific slot.
@@ -3085,8 +3087,10 @@ class ConfigurationManager {
                 data: this._deepClone(this.state) // Deep clone state
             };
             this.saveSlots();
+            this._showToast(`Saved to Slot ${index + 1}: ${this.slots[index].name}`, "success");
         } else {
             console.warn(`Attempted to save to non-existent slot index: ${index}`);
+            this._showToast(`Failed to save slot ${index + 1}`, "error");
         }
     }
     /**
@@ -3100,6 +3104,7 @@ class ConfigurationManager {
         this.updateDerivedValues();
         this.save();
         this.notify('ALL');
+        this._showToast(`Loaded Preset: ${this.slots[index].name}`, "success");
         return true;
     }
     /**
@@ -3111,8 +3116,10 @@ class ConfigurationManager {
         if (this.slots[index]) { // Ensure slot exists
             this.slots[index].name = name;
             this.saveSlots();
+            this._showToast(`Renamed Slot ${index + 1} to "${name}"`, "success");
         } else {
             console.warn(`Attempted to rename non-existent slot index: ${index}`);
+            this._showToast(`Failed to rename slot ${index + 1}`, "error");
         }
     }
     /**
@@ -3210,6 +3217,23 @@ class ConfigurationManager {
         // Fallback if no fonts are active
         if (activeFonts.length === 0) activeFonts.push({ name: 'MatrixEmbedded', chars: Utils.CHARS });
         this.derived.activeFonts = activeFonts;
+    }
+    /**
+     * Sets the NotificationManager instance for toast messages.
+     * @param {NotificationManager} notifications 
+     */
+    setNotificationManager(notifications) {
+        this.notifications = notifications;
+    }
+    /**
+     * Helper to show toast messages if NotificationManager is available.
+     * @param {string} message 
+     * @param {string} type 
+     */
+    _showToast(message, type = 'info') {
+        if (this.notifications) {
+            this.notifications.show(message, type);
+        }
     }
 }
 // =========================================================================
@@ -3878,9 +3902,11 @@ class ClearPulseEffect extends AbstractEffect {
         this.radius = 0;
         this.snap = null;
         const s = this._getEffectiveState();
-        this.autoTimer = s.clearPulseFrequencySeconds * 60;
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
+        this.autoTimer = s.clearPulseFrequencySeconds * fps;
         this.renderData = null;
         this.chunks = []; // For Movie Accurate Lag
+        this.frameAccumulator = 0;
     }
     _getEffectiveState() {
         const s = this.c.state;
@@ -3975,6 +4001,7 @@ class ClearPulseEffect extends AbstractEffect {
         }
         this.origin = { x: ox, y: oy };
         this.active = true;
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
         // Radius Init
         if (s.clearPulseMovieAccurate) {
             this.radius = 2 * d.cellWidth * s.stretchX; 
@@ -3982,7 +4009,7 @@ class ClearPulseEffect extends AbstractEffect {
             this.radius = s.clearPulseInstantStart ? s.clearPulseWidth * 2 : 0;
         }
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * 60);
+        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * fps);
         // Reset Chunks
         this.chunks = [];
         this.spawnedCount = 0;
@@ -3991,14 +4018,23 @@ class ClearPulseEffect extends AbstractEffect {
     }
     update() {
         const s = this._getEffectiveState();
+        const fps = s.clearPulseMovieAccurate ? 30 : 60;
+        if (s.clearPulseMovieAccurate) {
+             this.frameAccumulator++;
+             if (this.frameAccumulator < 2) return;
+             this.frameAccumulator = 0;
+        } else {
+             this.frameAccumulator = 0;
+        }
         if (!this.active && s.clearPulseEnabled && this.autoTimer-- <= 0) {
             this.trigger();
-            this.autoTimer = s.clearPulseFrequencySeconds * 60;
+            this.autoTimer = s.clearPulseFrequencySeconds * fps;
         }
         if (!this.active) { this.renderData = null; return; }
-        this.radius += this.speed;
         const d = this.c.derived;
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
+        this.speed = (maxDim + 200) / Math.max(1, s.clearPulseDurationSeconds * fps);
+        this.radius += this.speed;
         if (this.radius > maxDim + 400) { 
             this.active = false; 
             this.snap = null; 
@@ -4020,7 +4056,7 @@ class ClearPulseEffect extends AbstractEffect {
             const progress = this.radius / maxDim;
             if (progress > 0.15 && this.spawnedCount < 4 && this.spawnCooldown <= 0) {
                 const w = Utils.randomInt(Math.floor(this.g.cols * 0.5), this.g.cols);
-                let h = Utils.randomInt(5, 12);
+                let h = Utils.randomInt(6, 13);
                 let y = Utils.randomInt(Math.floor(this.g.rows * 0.2), Math.floor(this.g.rows * 0.8));
                 const x = Utils.randomInt(0, this.g.cols - w);
                 y = Math.max(0, Math.min(this.g.rows - h, y));
@@ -4043,7 +4079,7 @@ class ClearPulseEffect extends AbstractEffect {
         const innerEdge = this.radius - width;
         let ratio = 1;
         if (s.clearPulseMovieAccurate) {
-             ratio = 1.6; // Locked 16:10 for Movie Accurate
+             ratio = 1.0; // Locked 1:1 for Movie Accurate
         } else if (!s.clearPulseCircular) {
             const canvasW = this.g.cols * d.cellWidth * s.stretchX;
             const canvasH = this.g.rows * d.cellHeight * s.stretchY;
@@ -5684,8 +5720,10 @@ class PulseEffect extends AbstractEffect {
         this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
         this.snap = null; 
         const s = this._getEffectiveState();
-        this.autoTimer = s.pulseFrequencySeconds * 60;
+        const fps = s.pulseMovieAccurate ? 30 : 60;
+        this.autoTimer = s.pulseFrequencySeconds * fps;
         this.renderData = null; 
+        this.frameAccumulator = 0;
     }
     _getEffectiveState() {
         const s = this.c.state;
@@ -5722,6 +5760,7 @@ class PulseEffect extends AbstractEffect {
             fillFonts: new Uint8Array(total)
         };
         const d = this.c.derived; const s = this._getEffectiveState(); const holdEnd = d.cycleDuration + d.holdFrames;
+        const fps = s.pulseMovieAccurate ? 30 : 60;
         const activeFonts = d.activeFonts;
         const numFonts = activeFonts.length;
         const fallbackChars = Utils.CHARS;
@@ -5785,7 +5824,7 @@ class PulseEffect extends AbstractEffect {
             oy = Math.floor(this.g.rows/2);
         }
         this.origin = {x: ox, y: oy};
-        this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * 60; 
+        this.active = true; this.state = 'WAITING'; this.timer = s.pulseDelaySeconds * fps; 
         // Radius Init
         if (s.pulseMovieAccurate) {
             this.radius = 2 * d.cellWidth * s.stretchX; 
@@ -5793,7 +5832,7 @@ class PulseEffect extends AbstractEffect {
             this.radius = s.pulseInstantStart ? s.pulseWidth * 2 : 0; 
         }
         const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-        this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+        this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
         // --- Dynamic Delay Chunks ---
         this.chunks = [];
         this.spawnedCount = 0;
@@ -5802,14 +5841,22 @@ class PulseEffect extends AbstractEffect {
     }
     update() {
         const s = this._getEffectiveState();
-        if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * 60; }
+        const fps = s.pulseMovieAccurate ? 30 : 60;
+        if (s.pulseMovieAccurate) {
+             this.frameAccumulator++;
+             if (this.frameAccumulator < 2) return;
+             this.frameAccumulator = 0;
+        } else {
+             this.frameAccumulator = 0;
+        }
+        if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * fps; }
         if(!this.active) { this.renderData = null; return; }
         const d = this.c.derived;
         if(this.state === 'WAITING') { 
             if(--this.timer <= 0) { this.state = 'EXPANDING'; }
         } else {
             const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
-            this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * 60);
+            this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
             this.radius += this.speed; 
             if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
             // --- Chunk Lifecycle & Spawning ---
@@ -10195,6 +10242,8 @@ class SimulationSystem {
         for (const idx of indices) {
             const style = this.grid.complexStyles.get(idx);
             if (!style) continue;
+            // Pause Glimmer updates if cell is frozen by an effect (e.g. Pulse Pause)
+            if (this.grid.effectActive[idx] !== 0 || this.grid.overrideActive[idx] !== 0) continue;
             // --- TYPE 1: STANDARD GLIMMER (Upward Tracers) ---
             if (style.type === 'glimmer') {
                 // Initialize Mobility (One-time)
@@ -10259,41 +10308,6 @@ class SimulationSystem {
                 } else {
                     this.grid.mix[currentIdx] = 0;
                     this.grid.complexStyles.delete(currentIdx);
-                }
-            }
-            // --- TYPE 2: STAR POWER GLITTER (Embedded) ---
-            else if (style.glitter) {
-                // Use a transient 'glimmerAge' property on the existing style object
-                // 1. Trigger Logic
-                if (style.glimmerAge === undefined) {
-                    // Chance to sparkle per frame (approx 1.5%)
-                    if (Math.random() < 0.015) {
-                        style.glimmerAge = 0;
-                    }
-                }
-                // 2. Lifecycle Logic
-                if (style.glimmerAge !== undefined) {
-                    style.glimmerAge++;
-                    // Fast Sparkle Curve
-                    const attack = 2;
-                    const hold = 2; 
-                    const release = 4;
-                    const total = attack + hold + release;
-                    let alpha = 0.0;
-                    if (style.glimmerAge <= attack) {
-                        alpha = style.glimmerAge / attack;
-                    } else if (style.glimmerAge <= attack + hold) {
-                        alpha = 1.0;
-                    } else if (style.glimmerAge <= total) {
-                        alpha = 1.0 - ((style.glimmerAge - (attack + hold)) / release);
-                    }
-                    if (style.glimmerAge <= total) {
-                        this.grid.mix[idx] = 30.0 + alpha;
-                    } else {
-                        // End of sparkle
-                        this.grid.mix[idx] = 0; // Reset mix (stops Glimmer)
-                        style.glimmerAge = undefined; // Reset trigger
-                    }
                 }
             }
         }
@@ -11157,10 +11171,10 @@ class StarPowerMode extends StreamMode {
                  hue = (hue + (frame * state.starPowerCycleSpeed)) % 360;
             }
         }
-        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed, state.starPowerGlitter);
+        return this._createStyle(hue, state.starPowerSaturation, state.starPowerIntensity, state.starPowerColorCycle, state.starPowerCycleSpeed);
     }
-    _createStyle(hue, saturation, lightness, cycle, speed, glitter) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, glitter, isEffect: true };
+    _createStyle(hue, saturation, lightness, cycle, speed) {
+        return { h: hue, s: saturation, l: lightness, cycle, speed, isEffect: true };
     }
 }
 class RainbowMode extends StreamMode {
@@ -11171,7 +11185,7 @@ class RainbowMode extends StreamMode {
         return this._createStyle(stream.baseHue, 100, state.rainbowStreamIntensity);
     }
     _createStyle(hue, saturation, lightness) {
-        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, glitter: false, isEffect: true };
+        return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, isEffect: true };
     }
 }
     // =========================================================================
@@ -11499,6 +11513,15 @@ class FontManager {
             this._ensureFontConfig(f.name);
         });
     }
+    // Check if the current font family is actually available
+    if (key === 'fontFamily' || key === 'ALL') {
+        const currentFont = this.config.get('fontFamily');
+        const isDefault = currentFont === 'MatrixEmbedded';
+        const isLoaded = this.loadedFonts.some(f => f.name === currentFont);
+        if (!isDefault && !isLoaded) {
+            this.notifications.show(`Font "${currentFont}" not found. Using fallback.`, 'warning');
+        }
+    }
   }
   /** Initialize: inject embedded font (if present) + open DB + load stored fonts. */
   async init() {
@@ -11510,6 +11533,7 @@ class FontManager {
       await this._loadFontsFromDB();
     } catch (error) {
       console.warn('Font DB Error:', error);
+      this.notifications.show('Failed to initialize Font Database', 'error');
     }
   }
   /** Subscribe to changes in loadedFonts. */
@@ -11565,6 +11589,8 @@ class FontManager {
         };
         this.config.set('fontSettings', settings);
       }
+    } else {
+        this.notifications.show('Failed to load embedded font', 'error');
     }
   }
   /**
@@ -11775,6 +11801,7 @@ class FontManager {
       store.delete(id).onsuccess = () => {
         // Remove legacy style tag (if any)
         document.getElementById(`style-${id}`)?.remove();
+        const deletedFont = this.loadedFonts.find(font => font.name === id);
         this.loadedFonts = this.loadedFonts.filter(font => font.name !== id);
         // Deactivate in config to prevent rendering issues
         const settings = { ...this.config.get('fontSettings') };
@@ -11784,9 +11811,16 @@ class FontManager {
         }
         if (this.config.state.fontFamily === id) {
           this.config.set('fontFamily', this.config.defaults.fontFamily);
+          this.notifications.show(`Deleted font was active. Reverted to default.`, 'warning');
+        } else {
+             this.notifications.show(`Deleted font: ${deletedFont ? deletedFont.display : id}`, 'success');
         }
         this._notify();
         resolve();
+      };
+      store.delete(id).onerror = () => {
+          this.notifications.show('Failed to delete font', 'error');
+          resolve();
       };
     });
   }
@@ -11803,7 +11837,12 @@ class FontManager {
         // Keep only embedded fonts
         this.loadedFonts = this.loadedFonts.filter(font => font.isEmbedded);
         this._notify();
+        this.notifications.show('All custom fonts deleted', 'success');
         resolve();
+      };
+      store.clear().onerror = () => {
+          this.notifications.show('Failed to clear fonts', 'error');
+          resolve();
       };
     });
   }
@@ -12116,6 +12155,7 @@ class UIManager {
     _generateFXSettings() {
         return [
             { cat: 'Effects', type: 'header', label: 'Movie Effects' }, // Using header for main section
+            { cat: 'Effects', type: 'header', label: 'Trilogy' }, // Sub-header
             { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
             { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn' },
             { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses' },
@@ -12162,15 +12202,6 @@ class UIManager {
             { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
-            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
             { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
             { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
@@ -12203,7 +12234,7 @@ class UIManager {
             { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot' },
             { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', warning: "Photosensitivity Warning: Enabling this effect will cause pulsing lights and strobing effects that could be disruptive to those more sensitive to flashing lights. Please be aware of the impact this may have to those around you." },
+            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash' },
             { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 60, max: 600, step: 10, unit: 's', dep: 'crashEnabled' },
             { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Visuals', dep: 'crashEnabled' },
@@ -12218,10 +12249,20 @@ class UIManager {
             { cat: 'Effects', id: 'crashEnableSmith', type: 'checkbox', label: 'Enable Agent Smith', description: "Randomly introduces agent Smith within the crash. Subtle.", dep: 'crashEnabled' },
             { cat: 'Effects', id: 'crashEnableSuperman', type: 'checkbox', label: 'Enable Code Bolts', dep: 'crashEnabled' },
             { cat: 'Effects', id: 'crashEnableFlash', type: 'checkbox', label: 'Enable Flash/Fade', dep: 'crashEnabled' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-danger' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', dep: 'crashEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
             { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
             { cat: 'Effects', type: 'button', label: 'Trigger Sequence Now', action: 'boot_crash_sequence', class: 'btn-warn' },
+            { cat: 'Effects', type: 'header', label: 'Resurrections' }, // Sub-header
+            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
+            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
+            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
             { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
             { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },
@@ -12230,7 +12271,6 @@ class UIManager {
             { cat: 'Effects', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{label:'Full Stream',value:'stream'}, {label:'Per Char',value:'char'}], dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerSaturation', type: 'range', label: 'Saturation', min: 0, max: 100, unit:'%', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerIntensity', type: 'range', label: 'Intensity', min: 10, max: 90, unit:'%', dep: 'starPowerEnabled' },
-            { cat: 'Effects', id: 'starPowerGlitter', type: 'checkbox', label: 'Glitter', dep: 'starPowerEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled' },
             { cat: 'Effects', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled' },
@@ -12256,10 +12296,6 @@ class UIManager {
      */
     _generateSystemTab() {
         return [
-            { cat: 'System', type: 'accordion_header', label: 'Debug' },
-            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
-            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
-            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
             { cat: 'System', type: 'accordion_header', label: 'Configuration' },
             { cat: 'System', type: 'slot', idx: 0, id: 'slot_0' },
             { cat: 'System', type: 'slot', idx: 1, id: 'slot_1' },
@@ -12287,6 +12323,10 @@ class UIManager {
             // CAUTION separator - will be handled in renderControl
             { cat: 'System', type: 'header', label: 'CAUTION ZONE' }, // Use header for visual separation and text
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
+            { cat: 'System', type: 'accordion_header', label: 'Debug' },
+            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Enables verbose console logging and additional metrics." },
+            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
+            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
             { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
@@ -12887,8 +12927,8 @@ class UIManager {
             const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[def.idx].name; inp.id = `slot-input-${def.idx}`; inp.name = `slot_name_${def.idx}`; inp.onchange = e => this.c.renameSlot(def.idx, e.target.value);
             inp.onfocus = e => e.target.value = '';
             const grp = document.createElement('div'); grp.className = 'slot-btn-group';
-            const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${def.idx}`; save.onclick = () => { this.c.saveToSlot(def.idx); this.notifications.show(`Saved Slot ${def.idx+1}`, 'success'); };
-            const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${def.idx}`; load.onclick = () => { if(this.c.loadFromSlot(def.idx)) this.notifications.show(`Loaded Slot ${def.idx+1}`, 'success'); };
+            const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${def.idx}`; save.onclick = () => { this.c.saveToSlot(def.idx); };
+            const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${def.idx}`; load.onclick = () => { this.c.loadFromSlot(def.idx); };
             grp.append(save, load); row.append(inp, grp);
         } else if (def.type === 'font_list') {
             row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row);
@@ -13070,7 +13110,7 @@ class UIManager {
      */
     handleAction(action) {
         if(action === 'reset' && confirm('Reset all settings?')) this.c.reset();
-        if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts().then(() => this.notifications.show('Cache Cleared', 'success'));
+        if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts();
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
@@ -13380,6 +13420,7 @@ class MatrixKernel {
     _initializeManagers() {
         this.config = new ConfigurationManager();
         this.notifications = new NotificationManager(this.config);
+        this.config.setNotificationManager(this.notifications);
         this.grid = new CellGrid(this.config);
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
@@ -13473,6 +13514,7 @@ class MatrixKernel {
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
                     } else if (action === 'BootSequence' || action === 'CrashSequence') { 
+                        if (action === 'CrashSequence' && !this.config.state.crashEnabled) return;
                         this.effectRegistry.trigger(action);
                         this.notifications.show(`${action} Triggered`, 'success');
                     }
