@@ -358,6 +358,16 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
 
+            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add', action: 'quantizedAdd', class: 'btn-warn' },
+            { cat: 'Effects', id: 'quantizedAddEnabled', type: 'checkbox', label: 'Enable Quantized Add' },
+            { cat: 'Effects', id: 'quantizedAddFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedAddEnabled' },
+
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
 
             { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
@@ -414,6 +424,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'ClearPulse', label: 'Clear Pulse' },
             { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedPulse', label: 'Quantized Pulse' },
+            { cat: 'System', type: 'keybinder', id: 'QuantizedAdd', label: 'Quantized Add' },
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
@@ -1348,6 +1359,7 @@ class UIManager {
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
         if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse')) this.notifications.show('Quantized Pulse Triggered', 'success'); else this.notifications.show('Quantized Pulse active...', 'info'); }
+        if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd')) this.notifications.show('Quantized Add Triggered', 'success'); else this.notifications.show('Quantized Add active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'reverse_time') { if(this.effects.trigger('ReverseTime')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }

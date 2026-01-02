@@ -35,6 +35,7 @@ CODE_MAP = {
     'CrashEffect': 'js/effects/CrashEffect.js',
     'ReverseEffect': 'js/effects/ReverseEffect.js',
     'QuantizedPulseEffect': 'js/effects/QuantizedPulseEffect.js',
+    'QuantizedAddEffect': 'js/effects/QuantizedAddEffect.js',
     'QuantizedRetractEffect': 'js/effects/QuantizedRetractEffect.js',
     'NotificationManager': 'js/ui/NotificationManager.js',
     'FontManager': 'js/ui/FontManager.js',
