@@ -52,6 +52,10 @@ class QuantizedAddEffect extends AbstractEffect {
             lastPhase: null, // 'V', 'H', 'T' (Thicken)
             repeatCount: 0
         };
+        
+        // Manual Step State (Debug)
+        this.manualStep = false;
+        this._onKeyDown = this._onKeyDown.bind(this);
     }
 
     _getEffectiveState() {
@@ -80,6 +84,7 @@ class QuantizedAddEffect extends AbstractEffect {
     }
     
     stop() {
+        document.removeEventListener('keydown', this._onKeyDown);
         this.active = false;
         this.isFading = false;
         this.isFinishing = false;
@@ -120,6 +125,7 @@ class QuantizedAddEffect extends AbstractEffect {
     }
 
     resetExpansion() {
+        document.removeEventListener('keydown', this._onKeyDown);
         this.isExpanding = false;
         this.swapped = false;
         this.swapTimer = 0;
@@ -140,6 +146,9 @@ class QuantizedAddEffect extends AbstractEffect {
     }
 
     trigger() {
+        document.addEventListener('keydown', this._onKeyDown);
+        this.manualStep = false;
+        
         // If already expanding, reset the expansion part but keep flashes
         if (this.isExpanding) this.resetExpansion();
         
@@ -196,7 +205,7 @@ class QuantizedAddEffect extends AbstractEffect {
         this.phase15Offset = 12; // Start for Fractal Expansion Phase
         this.phase15LoopCounter = 0; // Counter for Phase 15 Animation Loop
         
-        const cx = Math.floor((this.g.cols / 2) / 2) * 2;
+        const cx = (Math.floor((this.g.cols / 2) / 2) * 2) + 6; // Shifted right by 3 blocks
         const cy = Math.floor((this.g.rows / 2) / 2) * 2;
         
         // Phase 0: Initial 4x6 Block (Centered)
@@ -212,7 +221,55 @@ class QuantizedAddEffect extends AbstractEffect {
         
         this.nextExpandTime = s.cycleInterval;
         
+        // Initialize RNG Buffer for fast deterministic dashes
+        this.rngBuffer = new Float32Array(1024);
+        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+
         return true;
+    }
+    
+    _onKeyDown(e) {
+        if (e.key === '.' || e.code === 'Period') {
+            this.manualStep = true;
+        }
+    }
+
+    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
+        // Deterministic start index based on seed
+        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
+        
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len <= 0) return;
+        
+        const ux = dx / len;
+        const uy = dy / len;
+        
+        let dist = 0;
+        const minLen = 2.0; // Minimum 2px
+        const maxLen = Math.max(minLen + 1, ch); 
+        
+        while (dist < len) {
+            // Pick random dash length
+            const r1 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023; // Wrap
+            const dash = minLen + r1 * (maxLen - minLen);
+            
+            // Pick random gap length
+            const r2 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023;
+            const gap = minLen + r2 * (maxLen - minLen);
+            
+            // Draw Dash
+            const dEnd = Math.min(dist + dash, len);
+            if (dEnd > dist) {
+                path.moveTo(x1 + ux * dist, y1 + uy * dist);
+                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
+            }
+            
+            dist += dash + gap;
+        }
     }
 
     _initShadowWorld() {
@@ -590,6 +647,10 @@ class QuantizedAddEffect extends AbstractEffect {
         return (this.map[my * this.mapCols + mx] & 1) !== 0;
     }
 
+    _isValidBoundary(x, y) {
+        return x >= 0 && x < this.g.cols && y >= 0 && y < this.g.rows;
+    }
+
     _applyMask() {
         // Re-apply override flags for ALL active blocks
         // This is necessary because EffectRegistry clears overrides every frame.
@@ -668,10 +729,12 @@ class QuantizedAddEffect extends AbstractEffect {
                 }
             }
             
-            if (this.isExpanding) { // Check again in case finishExpansion ran
-                    if (this.localFrame >= this.nextExpandTime) {
-                        this.nextExpandTime += s.cycleInterval;
-                        const b = 2;
+            if (this.isExpanding) { 
+                const b = 2; // Blocks are 2 characters wide/high. 
+
+                    // Manual Step Logic: Advance phase ONLY on key press
+                    if (this.manualStep) {
+                        this.manualStep = false; // Consume the key press
                         
                         if (this.growthPhase === 0) {
                             // Initial Block already done. Move to next.
@@ -680,7 +743,6 @@ class QuantizedAddEffect extends AbstractEffect {
                         
                         if (this.growthPhase === 1) {
                             // Phase 1: Second 4x6 Block (North)
-                            const b = 2;
                             const cx = this.origin.x;
                             const cy = this.origin.y - (6 * b); 
                             for(let by = -3; by < 3; by++) {
@@ -688,11 +750,11 @@ class QuantizedAddEffect extends AbstractEffect {
                                     this._addBlock(cx + bx * b, cy + by * b, this.burstCounter);
                                 }
                             }
+
                             this.growthPhase = 2;
                         }
                         else if (this.growthPhase === 2) {
                             // Phase 2: Wings
-                            const b = 2;
                             const wingY = this.origin.y - (4 * b); 
                             const wingLen = 4 + Math.floor(Math.random() * 2); 
                             const startX_West = this.origin.x - (2 * b);
@@ -702,525 +764,704 @@ class QuantizedAddEffect extends AbstractEffect {
                             this.growthPhase = 3;
                         }
                         else if (this.growthPhase === 3) {
-                            // Phase 3
-                            const b = 2;
+                            // Phase 3: Vertical Cross Bars on Wings AND Long N/S Bars
                             const wingY = this.origin.y - (4 * b);
-                            const startX_West = this.origin.x - (2 * b);
-                            const tx = startX_West - (3 * b);
-                    
-                    // Add 3 blocks vertically hanging DOWN
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(tx, wingY + (k * b), this.burstCounter);
-                    }
-
-                    // Add 3 blocks vertically extending UP
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(tx, wingY - (k * b), this.burstCounter);
-                    }
-                    
-                    this.growthPhase = 4;
-                }
-                                    else if (this.growthPhase === 4) {
-                                        // Phase 4: 1x6 Bars (South & North) + 2x3 West Clusters
-                                        const barX = this.origin.x - (1 * b); 
-                
-                                        // 1. South Bar (1x6)
-                                        const startY_SouthBar = this.origin.y + (3 * b); 
-                                        for(let k=0; k<6; k++) {
-                                            this._addBlock(barX, startY_SouthBar + (k * b), this.burstCounter);
-                                        }
-                
-                                        // 2. North Bar (1x6) - Extends up from the top of Phase 1 block
-                                        // Phase 1 block ends at origin.y - 9*b.
-                                        const startY_NorthBar = this.origin.y - (10 * b);
-                                        for(let k=0; k<6; k++) {
-                                            this._addBlock(barX, startY_NorthBar - (k * b), this.burstCounter);
-                                        }
-                
-                                        // 3. 2x3 West Clusters (Height matches Phase 3 vertical bars)
-                                        const wingY = this.origin.y - (4 * b);
-                                        const startX_West = this.origin.x - (2 * b);                    
-                    const t1_x = startX_West - (1 * b);
-                    const t2_x = startX_West - (2 * b);
-                    
-                    // North Side (Above) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t1_x, wingY - (k * b), this.burstCounter);
-                        this._addBlock(t2_x, wingY - (k * b), this.burstCounter);
-                    }
-
-                    // South Side (Below) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t1_x, wingY + (k * b), this.burstCounter);
-                        this._addBlock(t2_x, wingY + (k * b), this.burstCounter);
-                    }
-
-                    this.growthPhase = 5;
-                }
-                else if (this.growthPhase === 5) {
-                    // Phase 5: Extensions & Symmetry
-                    
-                    // 1. Add 2x2 block to right of bottom
-                    const startY_Bar = this.origin.y + (3 * b);
-                    const oldEnd = startY_Bar + (6 * b);
-                    const barX = this.origin.x - (1 * b);
-                    const newBottomY = oldEnd + (1 * b); // Bottom of the new 1x4 strip
-                    const startX_Block = barX + (1 * b); // Right side of bar
-                    
-                    // 2x2, aligned to bottom
-                    for(let by=0; by<2; by++) {
-                        for(let bx=0; bx<2; bx++) {
-                            this._addBlock(startX_Block + (bx * b), newBottomY - (by * b), this.burstCounter);
-                        }
-                    }
-                    
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(barX, oldEnd + (k * b), this.burstCounter);
-                    }
-                    
-                    // 3. East Tendril Symmetry (2x3 Clusters)
-                    // Matches Phase 4 West logic but for East side
-                    const wingY = this.origin.y - (4 * b);
-                    const startX_East = this.origin.x + (1 * b); 
-                    
-                    const t1_x = startX_East + (1 * b);
-                    const t2_x = startX_East + (2 * b);
-
-                    // North Side (Above) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t1_x, wingY - (k * b), this.burstCounter);
-                        this._addBlock(t2_x, wingY - (k * b), this.burstCounter);
-                    }
-
-                    // South Side (Below) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t1_x, wingY + (k * b), this.burstCounter);
-                        this._addBlock(t2_x, wingY + (k * b), this.burstCounter);
-                    }
-
-                    this.growthPhase = 6;
-                }
-                else if (this.growthPhase === 6) {
-                    // Phase 6: Further Extensions
-                    const b = 2;
-
-                    // 1. East Wing: Add 2x3 Cluster (matching Phase 3/4 symmetry)
-                    // West has vertical bars at -3b (Phase 3) and clusters at -1b, -2b (Phase 4).
-                    // Phase 5 added East clusters at +1b, +2b.
-                    // This adds clusters at +3b and +4b to the East wing.
-                    const wingY = this.origin.y - (4 * b);
-                    const startX_East = this.origin.x + (1 * b); 
-                    const t3_x = startX_East + (3 * b);
-                    const t4_x = startX_East + (4 * b);
-
-                    // North Side (Above) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t3_x, wingY - (k * b), this.burstCounter);
-                        this._addBlock(t4_x, wingY - (k * b), this.burstCounter);
-                    }
-                    // South Side (Below) - 2x3 Cluster
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(t3_x, wingY + (k * b), this.burstCounter);
-                        this._addBlock(t4_x, wingY + (k * b), this.burstCounter);
-                    }
-
-                    // 2. South Bar Extension: 1x5 South
-                    const barX = this.origin.x - (1 * b);
-                    const startY_SouthBar = this.origin.y + (3 * b);
-                    const endOfPhase5South = startY_SouthBar + (10 * b); 
-                    for(let k=0; k<5; k++) {
-                        this._addBlock(barX, endOfPhase5South + (k * b), this.burstCounter);
-                    }
-
-                    // 3. North Bar Extension: 1x4 North
-                    const startY_NorthBar = this.origin.y - (10 * b);
-                    const endOfPhase4North = startY_NorthBar - (6 * b);
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(barX, endOfPhase4North - (k * b), this.burstCounter);
-                    }
-
-                    this.growthPhase = 7;
-                }
-                else if (this.growthPhase === 7) {
-                    // Phase 7: 4x1 Horizontal Bars & Detail Blocks
-                    const b = 2;
-                    const wingY = this.origin.y - (4 * b);
-                    
-                    // --- WEST SIDE ---
-                    const startX_West = this.origin.x - (2 * b);
-                    const westClusterEnd = startX_West - (2 * b); // t2_x from Phase 4
-                    
-                    // 1. West 4x1 Bar (Horizontal, 4 blocks wide)
-                    // Extending LEFT from the West Cluster
-                    const westBarStart = westClusterEnd - (1 * b);
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(westBarStart - (k * b), wingY, this.burstCounter);
-                    }
-                    
-                    // 2. West Detail Block
-                    // "1x1 block on the south of the new west-most tendril, 1 block away from the end"
-                    // End is at k=3 (westBarStart - 3*b). 1 block away is k=2 (westBarStart - 2*b).
-                    // South = wingY + b.
-                    this._addBlock(westBarStart - (2 * b), wingY + b, this.burstCounter);
-
-                    // --- EAST SIDE ---
-                    const startX_East = this.origin.x + (1 * b);
-                    const eastClusterEnd = startX_East + (4 * b); // t4_x from Phase 6
-                    
-                    // 3. East 4x1 Bar (Horizontal)
-                    // Extending RIGHT from the East Cluster
-                    const eastBarStart = eastClusterEnd + (1 * b);
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(eastBarStart + (k * b), wingY, this.burstCounter);
-                    }
-                    
-                    // 4. Northeast Detail Block
-                    // "1x1 block in the northeast most corner of the existing blob"
-                    // The NE corner of the blob is the top of the Phase 6 East Cluster.
-                    // Phase 6 Cluster Top is at wingY - 3*b.
-                    // We'll place this detail block just above it at wingY - 4*b, aligned with the outer edge (eastClusterEnd).
-                    this._addBlock(eastClusterEnd, wingY - (4 * b), this.burstCounter);
-
-                    this.growthPhase = 8;
-                }
-                else if (this.growthPhase === 8) {
-                    // Phase 8: Thicken Verticals, Extensions, & Center Corners
-                    const b = 2;
-                    const barX = this.origin.x - (1 * b);
-                    const thickenX = this.origin.x; // Right side of existing bar
-
-                    // 1. Thicken South Bar (Right Side)
-                    // Original: origin.y + 3*b to +13*b (10 blocks long).
-                    const startY_South = this.origin.y + (3 * b);
-                    for(let k=0; k<10; k++) {
-                         this._addBlock(thickenX, startY_South + (k * b), this.burstCounter);
-                    }
-
-                    // 2. Thicken North Bar (Right Side)
-                    // Original: origin.y - 10*b to -4*b (6 blocks) + ext 1x4 = 10 blocks.
-                    // Start from top down.
-                    const startY_North = this.origin.y - (10 * b);
-                    for(let k=0; k<10; k++) {
-                        this._addBlock(thickenX, startY_North + (k * b), this.burstCounter);
-                    }
-
-                    // 3. West Vertical Extension (1x3 Down)
-                    // West Tip from Phase 7 (westBarStart = -5b). Length 4 -> Ends at -8b.
-                    // Wait, West Cluster ends at -4b (t2_x). Bar starts -5b, length 4. Ends -8b.
-                    // Tip X: origin.x - 2b - 2b - 1b - 3b = origin.x - 8b.
-                    const tipX_West = (this.origin.x - (2 * b)) - (2 * b) - (1 * b) - (3 * b);
-                    const wingY = this.origin.y - (4 * b);
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(tipX_West, wingY + (k * b), this.burstCounter);
-                    }
-
-                    // 4. East Vertical Extension (1x3 Up)
-                    // East Tip X: origin.x + 1b + 4b + 1b + 3b = origin.x + 9b.
-                    const tipX_East = (this.origin.x + (1 * b)) + (4 * b) + (1 * b) + (3 * b);
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(tipX_East, wingY - (k * b), this.burstCounter);
-                    }
-
-                    // 5. Center Mass Corners (3x3)
-                    // NW
-                    const nwX = this.origin.x - (4 * b);
-                    const nwY = this.origin.y - (7 * b); // Aligned with top block bottom (-4b) or top (-6b)? Top of Phase 0 is -3b. Top of Phase 1 is -9b.
-                    // Let's place it at the intersection.
-                    for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(nwX + bx*b, nwY + by*b, this.burstCounter); }}
-
-                    // NE
-                    const neX = this.origin.x + (1 * b);
-                    const neY = this.origin.y - (7 * b);
-                    for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(neX + bx*b, neY + by*b, this.burstCounter); }}
-                    
-                    // SW
-                    const swX = this.origin.x - (4 * b);
-                    const swY = this.origin.y + (0 * b); // Near center Y
-                    for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(swX + bx*b, swY + by*b, this.burstCounter); }}
-                    
-                    // SE
-                    const seX = this.origin.x + (1 * b);
-                    const seY = this.origin.y + (0 * b);
-                    for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(seX + bx*b, seY + by*b, this.burstCounter); }}
-
-                    this.growthPhase = 9;
-                }
-                else if (this.growthPhase === 9) {
-                    // Phase 9: Further Extensions & Vertical Thickening
-                    const b = 2;
-                    const wingY = this.origin.y - (4 * b);
-
-                    // 1. West Extension (4 blocks)
-                    // Previous West Tip was -8b. New range: -9b to -12b.
-                    const westExtStart = this.origin.x - (9 * b);
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(westExtStart - (k * b), wingY, this.burstCounter);
-                    }
-
-                    // 2. East Extension (4 blocks)
-                    // Previous East Tip was +9b. New range: +10b to +13b.
-                    const eastExtStart = this.origin.x + (10 * b);
-                    for(let k=0; k<4; k++) {
-                        this._addBlock(eastExtStart + (k * b), wingY, this.burstCounter);
-                    }
-
-                    // 3. Thicken South Bar (Left Side)
-                    // Phase 8 thickened Right side (+0b). Original was -1b.
-                    // Now thicken Left side (-2b).
-                    const thickenX_Left = this.origin.x - (2 * b);
-                    const startY_South = this.origin.y + (3 * b);
-                    for(let k=0; k<10; k++) {
-                        this._addBlock(thickenX_Left, startY_South + (k * b), this.burstCounter);
-                    }
-
-                    // 4. Thicken North Bar (Left Side)
-                    const startY_North = this.origin.y - (10 * b);
-                    for(let k=0; k<10; k++) {
-                        this._addBlock(thickenX_Left, startY_North + (k * b), this.burstCounter);
-                    }
-
-                    this.growthPhase = 10;
-                }
-                else if (this.growthPhase === 10) {
-                    // Phase 10: Vertical Bars on Tendrils & Wing Thickening
-                    const b = 2;
-                    const wingY = this.origin.y - (4 * b);
-
-                    // 1. Vertical Bars on West Tendril (at -11b)
-                    const westVertX = this.origin.x - (11 * b);
-                    for(let k=1; k<=4; k++) {
-                        this._addBlock(westVertX, wingY - (k * b), this.burstCounter); // Up
-                        this._addBlock(westVertX, wingY + (k * b), this.burstCounter); // Down
-                    }
-
-                    // 2. Vertical Bars on East Tendril (at +12b)
-                    const eastVertX = this.origin.x + (12 * b);
-                    for(let k=1; k<=4; k++) {
-                        this._addBlock(eastVertX, wingY - (k * b), this.burstCounter); // Up
-                        this._addBlock(eastVertX, wingY + (k * b), this.burstCounter); // Down
-                    }
-
-                    // 3. Thicken West Wing (Add row above at wingY - 1b)
-                    // Sweep from center to tip. _isOccupied will skip clusters.
-                    for(let k=1; k<=12; k++) {
-                        this._addBlock(this.origin.x - (k * b), wingY - b, this.burstCounter);
-                    }
-
-                    // 4. Thicken East Wing (Add row above at wingY - 1b)
-                    for(let k=1; k<=13; k++) {
-                        this._addBlock(this.origin.x + (k * b), wingY - b, this.burstCounter);
-                    }
-
-                    this.growthPhase = 11;
-                }
-                else if (this.growthPhase === 11) {
-                    // Phase 11: Long Horizontal Branches from N/S Tendrils
-                    const b = 2;
-                    // North Branch Y: Near top of N-Bar (origin.y - 10b). Let's go at -9b.
-                    // South Branch Y: Near bottom of S-Bar (origin.y + 13b). Let's go at +10b.
-                    const northBranchY = this.origin.y - (9 * b);
-                    const southBranchY = this.origin.y + (10 * b);
-                    const centerX = this.origin.x - (1 * b); // Center of the bar (roughly)
-
-                    // North Branches (7x1)
-                    for(let k=1; k<=7; k++) {
-                        this._addBlock(centerX - (k * b), northBranchY, this.burstCounter); // Westward
-                        this._addBlock(centerX + (k * b), northBranchY, this.burstCounter); // Eastward
-                    }
-                    
-                    // South Branches (7x1)
-                    for(let k=1; k<=7; k++) {
-                        this._addBlock(centerX - (k * b), southBranchY, this.burstCounter); // Westward
-                        this._addBlock(centerX + (k * b), southBranchY, this.burstCounter); // Eastward
-                    }
-
-                    this.growthPhase = 12;
-                }
-                else if (this.growthPhase === 12) {
-                    // Phase 12: Thicken thin tendrils (excluding Phase 11 branches)
-                    // Targets: Phase 10 Vertical Bars (-11b, +12b) and extensions
-                    const b = 2;
-                    const wingY = this.origin.y - (4 * b);
-
-                    // 1. Thicken Phase 10 West Verticals (-11b) - Add column at -12b
-                    const westVertX = this.origin.x - (12 * b); 
-                    for(let k=1; k<=4; k++) {
-                        this._addBlock(westVertX, wingY - (k * b), this.burstCounter); 
-                        this._addBlock(westVertX, wingY + (k * b), this.burstCounter); 
-                    }
-
-                    // 2. Thicken Phase 10 East Verticals (+12b) - Add column at +13b
-                    const eastVertX = this.origin.x + (13 * b);
-                    for(let k=1; k<=4; k++) {
-                        this._addBlock(eastVertX, wingY - (k * b), this.burstCounter); 
-                        this._addBlock(eastVertX, wingY + (k * b), this.burstCounter); 
-                    }
-                    
-                    // 3. Thicken Phase 8 Vertical Tips (West @ -8b, East @ +9b)
-                    // West (-8b): Add column at -9b. Length 3.
-                    const wTipX = (this.origin.x - (2 * b)) - (2 * b) - (1 * b) - (3 * b) - (1 * b);
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(wTipX, wingY + (k * b), this.burstCounter);
-                    }
-                    
-                    // East (+9b): Add column at +10b. Length 3.
-                    const eTipX = (this.origin.x + (1 * b)) + (4 * b) + (1 * b) + (3 * b) + (1 * b);
-                    for(let k=1; k<=3; k++) {
-                        this._addBlock(eTipX, wingY - (k * b), this.burstCounter);
-                    }
-
-                    this.growthPhase = 13;
-                }
-                else if (this.growthPhase === 13) {
-                    // Phase 13: Mass Expansion & Branch Extension/Thickening
-                    const b = 2;
-                    
-                    // 1. Extend Main Mass Vertically (Fill corners towards center)
-                    // Add 2x2 blocks in the "inner corners" of the cross
-                    const cX = this.origin.x - b;
-                    const cY = this.origin.y;
-                    
-                    // NW Inner
-                    this._addBlock(cX - b, cY - 2*b, this.burstCounter);
-                    this._addBlock(cX - 2*b, cY - b, this.burstCounter);
-                    
-                    // NE Inner
-                    this._addBlock(cX + 2*b, cY - 2*b, this.burstCounter);
-                    this._addBlock(cX + 3*b, cY - b, this.burstCounter);
-                    
-                    // SW Inner
-                    this._addBlock(cX - b, cY + 2*b, this.burstCounter);
-                    this._addBlock(cX - 2*b, cY + b, this.burstCounter);
-                    
-                    // SE Inner
-                    this._addBlock(cX + 2*b, cY + 2*b, this.burstCounter);
-                    this._addBlock(cX + 3*b, cY + b, this.burstCounter);
-
-                    // 2. Thicken Phase 11 Branches (Add row above/below)
-                    const northBranchY = this.origin.y - (9 * b);
-                    const southBranchY = this.origin.y + (10 * b);
-                    const centerX = this.origin.x - (1 * b);
-
-                    for(let k=1; k<=7; k++) {
-                        // Thicken North (Above)
-                        this._addBlock(centerX - (k * b), northBranchY - b, this.burstCounter);
-                        this._addBlock(centerX + (k * b), northBranchY - b, this.burstCounter);
-                        
-                        // Thicken South (Below)
-                        this._addBlock(centerX - (k * b), southBranchY + b, this.burstCounter);
-                        this._addBlock(centerX + (k * b), southBranchY + b, this.burstCounter);
-                    }
-
-                    // 3. Extend Phase 11 Branches (Towards Edges)
-                    // Current length 7. Add 2 more (8..9).
-                    for(let k=8; k<=9; k++) {
-                         this._addBlock(centerX - (k * b), northBranchY, this.burstCounter);
-                         this._addBlock(centerX + (k * b), northBranchY, this.burstCounter);
-                         this._addBlock(centerX - (k * b), southBranchY, this.burstCounter);
-                         this._addBlock(centerX + (k * b), southBranchY, this.burstCounter);
-                    }
-
-                    this.growthPhase = 14;
-                }
-                else if (this.growthPhase === 14) {
-                    // Phase 14: Fill Internal Holes (Main Mass)
-                    // Aggressively fill gaps within the central 16x16 block area
-                    const range = 8; // Reduced from 15 to 8 to prevent quadrant filling
-                    const cx = this.origin.x;
-                    const cy = this.origin.y;
-                    
-                    // Scan the bounding box
-                    for(let by = -range; by <= range; by++) {
-                        for(let bx = -range; bx <= range; bx++) {
-                            const tx = cx + (bx * 2);
-                            const ty = cy + (by * 2);
                             
-                            // If empty...
-                            if (!this._isOccupied(tx, ty)) {
-                                // Check neighbors (mass adjacency)
-                                let neighbors = 0;
-                                if (this._isOccupied(tx, ty - 2)) neighbors++;
-                                if (this._isOccupied(tx + 2, ty)) neighbors++;
-                                if (this._isOccupied(tx, ty + 2)) neighbors++;
-                                if (this._isOccupied(tx - 2, ty)) neighbors++;
+                            // 1. West (3 blocks high)
+                            const startX_West = this.origin.x - (2 * b);
+                            const tx_West = startX_West - (3 * b);
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(tx_West, wingY + (k * b), this.burstCounter);
+                                this._addBlock(tx_West, wingY - (k * b), this.burstCounter);
+                            }
+                            
+                            // 2. East (2 blocks high - Shorter, NO South tendril)
+                            const startX_East = this.origin.x + (1 * b);
+                            const tx_East = startX_East + (3 * b); 
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(tx_East, wingY - (k * b), this.burstCounter);
+                            }
+
+                            // 3. South Bar (Longer, 1x12)
+                            const barX = this.origin.x - (1 * b);
+                            const startY_SouthBar = this.origin.y + (3 * b); 
+                            for(let k=0; k<12; k++) {
+                                this._addBlock(barX, startY_SouthBar + (k * b), this.burstCounter);
+                            }
+
+                            this._addBlock(barX + (1 * b), startY_SouthBar + (5 * b), this.burstCounter);
+    
+                            // 4. North Bar (Longer, 1x10)
+                            const startY_NorthBar = this.origin.y - (10 * b);
+                            for(let k=0; k<10; k++) {
+                                this._addBlock(barX, startY_NorthBar - (k * b), this.burstCounter);
+                            }
+
+                            this.growthPhase = 4;
+                        }
+                        else if (this.growthPhase === 4) {
+                            // Phase 4: West Clusters
+                            const wingY = this.origin.y - (4 * b);
+                            const startX_West = this.origin.x - (2 * b);                    
+                            const t1_x = startX_West - (1 * b);
+                            const t2_x = startX_West - (2 * b);
+                            const barX = this.origin.x - (1 * b);
+                            const startY_SouthBar = this.origin.y + (3 * b); 
+                            
+                            // North Side (Above) - 2x3 Cluster
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(t1_x, wingY - (k * b), this.burstCounter);
+                                this._addBlock(t2_x, wingY - (k * b), this.burstCounter);
+                            }
+        
+                            // South Side (Below) - 2x3 Cluster
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(t1_x, wingY + (k * b), this.burstCounter);
+                                this._addBlock(t2_x, wingY + (k * b), this.burstCounter);
+                            }
+
+                            this._addBlock(barX + (1 * b), startY_SouthBar + (6 * b), this.burstCounter);
+        
+                            this.growthPhase = 5;
+                        }
+                        else if (this.growthPhase === 5) {
+                            // Phase 5: South Thickening, West Cluster Extension, Wing Thickening
+                            // 1. South Thickening (Existing)
+                            const barX = this.origin.x - (1 * b);
+                            const startX_Block = barX + (1 * b); 
+                            const startY_SouthBar = this.origin.y + (1 * b);
+                            const bottomY = startY_SouthBar + (12 * b); 
+                            
+                            for(let by=0; by<2; by++) {
+                                for(let bx=0; bx<2; bx++) {
+                                    this._addBlock(startX_Block + (bx * b), (bottomY - 8) - (by * b), this.burstCounter);
+                                }
+                            }
+
+                            for(let k=0; k<2; k++) {
+                                this._addBlock(barX, bottomY + (k * b), this.burstCounter);
+                            }
+                            
+                            // 2. Extend West Clusters (To match central mass)
+                            const wingY = this.origin.y - (4 * b);
+                            const startX_West = this.origin.x - (2 * b);                    
+                            const t1_x = startX_West - (1 * b);
+                            const t2_x = startX_West - (2 * b); // -4b
+                            
+                            // Extend North 
+                            for(let k=4; k<=5; k++) {
+                                for(let j=0; j<=2; j++){
+                                    this._addBlock(t1_x - (j * b), wingY - (k * b), this.burstCounter);
+                                }
+                            }
+                            
+                            // Extend South (Down to align with Phase 0 bottom)
+                            for(let k=4; k<=6; k++) {
+                                this._addBlock(t1_x, wingY + (k * b), this.burstCounter);
+                                this._addBlock(t2_x, wingY + (k * b), this.burstCounter);
+                            }
+
+                            // Add column at t2_x - b. Matches South Cluster height (k=1..6 relative to wingY)
+                            const t3_x = t2_x - b;
+                            for(let k=1; k<=6; k++) {
+                                this._addBlock(t3_x, wingY + (k * b), this.burstCounter);
+                            }
+                            
+                            // 3. East Upwards Extension & Fill
+                            const startX_East = this.origin.x + (1 * b); 
+                            const tx_East = startX_East + (3 * b); // +4b
+                            
+                            // Extend Up 3 more blocks (Phase 3 went to k=2). So k=3,4,5.
+                            for(let k=2; k<=5; k++) {
+                                for(let j=0; j<=2; j++){
+                                    this._addBlock(tx_East - (j * b), wingY - (k * b), this.burstCounter);
+                                }
+                            }
+                            
+                            // Fill West 2 blocks from the top (k=5 level)
+                            // "To fill in the rectangle east of the phase 1 block"
+                            const topY = wingY - (5 * b);
+                            this._addBlock(tx_East - b, topY, this.burstCounter);
+                            this._addBlock(tx_East - (2*b), topY, this.burstCounter);
+
+                            // 4. Thicken West/East Tendrils (Make them 4 blocks thick)
+                            // West Wing
+                            const wingLen = 4; 
+                            for(let k=1; k<=wingLen; k++) {
+                                const wx = startX_West - (k * b);
+                                this._addBlock(wx, wingY - b, this.burstCounter); // Top
+                                this._addBlock(wx, wingY - (2*b), this.burstCounter); // Top 2
+                                this._addBlock(wx, wingY + b, this.burstCounter); // Bottom
+                            }
+                            
+                            // East Wing
+                            for(let k=1; k<=wingLen; k++) {
+                                const ex = startX_East + (k * b);
+                                this._addBlock(ex, wingY - b, this.burstCounter); // Top
+                                this._addBlock(ex, wingY - (2*b), this.burstCounter); // Top 2
+                                this._addBlock(ex, wingY + b, this.burstCounter); // Bottom
+                            }
+
+                            // Start southern strip
+                            this._addBlock(barX, bottomY + (6 * b), this.burstCounter);
+        
+                            this.growthPhase = 6;
+                        }                    
+                        else if (this.growthPhase === 6) { 
+                            // Phase 6: Wing extension, new north extension, fill/broad
+
+                            // --- WEST SIDE ---
+                            const startX_West = this.origin.x - (2 * b);
+                            const westClusterEnd = startX_West - (2 * b); 
+                            const westBarStart = westClusterEnd - (1 * b);
+                            const wingY = this.origin.y - (4 * b);
+                            
+                            // --- EAST SIDE ---
+                            const startX_East = this.origin.x + (1 * b);
+                            const t3_x = startX_East + (3 * b);
+                            const t4_x = startX_East + (4 * b);
+
+
+                            // 1. West 6x2 Bar
+                            for(let k=0; k<9; k++) {
+                                for(let j=0; j<2; j++){
+                                    this._addBlock(westBarStart - (k * b), wingY - (j * b), this.burstCounter);
+                                }
+                            }
+                            this._addBlock(startX_West - (6 * b), wingY + (1 * b), this.burstCounter)
+
+                            
+                            // 2. East 6x2 Bar
+                            for(let k=0; k<12; k++) {
+                                for(let j=0; j<2; j++){
+                                    this._addBlock(startX_East + (k * b), wingY - (j * b), this.burstCounter);
+                                }
+                            }
+                            this._addBlock(t4_x, wingY - (5 * b), this.burstCounter)
+                            
+                    
+
+                            // 2. NE Vertical Tendril
+                            for(let k=0; k<8; k++){
+                                this._addBlock(t3_x -2, 12 + (k * b), this.burstCounter);
+                            }
+
+                            // South Side (Below)
+                            for(let k=1; k<=3; k++) {
+                                for(let j=0; j<12; j++){
+                                    this._addBlock((t3_x + (1 * b) - (j * b)), wingY + (k * b), this.burstCounter);
+                                }
+                            }
+
+                            // Expand southern strip
+                            const bottomY = this.origin.y + (12 * b);
+                            const barX = this.origin.x - (1 * b);
+                            this._addBlock(barX, bottomY + (8 * b), this.burstCounter);
+                            this._addBlock(barX, bottomY + (6 * b), this.burstCounter);
+        
+                            this.growthPhase = 7;
+                        }
+                        else if (this.growthPhase === 7) {
+                            const wingY = this.origin.y - (4 * b);
+                            const startX_East = this.origin.x + (1 * b); 
+                            const t3_x = startX_East + (3 * b);
+                            const t4_x = startX_East + (4 * b);
+        
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(t3_x, wingY - (k * b), this.burstCounter);
+                                this._addBlock(t4_x, wingY - (k * b), this.burstCounter);
+                            }
+                            for(let k=1; k<=3; k++) {
+                                this._addBlock(t3_x, wingY + (k * b), this.burstCounter);
+                                this._addBlock(t4_x, wingY + (k * b), this.burstCounter);
+                            }
+        
+                            const barX = this.origin.x - (1 * b);
+                            const startY_SouthBar = this.origin.y + (3 * b);
+                            const currentBottom = startY_SouthBar + (16 * b);
+
+                            for(let k=0; k<5; k++) {
+                                this._addBlock(barX, currentBottom + (k * b), this.burstCounter);
+                            }
+        
+                            // North Bar Extension
+                            const currentTop = this.origin.y - (19 * b);
+                            for(let k=1; k<=4; k++) {
+                                this._addBlock(barX, currentTop - (k * b), this.burstCounter);
+                            }
+                            
+                            this.growthPhase = 8; 
+
+                        } else if (this.growthPhase === 8) {
+                        // Phase 8: 4x1 Horizontal Bars & Detail Blocks
+                        const wingY = this.origin.y - (4 * b);
+                        
+                        // --- WEST SIDE ---
+                        const startX_West = this.origin.x - (2 * b);
+                        const westClusterEnd = startX_West - (2 * b); // t2_x from Phase 4
+                        
+                        // 1. West 4x1 Bar (Horizontal, 4 blocks wide)
+                        // Extending LEFT from the West Cluster
+                        const westBarStart = westClusterEnd - (1 * b);
+                        for(let k=0; k<4; k++) {
+                            this._addBlock(westBarStart - (k * b), wingY, this.burstCounter);
+                        }
+                        
+                        // 2. West Detail Block
+                        // "1x1 block on the south of the new west-most tendril, 1 block away from the end"
+                        // End is at k=3 (westBarStart - 3*b). 1 block away is k=2 (westBarStart - 2*b).
+                        // South = wingY + b.
+                        this._addBlock(westBarStart - (2 * b), wingY + b, this.burstCounter);
+
+                        // --- EAST SIDE ---
+                        const startX_East = this.origin.x + (1 * b);
+                        const eastClusterEnd = startX_East + (4 * b); // t4_x from Phase 6
+                        
+                        // 3. East 4x1 Bar (Horizontal)
+                        // Extending RIGHT from the East Cluster
+                        const eastBarStart = eastClusterEnd + (1 * b);
+                        for(let k=0; k<4; k++) {
+                            this._addBlock(eastBarStart + (k * b), wingY, this.burstCounter);
+                        }
+                        
+                        // 4. Northeast Detail Block
+                        // "1x1 block in the northeast most corner of the existing blob"
+                        // The NE corner of the blob is the top of the Phase 6 East Cluster.
+                        // Phase 6 Cluster Top is at wingY - 3*b.
+                        // We'll place this detail block just above it at wingY - 4*b, aligned with the outer edge (eastClusterEnd).
+                        this._addBlock(eastClusterEnd, wingY - (4 * b), this.burstCounter);
+
+                        this.growthPhase = 9;
+                    }
+                    else if (this.growthPhase === 9) {
+                        // Phase 8: Thicken Verticals, Extensions, & Center Corners
+                        const b = 2;
+                        const barX = this.origin.x - (1 * b);
+                        const thickenX = this.origin.x; // Right side of existing bar
+
+                        // 1. Thicken South Bar (Right Side)
+                        // Original: origin.y + 3*b to +13*b (10 blocks long).
+                        const startY_South = this.origin.y + (3 * b);
+                        for(let k=0; k<10; k++) {
+                            this._addBlock(thickenX, startY_South + (k * b), this.burstCounter);
+                        }
+
+                        // 2. Thicken North Bar (Right Side)
+                        // Original: origin.y - 10*b to -4*b (6 blocks) + ext 1x4 = 10 blocks.
+                        // Start from top down.
+                        const startY_North = this.origin.y - (10 * b);
+                        for(let k=0; k<10; k++) {
+                            this._addBlock(thickenX, startY_North + (k * b), this.burstCounter);
+                        }
+
+                        // 3. West Vertical Extension (1x3 Down)
+                        // West Tip from Phase 7 (westBarStart = -5b). Length 4 -> Ends at -8b.
+                        // Wait, West Cluster ends at -4b (t2_x). Bar starts -5b, length 4. Ends -8b.
+                        // Tip X: origin.x - 2b - 2b - 1b - 3b = origin.x - 8b.
+                        const tipX_West = (this.origin.x - (2 * b)) - (2 * b) - (1 * b) - (3 * b);
+                        const wingY = this.origin.y - (4 * b);
+                        for(let k=1; k<=3; k++) {
+                            this._addBlock(tipX_West, wingY + (k * b), this.burstCounter);
+                        }
+
+                        // 4. East Vertical Extension (1x3 Up)
+                        // East Tip X: origin.x + 1b + 4b + 1b + 3b = origin.x + 9b.
+                        const tipX_East = (this.origin.x + (1 * b)) + (4 * b) + (1 * b) + (3 * b);
+                        for(let k=1; k<=3; k++) {
+                            this._addBlock(tipX_East, wingY - (k * b), this.burstCounter);
+                        }
+
+                        // 5. Center Mass Corners (3x3)
+                        // NW
+                        const nwX = this.origin.x - (4 * b);
+                        const nwY = this.origin.y - (7 * b); // Aligned with top block bottom (-4b) or top (-6b)? Top of Phase 0 is -3b. Top of Phase 1 is -9b.
+                        // Let's place it at the intersection.
+                        for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(nwX + bx*b, nwY + by*b, this.burstCounter); }}
+
+                        // NE
+                        const neX = this.origin.x + (1 * b);
+                        const neY = this.origin.y - (7 * b);
+                        for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(neX + bx*b, neY + by*b, this.burstCounter); }}
+                        
+                        // SW
+                        const swX = this.origin.x - (4 * b);
+                        const swY = this.origin.y + (0 * b); // Near center Y
+                        for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(swX + bx*b, swY + by*b, this.burstCounter); }}
+                        
+                        // SE
+                        const seX = this.origin.x + (1 * b);
+                        const seY = this.origin.y + (0 * b);
+                        for(let by=0; by<3; by++) { for(let bx=0; bx<3; bx++) { this._addBlock(seX + bx*b, seY + by*b, this.burstCounter); }}
+
+                        this.growthPhase = 9;
+                    }
+                    else if (this.growthPhase === 9) {
+                        // Phase 9: Further Extensions & Vertical Thickening
+                        const b = 2;
+                        const wingY = this.origin.y - (4 * b);
+
+                        // 1. West Extension (4 blocks)
+                        // Previous West Tip was -8b. New range: -9b to -12b.
+                        const westExtStart = this.origin.x - (9 * b);
+                        for(let k=0; k<4; k++) {
+                            this._addBlock(westExtStart - (k * b), wingY, this.burstCounter);
+                        }
+
+                        // 2. East Extension (4 blocks)
+                        // Previous East Tip was +9b. New range: +10b to +13b.
+                        const eastExtStart = this.origin.x + (10 * b);
+                        for(let k=0; k<4; k++) {
+                            this._addBlock(eastExtStart + (k * b), wingY, this.burstCounter);
+                        }
+
+                        // 3. Thicken South Bar (Left Side)
+                        // Phase 8 thickened Right side (+0b). Original was -1b.
+                        // Now thicken Left side (-2b).
+                        const thickenX_Left = this.origin.x - (2 * b);
+                        const startY_South = this.origin.y + (3 * b);
+                        for(let k=0; k<10; k++) {
+                            this._addBlock(thickenX_Left, startY_South + (k * b), this.burstCounter);
+                        }
+
+                        // 4. Thicken North Bar (Left Side)
+                        const startY_North = this.origin.y - (10 * b);
+                        for(let k=0; k<10; k++) {
+                            this._addBlock(thickenX_Left, startY_North + (k * b), this.burstCounter);
+                        }
+
+                        this.growthPhase = 10;
+                    }
+                    else if (this.growthPhase === 10) {
+                        // Phase 10: Vertical Bars on Tendrils & Wing Thickening
+                        const b = 2;
+                        const wingY = this.origin.y - (4 * b);
+
+                        // 1. Vertical Bars on West Tendril (at -11b)
+                        const westVertX = this.origin.x - (11 * b);
+                        for(let k=1; k<=4; k++) {
+                            this._addBlock(westVertX, wingY - (k * b), this.burstCounter); // Up
+                            this._addBlock(westVertX, wingY + (k * b), this.burstCounter); // Down
+                        }
+
+                        // 2. Vertical Bars on East Tendril (at +12b)
+                        const eastVertX = this.origin.x + (12 * b);
+                        for(let k=1; k<=4; k++) {
+                            this._addBlock(eastVertX, wingY - (k * b), this.burstCounter); // Up
+                            this._addBlock(eastVertX, wingY + (k * b), this.burstCounter); // Down
+                        }
+
+                        // 3. Thicken West Wing (Add row above at wingY - 1b)
+                        // Sweep from center to tip. _isOccupied will skip clusters.
+                        for(let k=1; k<=12; k++) {
+                            this._addBlock(this.origin.x - (k * b), wingY - b, this.burstCounter);
+                        }
+
+                        // 4. Thicken East Wing (Add row above at wingY - 1b)
+                        for(let k=1; k<=13; k++) {
+                            this._addBlock(this.origin.x + (k * b), wingY - b, this.burstCounter);
+                        }
+
+                        this.growthPhase = 11;
+                    }
+                    else if (this.growthPhase === 11) {
+                        // Phase 11: Long Horizontal Branches from N/S Tendrils
+                        const b = 2;
+                        // North Branch Y: Near top of N-Bar (origin.y - 10b). Let's go at -9b.
+                        // South Branch Y: Near bottom of S-Bar (origin.y + 13b). Let's go at +10b.
+                        const northBranchY = this.origin.y - (9 * b);
+                        const southBranchY = this.origin.y + (10 * b);
+                        const centerX = this.origin.x - (1 * b); // Center of the bar (roughly)
+
+                        // North Branches (7x1)
+                        for(let k=1; k<=7; k++) {
+                            this._addBlock(centerX - (k * b), northBranchY, this.burstCounter); // Westward
+                            this._addBlock(centerX + (k * b), northBranchY, this.burstCounter); // Eastward
+                        }
+                        
+                        // South Branches (7x1)
+                        for(let k=1; k<=7; k++) {
+                            this._addBlock(centerX - (k * b), southBranchY, this.burstCounter); // Westward
+                            this._addBlock(centerX + (k * b), southBranchY, this.burstCounter); // Eastward
+                        }
+
+                        this.growthPhase = 12;
+                    }
+                    else if (this.growthPhase === 12) {
+                        // Phase 12: Thicken thin tendrils (excluding Phase 11 branches)
+                        // Targets: Phase 10 Vertical Bars (-11b, +12b) and extensions
+                        const b = 2;
+                        const wingY = this.origin.y - (4 * b);
+
+                        // 1. Thicken Phase 10 West Verticals (-11b) - Add column at -12b
+                        const westVertX = this.origin.x - (12 * b); 
+                        for(let k=1; k<=4; k++) {
+                            this._addBlock(westVertX, wingY - (k * b), this.burstCounter); 
+                            this._addBlock(westVertX, wingY + (k * b), this.burstCounter); 
+                        }
+
+                        // 2. Thicken Phase 10 East Verticals (+12b) - Add column at +13b
+                        const eastVertX = this.origin.x + (13 * b);
+                        for(let k=1; k<=4; k++) {
+                            this._addBlock(eastVertX, wingY - (k * b), this.burstCounter); 
+                            this._addBlock(eastVertX, wingY + (k * b), this.burstCounter); 
+                        }
+                        
+                        // 3. Thicken Phase 8 Vertical Tips (West @ -8b, East @ +9b)
+                        // West (-8b): Add column at -9b. Length 3.
+                        const wTipX = (this.origin.x - (2 * b)) - (2 * b) - (1 * b) - (3 * b) - (1 * b);
+                        for(let k=1; k<=3; k++) {
+                            this._addBlock(wTipX, wingY + (k * b), this.burstCounter);
+                        }
+                        
+                        // East (+9b): Add column at +10b. Length 3.
+                        const eTipX = (this.origin.x + (1 * b)) + (4 * b) + (1 * b) + (3 * b) + (1 * b);
+                        for(let k=1; k<=3; k++) {
+                            this._addBlock(eTipX, wingY - (k * b), this.burstCounter);
+                        }
+
+                        this.growthPhase = 13;
+                    }
+                    else if (this.growthPhase === 13) {
+                        // Phase 13: Mass Expansion & Branch Extension/Thickening
+                        const b = 2;
+                        
+                        // 1. Extend Main Mass Vertically (Fill corners towards center)
+                        // Add 2x2 blocks in the "inner corners" of the cross
+                        const cX = this.origin.x - b;
+                        const cY = this.origin.y;
+                        
+                        // NW Inner
+                        this._addBlock(cX - b, cY - 2*b, this.burstCounter);
+                        this._addBlock(cX - 2*b, cY - b, this.burstCounter);
+                        
+                        // NE Inner
+                        this._addBlock(cX + 2*b, cY - 2*b, this.burstCounter);
+                        this._addBlock(cX + 3*b, cY - b, this.burstCounter);
+                        
+                        // SW Inner
+                        this._addBlock(cX - b, cY + 2*b, this.burstCounter);
+                        this._addBlock(cX - 2*b, cY + b, this.burstCounter);
+                        
+                        // SE Inner
+                        this._addBlock(cX + 2*b, cY + 2*b, this.burstCounter);
+                        this._addBlock(cX + 3*b, cY + b, this.burstCounter);
+
+                        // 2. Thicken Phase 11 Branches (Add row above/below)
+                        const northBranchY = this.origin.y - (9 * b);
+                        const southBranchY = this.origin.y + (10 * b);
+                        const centerX = this.origin.x - (1 * b);
+
+                        for(let k=1; k<=7; k++) {
+                            // Thicken North (Above)
+                            this._addBlock(centerX - (k * b), northBranchY - b, this.burstCounter);
+                            this._addBlock(centerX + (k * b), northBranchY - b, this.burstCounter);
+                            
+                            // Thicken South (Below)
+                            this._addBlock(centerX - (k * b), southBranchY + b, this.burstCounter);
+                            this._addBlock(centerX + (k * b), southBranchY + b, this.burstCounter);
+                        }
+
+                        // 3. Extend Phase 11 Branches (Towards Edges)
+                        // Current length 7. Add 2 more (8..9).
+                        for(let k=8; k<=9; k++) {
+                            this._addBlock(centerX - (k * b), northBranchY, this.burstCounter);
+                            this._addBlock(centerX + (k * b), northBranchY, this.burstCounter);
+                            this._addBlock(centerX - (k * b), southBranchY, this.burstCounter);
+                            this._addBlock(centerX + (k * b), southBranchY, this.burstCounter);
+                        }
+
+                        this.growthPhase = 14;
+                    }
+                    else if (this.growthPhase === 14) {
+                        // Phase 14: Fill Internal Holes (Main Mass)
+                        // Aggressively fill gaps within the central 16x16 block area
+                        const range = 8; // Reduced from 15 to 8 to prevent quadrant filling
+                        const cx = this.origin.x;
+                        const cy = this.origin.y;
+                        
+                        // Scan the bounding box
+                        for(let by = -range; by <= range; by++) {
+                            for(let bx = -range; bx <= range; bx++) {
+                                const tx = cx + (bx * 2);
+                                const ty = cy + (by * 2);
                                 
-                                // If enclosed or next to mass (>= 2 neighbors), fill it
-                                if (neighbors >= 2) {
-                                    this._addBlock(tx, ty, this.burstCounter);
+                                // If empty...
+                                if (!this._isOccupied(tx, ty)) {
+                                    // Check neighbors (mass adjacency)
+                                    let neighbors = 0;
+                                    if (this._isOccupied(tx, ty - 2)) neighbors++;
+                                    if (this._isOccupied(tx + 2, ty)) neighbors++;
+                                    if (this._isOccupied(tx, ty + 2)) neighbors++;
+                                    if (this._isOccupied(tx - 2, ty)) neighbors++;
+                                    
+                                    // If enclosed or next to mass (>= 2 neighbors), fill it
+                                    if (neighbors >= 2) {
+                                        this._addBlock(tx, ty, this.burstCounter);
+                                    }
                                 }
                             }
                         }
+                        this.growthPhase = 15;
                     }
-                    this.growthPhase = 15;
-                }
-                else if (this.growthPhase === 15) {
-                    // Phase 15: Fractal Expansion (2x1 -> 3x3 -> 5x5 -> 1x3) - ANIMATED (3 Loops)
+                    else if (this.growthPhase === 15) {
+                        // Phase 15: Fractal Expansion (2x1 -> 3x3 -> 5x5 -> 1x3) - ANIMATED (3 Loops)
+                        const b = 2;
+                        const centerX = this.origin.x - (1 * b);
+                        const northBranchY = this.origin.y - (9 * b);
+                        const southBranchY = this.origin.y + (10 * b);
+                        
+                        if (this.phase15LoopCounter < 3) {
+                            // Add 1 Pattern Set per loop, moving outward
+                            // Start closer (2) and expand out (3 per step)
+                            const off = (2 + (this.phase15LoopCounter * 3)) * b;
+                            
+                            // 1. Add 2x1 (Horizontal)
+                            this._addPhase15Cluster(centerX - off, northBranchY, 2, 1);
+                            this._addPhase15Cluster(centerX + off, northBranchY, 2, 1);
+                            this._addPhase15Cluster(centerX - off, southBranchY, 2, 1);
+                            this._addPhase15Cluster(centerX + off, southBranchY, 2, 1);
+                            
+                            // 2. Add 3x3 (Centered)
+                            this._addPhase15Cluster(centerX - (off + 2*b), northBranchY, 3, 3, true);
+                            this._addPhase15Cluster(centerX + (off + 2*b), northBranchY, 3, 3, true);
+                            this._addPhase15Cluster(centerX - (off + 2*b), southBranchY, 3, 3, true);
+                            this._addPhase15Cluster(centerX + (off + 2*b), southBranchY, 3, 3, true);
+                            
+                            // 3. Add 5x5 (Centered)
+                            this._addPhase15Cluster(centerX - (off + 5*b), northBranchY, 5, 5, true);
+                            this._addPhase15Cluster(centerX + (off + 5*b), northBranchY, 5, 5, true);
+                            this._addPhase15Cluster(centerX - (off + 5*b), southBranchY, 5, 5, true);
+                            this._addPhase15Cluster(centerX + (off + 5*b), southBranchY, 5, 5, true);
+
+                            // 4. Add 1x3 (Vertical Strip) - Thinner edge block
+                            // Attached to the outside of the 5x5.
+                            // 5x5 was at off + 5b (center). Edge is at off + 5b + 2b = off + 7b.
+                            this._addPhase15Cluster(centerX - (off + 8*b), northBranchY, 1, 3, true);
+                            this._addPhase15Cluster(centerX + (off + 8*b), northBranchY, 1, 3, true);
+                            this._addPhase15Cluster(centerX - (off + 8*b), southBranchY, 1, 3, true);
+                            this._addPhase15Cluster(centerX + (off + 8*b), southBranchY, 1, 3, true);
+
+                            // 5. Add 1x1 Tip (Arrow Point)
+                            this._addPhase15Cluster(centerX - (off + 9*b), northBranchY, 1, 1, true);
+                            this._addPhase15Cluster(centerX + (off + 9*b), northBranchY, 1, 1, true);
+                            this._addPhase15Cluster(centerX - (off + 9*b), southBranchY, 1, 1, true);
+                            this._addPhase15Cluster(centerX + (off + 9*b), southBranchY, 1, 1, true);
+                            
+                            this.phase15LoopCounter++;
+                            
+                        }
+                        else {
+                            // End Expansion after 3 loops of Phase 15
+                            this.growthPhase = 16;
+                        }
+                } else if (this.growthPhase === 16) {
                     const b = 2;
-                    const centerX = this.origin.x - (1 * b);
-                    const northBranchY = this.origin.y - (9 * b);
-                    const southBranchY = this.origin.y + (10 * b);
+
+                    // Outward growth from phase 15 tendrils
+                    const centerX = Math.floor(this.origin.x / b) * b;
+                    const centerY = Math.floor(this.origin.y / b) * b;
                     
-                    if (this.phase15LoopCounter < 3) {
-                        // Add 1 Pattern Set per loop, moving outward
-                        // Start closer (2) and expand out (3 per step)
-                        const off = (2 + (this.phase15LoopCounter * 3)) * b;
-                        
-                        // 1. Add 2x1 (Horizontal)
-                        this._addPhase15Cluster(centerX - off, northBranchY, 2, 1);
-                        this._addPhase15Cluster(centerX + off, northBranchY, 2, 1);
-                        this._addPhase15Cluster(centerX - off, southBranchY, 2, 1);
-                        this._addPhase15Cluster(centerX + off, southBranchY, 2, 1);
-                        
-                        // 2. Add 3x3 (Centered)
-                        this._addPhase15Cluster(centerX - (off + 2*b), northBranchY, 3, 3, true);
-                        this._addPhase15Cluster(centerX + (off + 2*b), northBranchY, 3, 3, true);
-                        this._addPhase15Cluster(centerX - (off + 2*b), southBranchY, 3, 3, true);
-                        this._addPhase15Cluster(centerX + (off + 2*b), southBranchY, 3, 3, true);
-                        
-                        // 3. Add 5x5 (Centered)
-                        this._addPhase15Cluster(centerX - (off + 5*b), northBranchY, 5, 5, true);
-                        this._addPhase15Cluster(centerX + (off + 5*b), northBranchY, 5, 5, true);
-                        this._addPhase15Cluster(centerX - (off + 5*b), southBranchY, 5, 5, true);
-                        this._addPhase15Cluster(centerX + (off + 5*b), southBranchY, 5, 5, true);
+                    // Tendrils extension logic
+                    for (let t of this.tendrilHistory) {
+                        let maxLength = Math.min(t.length + 2, 10); // Extend each tendril up to 10 blocks long
+                        let isBlocked = false;
 
-                        // 4. Add 1x3 (Vertical Strip) - Thinner edge block
-                        // Attached to the outside of the 5x5.
-                        // 5x5 was at off + 5b (center). Edge is at off + 5b + 2b = off + 7b.
-                        this._addPhase15Cluster(centerX - (off + 8*b), northBranchY, 1, 3, true);
-                        this._addPhase15Cluster(centerX + (off + 8*b), northBranchY, 1, 3, true);
-                        this._addPhase15Cluster(centerX - (off + 8*b), southBranchY, 1, 3, true);
-                        this._addPhase15Cluster(centerX + (off + 8*b), southBranchY, 1, 3, true);
+                        for (let step = 1; step <= maxLength; step++) {
+                            if (isBlocked) break;
 
-                        // 5. Add 1x1 Tip (Arrow Point)
-                        this._addPhase15Cluster(centerX - (off + 9*b), northBranchY, 1, 1, true);
-                        this._addPhase15Cluster(centerX + (off + 9*b), northBranchY, 1, 1, true);
-                        this._addPhase15Cluster(centerX - (off + 9*b), southBranchY, 1, 1, true);
-                        this._addPhase15Cluster(centerX + (off + 9*b), southBranchY, 1, 1, true);
-                        
-                        this.phase15LoopCounter++;
-                    } else {
-                        // End Expansion after 3 loops of Phase 15
-                        this.isExpanding = false;
+                            const nextX = t.x + step * t.dx;
+                            const nextY = t.y + step * t.dy;
+
+                            // Stop if an obstacle or boundary is encountered
+                            if (this._isOccupied(nextX, nextY) || nextX < 0 || nextY < 0 || nextX >= this.g.cols || nextY >= this.g.rows) {
+                                isBlocked = true;
+                                continue;
+                            }
+
+                            // Add the extended tendril block
+                            this._addBlock(nextX, nextY, this.burstCounter);
+                        }
                     }
+
+                    // Fill remaining gaps
+                    const maxFillCount = 50; // Budget of points to attempt filling
+                    for (let fillAttempt = 0; fillAttempt < maxFillCount; fillAttempt++) {
+                        const candidates = [];
+                        
+                        // Check for neighboring unfilled gaps
+                        for (let b of this.blocks) {
+                            const potentialGaps = [
+                                {x: b.x, y: b.y - b}, // Up
+                                {x: b.x + b, y: b.y}, // Right
+                                {x: b.x, y: b.y + b}, // Down
+                                {x: b.x - b, y: b.y}  // Left
+                            ];
+
+                            for (let gap of potentialGaps) {
+                                if (!this._isOccupied(gap.x, gap.y)) {
+                                    candidates.push(gap);
+                                }
+                            }
+                        }
+
+                        // Randomly fill an eligible gap
+                        if (candidates.length > 0) {
+                            const gap = candidates[Math.floor(Math.random() * candidates.length)];
+                            this._addBlock(gap.x, gap.y, this.burstCounter);
+                        }
+                    }
+
+                    // Widen borders and crevices
+                    const horizontalBias = this.g.cols > this.g.rows ? 2 : 1; // Adjust for grid aspect ratio
+                    const verticalBias = this.g.rows > this.g.cols ? 2 : 1;
+                    const edgeCandidates = [];
+
+                    for (let b of this.blocks) {
+                        const offScreen = (b.x < 0 || b.y < 0 || b.x >= this.g.cols || b.y >= this.g.rows);
+                        if (offScreen) continue;
+
+                        // Push rows/columns outward from edges
+                        for (let offset of [[-b, 0], [b, 0], [0, -b], [0, b]]) {
+                            const newX = b.x + offset[0] * horizontalBias;
+                            const newY = b.y + offset[1] * verticalBias;
+
+                            if (!this._isOccupied(newX, newY) && this._isValidBoundary(newX, newY)) {
+                                edgeCandidates.push({x: newX, y: newY});
+                            }
+                        }
+                    }
+
+                    // Randomly add new blocks at valid edges
+                    const edgeFillCount = Math.min(30, edgeCandidates.length); // Limit to 30 edge blocks
+                    for (let i = 0; i < edgeFillCount; i++) {
+                        const edge = edgeCandidates.splice(Math.floor(Math.random() * edgeCandidates.length), 1);
+
+                        if (edge && edge[0]) {
+                            this._addBlock(edge[0].x, edge[0].y, this.burstCounter);
+                        }
+                    }
+
+                    // Finalize Phase 16 expansion
+                    this.growthPhase = 17; // Move to the next phase
                 }
             }
 
             // Move line updates OUTSIDE isExpanding but INSIDE active
             // This ensures they continue to fade after expansion finishes
             this._updateLines(s);
-        }
-        
-        // 2. Process Flashes (ALWAYS run this, regardless of expansion state)
-        // This ensures flashes decay properly after the swap/finish
-        this._updateFlashes();
+            }
+            
+            // 2. Process Flashes (ALWAYS run this, regardless of expansion state)
+            // This ensures flashes decay properly after the swap/finish
+            this._updateFlashes();
 
-        // 3. Check for Full Completion
-        // Stop ONLY if not expanding AND no active flashes
-        if (!this.isExpanding && this.activeFlashes.size === 0) {
-            this.stop(); 
+            // 3. Check for Full Completion
+            // Stop ONLY if not expanding AND no active flashes
+            if (!this.isExpanding && this.activeFlashes.size === 0) {
+                this.stop(); 
+            }
         }
     }
-}
 
     _waterFill(count) {
         let processed = 0;
@@ -1866,7 +2107,6 @@ class QuantizedAddEffect extends AbstractEffect {
         ctx.shadowColor = colorStr;
         ctx.globalAlpha = masterAlpha;
         
-        // Split paths for different dash patterns
         const hPath = new Path2D();
         const vPath = new Path2D();
 
@@ -1880,21 +2120,18 @@ class QuantizedAddEffect extends AbstractEffect {
             const by = b.y * ch;
             const bw = 2 * cw;
             const bh = 2 * ch;
+            
+            // Seed based on block coordinate to ensure stability per frame
+            // Multipliers 13 and 29 scatter the seeds
+            const seed = b.x * 13 + b.y * 29;
 
-            if (!nTop) { hPath.moveTo(bx, by); hPath.lineTo(bx + bw, by); }
-            if (!nRight) { vPath.moveTo(bx + bw, by); vPath.lineTo(bx + bw, by + bh); }
-            if (!nBottom) { hPath.moveTo(bx, by + bh); hPath.lineTo(bx + bw, by + bh); }
-            if (!nLeft) { vPath.moveTo(bx, by); vPath.lineTo(bx, by + bh); }
+            if (!nTop) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }
+            if (!nRight) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); }
+            if (!nBottom) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); }
+            if (!nLeft) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }
         }
         
-        // 1. Draw Horizontal (Standard Pattern)
-        // [0.5, 0.5, 1.5, 0.5]
-        ctx.setLineDash([cw * 0.5, cw * 0.5, cw * 1.5, cw * 0.5]);
         ctx.stroke(hPath);
-        
-        // 2. Draw Vertical (Randomized/Small Pattern)
-        // [0.2, 0.3, 0.5, 0.3, 1.2, 0.5] - Includes smaller 0.2 bits
-        ctx.setLineDash([cw * 0.2, cw * 0.3, cw * 0.5, cw * 0.3, cw * 1.2, cw * 0.5]);
         ctx.stroke(vPath);
 
         // Render Tendrils

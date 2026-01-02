@@ -187,7 +187,49 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.currentDelay = s.baseDelay;
         this.nextExpandTime = this.currentDelay;
         
+        // Initialize RNG Buffer for fast deterministic dashes
+        this.rngBuffer = new Float32Array(1024);
+        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+
         return true;
+    }
+
+    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
+        // Deterministic start index based on seed
+        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
+        
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len <= 0) return;
+        
+        const ux = dx / len;
+        const uy = dy / len;
+        
+        let dist = 0;
+        const minLen = 2.0; // Minimum 2px
+        const maxLen = Math.max(minLen + 1, ch); 
+        
+        while (dist < len) {
+            // Pick random dash length
+            const r1 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023; // Wrap
+            const dash = minLen + r1 * (maxLen - minLen);
+            
+            // Pick random gap length
+            const r2 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023;
+            const gap = minLen + r2 * (maxLen - minLen);
+            
+            // Draw Dash
+            const dEnd = Math.min(dist + dash, len);
+            if (dEnd > dist) {
+                path.moveTo(x1 + ux * dist, y1 + uy * dist);
+                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
+            }
+            
+            dist += dash + gap;
+        }
     }
 
     // ... (unchanged methods: _initShadowWorld, _updateShadowWorld, _finishExpansion, _addBlock, _isOccupied, _applyMask) ...
@@ -1322,7 +1364,6 @@ class QuantizedPulseEffect extends AbstractEffect {
         ctx.shadowColor = colorStr;
         ctx.globalAlpha = masterAlpha;
         
-        // Split paths for different dash patterns
         const hPath = new Path2D();
         const vPath = new Path2D();
 
@@ -1336,21 +1377,17 @@ class QuantizedPulseEffect extends AbstractEffect {
             const by = b.y * ch;
             const bw = 4 * cw;
             const bh = 4 * ch;
+            
+            // Seed based on block coordinate
+            const seed = b.x * 13 + b.y * 29;
 
-            if (!nTop) { hPath.moveTo(bx, by); hPath.lineTo(bx + bw, by); }
-            if (!nRight) { vPath.moveTo(bx + bw, by); vPath.lineTo(bx + bw, by + bh); }
-            if (!nBottom) { hPath.moveTo(bx, by + bh); hPath.lineTo(bx + bw, by + bh); }
-            if (!nLeft) { vPath.moveTo(bx, by); vPath.lineTo(bx, by + bh); }
+            if (!nTop) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }
+            if (!nRight) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); }
+            if (!nBottom) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); }
+            if (!nLeft) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }
         }
         
-        // 1. Draw Horizontal (Standard Pattern)
-        // [0.5, 0.5, 1.5, 0.5]
-        ctx.setLineDash([cw * 0.5, cw * 0.5, cw * 1.5, cw * 0.5]);
         ctx.stroke(hPath);
-        
-        // 2. Draw Vertical (Randomized/Small Pattern)
-        // [0.2, 0.3, 0.5, 0.3, 1.2, 0.5] - Includes smaller 0.2 bits
-        ctx.setLineDash([cw * 0.2, cw * 0.3, cw * 0.5, cw * 0.3, cw * 1.2, cw * 0.5]);
         ctx.stroke(vPath);
 
         // Render Tendrils
