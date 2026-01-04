@@ -547,6 +547,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         if (this._isOccupied(x, y)) return;
 
         this.blocks.push({x, y});
+        this.blocksAdded++;
         
         // Update Map: Set Occupied (Bit 0) and BurstID (Bits 2-15)
         const mx = x + this.mapPad;
@@ -1203,123 +1204,76 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this._isOccupied(winner.x - 4, winner.y)) winnerNeighbors++;
                 
                 if (winnerNeighbors < 3) {
-                    // GROUP ADDITION LOGIC
-                    // Distribution:
-                    // 20% 3x3 (Huge)
-                    // 20% 2x3/3x2 (Large Rects)
-                    // 20% 2x2 (Squares)
-                    // 15% 1x3/3x1 (Long Strips)
-                    // 20% 1x2/2x1 (Small Rects)
-                    // 5%  Single (1x1) - Reduced significantly
+                    // SMART FILL LOGIC
+                    // Instead of rigid templates that fail on collision, pick a target size 
+                    // and aggressively find empty neighbors to fill it.
                     
                     const rand = Math.random();
+                    let targetExtra = 0;
                     
-                    // 20% chance for 3x3
-                    if (rand < 0.20) {
-                         const candidates = [
-                            // 3x3 centered around winner (or offset)
-                            // 8 neighbors
-                            [{x:4,y:0}, {x:-4,y:0}, {x:0,y:4}, {x:0,y:-4}, {x:4,y:4}, {x:-4,y:-4}, {x:4,y:-4}, {x:-4,y:4}],
-                            // 3x3 Top-Left corner is winner
-                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}, {x:0,y:8}, {x:4,y:8}, {x:8,y:8}],
-                            // 3x3 Bottom-Right corner is winner
-                            [{x:-4,y:0}, {x:-8,y:0}, {x:0,y:-4}, {x:-4,y:-4}, {x:-8,y:-4}, {x:0,y:-8}, {x:-4,y:-8}, {x:-8,y:-8}]
-                         ];
-                         const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                         cluster.forEach(offset => {
-                            const tx = winner.x + offset.x;
-                            const ty = winner.y + offset.y;
-                            if (!this._isOccupied(tx, ty)) {
-                                this._addBlock(tx, ty, this.burstCounter);
-                                const tmx = tx + this.mapPad;
-                                const tmy = ty + this.mapPad;
-                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
+                    if (rand < 0.20) targetExtra = 8;      // 3x3 equivalent (9 blocks total, 8 extra)
+                    else if (rand < 0.40) targetExtra = 5; // 2x3 equivalent
+                    else if (rand < 0.60) targetExtra = 3; // 2x2 equivalent
+                    else if (rand < 0.75) targetExtra = 2; // 1x3 equivalent
+                    else if (rand < 0.95) targetExtra = 1; // 1x2 equivalent
+                    
+                    if (targetExtra > 0) {
+                        // Breadth-First Search for empty neighbors
+                        const potential = [];
+                        const visited = new Set();
+                        
+                        // Start search from winner
+                        // We use map index for visited set
+                        const wIdx = (winner.y + this.mapPad) * this.mapCols + (winner.x + this.mapPad);
+                        visited.add(wIdx);
+                        
+                        const queue = [{x: winner.x, y: winner.y}];
+                        
+                        let head = 0;
+                        // Limit search depth/breadth to avoid perf spikes, but enough to find candidates
+                        while(head < queue.length && potential.length < targetExtra + 6) { 
+                            const curr = queue[head++];
+                            
+                            // Check 4 neighbors
+                            const nbs = [
+                                {x: curr.x, y: curr.y - 4},
+                                {x: curr.x + 4, y: curr.y},
+                                {x: curr.x, y: curr.y + 4},
+                                {x: curr.x - 4, y: curr.y}
+                            ];
+                            
+                            for(const n of nbs) {
+                                const nmx = n.x + this.mapPad;
+                                const nmy = n.y + this.mapPad;
+                                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
+                                    const idx = nmy * this.mapCols + nmx;
+                                    if (!visited.has(idx)) {
+                                        visited.add(idx);
+                                        // Only add to potential/queue if NOT occupied
+                                        if (!this._isOccupied(n.x, n.y)) {
+                                            potential.push(n);
+                                            queue.push(n);
+                                        }
+                                    }
+                                }
                             }
-                         });
-                    }
-                    // 20% chance for 2x3 or 3x2 (Large Rectangles)
-                    else if (rand < 0.40) {
-                         const candidates = [
-                            // 2x3 (Vertical)
-                            [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}, {x:0,y:8}, {x:4,y:8}],
-                            [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}, {x:0,y:8}, {x:-4,y:8}],
-                            // 3x2 (Horizontal)
-                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}],
-                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:-4}, {x:4,y:-4}, {x:8,y:-4}]
-                         ];
-                         const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                         cluster.forEach(offset => {
-                            const tx = winner.x + offset.x;
-                            const ty = winner.y + offset.y;
-                            if (!this._isOccupied(tx, ty)) {
-                                this._addBlock(tx, ty, this.burstCounter);
-                                const tmx = tx + this.mapPad;
-                                const tmy = ty + this.mapPad;
-                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                            }
-                         });
-                    }
-                    // 20% chance for 2x2 (Square)
-                    else if (rand < 0.60) {
-                        const candidates = [
-                            [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}],    
-                            [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}],  
-                            [{x:4,y:0}, {x:0,y:-4}, {x:4,y:-4}],  
-                            [{x:-4,y:0}, {x:0,y:-4}, {x:-4,y:-4}] 
-                        ];
-                        const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                        cluster.forEach(offset => {
-                            const tx = winner.x + offset.x;
-                            const ty = winner.y + offset.y;
-                            if (!this._isOccupied(tx, ty)) {
-                                this._addBlock(tx, ty, this.burstCounter);
-                                const tmx = tx + this.mapPad;
-                                const tmy = ty + this.mapPad;
-                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                            }
-                        });
-                    }
-                    // 15% chance for 1x3 or 3x1 (Long Strips)
-                    else if (rand < 0.75) {
-                        const candidates = [
-                            // 3x1 (Horizontal)
-                            [{x:4,y:0}, {x:8,y:0}],      // Right
-                            [{x:-4,y:0}, {x:-8,y:0}],    // Left
-                            [{x:-4,y:0}, {x:4,y:0}],     // Center
-                            // 1x3 (Vertical)
-                            [{x:0,y:4}, {x:0,y:8}],      // Down
-                            [{x:0,y:-4}, {x:0,y:-8}],    // Up
-                            [{x:0,y:-4}, {x:0,y:4}]      // Center
-                        ];
-                        const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                        cluster.forEach(offset => {
-                            const tx = winner.x + offset.x;
-                            const ty = winner.y + offset.y;
-                            if (!this._isOccupied(tx, ty)) {
-                                this._addBlock(tx, ty, this.burstCounter);
-                                const tmx = tx + this.mapPad;
-                                const tmy = ty + this.mapPad;
-                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                            }
-                        });
-                    }
-                    // 20% chance for 1x2 or 2x1 (Small Rects)
-                    else if (rand < 0.95) {
-                        const type = Math.random() < 0.5 ? 'h' : 'v';
-                        let extra = null;
-                        if (type === 'h') {
-                            if (!this._isOccupied(winner.x + 4, winner.y)) extra = {x: winner.x + 4, y: winner.y};
-                            else if (!this._isOccupied(winner.x - 4, winner.y)) extra = {x: winner.x - 4, y: winner.y};
-                        } 
-                        if (!extra) { 
-                            if (!this._isOccupied(winner.x, winner.y + 4)) extra = {x: winner.x, y: winner.y + 4};
-                            else if (!this._isOccupied(winner.x, winner.y - 4)) extra = {x: winner.x, y: winner.y - 4};
                         }
-                        if (extra) {
-                            this._addBlock(extra.x, extra.y, this.burstCounter);
-                            const emx = extra.x + this.mapPad;
-                            const emy = extra.y + this.mapPad;
-                            if (emx >= 0 && emy >= 0 && emx < this.mapCols && emy < this.mapRows) this.map[emy * this.mapCols + emx] &= ~2;
+                        
+                        // Shuffle candidates to avoid directional bias
+                        for (let i = potential.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [potential[i], potential[j]] = [potential[j], potential[i]];
+                        }
+                        
+                        for (let i = 0; i < Math.min(potential.length, targetExtra); i++) {
+                            const p = potential[i];
+                            this._addBlock(p.x, p.y, this.burstCounter);
+                             // Clear frontier bit if it was set (so it doesn't get picked again as a seed)
+                             const pmx = p.x + this.mapPad;
+                             const pmy = p.y + this.mapPad;
+                             if (pmx >= 0 && pmy >= 0 && pmx < this.mapCols && pmy < this.mapRows) {
+                                 this.map[pmy * this.mapCols + pmx] &= ~2; 
+                             }
                         }
                     }
                     // Remaining 5%: Single (winner only) - Do nothing extra
