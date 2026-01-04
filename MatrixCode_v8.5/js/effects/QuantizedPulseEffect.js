@@ -766,7 +766,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this.growthPhase === 0) {
                     // Initial Center Quad (Done in trigger)
                     this.growthPhase = 1;
-                    this.nextExpandTime = this.localFrame + 1; // Instant transition (was 4)
+                    this.nextExpandTime = this.localFrame + 10;
                 }
                 else if (this.growthPhase === 1) {
                     // Phase 1: N, S, E, W
@@ -776,7 +776,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                             this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
                         }
                         this.growthPhase = 2;
-                        this.nextExpandTime = this.localFrame + 1; // Instant transition (was 4)
+                        this.nextExpandTime = this.localFrame + 10;
                     }
                 }
                 else if (this.growthPhase === 2) {
