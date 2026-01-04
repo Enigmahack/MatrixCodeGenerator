@@ -766,7 +766,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this.growthPhase === 0) {
                     // Initial Center Quad (Done in trigger)
                     this.growthPhase = 1;
-                    this.nextExpandTime = this.localFrame + 10;
+                    this.nextExpandTime = this.localFrame + 4; // Faster startup (was 10)
                 }
                 else if (this.growthPhase === 1) {
                     // Phase 1: N, S, E, W
@@ -776,7 +776,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                             this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
                         }
                         this.growthPhase = 2;
-                        this.nextExpandTime = this.localFrame + 10;
+                        this.nextExpandTime = this.localFrame + 4; // Faster startup (was 10)
                     }
                 }
                 else if (this.growthPhase === 2) {
@@ -806,30 +806,29 @@ class QuantizedPulseEffect extends AbstractEffect {
                     const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
                     const remainingBlocks = (totalVisibleBlocks * 1.5) - this.phase3StartBlocks;
                     
-                    const exponent = Math.max(1.0, 3.0 - (10 / 10)); 
-                    const targetBlocks = this.phase3StartBlocks + Math.floor(remainingBlocks * Math.pow(progress, exponent));
+                    // Linear curve for predictable filling speed (was quadratic)
+                    const targetBlocks = this.phase3StartBlocks + Math.floor(remainingBlocks * progress);
                     
                     let needed = targetBlocks - this.blocksAdded;
                     
                     // Dynamic Tendril Frequency: Slower duration = Slower tendrils
-                    // Example: 2s -> every 4 frames. 10s -> every 20 frames.
                     const tendrilFreq = Math.max(2, Math.floor(s.duration * 2));
                     
                     if (needed > 0 && this.localFrame % tendrilFreq === 0) {
                         this._updateTendrils(s);
                     }
-                    if (this.localFrame % 3 === 0) {
-                        this.cleanupCycle++;
-                        if (this.cleanupCycle % 2 === 0) {
-                             this._performHoleCleanup();
-                        }
 
-                        if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
-                             // Use configured simultaneous spawn rate
-                             let burst = s.simultaneousSpawns;
-                             if (burst < 1) burst = 1;
-                             this._updateExpansionBurst(burst);
-                        }
+                    // HOLE CLEANUP: Run frequently to prevent cheese-holes
+                    if (this.localFrame % 2 === 0) {
+                         this._performHoleCleanup();
+                    }
+
+                    // MAIN EXPANSION: Run EVERY frame if needed
+                    if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
+                         // Dynamic Burst: Spawn as many as needed, capped to avoid lag spikes
+                         // but high enough to clear the queue.
+                         let burst = Math.max(s.simultaneousSpawns, Math.min(needed, 50)); 
+                         this._updateExpansionBurst(burst);
                     }
                 }
                 
