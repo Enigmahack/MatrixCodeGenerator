@@ -37,16 +37,15 @@ class QuantizedRetractEffect extends AbstractEffect {
 
     _getEffectiveState() {
         const s = this.c.state;
-        const fadeFrames = s.quantizedPulseFadeFrames !== undefined ? s.quantizedPulseFadeFrames : 15;
-        const fadeInFrames = s.quantizedPulseFadeInFrames !== undefined ? s.quantizedPulseFadeInFrames : 5;
+        const fadeFrames = s.quantizedRetractFadeFrames !== undefined ? s.quantizedRetractFadeFrames : 15;
+        const fadeInFrames = s.quantizedRetractFadeInFrames !== undefined ? s.quantizedRetractFadeInFrames : 5;
         // If fadeFrames is 0 (Off), fade is instant (speed 1.0)
         const lineSpeed = fadeFrames > 0 ? (1.0 / fadeFrames) : 1.0;
 
-        // Reuse Pulse Settings where appropriate, but maybe add specific overrides later
         return {
-            enabled: s.quantizedPulseEnabled, // Reuse toggle for now
-            freq: s.quantizedPulseFrequencySeconds,
-            duration: s.quantizedPulseDurationSeconds || 2.0,
+            enabled: s.quantizedRetractEnabled,
+            freq: s.quantizedRetractFrequencySeconds,
+            duration: s.quantizedRetractDurationSeconds || 2.0,
             fadeFrames: fadeFrames,
             fadeInFrames: fadeInFrames,
             baseDelay: 1.0,     
@@ -145,7 +144,49 @@ class QuantizedRetractEffect extends AbstractEffect {
         this.currentDelay = s.baseDelay;
         this.nextExpandTime = this.currentDelay;
         
+        // Initialize RNG Buffer for fast deterministic dashes
+        this.rngBuffer = new Float32Array(1024);
+        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+
         return true;
+    }
+
+    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
+        // Deterministic start index based on seed
+        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
+        
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len <= 0) return;
+        
+        const ux = dx / len;
+        const uy = dy / len;
+        
+        let dist = 0;
+        const minLen = 2.0; // Minimum 2px
+        const maxLen = Math.max(minLen + 1, ch); 
+        
+        while (dist < len) {
+            // Pick random dash length
+            const r1 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023; // Wrap
+            const dash = minLen + r1 * (maxLen - minLen);
+            
+            // Pick random gap length
+            const r2 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023;
+            const gap = minLen + r2 * (maxLen - minLen);
+            
+            // Draw Dash
+            const dEnd = Math.min(dist + dash, len);
+            if (dEnd > dist) {
+                path.moveTo(x1 + ux * dist, y1 + uy * dist);
+                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
+            }
+            
+            dist += dash + gap;
+        }
     }
 
     _initEdges() {
@@ -499,7 +540,7 @@ class QuantizedRetractEffect extends AbstractEffect {
                 // Growth Logic - Inwards
                 const progress = Math.min(1.0, elapsed / durationMs);
                 
-                // Target Blocks matches Pulse logic, but applied to filling the screen
+                // Target Blocks matches Expansion logic, but applied to filling the screen
                 const totalBlocks = (this.g.cols * this.g.rows) / 16; 
                 // We want to reach roughly totalBlocks by end of duration
                 const targetBlocks = Math.floor(totalBlocks * Math.pow(progress, 1.5)); // Slower start, fast finish? 
@@ -511,6 +552,11 @@ class QuantizedRetractEffect extends AbstractEffect {
                 let needed = targetBlocks - this.blocksAdded;
                 // Since we start with perimeter, blocksAdded is already non-zero.
                 
+                const tendrilFreq = Math.max(2, Math.floor(s.duration * 2));
+                if (needed > 0 && this.localFrame % tendrilFreq === 0) {
+                    this._updateTendrils(s);
+                }
+
                 if (needed > 0 || this.localFrame < 10) { // Always force start
                      const burstCap = 800; // Higher cap for large perimeter
                      let burst = Math.min(needed, burstCap);
@@ -529,6 +575,71 @@ class QuantizedRetractEffect extends AbstractEffect {
         }
     }
     
+    _updateTendrils(s) {
+        // Limit attempts per frame
+        const attempts = 6; 
+        const maxSearch = 3; // Search up to 4 spots
+        const maxBlind = 3;  
+        
+        for (let i = 0; i < attempts; i++) {
+            if (this.frontier.length === 0) break;
+            
+            // Pick random frontier block
+            const idx = Math.floor(Math.random() * this.frontier.length);
+            const f = this.frontier[idx];
+            
+            // Pick ONE random direction to extend (Orthogonal/Edge only)
+            const dirs = [{x:0, y:-4}, {x:4, y:0}, {x:0, y:4}, {x:-4, y:0}];
+            const d = dirs[Math.floor(Math.random() * dirs.length)];
+            
+            // 1. Scan Phase (Look Ahead)
+            let limit = 0;
+            let foundTarget = false;
+            
+            for (let k = 0; k < maxSearch; k++) {
+                const tx = f.x + (d.x * k);
+                const ty = f.y + (d.y * k);
+                
+                // If blocked by existing pulse block, stop scanning
+                if (this._isOccupied(tx, ty)) break;
+                
+                limit++;
+                
+                // Check for Code (Target)
+                if (this._hasCode(tx, ty)) {
+                    foundTarget = true;
+                    break; // Lock on!
+                }
+            }
+            
+            // 2. Constraint Phase
+            // If we didn't lock onto code, constrain the extension
+            if (!foundTarget) {
+                limit = Math.min(limit, maxBlind);
+            }
+            
+            // 3. Build Phase
+            // If limit > 0, we can extend
+            if (limit > 0) {
+                for (let k = 0; k < limit; k++) {
+                    const tx = f.x + (d.x * k);
+                    const ty = f.y + (d.y * k);
+                    this._addBlock(tx, ty, this.burstCounter);
+                }
+            }
+        }
+    }
+
+    _hasCode(x, y) {
+        // Check center of the 4x4 block
+        const gx = x + 2;
+        const gy = y + 2;
+        if (gx < 0 || gy < 0 || gx >= this.g.cols || gy >= this.g.rows) return false;
+        
+        const idx = this.g.getIndex(gx, gy);
+        return (this.g.state && this.g.state[idx] === 1);
+    }
+
     _updateBorderIllumination() {
         const centerX = this.g.cols / 2;
         const centerY = this.g.rows / 2;
@@ -582,7 +693,10 @@ class QuantizedRetractEffect extends AbstractEffect {
 
     _updateExpansionBurst(count) {
         // Merge Lines
-        const greenDuration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
+                    // Use configurable fade for Green lines
+                    // If setting is 0, fade is instant (speed = 1.0)
+                    const duration = this.c.state.quantizedRetractGreenFadeSeconds !== undefined ? this.c.state.quantizedRetractGreenFadeSeconds : 0.5;
+                    speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
         for (let i = this.lines.length - 1; i >= 0; i--) {
             const l = this.lines[i];
             if (l.isNew) {
@@ -669,7 +783,7 @@ class QuantizedRetractEffect extends AbstractEffect {
                 processed++;
                 
                 // Optional: Cluster fills (2x2, etc) to make it blocky
-                // Copy-paste cluster logic from Pulse but keep it simple for now
+                // Cluster logic from Expansion but keep it simple for now
                 if (Math.random() < 0.5) {
                     // Try to add a neighbor closer to center
                     const dx = winner.x - cx;
@@ -710,7 +824,7 @@ class QuantizedRetractEffect extends AbstractEffect {
                 if (g.overrideActive[idx] !== 3) {
                      g.overrideActive[idx] = 1; 
                 }
-                const illumination = this.c.state.quantizedPulseBorderIllumination !== undefined ? this.c.state.quantizedPulseBorderIllumination : 4.0;
+                const illumination = this.c.state.quantizedRetractBorderIllumination !== undefined ? this.c.state.quantizedRetractBorderIllumination : 4.0;
                 g.overrideGlows[idx] += illumination * intensity;
                 
                 const col = g.overrideColors[idx];
@@ -769,18 +883,36 @@ class QuantizedRetractEffect extends AbstractEffect {
             const by = b.y * ch;
             const bw = 4 * cw;
             const bh = 4 * ch;
+            
+            // Seed based on block coordinate
+            const seed = b.x * 13 + b.y * 29;
 
-            if (!nTop) { hPath.moveTo(bx, by); hPath.lineTo(bx + bw, by); }
-            if (!nRight) { vPath.moveTo(bx + bw, by); vPath.lineTo(bx + bw, by + bh); }
-            if (!nBottom) { hPath.moveTo(bx, by + bh); hPath.lineTo(bx + bw, by + bh); }
-            if (!nLeft) { vPath.moveTo(bx, by); vPath.lineTo(bx, by + bh); }
+            if (!nTop) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }
+            if (!nRight) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); }
+            if (!nBottom) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); }
+            if (!nLeft) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }
         }
         
-        ctx.setLineDash([cw * 0.5, cw * 0.5, cw * 1.5, cw * 0.5]);
         ctx.stroke(hPath);
-        
-        ctx.setLineDash([cw * 0.2, cw * 0.3, cw * 0.5, cw * 0.3, cw * 1.2, cw * 0.5]);
         ctx.stroke(vPath);
+
+        // Render Tendrils
+        if (this.tendrils.length > 0) {
+            ctx.globalAlpha = 0.5 * masterAlpha;
+            ctx.setLineDash([cw * 0.2, cw * 0.2]); 
+            ctx.beginPath();
+            for (const t of this.tendrils) {
+                for (const b of t.path) {
+                    const bx = b.x * cw;
+                    const by = b.y * ch;
+                    const bw = 4 * cw;
+                    const bh = 4 * ch;
+                    ctx.rect(bx, by, bw, bh);
+                }
+            }
+            ctx.stroke();
+            ctx.globalAlpha = masterAlpha;
+        }
 
         ctx.shadowBlur = 0; 
         

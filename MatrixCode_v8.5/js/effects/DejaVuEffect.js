@@ -14,7 +14,6 @@ class DejaVuEffect extends AbstractEffect {
 
         // Shader State
         this.shaderActive = false;
-        this.originalFade = 0;
     }
     
     trigger(durationSeconds = null) { 
@@ -32,10 +31,6 @@ class DejaVuEffect extends AbstractEffect {
         this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
         this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
         
-        // Override Stream Fade
-        this.originalFade = this.c.get('decayFadeDurationFrames');
-        this.c.set('decayFadeDurationFrames', 0);
-
         // Enable Glitch Shader
         this._enableShader();
 
@@ -99,9 +94,6 @@ void main() {
             this.bars = []; 
             this.map = null; 
             this._disableShader();
-            
-            // Restore Fade
-            this.c.set('decayFadeDurationFrames', this.originalFade);
             return; 
         }
         

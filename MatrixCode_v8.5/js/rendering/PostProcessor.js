@@ -80,7 +80,9 @@ class PostProcessor {
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTexture, 0);
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         
-        this.compileShader(this.config.get('customShader') || this.defaultFragmentShader);
+        this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
+        
+        this.compileShader(this.config.get('customShader'));
         this.compileEffectShader(this.config.get('effectShader'));
     }
 
@@ -95,6 +97,10 @@ class PostProcessor {
     }
 
     compileShader(fragSource) {
+        if (!fragSource) {
+            this.program = null;
+            return;
+        }
         this.program = this._compileProgram(fragSource);
     }
 
@@ -187,7 +193,7 @@ class PostProcessor {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null); // Draw to screen (canvas)
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
-        const prog = this.program || this._compileProgram(this.defaultFragmentShader);
+        const prog = this.program || this.defaultProgram;
         this._drawPass(prog, inputTex, time, mouseX, mouseY, param, flipY);
     }
 

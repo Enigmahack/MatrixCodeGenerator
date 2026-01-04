@@ -175,6 +175,22 @@ With continuous improvements and architectural changes, especially the significa
 
 This project now supports a modular development workflow using a Python script to manage file splitting and combination. This allows for easier development and maintenance of individual components while still enabling the creation of a single monolithic HTML file for release.
 
+### Building the Standalone App
+
+To create a standalone executable (Windows EXE, Mac DMG, Linux AppImage) using Electron:
+
+1.  **Install Dependencies:**
+    ```bash
+    cd MatrixCode_v8.5
+    npm install
+    ```
+
+2.  **Build:**
+    ```bash
+    npm run dist
+    ```
+    This will generate the installer/executable in the `dist/` folder.
+
 ### `matrix_builder.py` Script
 
 The `matrix_builder.py` script provides three main commands: `split`, `combine`, and `refresh`.

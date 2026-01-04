@@ -4,13 +4,31 @@
   "description": "Matrix Digital Rain Multi-Monitor Simulation",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.matrixcode.screensaver",
+    "productName": "Matrix Code V8.5",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   },
   "keywords": [],
-  "author": "",
+  "author": "MatrixCodeGenerator",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^39.2.7"
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
   }
 }

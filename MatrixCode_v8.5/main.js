@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, session } = require('electron');
 const path = require('path');
 
 function createWindows() {
@@ -15,7 +15,8 @@ function createWindows() {
       backgroundColor: '#000000',
       webPreferences: {
         nodeIntegration: true,
-        contextIsolation: false // For simple DOM manipulation if needed, though mostly standard web
+        contextIsolation: false, // For simple DOM manipulation if needed, though mostly standard web
+        backgroundThrottling: false // Prevent freezing when not focused
       }
     });
 
@@ -31,6 +32,17 @@ function createWindows() {
 }
 
 app.whenReady().then(() => {
+  // Enable SharedArrayBuffer support via Headers
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Cross-Origin-Opener-Policy': ['same-origin'],
+        'Cross-Origin-Embedder-Policy': ['require-corp']
+      }
+    });
+  });
+
   createWindows();
 
   app.on('activate', () => {

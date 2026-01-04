@@ -1,17 +1,18 @@
 ToDo: 
-Implement a multi-monitor configuration? 
-Implement a wrapper to EXE/DMG? Screensaver wrapper?
 Go through code and fix all comments.
 
 <- Bugs: 
-Fix performance for low-end machines
+Fix performance for low-end machines [DONE - Enabled SharedArrayBuffer in Electron]
 
 <- Behavior:
-Better toast messaging; errors related to missing fonts, etc.
 
 <- Look:
-Quantized Retract: same as above but inwards. This should be pretty easy once the above is done. 
+Quantized Retract: same as above but inwards. This should be pretty easy once the above is done. [DONE]
 
-Quantized Expansion: like the pulse, but with the rendered scene transition. This will require taking some generated version, screenshooting the state and using that as the inner scene that stretches. 
+Quantized Expansion: like the pulse, but with the rendered scene transition. This will require taking some generated version, screenshooting the state and using that as the inner scene that stretches. [DONE]
 
-Star Power - Make the glitter use the glimmer effect.
+Star Power - Make the glitter use the glimmer effect. [DONE]
+
+Implement a multi-monitor configuration? [DONE - Basic support in main.js]
+
+Implement a wrapper to EXE/DMG? Screensaver wrapper? [DONE - Added electron-builder config]

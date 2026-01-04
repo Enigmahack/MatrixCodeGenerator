@@ -37,6 +37,7 @@ CODE_MAP = {
     'QuantizedPulseEffect': 'js/effects/QuantizedPulseEffect.js',
     'QuantizedAddEffect': 'js/effects/QuantizedAddEffect.js',
     'QuantizedRetractEffect': 'js/effects/QuantizedRetractEffect.js',
+    'QuantizedExpansionEffect': 'js/effects/QuantizedExpansionEffect.js',
     'NotificationManager': 'js/ui/NotificationManager.js',
     'FontManager': 'js/ui/FontManager.js',
     'UIManager': 'js/ui/UIManager.js',

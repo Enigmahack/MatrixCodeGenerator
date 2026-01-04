@@ -289,6 +289,14 @@ class SimulationSystem {
                     this.grid.complexStyles.delete(currentIdx);
                 }
             }
+            
+            // --- TYPE 2: STAR POWER GLIMMER ---
+            else if (style.type === 'star_glimmer') {
+                // Static glimmer effect for Star Power streams.
+                // Just force the shader signal (30.0) while the cell is active.
+                // The stream lifecycle handles the cell death/cleanup.
+                this.grid.mix[idx] = 30.0;
+            }
 
 
         }

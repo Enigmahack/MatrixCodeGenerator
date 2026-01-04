@@ -40,7 +40,7 @@ class QuantizedAddEffect extends AbstractEffect {
         this.fadeAlpha = 1.0;
         this.fadeInAlpha = 0.0;
         
-        this.isExpanding = false; // Tracks if the pulse is actively growing
+        this.isExpanding = false; // Tracks if the effect is actively growing
         this.isFinishing = false; // Legacy flag, replaced by isExpanding logic
 
         // Flash State
@@ -379,7 +379,7 @@ class QuantizedAddEffect extends AbstractEffect {
     }
 
     _finishExpansion() {
-        // console.log("[QuantizedPulse] Finishing Expansion...");
+        // console.log("[QuantizedAdd] Finishing Expansion...");
         
         try {
             const g = this.g;
@@ -2050,7 +2050,7 @@ class QuantizedAddEffect extends AbstractEffect {
                 // Enable Override for this cell (CHAR mode)
                 // This allows the Main Sim's 'mix' (Glimmer/Rotator) to show through 
                 // while we override the Color/Glow for the flash.
-                // NOTE: If it's already Mode 3 (Pulse Reveal), we KEEP it Mode 3.
+                // NOTE: If it's already Mode 3 (Full Reveal), we KEEP it Mode 3.
                 // Mode 3 supports overrides just like Mode 1, but includes mix states.
                 if (g.overrideActive[idx] !== 3) {
                      g.overrideActive[idx] = 1; 

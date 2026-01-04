@@ -56,6 +56,17 @@ The application now supports importing `.glsl` files directly through the Settin
 6.  Click **Import Fragment Shader (.glsl)**.
 7.  Select your shader file (e.g., `shaders/film_grain.glsl`).
 
+## Shader Chaining & System Effects
+
+The rendering pipeline consists of two potential shader passes that run in sequence:
+1.  **System Effect Pass:** Used by internal effects like "Deja Vu", "Crash Sequence", or "Boot Sequence".
+2.  **Custom User Pass:** Your custom shader loaded via the settings.
+
+**Behavior:**
+*   If a System Effect is active, it runs first (Pass 1).
+*   If a Custom User Shader is active, it runs second (Pass 2), applying your custom look (e.g., CRT, Grain) **on top of** the system effect.
+*   This ensures your custom visual style remains consistent even during special events.
+
 ## Performance Tips
 
 *   **Precision:** Use `mediump float` for better performance on mobile devices.
