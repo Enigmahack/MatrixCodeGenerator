@@ -16,3 +16,13 @@ Star Power - Make the glitter use the glimmer effect. [DONE]
 Implement a multi-monitor configuration? [DONE - Basic support in main.js]
 
 Implement a wrapper to EXE/DMG? Screensaver wrapper? [DONE - Added electron-builder config]
+
+Prompt for quantized pulse performance fix: 
+
+The blocky cross at the beginning must remain as it was. The main issue is that as the expansion
+  extends outward, the filling slows down. There must be a problem within the searching algorithmn.
+  Instead, let's start with an expansion map. The map should contain the pre-calculated map of where
+  all 1x1 blocks would be. As the blocks are being filled in, they should be registered on the map,
+  so the search algorithm doesn't need to look, it can identify immediately which blocks have not yet
+  been filled. Implement this map, and update the algorithm to only fill blocks that are not yet
+  filled within the perimeter of the larger blob.
