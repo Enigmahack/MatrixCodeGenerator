@@ -691,16 +691,33 @@ class QuantizedRetractEffect extends AbstractEffect {
         }
     }
 
-    _updateExpansionBurst(count) {
-        // Merge Lines
-                    // Use configurable fade for Green lines
-                    // If setting is 0, fade is instant (speed = 1.0)
+    _updateLines(s) {
+        for (let i = this.lines.length - 1; i >= 0; i--) {
+            if (this.lines[i].persistence > 0) {
+                this.lines[i].persistence--;
+            } else {
+                let speed;
+                if (this.lines[i].isNew) {
+                    speed = s.lineFadeSpeed; 
+                } else {
                     const duration = this.c.state.quantizedRetractGreenFadeSeconds !== undefined ? this.c.state.quantizedRetractGreenFadeSeconds : 0.5;
                     speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
+                }
+                
+                this.lines[i].alpha -= speed;
+                if (this.lines[i].alpha <= 0) this.lines.splice(i, 1);
+            }
+        }
+    }
+
+    _updateExpansionBurst(count) {
+        // Merge Lines
+        const duration = this.c.state.quantizedRetractGreenFadeSeconds !== undefined ? this.c.state.quantizedRetractGreenFadeSeconds : 0.5;
+        
         for (let i = this.lines.length - 1; i >= 0; i--) {
             const l = this.lines[i];
             if (l.isNew) {
-                if (greenDuration <= 0.01) {
+                if (duration <= 0.01) {
                     this.lines.splice(i, 1);
                 } else {
                     l.isNew = false;
@@ -746,7 +763,13 @@ class QuantizedRetractEffect extends AbstractEffect {
                     (this.map[my * this.mapCols + mx] & 1) !== 0) { // Occupied
                      // Cleanup invalid
                      const last = this.frontier.pop();
-                     if (idx < this.frontier.length) this.frontier[idx] = last;
+                     if (idx < this.frontier.length) {
+                         this.frontier[idx] = last;
+                         // Fix pointer if we moved the best candidate
+                         if (bestIdx === this.frontier.length) {
+                             bestIdx = idx;
+                         }
+                     }
                      k--; 
                      if (this.frontier.length === 0) break;
                      continue;

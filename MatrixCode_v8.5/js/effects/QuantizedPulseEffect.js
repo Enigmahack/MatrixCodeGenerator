@@ -58,7 +58,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             acceleration: 1, // Very subtle acceleration (was 0.94)
             minDelay: 0.5,      // Keep top speed cap same
             blockSize: 4,
-            lineFadeSpeed: lineSpeed 
+            lineFadeSpeed: lineSpeed,
+            simultaneousSpawns: s.quantizedPulseSimultaneousSpawns !== undefined ? s.quantizedPulseSimultaneousSpawns : 3
         };
     }
     
@@ -183,6 +184,10 @@ class QuantizedPulseEffect extends AbstractEffect {
         
         this.origin = {x: cx, y: cy};
         this.blocksAdded = 1; 
+        
+        this.phase3StartTime = 0;
+        this.phase3StartBlocks = 0;
+        this.cleanupCycle = 0;
         
         this.currentDelay = s.baseDelay;
         this.nextExpandTime = this.currentDelay;
@@ -311,11 +316,15 @@ class QuantizedPulseEffect extends AbstractEffect {
         
                     
         
-                    // 20% chance for Eraser, 80% for Tracer
+                                        // 70% chance for Eraser, 30% for Tracer
         
-                    const isEraser = Math.random() < 0.2;
+                    
         
-                    const stream = sm._initializeStream(col, isEraser, s);
+                                        const isEraser = Math.random() < 0.7;
+        
+                    
+        
+                                        const stream = sm._initializeStream(col, isEraser, s);
         
                     stream.y = startY;
         
@@ -590,21 +599,19 @@ class QuantizedPulseEffect extends AbstractEffect {
         // This ensures the effect doesn't just reveal empty space.
         if (this.shadowSim && this.shadowSim.streamManager) {
             const sm = this.shadowSim.streamManager;
-            // 30% chance to spawn a tracer in this new block
+            // 30% chance to spawn a stream in this new block
             if (Math.random() < 0.3) {
-                // Pick random position within the 4x4 block
                 const spawnX = x + Math.floor(Math.random() * 4);
                 const spawnY = y + Math.floor(Math.random() * 4);
                 
                 if (spawnX >= 0 && spawnX < this.shadowGrid.cols && 
                     spawnY >= 0 && spawnY < this.shadowGrid.rows) {
                     
-                    // Only spawn if column isn't already too busy at this height?
-                    // Actually, force spawn is what we want to ensure visibility.
-                    
-                    const stream = sm._initializeStream(spawnX, false, this.c.state);
+                    // 70% chance for Eraser, 30% for Tracer
+                    const isEraser = Math.random() < 0.7;
+                    const stream = sm._initializeStream(spawnX, isEraser, this.c.state);
                     stream.y = spawnY;
-                    stream.age = spawnY; // Match age to position
+                    stream.age = spawnY; 
                     
                     sm.addActiveStream(stream);
                 }
@@ -649,7 +656,8 @@ class QuantizedPulseEffect extends AbstractEffect {
                         x: lx, y: ly, w: lw, h: lh, 
                         alpha: 1.0, 
                         persistence: persistence, 
-                        isNew: true 
+                        isNew: true,
+                        mergeDelay: 3 // Delay merging for 3 cycles for visual overlap
                     });
                 }
             } else {
@@ -778,14 +786,27 @@ class QuantizedPulseEffect extends AbstractEffect {
                             this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
                         }
                         this.growthPhase = 3;
+                        this.phase3StartTime = Date.now();
+                        this.phase3StartBlocks = this.blocksAdded;
                     }
                 }
                 else {
                     // Phase 3: Standard Expansion
-                    const progress = Math.min(1.0, elapsed / durationMs);
+                    if (!this.phase3StartTime) {
+                         this.phase3StartTime = Date.now();
+                         this.phase3StartBlocks = this.blocksAdded;
+                    }
+
+                    const p3Elapsed = Date.now() - this.phase3StartTime;
+                    const timeSpentSoFar = this.phase3StartTime - this.startTime;
+                    const remainingDuration = Math.max(1000, durationMs - timeSpentSoFar);
+                    
+                    const progress = Math.min(1.0, p3Elapsed / remainingDuration);
                     const totalVisibleBlocks = (this.g.cols * this.g.rows) / 16; 
+                    const remainingBlocks = (totalVisibleBlocks * 1.5) - this.phase3StartBlocks;
+                    
                     const exponent = Math.max(1.0, 3.0 - (10 / 10)); 
-                    const targetBlocks = Math.floor((totalVisibleBlocks * 1.5) * Math.pow(progress, exponent));
+                    const targetBlocks = this.phase3StartBlocks + Math.floor(remainingBlocks * Math.pow(progress, exponent));
                     
                     let needed = targetBlocks - this.blocksAdded;
                     
@@ -797,9 +818,14 @@ class QuantizedPulseEffect extends AbstractEffect {
                         this._updateTendrils(s);
                     }
                     if (this.localFrame % 3 === 0) {
+                        this.cleanupCycle++;
+                        if (this.cleanupCycle % 2 === 0) {
+                             this._performHoleCleanup();
+                        }
+
                         if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
-                             const burstCap = 600;
-                             let burst = Math.min(needed, burstCap);
+                             // Use configured simultaneous spawn rate
+                             let burst = s.simultaneousSpawns;
                              if (burst < 1) burst = 1;
                              this._updateExpansionBurst(burst);
                         }
@@ -1010,6 +1036,46 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
     }
 
+    _performHoleCleanup() {
+        // Aggressively fill holes (nodes with >=3 neighbors) every other cycle
+        // Use a 2x2 filler pattern to plug gaps and smooth internal corners
+        
+        let limit = 20; // Budget for cleanup
+        let filled = 0;
+
+        // Iterate backwards to allow safe removal if needed (though we just read here)
+        for (let i = this.frontier.length - 1; i >= 0; i--) {
+            if (filled >= limit) break;
+            
+            const f = this.frontier[i];
+            
+            // Validate Bounds
+            const mx = f.x + this.mapPad;
+            const my = f.y + this.mapPad;
+            if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) continue;
+            
+            // Check Neighbors (Same logic as original Phase 1)
+            let neighbors = 0;
+            if (this._isOccupied(f.x, f.y - 4)) neighbors++;
+            if (this._isOccupied(f.x + 4, f.y)) neighbors++;
+            if (this._isOccupied(f.x, f.y + 4)) neighbors++;
+            if (this._isOccupied(f.x - 4, f.y)) neighbors++;
+            
+            // If it's a hole (>=3 neighbors), fill it with a 2x2 block!
+            if (neighbors >= 3) {
+                 // 2x2 Filler Pattern (4 blocks)
+                 const offsets = [{x:0,y:0}, {x:4,y:0}, {x:0,y:4}, {x:4,y:4}];
+                 for(const o of offsets) {
+                     const tx = f.x + o.x;
+                     const ty = f.y + o.y;
+                     // _addBlock handles _isOccupied check
+                     this._addBlock(tx, ty, this.burstCounter);
+                 }
+                 filled++;
+            }
+        }
+    }
+
     _updateExpansionBurst(count) {
         // CYCLE START: Merge previous new lines (turn them green)
         const greenDuration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
@@ -1018,6 +1084,12 @@ class QuantizedPulseEffect extends AbstractEffect {
         for (let i = this.lines.length - 1; i >= 0; i--) {
             const l = this.lines[i];
             if (l.isNew) {
+                // Check Merge Delay
+                if (l.mergeDelay > 0) {
+                    l.mergeDelay--;
+                    continue; // Skip merging this cycle
+                }
+
                 if (greenDuration <= 0.01) {
                     // Immediate removal if fade is 0
                     this.lines.splice(i, 1);
@@ -1039,119 +1111,64 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         let processed = 0;
         
-        // --- PHASE 1: PRIORITY FILL (Holes / 1x1 Quads) ---
-        // Scan frontier for any nodes with >= 3 neighbors. Fill them immediately.
-        
-        for (let i = this.frontier.length - 1; i >= 0; i--) {
-            if (processed >= burstCount) break;
-            
-            const f = this.frontier[i];
-            
-            // Validation
-            const mx = f.x + this.mapPad;
-            const my = f.y + this.mapPad;
-            if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) {
-                const last = this.frontier.pop();
-                if (i < this.frontier.length) this.frontier[i] = last;
-                continue;
-            }
-            
-            const val = this.map[my * this.mapCols + mx];
-            if ((val & 1) !== 0 || (val & 2) === 0) {
-                 const last = this.frontier.pop();
-                 if (i < this.frontier.length) this.frontier[i] = last;
-                 continue;
-            }
-            
-            // Check Neighbors
-            let neighbors = 0;
-            if (this._isOccupied(f.x, f.y - 4)) neighbors++;
-            if (this._isOccupied(f.x + 4, f.y)) neighbors++;
-            if (this._isOccupied(f.x, f.y + 4)) neighbors++;
-            if (this._isOccupied(f.x - 4, f.y)) neighbors++;
-            
-            // If it's a hole (>=3 neighbors), fill it!
-            if (neighbors >= 3) {
-                const wmx = f.x + this.mapPad;
-                const wmy = f.y + this.mapPad;
-                this.map[wmy * this.mapCols + wmx] &= ~2; 
-                
-                const last = this.frontier.pop();
-                if (i < this.frontier.length) this.frontier[i] = last;
-                
-                if (!this._isOccupied(f.x, f.y)) {
-                    this._addBlock(f.x, f.y, this.burstCounter);
-                    processed++;
-                }
-            }
-        }
-        // --- PHASE 2: WEIGHTED EXPANSION ---
+        // --- PHASE 2: ASPECT RATIO DRIVEN CROSS EXPANSION ---
         let attempts = 0;
         const maxAttempts = burstCount * 8 + 50; 
+        
+        // Probability of Horizontal Expansion based on Aspect Ratio
+        // Wider grid -> Higher chance of Horizontal
+        const probH = this.g.cols / (this.g.cols + this.g.rows);
 
         while (processed < burstCount && this.frontier.length > 0 && attempts < maxAttempts) {
             attempts++;
             
-            // Standard expansion (K=10 is sufficient as holes are handled)
-            const K = 10; 
+            // 1. Determine Target Axis for this specific block add
+            const wantHorizontal = Math.random() < probH;
+            
+            // 2. Tournament Selection with Axis Bias
+            const K = 15; // Sample size
             let bestIdx = -1;
-            let bestWeight = -1;
+            let bestScore = -Infinity;
 
             for (let k = 0; k < K; k++) {
                 const idx = Math.floor(Math.random() * this.frontier.length);
                 const f = this.frontier[idx];
                 
-                // Validation
+                // Validation (Check bounds & stale entries)
                 const mx = f.x + this.mapPad;
                 const my = f.y + this.mapPad;
-
-                if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
-                     const val = this.map[my * this.mapCols + mx];
-                     if ((val & 1) !== 0 || (val & 2) === 0) {
-                         const last = this.frontier.pop();
-                         if (idx < this.frontier.length) {
-                             this.frontier[idx] = last;
-                             if (bestIdx === this.frontier.length) bestIdx = idx;
-                         }
-                         k--; 
-                         if (this.frontier.length === 0) break;
-                         continue;
-                     }
-                } else {
-                    const last = this.frontier.pop();
+                if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows || 
+                   (this.map[my * this.mapCols + mx] & 1) !== 0 || (this.map[my * this.mapCols + mx] & 2) === 0) {
+                     const last = this.frontier.pop();
                      if (idx < this.frontier.length) {
                          this.frontier[idx] = last;
                          if (bestIdx === this.frontier.length) bestIdx = idx;
                      }
-                    k--;
-                    if (this.frontier.length === 0) break;
-                    continue;
+                     k--; 
+                     if (this.frontier.length === 0) break;
+                     continue;
                 }
 
-                // Calculate Weight (Distance based + Axis Bias)
-                // Normalize to Aspect Ratio so we reach edges roughly same time
-                const ratio = this.g.cols / Math.max(1, this.g.rows);
+                // Geometric Check: Is this block on an axis?
+                // Allow a thickness of ~8 units (2 blocks) around the center lines
+                const isH = Math.abs(f.y - this.origin.y) <= 8; 
+                const isV = Math.abs(f.x - this.origin.x) <= 8;
                 
-                const dx = Math.abs(f.x - this.origin.x);
-                const dy = Math.abs(f.y - this.origin.y);
-                const scaledDy = dy * ratio;
+                // Scoring
+                let score = Math.random() * 10; // Base organic noise
                 
-                // Elliptical Distance
-                const dist = Math.sqrt(dx*dx + scaledDy*scaledDy);
+                if (wantHorizontal) {
+                    if (isH) score += 1000;      // Primary Goal
+                    else if (isV) score += 500;  // Fallback to Cross Shape
+                } else {
+                    if (isV) score += 1000;      // Primary Goal
+                    else if (isH) score += 500;  // Fallback to Cross Shape
+                }
                 
-                let w = 1.0; 
-                w += Math.max(0, 100 - dist);
+                // Tie-breaker: Prefer further out? No, random is better for filling width.
                 
-                // Axis Bias: Normalized (0..1) so it doesn't grow with distance
-                // Prevents "runaway" edges where being far out makes you MORE attractive.
-                // Multiplier 15.0 gives a constant preference for axes vs diagonal.
-                const axisBias = Math.abs(dx - scaledDy) / (dist + 1.0);
-                w += axisBias * 15.0; 
-                
-                w += Math.random() * 5.0; 
-                
-                if (w > bestWeight) {
-                    bestWeight = w;
+                if (score > bestScore) {
+                    bestScore = score;
                     bestIdx = idx;
                 }
             }
@@ -1186,95 +1203,126 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this._isOccupied(winner.x - 4, winner.y)) winnerNeighbors++;
                 
                 if (winnerNeighbors < 3) {
-                    // GROUP ADDITION LOGIC (Weighted for ~66% Groups, ~33% Singles)
-                const rand = Math.random();
-                
-                // 15% chance for 2x3 or 3x2 (Large Rectangles)
-                if (rand < 0.15) {
-                     const candidates = [
-                        // 2x3 (Vertical)
-                        [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}, {x:0,y:8}, {x:4,y:8}],
-                        [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}, {x:0,y:8}, {x:-4,y:8}],
-                        // 3x2 (Horizontal)
-                        [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}],
-                        [{x:4,y:0}, {x:8,y:0}, {x:0,y:-4}, {x:4,y:-4}, {x:8,y:-4}]
-                     ];
-                     const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                     cluster.forEach(offset => {
-                        const tx = winner.x + offset.x;
-                        const ty = winner.y + offset.y;
-                        if (!this._isOccupied(tx, ty)) {
-                            this._addBlock(tx, ty, this.burstCounter);
-                            const tmx = tx + this.mapPad;
-                            const tmy = ty + this.mapPad;
-                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                        }
-                     });
-                }
-                // 15% chance for 2x2 (Square)
-                else if (rand < 0.30) {
-                    const candidates = [
-                        [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}],    
-                        [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}],  
-                        [{x:4,y:0}, {x:0,y:-4}, {x:4,y:-4}],  
-                        [{x:-4,y:0}, {x:0,y:-4}, {x:-4,y:-4}] 
-                    ];
-                    const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                    cluster.forEach(offset => {
-                        const tx = winner.x + offset.x;
-                        const ty = winner.y + offset.y;
-                        if (!this._isOccupied(tx, ty)) {
-                            this._addBlock(tx, ty, this.burstCounter);
-                            const tmx = tx + this.mapPad;
-                            const tmy = ty + this.mapPad;
-                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                        }
-                    });
-                }
-                // 15% chance for 1x3 or 3x1 (Long Strips)
-                else if (rand < 0.45) {
-                    const candidates = [
-                        // 3x1 (Horizontal)
-                        [{x:4,y:0}, {x:8,y:0}],      // Right
-                        [{x:-4,y:0}, {x:-8,y:0}],    // Left
-                        [{x:-4,y:0}, {x:4,y:0}],     // Center
-                        // 1x3 (Vertical)
-                        [{x:0,y:4}, {x:0,y:8}],      // Down
-                        [{x:0,y:-4}, {x:0,y:-8}],    // Up
-                        [{x:0,y:-4}, {x:0,y:4}]      // Center
-                    ];
-                    const cluster = candidates[Math.floor(Math.random() * candidates.length)];
-                    cluster.forEach(offset => {
-                        const tx = winner.x + offset.x;
-                        const ty = winner.y + offset.y;
-                        if (!this._isOccupied(tx, ty)) {
-                            this._addBlock(tx, ty, this.burstCounter);
-                            const tmx = tx + this.mapPad;
-                            const tmy = ty + this.mapPad;
-                            if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
-                        }
-                    });
-                }
-                // 35% chance for 1x2 or 2x1 (Small Rects)
-                else if (rand < 0.90) {
-                    const type = Math.random() < 0.5 ? 'h' : 'v';
-                    let extra = null;
-                    if (type === 'h') {
-                        if (!this._isOccupied(winner.x + 4, winner.y)) extra = {x: winner.x + 4, y: winner.y};
-                        else if (!this._isOccupied(winner.x - 4, winner.y)) extra = {x: winner.x - 4, y: winner.y};
-                    } 
-                    if (!extra) { 
-                        if (!this._isOccupied(winner.x, winner.y + 4)) extra = {x: winner.x, y: winner.y + 4};
-                        else if (!this._isOccupied(winner.x, winner.y - 4)) extra = {x: winner.x, y: winner.y - 4};
+                    // GROUP ADDITION LOGIC
+                    // Distribution:
+                    // 20% 3x3 (Huge)
+                    // 20% 2x3/3x2 (Large Rects)
+                    // 20% 2x2 (Squares)
+                    // 15% 1x3/3x1 (Long Strips)
+                    // 20% 1x2/2x1 (Small Rects)
+                    // 5%  Single (1x1) - Reduced significantly
+                    
+                    const rand = Math.random();
+                    
+                    // 20% chance for 3x3
+                    if (rand < 0.20) {
+                         const candidates = [
+                            // 3x3 centered around winner (or offset)
+                            // 8 neighbors
+                            [{x:4,y:0}, {x:-4,y:0}, {x:0,y:4}, {x:0,y:-4}, {x:4,y:4}, {x:-4,y:-4}, {x:4,y:-4}, {x:-4,y:4}],
+                            // 3x3 Top-Left corner is winner
+                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}, {x:0,y:8}, {x:4,y:8}, {x:8,y:8}],
+                            // 3x3 Bottom-Right corner is winner
+                            [{x:-4,y:0}, {x:-8,y:0}, {x:0,y:-4}, {x:-4,y:-4}, {x:-8,y:-4}, {x:0,y:-8}, {x:-4,y:-8}, {x:-8,y:-8}]
+                         ];
+                         const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                         cluster.forEach(offset => {
+                            const tx = winner.x + offset.x;
+                            const ty = winner.y + offset.y;
+                            if (!this._isOccupied(tx, ty)) {
+                                this._addBlock(tx, ty, this.burstCounter);
+                                const tmx = tx + this.mapPad;
+                                const tmy = ty + this.mapPad;
+                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
+                            }
+                         });
                     }
-                    if (extra) {
-                        this._addBlock(extra.x, extra.y, this.burstCounter);
-                        const emx = extra.x + this.mapPad;
-                        const emy = extra.y + this.mapPad;
-                        if (emx >= 0 && emy >= 0 && emx < this.mapCols && emy < this.mapRows) this.map[emy * this.mapCols + emx] &= ~2;
+                    // 20% chance for 2x3 or 3x2 (Large Rectangles)
+                    else if (rand < 0.40) {
+                         const candidates = [
+                            // 2x3 (Vertical)
+                            [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}, {x:0,y:8}, {x:4,y:8}],
+                            [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}, {x:0,y:8}, {x:-4,y:8}],
+                            // 3x2 (Horizontal)
+                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:4}, {x:4,y:4}, {x:8,y:4}],
+                            [{x:4,y:0}, {x:8,y:0}, {x:0,y:-4}, {x:4,y:-4}, {x:8,y:-4}]
+                         ];
+                         const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                         cluster.forEach(offset => {
+                            const tx = winner.x + offset.x;
+                            const ty = winner.y + offset.y;
+                            if (!this._isOccupied(tx, ty)) {
+                                this._addBlock(tx, ty, this.burstCounter);
+                                const tmx = tx + this.mapPad;
+                                const tmy = ty + this.mapPad;
+                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
+                            }
+                         });
                     }
-                }
-                // Remaining 10%: Single (winner only) - Do nothing extra
+                    // 20% chance for 2x2 (Square)
+                    else if (rand < 0.60) {
+                        const candidates = [
+                            [{x:4,y:0}, {x:0,y:4}, {x:4,y:4}],    
+                            [{x:-4,y:0}, {x:0,y:4}, {x:-4,y:4}],  
+                            [{x:4,y:0}, {x:0,y:-4}, {x:4,y:-4}],  
+                            [{x:-4,y:0}, {x:0,y:-4}, {x:-4,y:-4}] 
+                        ];
+                        const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                        cluster.forEach(offset => {
+                            const tx = winner.x + offset.x;
+                            const ty = winner.y + offset.y;
+                            if (!this._isOccupied(tx, ty)) {
+                                this._addBlock(tx, ty, this.burstCounter);
+                                const tmx = tx + this.mapPad;
+                                const tmy = ty + this.mapPad;
+                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
+                            }
+                        });
+                    }
+                    // 15% chance for 1x3 or 3x1 (Long Strips)
+                    else if (rand < 0.75) {
+                        const candidates = [
+                            // 3x1 (Horizontal)
+                            [{x:4,y:0}, {x:8,y:0}],      // Right
+                            [{x:-4,y:0}, {x:-8,y:0}],    // Left
+                            [{x:-4,y:0}, {x:4,y:0}],     // Center
+                            // 1x3 (Vertical)
+                            [{x:0,y:4}, {x:0,y:8}],      // Down
+                            [{x:0,y:-4}, {x:0,y:-8}],    // Up
+                            [{x:0,y:-4}, {x:0,y:4}]      // Center
+                        ];
+                        const cluster = candidates[Math.floor(Math.random() * candidates.length)];
+                        cluster.forEach(offset => {
+                            const tx = winner.x + offset.x;
+                            const ty = winner.y + offset.y;
+                            if (!this._isOccupied(tx, ty)) {
+                                this._addBlock(tx, ty, this.burstCounter);
+                                const tmx = tx + this.mapPad;
+                                const tmy = ty + this.mapPad;
+                                if (tmx >= 0 && tmy >= 0 && tmx < this.mapCols && tmy < this.mapRows) this.map[tmy * this.mapCols + tmx] &= ~2;
+                            }
+                        });
+                    }
+                    // 20% chance for 1x2 or 2x1 (Small Rects)
+                    else if (rand < 0.95) {
+                        const type = Math.random() < 0.5 ? 'h' : 'v';
+                        let extra = null;
+                        if (type === 'h') {
+                            if (!this._isOccupied(winner.x + 4, winner.y)) extra = {x: winner.x + 4, y: winner.y};
+                            else if (!this._isOccupied(winner.x - 4, winner.y)) extra = {x: winner.x - 4, y: winner.y};
+                        } 
+                        if (!extra) { 
+                            if (!this._isOccupied(winner.x, winner.y + 4)) extra = {x: winner.x, y: winner.y + 4};
+                            else if (!this._isOccupied(winner.x, winner.y - 4)) extra = {x: winner.x, y: winner.y - 4};
+                        }
+                        if (extra) {
+                            this._addBlock(extra.x, extra.y, this.burstCounter);
+                            const emx = extra.x + this.mapPad;
+                            const emy = extra.y + this.mapPad;
+                            if (emx >= 0 && emy >= 0 && emx < this.mapCols && emy < this.mapRows) this.map[emy * this.mapCols + emx] &= ~2;
+                        }
+                    }
+                    // Remaining 5%: Single (winner only) - Do nothing extra
 
             }
         }
