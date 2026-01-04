@@ -766,7 +766,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                 if (this.growthPhase === 0) {
                     // Initial Center Quad (Done in trigger)
                     this.growthPhase = 1;
-                    this.nextExpandTime = this.localFrame + 4; // Faster startup (was 10)
+                    this.nextExpandTime = this.localFrame + 1; // Instant transition (was 4)
                 }
                 else if (this.growthPhase === 1) {
                     // Phase 1: N, S, E, W
@@ -776,7 +776,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                             this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
                         }
                         this.growthPhase = 2;
-                        this.nextExpandTime = this.localFrame + 4; // Faster startup (was 10)
+                        this.nextExpandTime = this.localFrame + 1; // Instant transition (was 4)
                     }
                 }
                 else if (this.growthPhase === 2) {
@@ -825,9 +825,9 @@ class QuantizedPulseEffect extends AbstractEffect {
 
                     // MAIN EXPANSION: Run EVERY frame if needed
                     if (needed > 0 || (this.blocksAdded < 10 && this.frontier.length > 0)) {
-                         // Dynamic Burst: Spawn as many as needed, capped to avoid lag spikes
-                         // but high enough to clear the queue.
-                         let burst = Math.max(s.simultaneousSpawns, Math.min(needed, 50)); 
+                         // Dynamic Burst: Spawn as many as needed.
+                         // Increased Cap: 500 blocks/frame (approx 8000 pixels/frame) to ensure large screens fill on time.
+                         let burst = Math.max(s.simultaneousSpawns, Math.min(needed, 500)); 
                          this._updateExpansionBurst(burst);
                     }
                 }
@@ -1141,7 +1141,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         
         // --- PHASE 2: ASPECT RATIO DRIVEN CROSS EXPANSION ---
         let attempts = 0;
-        const maxAttempts = burstCount * 8 + 50; 
+        // Increased safety margin: 20 attempts per block + 200 base buffer
+        // This ensures that even in dense grids (late stage), we try hard enough to find spots.
+        const maxAttempts = burstCount * 20 + 200; 
         
         // Probability of Horizontal Expansion based on Aspect Ratio
         // Wider grid -> Higher chance of Horizontal
