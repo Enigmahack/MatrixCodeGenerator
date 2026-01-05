@@ -1,5 +1,6 @@
 ToDo: 
 Go through code and fix all comments.
+Edit the 'Gradual Stream Color' to start from behind the tracer instead of including the tracer itself. 
 
 <- Bugs: 
 Fix performance for low-end machines [DONE - Enabled SharedArrayBuffer in Electron]
@@ -7,22 +8,8 @@ Fix performance for low-end machines [DONE - Enabled SharedArrayBuffer in Electr
 <- Behavior:
 
 <- Look:
+Quantized Pulse Effect: Re-implement the grid overlap effect (Gold glow, 4x4 grid). [DONE]
+
 Quantized Retract: same as above but inwards. This should be pretty easy once the above is done. [DONE]
 
 Quantized Expansion: like the pulse, but with the rendered scene transition. This will require taking some generated version, screenshooting the state and using that as the inner scene that stretches. [DONE]
-
-Star Power - Make the glitter use the glimmer effect. [DONE]
-
-Implement a multi-monitor configuration? [DONE - Basic support in main.js]
-
-Implement a wrapper to EXE/DMG? Screensaver wrapper? [DONE - Added electron-builder config]
-
-Prompt for quantized pulse performance fix: 
-
-The blocky cross at the beginning must remain as it was. The main issue is that as the expansion
-  extends outward, the filling slows down. There must be a problem within the searching algorithmn.
-  Instead, let's start with an expansion map. The map should contain the pre-calculated map of where
-  all 1x1 blocks would be. As the blocks are being filled in, they should be registered on the map,
-  so the search algorithm doesn't need to look, it can identify immediately which blocks have not yet
-  been filled. Implement this map, and update the algorithm to only fill blocks that are not yet
-  filled within the perimeter of the larger blob.
