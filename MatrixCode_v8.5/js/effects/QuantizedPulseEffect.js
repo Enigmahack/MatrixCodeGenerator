@@ -1,1400 +1,186 @@
 class QuantizedPulseEffect extends AbstractEffect {
-    constructor(grid, config) {
-        super(grid, config);
+    constructor(g, c) {
+        super(g, c);
         this.name = "QuantizedPulse";
         this.active = false;
         
-        // Simulation State
-        this.blocks = [];      // Array<{idx, layer}>
-        this.lines = [];       // {x, y, w, h, alpha, persistence, isNew, mergeDelay, layer}
-        this.frontier = [];    // Array<number> (Indices)
+        // Configuration defaults are handled in ConfigurationManager, 
+        // but we init our internal state here.
+        this.timer = 0;
+        this.state = 'IDLE'; // IDLE, FADE_IN, SUSTAIN, FADE_OUT
+        this.alpha = 0.0;
         
-        // Bitmask Map: Bit 0 = L1 Occupied, Bit 1 = L2 Occupied, Bit 2 = Frontier, Bits 3-15 = BurstID
-        this.map = null;       // Uint16Array
-        this.mapCols = 0;
-        this.mapRows = 0;
-        this.mapPad = 60;
-        this.burstCounter = 0;
-        
-        this.origin = null;    // {x, y} center of pulse
-        this.blocksAdded = 0;  // Total blocks added (including padding)
-        
-        // Tracking
-        this.gridBlockCols = 0;
-        this.gridBlockRows = 0;
-        this.totalVisibleBlocks = 0;
-        this.visibleBlocksFilled = 0; // Blocks actually on screen
-        
-        // Growth State
-        this.lastBarIndices = [];
-        this.lastBarType = null;
-        this.tips = { n: -1, s: -1, e: -1, w: -1, nVal: 0, sVal: 0, eVal: 0, wVal: 0 };
-        
-        // Timing
-        this.localFrame = 0;
-        this.startTime = 0;
-        this.growthPhase = 0; 
-        this.nextExpandTime = 0;
-        this.currentDelay = 0;
-        this.timeoutId = null;
-        
-        // Fade State
-        this.isFading = false;
-        this.fadeAlpha = 1.0;
-        this.fadeInAlpha = 0.0;
-        
-        this.isExpanding = false; 
-        this.isFinishing = false; 
-
-        // Flash State
-        this.flashIntensity = null; 
-        this.activeFlashes = new Set();
-    }
-
-    _getEffectiveState() {
-        const s = this.c.state;
-        const fadeFrames = s.quantizedPulseFadeFrames !== undefined ? s.quantizedPulseFadeFrames : 15;
-        const fadeInFrames = s.quantizedPulseFadeInFrames !== undefined ? s.quantizedPulseFadeInFrames : 5;
-        const lineSpeed = fadeFrames > 0 ? (1.0 / fadeFrames) : 1.0;
-
-        return {
-            enabled: s.quantizedPulseEnabled,
-            freq: s.quantizedPulseFrequencySeconds,
-            duration: s.quantizedPulseDurationSeconds || 2.0,
-            initialSpeed: 10,
-            fadeFrames: fadeFrames,
-            fadeInFrames: fadeInFrames,
-            baseDelay: 1.0,
-            acceleration: 1, 
-            minDelay: 0.5,
-            blockSize: 4,
-            lineFadeSpeed: lineSpeed,
-            simultaneousSpawns: s.quantizedPulseSimultaneousSpawns !== undefined ? s.quantizedPulseSimultaneousSpawns : 3
-        };
-    }
-    
-    stop() {
-        this.active = false;
-        this.isFading = false;
-        this.isFinishing = false;
-        this.fadeAlpha = 1.0;
-        this.growthPhase = 0;
-        
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-        }
-        
-        // Immediate cleanup
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.blocksAdded = 0;
-        this.visibleBlocksFilled = 0;
-        if (this.map) this.map.fill(0);
-        this.tips = { n: -1, s: -1, e: -1, w: -1, nVal: 0, sVal: 0, eVal: 0, wVal: 0 };
-        this.activeFlashes.clear();
-        if (this.flashIntensity) this.flashIntensity.fill(0);
-        this.g.clearAllOverrides();
-        
-        this.shadowGrid = null;
-        this.shadowSim = null;
-    }
-    
-    beginFade() {
-        const s = this._getEffectiveState();
-        if (s.fadeFrames > 0) {
-            this.isFading = true;
-            this.fadeAlpha = 1.0;
-            if (this.timeoutId) {
-                clearTimeout(this.timeoutId);
-                this.timeoutId = null;
-            }
-        } else {
-            this.stop();
-        }
-    }
-
-    resetExpansion() {
-        this.isExpanding = false;
-        
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-        }
-        
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.l2Queue = [];
-        this.blocksAdded = 0;
-        this.visibleBlocksFilled = 0;
-        if (this.map) this.map.fill(0);
-        this.tips = { n: -1, s: -1, e: -1, w: -1, nVal: 0, sVal: 0, eVal: 0, wVal: 0 };
+        // Grid properties
+        this.gridPitchChars = 4;
+        this.offsetX = 0;
+        this.offsetY = 0;
     }
 
     trigger() {
-        if (this.isExpanding) this.resetExpansion();
+        if (this.active) return false;
         
+        const s = this.c.state;
+        if (!s.quantizedPulseEnabled) return false;
+
         this.active = true;
-        this.isExpanding = true;
-        this.isFading = false;
-        this.isFinishing = false;
-        this.fadeAlpha = 1.0;
-        this.startTime = Date.now();
-        this.growthPhase = 0; 
+        this.state = 'FADE_IN';
+        this.timer = 0;
+        this.alpha = 0.0;
         
-        const s = this._getEffectiveState();
-        this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
-
-        this._initShadowWorld();
-
-        // Safety Timeout 60s
-        this.timeoutId = setTimeout(() => {
-            this._finishExpansion(); 
-        }, 60000); 
-        
-        // Calculate Visible Grid Capacity
-        this.gridBlockCols = Math.ceil(this.g.cols / 4);
-        this.gridBlockRows = Math.ceil(this.g.rows / 4);
-        this.totalVisibleBlocks = this.gridBlockCols * this.gridBlockRows;
-        
-        // Resize map
-        this.mapCols = this.gridBlockCols + this.mapPad * 2;
-        this.mapRows = this.gridBlockRows + this.mapPad * 2;
-        
-        const total = this.mapCols * this.mapRows;
-        
-        if (!this.map || this.map.length !== total) {
-            this.map = new Uint16Array(total);
-        } else {
-            this.map.fill(0);
-        }
-
-        // Resize Flash Intensity
-        const totalGrid = this.g.cols * this.g.rows;
-        if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
-            this.flashIntensity = new Float32Array(totalGrid);
-            this.activeFlashes.clear();
-        }
-
-        this.burstCounter = 0;
-
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.l2Queue = [];
-        this.blocksAdded = 0;
-        this.visibleBlocksFilled = 0;
-        this.localFrame = 0;
-        
-        // Reset Phase 3 State
-        this.pendingBudget = 0;
-        this.cycleStage = 0;
-        this.phase3StartTime = null;
-        this.phase3StartBlocks = 0;
-        
-        // Center
-        const cx = Math.floor(this.gridBlockCols / 2);
-        const cy = Math.floor(this.gridBlockRows / 2);
-        
-        const startIdx = (cy + this.mapPad) * this.mapCols + (cx + this.mapPad);
-        
-        this._addBlockByIndex(startIdx, 0);
-        
-        this.origin = {x: cx * 4, y: cy * 4, bx: cx, by: cy};
-        
-        // Init Tips
-        this.tips = { 
-            n: startIdx, s: startIdx, e: startIdx, w: startIdx,
-            nVal: cy, sVal: cy, eVal: cx, wVal: cx 
-        };
-        
-        this.currentDelay = s.baseDelay;
-        this.nextExpandTime = this.currentDelay;
-        
-        // RNG Buffer
-        this.rngBuffer = new Float32Array(1024);
-        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+        // Offset slightly (1/2 cell to overlap characters effectively)
+        // Fixed offset as per "offset slightly" - avoiding random to keep it structured "Quantized"
+        // But "overlaps the current characters" implies it shouldn't be perfectly between them.
+        // If we align with cell centers, we maximize overlap.
+        // We'll calculate exact pixels in applyToGrid to ensure responsiveness to resize.
+        this.offsetX = 0.5; // Fraction of cell width
+        this.offsetY = 0.5; // Fraction of cell height
 
         return true;
     }
 
-    _coordsToMapIdx(px, py) {
-        const bx = Math.floor(px / 4);
-        const by = Math.floor(py / 4);
-        return (by + this.mapPad) * this.mapCols + (bx + this.mapPad);
-    }
-    
-    _mapIdxToCoords(idx) {
-        const mx = idx % this.mapCols;
-        const my = Math.floor(idx / this.mapCols);
-        const bx = mx - this.mapPad;
-        const by = my - this.mapPad;
-        return {x: bx * 4, y: by * 4, bx, by};
-    }
-
-    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
-        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        if (len <= 0) return;
-        
-        const ux = dx / len;
-        const uy = dy / len;
-        let dist = 0;
-        const minLen = 2.0; 
-        const maxLen = Math.max(minLen + 1, ch); 
-        
-        while (dist < len) {
-            const r1 = this.rngBuffer[rngIdx];
-            rngIdx = (rngIdx + 1) & 1023;
-            const dash = minLen + r1 * (maxLen - minLen);
-            
-            const r2 = this.rngBuffer[rngIdx];
-            rngIdx = (rngIdx + 1) & 1023;
-            const gap = minLen + r2 * (maxLen - minLen);
-            
-            const dEnd = Math.min(dist + dash, len);
-            if (dEnd > dist) {
-                path.moveTo(x1 + ux * dist, y1 + uy * dist);
-                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
-            }
-            dist += dash + gap;
-        }
-    }
-
-    _initShadowWorld() {
-        this.shadowGrid = new CellGrid(this.c);
-        const d = this.c.derived;
-        const w = this.g.cols * d.cellWidth;
-        const h = this.g.rows * d.cellHeight;
-        this.shadowGrid.resize(w, h);
-        
-        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c);
-        this.shadowSim.useWorker = false;
-        if (this.shadowSim.worker) {
-            this.shadowSim.worker.terminate();
-            this.shadowSim.worker = null;
-        }
-
-        const sm = this.shadowSim.streamManager;
-        const s = this.c.state;
-        sm.resize(this.shadowGrid.cols);
-        
-        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
-        for (let i = columns.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [columns[i], columns[j]] = [columns[j], columns[i]];
-        }
-        
-        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
-
-        for (let k = 0; k < injectionCount; k++) {
-            const col = columns[k];
-            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
-            const isEraser = Math.random() < 0.7;
-            const stream = sm._initializeStream(col, isEraser, s);
-            stream.y = startY;
-            stream.age = startY; 
-            sm.addActiveStream(stream);
-        }
-        
-        this.shadowSim.timeScale = 1.0;
-        const warmupFrames = 400;
-
-        for (let i = 0; i < warmupFrames; i++) {
-            this.shadowSim.update(i);
-        }
-
-        let extraFrames = 0;
-        const maxExtra = 200; 
-        const totalCells = this.shadowGrid.cols * this.shadowGrid.rows;
-        const targetActive = Math.floor(totalCells * 0.015);
-        
-        while (extraFrames < maxExtra) {
-             let activeCount = 0;
-             for(let k=0; k<totalCells; k+=10) {
-                 if (this.shadowGrid.state[k] === 1) activeCount++;
-             }
-             if ((activeCount * 10) > targetActive) break;
-             this.shadowSim.update(warmupFrames + extraFrames);
-             extraFrames++;
-        }
-        this.localFrame = warmupFrames + extraFrames;
-    }
-
-    _updateShadowWorld() {
-        if (!this.shadowSim || !this.shadowGrid) return;
-        this.shadowSim.update(this.localFrame);
-        
-        const g = this.g;
-        const sg = this.shadowGrid;
-        
-        if (g.overrideChars.length === sg.chars.length) {
-            g.overrideChars.set(sg.chars);
-            g.overrideColors.set(sg.colors);
-            g.overrideAlphas.set(sg.alphas);
-            g.overrideGlows.set(sg.glows);
-            g.overrideNextChars.set(sg.nextChars);
-        }
-    }
-
-    _finishExpansion() {
-        try {
-            const g = this.g;
-            const sg = this.shadowGrid;
-            
-            if (sg) {
-                // Commit all state to main grid
-                if (g.state.length === sg.state.length) {
-                    g.state.set(sg.state); 
-                    g.chars.set(sg.chars);
-                    g.colors.set(sg.colors);
-                    g.baseColors.set(sg.baseColors); 
-                    g.alphas.set(sg.alphas);
-                    g.glows.set(sg.glows);
-                    g.fontIndices.set(sg.fontIndices);
-                    g.renderMode.set(sg.renderMode); 
-                    
-                    g.types.set(sg.types);
-                    g.decays.set(sg.decays);
-                    g.ages.set(sg.ages);
-                    g.brightness.set(sg.brightness);
-                    g.rotatorOffsets.set(sg.rotatorOffsets);
-                    g.cellLocks.set(sg.cellLocks);
-                    
-                    g.nextChars.set(sg.nextChars);
-                    g.nextOverlapChars.set(sg.nextOverlapChars);
-                    
-                    g.secondaryChars.set(sg.secondaryChars);
-                    g.secondaryColors.set(sg.secondaryColors);
-                    g.secondaryAlphas.set(sg.secondaryAlphas);
-                    g.secondaryGlows.set(sg.secondaryGlows);
-                    g.secondaryFontIndices.set(sg.secondaryFontIndices);
-                    
-                    g.mix.set(sg.mix);
-                }
-                
-                if (sg.activeIndices.size > 0) {
-                    g.activeIndices.clear();
-                    for (const idx of sg.activeIndices) {
-                        g.activeIndices.add(idx);
-                    }
-                }
-                
-                g.complexStyles.clear();
-                for (const [key, value] of sg.complexStyles) {
-                    g.complexStyles.set(key, {...value});
-                }
-                
-                if (window.matrix && window.matrix.simulation) {
-                    const mainSim = window.matrix.simulation;
-                    const shadowMgr = this.shadowSim.streamManager;
-                    
-                    const streamMap = new Map();
-                    const serializedStreams = shadowMgr.activeStreams.map(s => {
-                        const copy = {...s};
-                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
-                        streamMap.set(s, copy);
-                        return copy;
-                    });
-                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
-                    
-                    const state = {
-                        activeStreams: serializedStreams, 
-                        columnSpeeds: shadowMgr.columnSpeeds,
-                        streamsPerColumn: shadowMgr.streamsPerColumn,   
-                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
-                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
-                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
-                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
-                        overlapInitialized: this.shadowSim.overlapInitialized,
-                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
-                        activeIndices: Array.from(sg.activeIndices)
-                    };
-                    
-                    const frameOffset = mainSim.frame || 0; 
-                    state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
-
-                    if (mainSim.useWorker && mainSim.worker) {
-                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
-                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
-                    } else {
-                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
-                        const mainMgr = mainSim.streamManager;
-                        mainMgr.activeStreams = state.activeStreams;
-                        mainMgr.columnSpeeds.set(state.columnSpeeds);
-                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
-                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
-                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
-                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
-                        mainSim.overlapInitialized = state.overlapInitialized;
-                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
-                        if (state.activeIndices) {
-                            mainSim.grid.activeIndices.clear();
-                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
-                        }
-                    }
-                }
-            }
-            
-            this.resetExpansion();
-            this.g.clearAllOverrides(); 
-            this._updateFlashes();
-            this.shadowGrid = null;
-            this.shadowSim = null;
-            
-        } catch (e) {
-            console.error("[QuantizedPulse] Swap failed:", e);
-            this.g.clearAllOverrides();
-            this.stop();
-        }
-    }
-
-    _addBlockByIndex(idx, burstId = 0, layer = 1) {
-        if (!this.map || idx < 0 || idx >= this.map.length) return;
-        
-        const layerBit = (layer === 2) ? 2 : 1;
-        if (this.map[idx] & layerBit) return; // Already occupied on this layer
-
-        const blockObj = {idx, layer};
-        this.blocks.push(blockObj);
-        if (layer === 1) this.blocksAdded++;
-        
-        // Track Layer 2 blocks for merging
-        if (layer === 2) {
-            this.l2Queue.push({blockRef: blockObj, frame: this.localFrame});
-        }
-        
-        // Mark Occupied (Bit 0 or 1) and BurstID (Bits 3-15)
-        // Clear Frontier (Bit 2) if it was a frontier node.
-        // We preserve other layer's bit.
-        const mask = ~(layerBit | 4); // Clear current layer bit and frontier bit (4)
-        this.map[idx] = (this.map[idx] & mask) | layerBit | (burstId << 3);
-        
-        const coords = this._mapIdxToCoords(idx);
-        const x = coords.x;
-        const y = coords.y;
-        
-        // Update Tips (Only for L1 to drive expansion)
-        if (layer === 1 && this.tips && this.origin) {
-            if (coords.bx === this.origin.bx) {
-                if (coords.by < this.tips.nVal) { this.tips.n = idx; this.tips.nVal = coords.by; }
-                if (coords.by > this.tips.sVal) { this.tips.s = idx; this.tips.sVal = coords.by; }
-            }
-            if (coords.by === this.origin.by) {
-                if (coords.bx < this.tips.wVal) { this.tips.w = idx; this.tips.wVal = coords.bx; }
-                if (coords.bx > this.tips.eVal) { this.tips.e = idx; this.tips.eVal = coords.bx; }
-            }
-        }
-
-        // Check if On Screen (Only L1 counts for stats?)
-        if (layer === 1 && coords.bx >= 0 && coords.bx < this.gridBlockCols && coords.by >= 0 && coords.by < this.gridBlockRows) {
-            this.visibleBlocksFilled++;
-            
-            const rowOff = y * this.g.cols;
-            const bs = 4;
-            const centerX = this.g.cols / 2;
-            const centerY = this.g.rows / 2;
-            const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
-            const dx = (x + 2) - centerX;
-            const dy = (y + 2) - centerY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            let scale = Math.max(0, 1.0 - (dist / maxDist));
-            scale = Math.pow(scale, 1.5);
-
-            for(let by=0; by<bs; by++) {
-                const rowOffLocal = (y + by) * this.g.cols;
-                for(let bx=0; bx<bs; bx++) {
-                     const gx = x + bx;
-                     if (gx >= 0 && gx < this.g.cols && (y + by) >= 0 && (y + by) < this.g.rows) {
-                         const cellIdx = rowOffLocal + gx;
-                         if (cellIdx < this.g.overrideActive.length) {
-                             this.g.overrideActive[cellIdx] = 3; 
-                             if (this.shadowGrid && this.g.overrideMix && this.shadowGrid.mix && cellIdx < this.g.overrideMix.length) {
-                                 this.g.overrideMix[cellIdx] = this.shadowGrid.mix[cellIdx];
-                             }
-                             if (this.flashIntensity && cellIdx < this.flashIntensity.length) {
-                                 this.flashIntensity[cellIdx] = 1.0 * scale;
-                             }
-                             this.activeFlashes.add(cellIdx);
-                         }
-                     }
-                }
-            }
-        }
-
-        // Active Spawn Logic (Shadow World)
-        if (layer === 1 && this.shadowSim && this.shadowSim.streamManager) {
-            if (Math.random() < 0.3) {
-                const spawnX = x + Math.floor(Math.random() * 4);
-                const spawnY = y + Math.floor(Math.random() * 4);
-                if (spawnX >= 0 && spawnX < this.shadowGrid.cols && spawnY >= 0 && spawnY < this.shadowGrid.rows) {
-                    const isEraser = Math.random() < 0.7;
-                    const stream = this.shadowSim.streamManager._initializeStream(spawnX, isEraser, this.c.state);
-                    stream.y = spawnY;
-                    stream.age = spawnY; 
-                    this.shadowSim.streamManager.addActiveStream(stream);
-                }
-            }
-        }
-
-        // Neighbors
-        const neighbors = [
-            idx - this.mapCols, // Top
-            idx + 1,            // Right
-            idx + this.mapCols, // Bottom
-            idx - 1             // Left
-        ];
-        
-        const offsets = [
-            {lx: x, ly: y, lw: 4, lh: 0, side: 0},     // Top Line
-            {lx: x + 4, ly: y, lw: 0, lh: 4, side: 1}, // Right Line
-            {lx: x, ly: y + 4, lw: 4, lh: 0, side: 2}, // Bottom Line
-            {lx: x, ly: y, lw: 0, lh: 4, side: 3}      // Left Line
-        ];
-
-        for (let i = 0; i < 4; i++) {
-            const nIdx = neighbors[i];
-            
-            if (nIdx < 0 || nIdx >= this.map.length) continue;
-            if (i === 1 && nIdx % this.mapCols === 0) continue;
-            if (i === 3 && (nIdx + 1) % this.mapCols === 0) continue;
-
-            const nVal = this.map[nIdx];
-            
-            if (nVal & layerBit) { // Occupied on SAME layer
-                const off = offsets[i];
-                const s = this._getEffectiveState();
-                const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10;
-                
-                this.lines.push({
-                    x: off.lx, y: off.ly, w: off.lw, h: off.lh,
-                    alpha: 1.0,
-                    persistence: persistence,
-                    isNew: true,
-                    mergeDelay: 3,
-                    layer: layer
-                });
-            } else {
-                // If L1, add to frontier
-                if (layer === 1 && (nVal & 4) === 0) { // Check Frontier Bit (4)
-                    this.frontier.push(nIdx);
-                    this.map[nIdx] |= 4; // Set Frontier Bit
-                }
-            }
-        }
-        
-        // Chance to add Layer 2 on top of this block (if L1)
-        if (layer === 1) {
-            let l2Chance = 0.05;
-            // Check L2 neighbors to encourage clustering/merging
-            if (this._isOccupiedIdx(idx - this.mapCols, 2)) l2Chance += 0.25;
-            if (this._isOccupiedIdx(idx + 1, 2)) l2Chance += 0.25;
-            if (this._isOccupiedIdx(idx + this.mapCols, 2)) l2Chance += 0.25;
-            if (this._isOccupiedIdx(idx - 1, 2)) l2Chance += 0.25;
-            
-            if (Math.random() < l2Chance) {
-                 this._addBlockByIndex(idx, burstId, 2);
-            }
-        }
-        
-        // Immediate 1x1 Hole Check
-        this._checkAndFill1x1Holes(idx, layer, burstId);
-    }
-    
-    _checkAndFill1x1Holes(idx, layer, burstId) {
-        // Check 4 neighbors of the added block
-        const neighbors = [
-            idx - this.mapCols, // Top
-            idx + 1,            // Right
-            idx + this.mapCols, // Bottom
-            idx - 1             // Left
-        ];
-        
-        for (const nIdx of neighbors) {
-            // Check if neighbor is valid and EMPTY on this layer
-            if (nIdx < 0 || nIdx >= this.map.length) continue;
-            if (this._isOccupiedIdx(nIdx, layer)) continue;
-            
-            // Check if this empty neighbor is surrounded by 4 occupied blocks (1x1 hole)
-            let occupiedCount = 0;
-            if (this._isOccupiedIdx(nIdx - this.mapCols, layer)) occupiedCount++; // N
-            if (this._isOccupiedIdx(nIdx + 1, layer)) occupiedCount++;            // E
-            if (this._isOccupiedIdx(nIdx + this.mapCols, layer)) occupiedCount++; // S
-            if (this._isOccupiedIdx(nIdx - 1, layer)) occupiedCount++;            // W
-            
-            // If surrounded by 4, fill immediately
-            if (occupiedCount === 4) {
-                this._addBlockByIndex(nIdx, burstId, layer);
-            }
-        }
-    }
-    
-    _addBlock(x, y, burstId = 0) {
-        const idx = this._coordsToMapIdx(x, y);
-        if (idx >= 0 && idx < this.map.length) {
-            this._addBlockByIndex(idx, burstId, 1);
-        }
-    }
-    
-    _isOccupied(x, y, layer = 1) {
-        const idx = this._coordsToMapIdx(x, y);
-        if (idx < 0 || idx >= this.map.length) return false;
-        const bit = (layer === 2) ? 2 : 1;
-        return (this.map[idx] & bit) !== 0;
-    }
-    
-    _isOccupiedIdx(idx, layer = 1) {
-        if (idx < 0 || idx >= this.map.length) return false;
-        const bit = (layer === 2) ? 2 : 1;
-        return (this.map[idx] & bit) !== 0;
-    }
-
-    _executeCycleStage(stage) {
-        let added = 0;
-        
-        // Simultaneous Execution Strategy:
-        // 1. Extend Cross (Vertical or Horizontal)
-        // 2. Add Random Chunk (Group)
-        // 3. Perform Hole Cleanup
-        
-        // 1. Cross Extension
-        // Alternate axis based on stage
-        if (stage % 2 === 0) {
-            added += this._addVerticalBar();
-        } else {
-            added += this._addHorizontalBar();
-        }
-        
-        // 2. Random Chunk (Group Addition)
-        // Always try to add "additional blocks of various sizes"
-        // Try adding 1-2 chunks per cycle
-        const chunkCount = 1 + Math.floor(Math.random() * 2);
-        for(let k=0; k<chunkCount; k++) {
-            added += this._addRandomChunk();
-        }
-        
-        // 3. Hole Cleanup (Always active to maintain solidity)
-        added += this._performHoleCleanup();
-        
-        // 4. Thickening Phase
-        // Turn recent 1x1 blocks into 3x3 blocks
-        added += this._performThickening();
-        
-        // 5. Branching Phase
-        // Extend perpendicular bars from existing structure
-        added += this._addBranchingBar();
-        
-        return added;
-    }
-    
-    _addBranchingBar() {
-        if (this.blocks.length === 0) return 0;
-        
-        // Pick a seed block, biased towards older blocks (center)
-        // Using a power curve to bias selection towards index 0
-        const rand = Math.pow(Math.random(), 3); 
-        const seedIdx = Math.floor(rand * this.blocks.length);
-        const block = this.blocks[seedIdx];
-        
-        if (!block || block.deleted) return 0;
-        
-        const idx = block.idx;
-        const layer = block.layer;
-        // Only branch from L1 for structure
-        if (layer !== 1) return 0;
-        
-        const c = this._mapIdxToCoords(idx);
-        const centerBx = this.origin.bx;
-        const centerBy = this.origin.by;
-        
-        const dx = c.bx - centerBx;
-        const dy = c.by - centerBy;
-        
-        // Determine structure orientation
-        // If |dy| > |dx|, we are likely on a Vertical arm -> Branch Horizontally
-        // If |dx| > |dy|, we are likely on a Horizontal arm -> Branch Vertically
-        
-        let candidates = [];
-        const C = this.mapCols;
-        
-        if (Math.abs(dy) >= Math.abs(dx)) {
-            // Vertical Structure -> Try Horizontal Branch
-            candidates.push({dir: -1}); // West
-            candidates.push({dir: 1});  // East
-        } else {
-            // Horizontal Structure -> Try Vertical Branch
-            candidates.push({dir: -C}); // North
-            candidates.push({dir: C});  // South
-        }
-        
-        // Pick one direction
-        const choice = candidates[Math.floor(Math.random() * candidates.length)];
-        const dir = choice.dir;
-        
-        // Try to extend
-        let count = 0;
-        const len = 2 + Math.floor(Math.random() * 4); // 2-5 blocks long
-        let curr = idx;
-        
-        for(let i=0; i<len; i++) {
-            const prev = curr;
-            curr += dir;
-            
-            if (curr < 0 || curr >= this.map.length) break;
-            
-            // For horizontal, check wrap-around
-            if (Math.abs(dir) === 1) {
-                if (Math.abs((prev % C) - (curr % C)) > 1) break;
-            }
-            
-            if (this._isOccupiedIdx(curr, 1)) {
-                // Stop if we hit something, but don't count it as added
-                continue; 
-            }
-            
-            this._addBlockByIndex(curr, this.burstCounter, 1);
-            count++;
-        }
-        return count;
-    }
-    
-    _performThickening() {
-        if (this.blocks.length === 0) return 0;
-        
-        let count = 0;
-        // Target very recent blocks to "transform" them as they appear
-        const range = Math.min(this.blocks.length, 10); 
-        if (range === 0) return 0;
-        
-        // Chance to thicken: 50% per cycle
-        if (Math.random() > 0.5) return 0;
-        
-        const randIndex = this.blocks.length - 1 - Math.floor(Math.random() * range);
-        const blockObj = this.blocks[randIndex];
-        const centerIdx = blockObj.idx;
-        const layer = blockObj.layer;
-        
-        const C = this.mapCols;
-        const offsets = [-C-1, -C, -C+1, -1, 1, C-1, C, C+1];
-        
-        for (const off of offsets) {
-            const nIdx = centerIdx + off;
-            if (nIdx >= 0 && nIdx < this.map.length) {
-                if (!this._isOccupiedIdx(nIdx, layer)) {
-                    this._addBlockByIndex(nIdx, this.burstCounter, layer);
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-    
-    _addVerticalBar() {
-        const candidates = [];
-        if (this.tips && this.tips.n !== -1) candidates.push({idx: this.tips.n, dir: -this.mapCols});
-        if (this.tips && this.tips.s !== -1) candidates.push({idx: this.tips.s, dir: this.mapCols});
-        
-        if (candidates.length === 0) return 0;
-        
-        // Randomly pick 1 or 2 directions
-        let selection = [];
-        if (candidates.length === 2 && Math.random() < 0.5) {
-            selection = candidates;
-        } else {
-            selection = [candidates[Math.floor(Math.random() * candidates.length)]];
-        }
-        
-        let totalCount = 0;
-        
-        for (const choice of selection) {
-            const startIdx = choice.idx;
-            const forwardDir = choice.dir;
-            
-            const forwardLen = 1 + Math.floor(Math.random() * 3);
-            let curr = startIdx;
-            
-            for(let i = 0; i < forwardLen; i++) {
-                curr += forwardDir;
-                if (curr < 0 || curr >= this.map.length || this._isOccupiedIdx(curr)) break;
-                
-                this._addBlockByIndex(curr, this.burstCounter);
-                totalCount++;
-            }
-        }
-        return totalCount;
-    }
-
-    _addHorizontalBar() {
-        const candidates = [];
-        if (this.tips && this.tips.w !== -1) candidates.push({idx: this.tips.w, dir: -1});
-        if (this.tips && this.tips.e !== -1) candidates.push({idx: this.tips.e, dir: 1});
-        
-        if (candidates.length === 0) return 0;
-        
-        // Randomly pick 1 or 2 directions
-        let selection = [];
-        if (candidates.length === 2 && Math.random() < 0.5) {
-            selection = candidates;
-        } else {
-            selection = [candidates[Math.floor(Math.random() * candidates.length)]];
-        }
-        
-        let totalCount = 0;
-        const C = this.mapCols;
-        
-        for (const choice of selection) {
-            const startIdx = choice.idx;
-            const forwardDir = choice.dir;
-            
-            const forwardLen = 1 + Math.floor(Math.random() * 3);
-            let curr = startIdx;
-            
-            for(let i = 0; i < forwardLen; i++) {
-                const prev = curr;
-                curr += forwardDir;
-                
-                if (curr < 0 || curr >= this.map.length || this._isOccupiedIdx(curr)) break;
-                if (Math.abs((prev % C) - (curr % C)) > 1) break;
-
-                this._addBlockByIndex(curr, this.burstCounter);
-                totalCount++;
-            }
-        }
-        return totalCount;
-    }
-
-    _performHoleCleanup() {
-        let limit = 50; 
-        let filledCount = 0;
-        for (let pass = 0; pass < 2; pass++) {
-            if (filledCount >= limit) break;
-            const candidates = [];
-            for (let i = 0; i < this.frontier.length; i++) {
-                const idx = this.frontier[i];
-                if (this.map[idx] & 1) continue;
-                if (this._countOccupiedNeighborsIdx(idx) >= 3) {
-                    candidates.push(idx);
-                    if (candidates.length >= (limit - filledCount)) break;
-                }
-            }
-            if (candidates.length === 0) break;
-            for (const idx of candidates) {
-                if (this.map[idx] & 1) continue; 
-                this._addBlockByIndex(idx, this.burstCounter);
-                filledCount++;
-            }
-            let write = 0;
-            for(let i=0; i<this.frontier.length; i++) {
-                const idx = this.frontier[i];
-                if ((this.map[idx] & 1) === 0) this.frontier[write++] = idx;
-            }
-            this.frontier.length = write;
-        }
-        return filledCount;
-    }
-
-    _addRandomChunk() {
-        if (this.frontier.length === 0) return 0;
-        const randArrIdx = Math.floor(Math.random() * this.frontier.length);
-        const idx = this.frontier[randArrIdx];
-        if (this.map[idx] & 1) { 
-             this.frontier[randArrIdx] = this.frontier[this.frontier.length-1];
-             this.frontier.pop();
-             return 0;
-        }
-        this._addBlockByIndex(idx, this.burstCounter);
-        this.frontier[randArrIdx] = this.frontier[this.frontier.length-1];
-        this.frontier.pop();
-        let added = 1;
-        added += this._performGroupAddition(idx);
-        return added;
-    }
-
-    _performGroupAddition(winnerIdx) {
-        const rand = Math.random();
-        const C = this.mapCols;
-        let count = 0;
-        const tryAdd = (offsets) => {
-            offsets.forEach(off => {
-                const tIdx = winnerIdx + off;
-                if (tIdx >= 0 && tIdx < this.map.length && !this._isOccupiedIdx(tIdx)) {
-                     this._addBlockByIndex(tIdx, this.burstCounter);
-                     count++;
-                }
-            });
-        };
-        if (rand < 0.20) { 
-             const candidates = [
-                [1, -1, C, -C, C+1, -C-1, C-1, -C+1],
-                [1, 2, C, C+1, C+2, C*2, C*2+1, C*2+2], 
-                [-1, -2, -C, -C-1, -C-2, -C*2, -C*2-1, -C*2-2]
-             ];
-             tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
-        }
-        else if (rand < 0.40) { 
-             const candidates = [[1, C, C+1, C*2, C*2+1], [-1, C, C-1, C*2, C*2-1]];
-             tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
-        }
-        else if (rand < 0.60) {
-            const candidates = [[1, C, C+1], [-1, C, C-1], [1, -C, -C+1], [-1, -C, -C-1]];
-            tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
-        }
-        else if (rand < 0.95) {
-            const candidates = [[1], [-1], [C], [-C]];
-            tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
-        }
-        return count;
-    }
-
-    _findBestFrontier(biasVertical) {
-        if (this.frontier.length === 0) return -1;
-        let bestIdx = -1;
-        let bestScore = -Infinity;
-        
-        for(let k = 0; k < this.frontier.length; k++) {
-            const idx = this.frontier[k];
-            
-            if (this.map[idx] & 1) { 
-                // Lazy Remove Stale Entry
-                this.frontier[k] = this.frontier[this.frontier.length-1];
-                this.frontier.pop();
-                k--; // Re-evaluate this index
-                continue; 
-            }
-            
-            const c = this._mapIdxToCoords(idx);
-            let axisDist = biasVertical ? Math.abs(c.bx - this.origin.bx) : Math.abs(c.by - this.origin.by);
-            let potential = 0;
-            const step = biasVertical ? this.mapCols : 1;
-            for(let dir of [step, -step]) {
-                for(let i = 1; i <= 3; i++) {
-                    const check = idx + (dir * i);
-                    if (check >= 0 && check < this.map.length && !this._isOccupiedIdx(check)) potential++;
-                    else break;
-                }
-            }
-            let score = (potential * 50) - (axisDist * 1000) + (Math.random() * 5);
-            if (score > bestScore) {
-                bestScore = score;
-                bestIdx = idx;
-            }
-        }
-        return bestIdx;
-    }
-
-    _countOccupiedNeighborsIdx(idx) {
-        let n = 0;
-        if (this._isOccupiedIdx(idx - this.mapCols)) n++;
-        if (this._isOccupiedIdx(idx + 1)) n++;
-        if (this._isOccupiedIdx(idx + this.mapCols)) n++;
-        if (this._isOccupiedIdx(idx - 1)) n++;
-        return n;
-    }
-
-    _applyMask() {
-        const bs = 4;
-        const g = this.g;
-        const sg = this.shadowGrid;
-        
-        for (const block of this.blocks) {
-             // Only L1 contributes to the mask/reveal
-             if (block.layer !== 1) continue;
-             
-             const idx = block.idx;
-             const coords = this._mapIdxToCoords(idx);
-             const bx = coords.x;
-             const by = coords.y;
-             
-             if (bx >= g.cols || by >= g.rows || bx + 4 < 0 || by + 4 < 0) continue;
-
-             for(let py=0; py<bs; py++) {
-                 const gy = by + py;
-                 if (gy < 0 || gy >= g.rows) continue;
-                 const rowOff = gy * g.cols;
-                 for(let px=0; px<bs; px++) {
-                     const gx = bx + px;
-                     if (gx < 0 || gx >= g.cols) continue;
-                     
-                     const i = rowOff + gx;
-                     g.overrideActive[i] = 3; 
-                     if (sg) g.overrideMix[i] = sg.mix[i];
-                 }
-             }
-        }
-    }
-
-    _processL2Merge() {
-        if (this.l2Queue.length === 0) return;
-        
-        const mergeDelay = 15; // 15 frames delay (~250ms at 60fps)
-        let processCount = 0;
-        
-        // Queue is ordered by time, so we can stop when we hit a block that's too new
-        while (this.l2Queue.length > 0) {
-            const item = this.l2Queue[0];
-            if ((this.localFrame - item.frame) < mergeDelay) break;
-            
-            this.l2Queue.shift(); // Remove from queue
-            processCount++;
-            
-            const block = item.blockRef;
-            const idx = block.idx;
-            
-            // Check if L1 is already occupied
-            if (this.map[idx] & 1) {
-                // L1 exists underneath. Just remove L2 visual.
-                block.deleted = true;
-                this.map[idx] &= ~2; // Clear L2 bit
-            } else {
-                // L1 is empty. Convert L2 -> L1.
-                block.layer = 1;
-                this.map[idx] |= 1;  // Set L1 bit
-                this.map[idx] &= ~2; // Clear L2 bit
-                
-                // Since we created a new L1 block, check for holes around it
-                // We use burstId=0 (or keep previous?) - 0 is safe/generic
-                this._checkAndFill1x1Holes(idx, 1, 0);
-            }
-        }
-    }
-
     update() {
-        if (!this.active) return;
-        
-        if (this.isExpanding) {
-            this.localFrame++;
-            const s = this._getEffectiveState();
-            
-            this._processL2Merge();
-            
-            this._updateShadowWorld();
-            this._applyMask();
-            this._updateBorderIllumination();
-            
-            if (this.fadeInAlpha < 1.0) {
-                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
-                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
-            }
-            
-            const elapsed = Date.now() - this.startTime;
-            
-            if (elapsed > 30000) {
-                this._finishExpansion();
-            }
-            
-            if (this.isExpanding) {
-                if (this.growthPhase === 0) {
-                    this.growthPhase = 1;
-                    this.nextExpandTime = this.localFrame + 10;
-                }
-                else if (this.growthPhase === 1) {
-                    if (this.localFrame >= this.nextExpandTime) {
-                        const offsets = [{x:0, y:-4}, {x:0, y:4}, {x:-4, y:0}, {x:4, y:0}];
-                        for (const o of offsets) {
-                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
-                        }
-                        this.growthPhase = 2;
-                        this.nextExpandTime = this.localFrame + 10;
-                    }
-                }
-                else if (this.growthPhase === 2) {
-                    if (this.localFrame >= this.nextExpandTime) {
-                        // Balanced Cross Expansion (N, S, W, E)
-                        const offsets = [{x:0, y:-8}, {x:0, y:8}, {x:-8, y:0}, {x:8, y:0}];
-                        for (const o of offsets) {
-                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
-                        }
-                        this.growthPhase = 3;
-                        this.phase3StartTime = Date.now();
-                        this.phase3StartBlocks = this.blocksAdded;
-                    }
-                }
-                else {
-                    if (!this.phase3StartTime) {
-                         this.phase3StartTime = Date.now();
-                         this.phase3StartBlocks = this.blocksAdded;
-                    }
-
-                    const durationFrames = Math.max(1, s.duration * 60);
-                    const blocksPerFrame = this.totalVisibleBlocks / durationFrames;
-                    
-                    this.pendingBudget += blocksPerFrame;
-                    if (this.pendingBudget > 2000) this.pendingBudget = 2000;
-                    
-                    this.burstCounter = (this.burstCounter + 1) & 0x3FFF; 
-                    if (this.burstCounter === 0) this.burstCounter = 1;
-
-                    let attempts = 0;
-                    while (this.pendingBudget >= 1 && this.frontier.length > 0 && attempts < 2000) {
-                        const added = this._executeCycleStage(this.cycleStage);
-                        this.pendingBudget -= added; 
-                        this.cycleStage = (this.cycleStage + 1) % 8; 
-                        attempts++;
-                    }
-
-                    if (this.visibleBlocksFilled >= this.totalVisibleBlocks * 0.99) {
-                         this._finishExpansion();
-                    }
-                }
-                
-                this._updateLines(s);
-            }
-        }
-        
-        this._updateFlashes();
-
-        if (!this.isExpanding && this.activeFlashes.size === 0) {
-            this.stop(); 
-        }
-    }
-    
-    _updateLines(s) {
-        const greenDuration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
-        
-        let writeIdx = 0;
-        for (let i = 0; i < this.lines.length; i++) {
-            const l = this.lines[i];
-            
-            if (l.isNew) {
-                if (l.mergeDelay > 0) {
-                     l.mergeDelay--;
-                     this.lines[writeIdx++] = l;
-                     continue;
-                }
-                l.isNew = false;
-                l.persistence = 0; 
-                l.alpha = 1.0;
-            }
-            
-            if (l.persistence > 0) {
-                l.persistence--;
-                this.lines[writeIdx++] = l;
-            } else {
-                let speed;
-                speed = (greenDuration <= 0.01) ? 1.0 : (1.0 / (greenDuration * 60));
-                l.alpha -= speed;
-                if (l.alpha > 0) {
-                    this.lines[writeIdx++] = l;
-                }
-            }
-        }
-        this.lines.length = writeIdx;
-    }
-
-    _updateBorderIllumination() {
-        const centerX = this.g.cols / 2;
-        const centerY = this.g.rows / 2;
-        const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
-        
-        for (const l of this.lines) {
-            if (!l.isNew) continue; 
-            
-            const dx = (l.x + (l.w > 0 ? l.w/2 : 0)) - centerX;
-            const dy = (l.y + (l.h > 0 ? l.h/2 : 0)) - centerY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            
-            let scale = Math.max(0, 1.0 - (dist / maxDist));
-            scale = Math.pow(scale, 1.5); 
-
-            let isHorizontal = (l.w > 0);
-            
-            if (isHorizontal) {
-                const isTop = this._isOccupied(l.x, l.y - 4);
-                const isBot = this._isOccupied(l.x, l.y);
-                if (isTop && !isBot) this._illuminateSpan(l.x, l.y - 1, 4, 1, scale);
-                else if (isBot && !isTop) this._illuminateSpan(l.x, l.y, 4, 1, scale);
-            } else {
-                const isLeft = this._isOccupied(l.x - 4, l.y);
-                const isRight = this._isOccupied(l.x, l.y);
-                if (isLeft && !isRight) this._illuminateSpan(l.x - 1, l.y, 1, 4, scale);
-                else if (isRight && !isLeft) this._illuminateSpan(l.x, l.y, 1, 4, scale);
-            }
-        }
-    }
-    
-    _illuminateSpan(x, y, w, h, scale = 1.0) {
-        if (!this.shadowGrid) return;
-        
-        for(let py = y; py < y + h; py++) {
-            if (py < 0 || py >= this.g.rows) continue;
-            for(let px = x; px < x + w; px++) {
-                if (px < 0 || px >= this.g.cols) continue;
-                
-                const idx = py * this.g.cols + px;
-                if (this.shadowGrid.chars[idx] !== 0) {
-                     this.flashIntensity[idx] = 1.0 * scale; 
-                     this.activeFlashes.add(idx);
-                }
-            }
-        }
-    }
-
-    _updateFlashes() {
-        if (this.activeFlashes.size === 0) return;
-        const g = this.g;
-        const decay = 1.0 / 30.0; 
-        const toRemove = [];
-        
-        for (const idx of this.activeFlashes) {
-            let intensity = this.flashIntensity[idx];
-            if (intensity <= 0) {
-                toRemove.push(idx);
-                continue;
-            }
-            intensity -= decay;
-            this.flashIntensity[idx] = intensity;
-            
-            if (intensity > 0) {
-                if (g.overrideActive[idx] !== 3) {
-                     g.overrideActive[idx] = 1; 
-                }
-                const illumination = this.c.state.quantizedPulseBorderIllumination !== undefined ? this.c.state.quantizedPulseBorderIllumination : 4.0;
-                g.overrideGlows[idx] += illumination * intensity;
-                
-                const col = g.overrideColors[idx];
-                const r = col & 0xFF;
-                const gVal = (col >> 8) & 0xFF;
-                const b = (col >> 16) & 0xFF;
-                const a = (col >> 24) & 0xFF;
-                
-                const maxVal = Math.max(r, gVal, b, 1);
-                const targetScale = 255 / maxVal;
-                const scale = 1.0 + (targetScale - 1.0) * intensity;
-                
-                const rNew = Math.min(255, Math.floor(r * scale));
-                const gNew = Math.min(255, Math.floor(gVal * scale));
-                const bNew = Math.min(255, Math.floor(b * scale));
-                
-                g.overrideColors[idx] = (a << 24) | (bNew << 16) | (gNew << 8) | rNew;
-            } else {
-                toRemove.push(idx);
-            }
-        }
-        for (const idx of toRemove) {
-            this.activeFlashes.delete(idx);
-            this.flashIntensity[idx] = 0;
-        }
-    }
-
-    _getPerimeterMask(idx, layer = 1) {
-        let mask = 0;
-        if (!this._isOccupiedIdx(idx - this.mapCols, layer)) mask |= 1; // North
-        if (!this._isOccupiedIdx(idx + 1, layer)) mask |= 2;            // East
-        if (!this._isOccupiedIdx(idx + this.mapCols, layer)) mask |= 4; // South
-        if (!this._isOccupiedIdx(idx - 1, layer)) mask |= 8;            // West
-        return mask;
-    }
-
-    render(ctx, derived) {
-        if (!this.active || !this.isExpanding) return;
         const s = this.c.state;
-        const cw = derived.cellWidth * s.stretchX;
-        const ch = derived.cellHeight * s.stretchY;
-        const colorStr = '#FFFF6E';
-        
-        const masterAlpha = this.fadeAlpha * this.fadeInAlpha;
-        
-        ctx.lineCap = 'butt';
-        ctx.lineWidth = Math.max(1, cw * 0.15); 
-        ctx.strokeStyle = colorStr;
-        ctx.shadowBlur = 25; 
-        ctx.shadowColor = colorStr;
-        ctx.globalAlpha = masterAlpha;
-        
-        const hPath1 = new Path2D();
-        const vPath1 = new Path2D();
-        const hPath2 = new Path2D();
-        const vPath2 = new Path2D();
+        const fps = 60;
 
-        const bs = 4;
-        
-        for (const block of this.blocks) {
-            if (block.deleted) continue;
-            const idx = block.idx;
-            const layer = block.layer;
+        if (!this.active) return;
 
-            const coords = this._mapIdxToCoords(idx);
-            const bx = coords.x * cw;
-            const by = coords.y * ch;
-            const bw = 4 * cw;
-            const bh = 4 * ch;
-            
-            // Use detector method
-            const pMask = this._getPerimeterMask(idx, layer);
-            
-            // If pMask === 0, it's an internal block (inside the perimeter)
-            // We only draw dashed lines for external faces (perimeter)
-            
-            const seed = coords.bx * 13 + coords.by * 29;
-            
-            const hPath = (layer === 2) ? hPath2 : hPath1;
-            const vPath = (layer === 2) ? vPath2 : vPath1;
+        // Lifecycle State Machine
+        // Frames for Fades
+        const fadeInFrames = Math.max(1, s.quantizedPulseFadeInFrames);
+        const fadeOutFrames = Math.max(1, s.quantizedPulseFadeFrames);
+        const durationFrames = s.quantizedPulseDurationSeconds * fps;
+        
+        // Helper to clamp alpha
+        const setAlpha = (val) => { this.alpha = Math.max(0, Math.min(1, val)); };
 
-            if (pMask & 1) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }         // North
-            if (pMask & 2) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); } // East
-            if (pMask & 4) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); } // South
-            if (pMask & 8) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }         // West
-        }
-        
-        // Draw Layer 1
-        ctx.stroke(hPath1);
-        ctx.stroke(vPath1);
-        
-        // Draw Layer 2 (On Top)
-        if (this.blocks.some(b => b.layer === 2)) {
-             ctx.save();
-             ctx.stroke(hPath2);
-             ctx.stroke(vPath2);
-             ctx.restore();
-        }
-
-        ctx.shadowBlur = 0; 
-        ctx.strokeStyle = derived.streamColorStr; 
-        ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
-        
-        const drawLines = (layerFilter) => {
-             for (const l of this.lines) {
-                const lineLayer = l.layer || 1;
-                if (lineLayer !== layerFilter) continue;
-                
-                let lineAlpha = l.alpha * masterAlpha;
-                
-                if (l.isNew) {
-                    ctx.strokeStyle = colorStr; 
-                    ctx.shadowBlur = 25;
-                    ctx.shadowColor = colorStr; 
-                    if (Math.random() < 0.4) {
-                        lineAlpha *= (0.1 + Math.random() * 0.5);
-                    }
-                } else {
-                    const col = derived.streamColorStr;
-                    ctx.strokeStyle = col; 
-                    ctx.shadowColor = col; 
-                }
-                
-                ctx.globalAlpha = lineAlpha;
-                ctx.beginPath();
-                
-                const lx = l.x * cw;
-                const ly = l.y * ch;
-                const lPxW = l.w * cw;
-                const lPxH = l.h * ch;
-                ctx.moveTo(lx, ly);
-                ctx.lineTo(lx + lPxW, ly + lPxH);
-                ctx.stroke();
+        if (this.state === 'FADE_IN') {
+            this.timer++;
+            setAlpha(this.timer / fadeInFrames);
+            if (this.timer >= fadeInFrames) {
+                this.state = 'SUSTAIN';
+                this.timer = 0;
+                this.alpha = 1.0;
             }
-        };
+        } else if (this.state === 'SUSTAIN') {
+            this.timer++;
+            if (this.timer >= durationFrames) {
+                this.state = 'FADE_OUT';
+                this.timer = 0;
+            }
+        } else if (this.state === 'FADE_OUT') {
+            this.timer++;
+            setAlpha(1.0 - (this.timer / fadeOutFrames));
+            if (this.timer >= fadeOutFrames) {
+                this.active = false;
+                this.state = 'IDLE';
+                this.alpha = 0.0;
+            }
+        }
+    }
 
-        drawLines(1);
-        drawLines(2);
+    applyToGrid(grid) {
+        if (!this.active || this.alpha <= 0.01) return;
+
+        const s = this.c.state;
+        const d = this.c.derived;
+        const total = grid.cols * grid.rows;
+
+        // 1. Grid Properties
+        // "Grid lines will be 1/4 the width of the current font px height"
+        // lineWidth = fontSize * 0.25
+        const lineWidth = s.fontSize * 0.25;
+        const halfLine = lineWidth / 2;
+
+        // Pitch in pixels
+        // 4x4 characters
+        const pitchX = 4 * d.cellWidth * s.stretchX;
+        const pitchY = 4 * d.cellHeight * s.stretchY;
+
+        // Offsets in pixels
+        // "offset slightly". 
+        // Let's use the 0.5 fraction established in trigger, converted to pixels.
+        // Actually, to ensure overlap, we want the line to pass through the *center* of some cells.
+        // If we offset by 0, lines are at 0, 4, 8... (Left edge of col 0, 4, 8).
+        // Center of Col 0 is at 0.5 * cellWidth.
+        // If we want the line to overlap characters, we should align it with cell centers?
+        // Let's try aligning to the center of the 4x4 block boundary + a slight shift.
+        // Let's just use a fixed small pixel offset + the grid logic.
+        // Let's stick to the prompt: "Grid lines will be offset slightly".
+        // We'll calculate intersection based on cell centers.
         
-        ctx.setLineDash([]); 
-        ctx.globalAlpha = 1.0; 
-        ctx.shadowBlur = 0;
+        // We will define the grid lines in screen space.
+        // Vertical lines at: X = (k * pitchX) + pixelOffsetX
+        // Horizontal lines at: Y = (k * pitchY) + pixelOffsetY
+        const pixelOffsetX = d.cellWidth * 0.5; 
+        const pixelOffsetY = d.cellHeight * 0.5;
+
+        // 2. Color
+        // Gold: #FFD700
+        // We need it in ABGR for setHighPriorityEffect (which expects Uint32)
+        // Utils.packAbgr(r, g, b, a)
+        // Gold RGB: 255, 215, 0
+        const goldColor = Utils.packAbgr(255, 215, 0); 
+        const glowAmount = s.quantizedPulseBorderIllumination;
+
+        // Iterate all cells
+        for (let i = 0; i < total; i++) {
+            // Optimization: Skip empty cells ("Black space will remain black space")
+            // Check current alpha in grid
+            const currentAlpha = grid.alphas[i];
+            if (currentAlpha <= 0.05) continue;
+
+            const x = i % grid.cols;
+            const y = Math.floor(i / grid.cols);
+
+            // Calculate Center of this cell in pixels
+            const cx = (x * d.cellWidth * s.stretchX) + (d.cellWidth * s.stretchX * 0.5);
+            const cy = (y * d.cellHeight * s.stretchY) + (d.cellHeight * s.stretchY * 0.5);
+
+            // Check distance to nearest vertical line
+            // X relative to grid
+            const relX = (cx - pixelOffsetX) % pitchX;
+            // Distance is min(relX, pitchX - relX)
+            // But % can be negative if offset > cx, so use Math.abs or ensure positive
+            // Since we start from 0, cx is usually > offset.
+            // (a % n + n) % n handles negatives
+            const distX = Math.min(
+                Math.abs((cx - pixelOffsetX) % pitchX),
+                Math.abs(pitchX - ((cx - pixelOffsetX) % pitchX))
+            );
+
+            // Check distance to nearest horizontal line
+            const distY = Math.min(
+                Math.abs((cy - pixelOffsetY) % pitchY),
+                Math.abs(pitchY - ((cy - pixelOffsetY) % pitchY))
+            );
+
+            // Intersect if distance < halfLine
+            const intersectsX = distX < halfLine;
+            const intersectsY = distY < halfLine;
+
+            if (intersectsX || intersectsY) {
+                // Apply Effect
+                // We want to overlay Gold, but preserve the char.
+                // grid.chars[i] is the code.
+                // We assume we want to override the color.
+                
+                // Existing char
+                const charCode = grid.chars[i];
+                const char = String.fromCharCode(charCode);
+                const fontIdx = grid.fontIndices[i];
+                
+                // Calculate final alpha based on effect alpha * cell alpha (don't make invisible cells visible, but we already skipped them)
+                // Actually, if we want "Black space remains black", we multiply by currentAlpha?
+                // The prompt says "Glow only where the characters intersect".
+                // We typically use the Grid's mechanism.
+                // setHighPriorityEffect overrides everything.
+                
+                // If we want to blend or just replace?
+                // "Glow should make the character illumination that intersects with the line a gold color."
+                // Implies replacement of color.
+                
+                grid.setHighPriorityEffect(i, char, goldColor, currentAlpha * this.alpha, fontIdx, glowAmount * this.alpha);
+            }
+        }
     }
 }
