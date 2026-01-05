@@ -1,0 +1,1319 @@
+class QuantizedPulseEffect extends AbstractEffect {
+    constructor(grid, config) {
+        super(grid, config);
+        this.name = "QuantizedPulse";
+        this.active = false;
+        
+        // Simulation State
+        this.blocks = [];      // Array<number> (Indices)
+        this.lines = [];       // {x, y, w, h, alpha, persistence, isNew, mergeDelay}
+        this.frontier = [];    // Array<number> (Indices)
+        
+        // Bitmask Map: Bit 0 = Occupied, Bit 1 = Frontier, Bits 2-15 = BurstID
+        this.map = null;       // Uint16Array
+        this.mapCols = 0;
+        this.mapRows = 0;
+        this.mapPad = 60;
+        this.burstCounter = 0;
+        
+        this.origin = null;    // {x, y} center of pulse
+        this.blocksAdded = 0;  // Total blocks added (including padding)
+        this.tendrils = [];    
+        
+        // Tracking
+        this.gridBlockCols = 0;
+        this.gridBlockRows = 0;
+        this.totalVisibleBlocks = 0;
+        this.visibleBlocksFilled = 0; // Blocks actually on screen
+        
+        // Growth State
+        this.lastBarIndices = [];
+        this.lastBarType = null; // 'v' or 'h'
+        
+        // Timing & Growth
+        this.pendingBudget = 0; // Accumulated fractional blocks to add
+        this.cycleStage = 0;    // 0..7
+        this.nextExpandTime = 0;
+        this.currentDelay = 0;
+        this.timeoutId = null;
+        
+        // Fade State
+        this.isFading = false;
+        this.fadeAlpha = 1.0;
+        this.fadeInAlpha = 0.0;
+        
+        this.isExpanding = false; 
+        this.isFinishing = false; 
+
+        // Flash State
+        this.flashIntensity = null; 
+        this.activeFlashes = new Set();
+    }
+
+    _getEffectiveState() {
+        const s = this.c.state;
+        const fadeFrames = s.quantizedPulseFadeFrames !== undefined ? s.quantizedPulseFadeFrames : 15;
+        const fadeInFrames = s.quantizedPulseFadeInFrames !== undefined ? s.quantizedPulseFadeInFrames : 5;
+        const lineSpeed = fadeFrames > 0 ? (1.0 / fadeFrames) : 1.0;
+
+        return {
+            enabled: s.quantizedPulseEnabled,
+            freq: s.quantizedPulseFrequencySeconds,
+            duration: s.quantizedPulseDurationSeconds || 2.0,
+            initialSpeed: 10,
+            fadeFrames: fadeFrames,
+            fadeInFrames: fadeInFrames,
+            baseDelay: 1.0,
+            acceleration: 1, 
+            minDelay: 0.5,
+            blockSize: 4,
+            lineFadeSpeed: lineSpeed,
+            simultaneousSpawns: s.quantizedPulseSimultaneousSpawns !== undefined ? s.quantizedPulseSimultaneousSpawns : 3
+        };
+    }
+    
+    stop() {
+        this.active = false;
+        this.isFading = false;
+        this.isFinishing = false;
+        this.fadeAlpha = 1.0;
+        this.swapped = false;
+        this.swapTimer = 0;
+        this.growthPhase = 0;
+        
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        
+        // Immediate cleanup
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        this.visibleBlocksFilled = 0;
+        if (this.map) this.map.fill(0);
+        this.activeFlashes.clear();
+        if (this.flashIntensity) this.flashIntensity.fill(0);
+        this.g.clearAllOverrides();
+        
+        this.shadowGrid = null;
+        this.shadowSim = null;
+    }
+    
+    beginFade() {
+        const s = this._getEffectiveState();
+        if (s.fadeFrames > 0) {
+            this.isFading = true;
+            this.fadeAlpha = 1.0;
+            if (this.timeoutId) {
+                clearTimeout(this.timeoutId);
+                this.timeoutId = null;
+            }
+        } else {
+            this.stop();
+        }
+    }
+
+    resetExpansion() {
+        this.isExpanding = false;
+        this.swapped = false;
+        this.swapTimer = 0;
+        
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        this.visibleBlocksFilled = 0;
+        if (this.map) this.map.fill(0);
+    }
+
+    trigger() {
+        if (this.isExpanding) this.resetExpansion();
+        
+        this.active = true;
+        this.isExpanding = true;
+        this.isFading = false;
+        this.isFinishing = false;
+        this.fadeAlpha = 1.0;
+        this.startTime = Date.now();
+        this.growthPhase = 0; 
+        this.cycleStage = 0;
+        this.pendingBudget = 0;
+        
+        const s = this._getEffectiveState();
+        this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
+
+        this._initShadowWorld();
+
+        // Safety Timeout 60s
+        this.timeoutId = setTimeout(() => {
+            this._finishExpansion(); 
+        }, 60000); 
+        
+        // Calculate Visible Grid Capacity
+        this.gridBlockCols = Math.ceil(this.g.cols / 4);
+        this.gridBlockRows = Math.ceil(this.g.rows / 4);
+        this.totalVisibleBlocks = this.gridBlockCols * this.gridBlockRows;
+        
+        // Resize map
+        this.mapCols = this.gridBlockCols + this.mapPad * 2;
+        this.mapRows = this.gridBlockRows + this.mapPad * 2;
+        
+        const total = this.mapCols * this.mapRows;
+        
+        if (!this.map || this.map.length !== total) {
+            this.map = new Uint16Array(total);
+        } else {
+            this.map.fill(0);
+        }
+
+        // Resize Flash Intensity
+        const totalGrid = this.g.cols * this.g.rows;
+        if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
+            this.flashIntensity = new Float32Array(totalGrid);
+            this.activeFlashes.clear();
+        }
+
+        this.burstCounter = 0;
+
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        this.visibleBlocksFilled = 0;
+        this.localFrame = 0;
+        this.swapTimer = 0;
+        this.swapped = false;
+        
+        // Center
+        const cx = Math.floor(this.gridBlockCols / 2);
+        const cy = Math.floor(this.gridBlockRows / 2);
+        
+        const startIdx = (cy + this.mapPad) * this.mapCols + (cx + this.mapPad);
+        
+        this._addBlockByIndex(startIdx, 0);
+        
+        this.origin = {x: cx * 4, y: cy * 4, bx: cx, by: cy};
+        
+        this.phase3StartTime = 0;
+        
+        this.currentDelay = s.baseDelay;
+        this.nextExpandTime = this.currentDelay;
+        
+        // RNG Buffer
+        this.rngBuffer = new Float32Array(1024);
+        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+
+        return true;
+    }
+
+    _coordsToMapIdx(px, py) {
+        const bx = Math.floor(px / 4);
+        const by = Math.floor(py / 4);
+        return (by + this.mapPad) * this.mapCols + (bx + this.mapPad);
+    }
+    
+    _mapIdxToCoords(idx) {
+        const mx = idx % this.mapCols;
+        const my = Math.floor(idx / this.mapCols);
+        const bx = mx - this.mapPad;
+        const by = my - this.mapPad;
+        return {x: bx * 4, y: by * 4, bx, by};
+    }
+
+    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
+        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len <= 0) return;
+        
+        const ux = dx / len;
+        const uy = dy / len;
+        let dist = 0;
+        const minLen = 2.0; 
+        const maxLen = Math.max(minLen + 1, ch); 
+        
+        while (dist < len) {
+            const r1 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023;
+            const dash = minLen + r1 * (maxLen - minLen);
+            
+            const r2 = this.rngBuffer[rngIdx];
+            rngIdx = (rngIdx + 1) & 1023;
+            const gap = minLen + r2 * (maxLen - minLen);
+            
+            const dEnd = Math.min(dist + dash, len);
+            if (dEnd > dist) {
+                path.moveTo(x1 + ux * dist, y1 + uy * dist);
+                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
+            }
+            dist += dash + gap;
+        }
+    }
+
+    _initShadowWorld() {
+        this.shadowGrid = new CellGrid(this.c);
+        const d = this.c.derived;
+        const w = this.g.cols * d.cellWidth;
+        const h = this.g.rows * d.cellHeight;
+        this.shadowGrid.resize(w, h);
+        
+        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c);
+        this.shadowSim.useWorker = false;
+        if (this.shadowSim.worker) {
+            this.shadowSim.worker.terminate();
+            this.shadowSim.worker = null;
+        }
+
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        sm.resize(this.shadowGrid.cols);
+        
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+        
+        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
+
+        for (let k = 0; k < injectionCount; k++) {
+            const col = columns[k];
+            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
+            const isEraser = Math.random() < 0.7;
+            const stream = sm._initializeStream(col, isEraser, s);
+            stream.y = startY;
+            stream.age = startY; 
+            sm.addActiveStream(stream);
+        }
+        
+        this.shadowSim.timeScale = 1.0;
+        const warmupFrames = 400;
+
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
+        }
+
+        let extraFrames = 0;
+        const maxExtra = 200; 
+        const totalCells = this.shadowGrid.cols * this.shadowGrid.rows;
+        const targetActive = Math.floor(totalCells * 0.015);
+        
+        while (extraFrames < maxExtra) {
+             let activeCount = 0;
+             for(let k=0; k<totalCells; k+=10) {
+                 if (this.shadowGrid.state[k] === 1) activeCount++;
+             }
+             if ((activeCount * 10) > targetActive) break;
+             this.shadowSim.update(warmupFrames + extraFrames);
+             extraFrames++;
+        }
+        this.localFrame = warmupFrames + extraFrames;
+    }
+
+    _updateShadowWorld() {
+        if (!this.shadowSim || !this.shadowGrid) return;
+        this.shadowSim.update(this.localFrame);
+        
+        const g = this.g;
+        const sg = this.shadowGrid;
+        
+        g.overrideChars.set(sg.chars);
+        g.overrideColors.set(sg.colors);
+        g.overrideAlphas.set(sg.alphas);
+        g.overrideGlows.set(sg.glows);
+        g.overrideNextChars.set(sg.nextChars);
+    }
+
+    _finishExpansion() {
+        try {
+            const g = this.g;
+            const sg = this.shadowGrid;
+            
+            if (sg) {
+                g.state.set(sg.state); 
+                g.chars.set(sg.chars);
+                g.colors.set(sg.colors);
+                g.baseColors.set(sg.baseColors); 
+                g.alphas.set(sg.alphas);
+                g.glows.set(sg.glows);
+                g.fontIndices.set(sg.fontIndices);
+                g.renderMode.set(sg.renderMode); 
+                
+                g.types.set(sg.types);
+                g.decays.set(sg.decays);
+                g.ages.set(sg.ages);
+                g.brightness.set(sg.brightness);
+                g.rotatorOffsets.set(sg.rotatorOffsets);
+                g.cellLocks.set(sg.cellLocks);
+                
+                g.nextChars.set(sg.nextChars);
+                g.nextOverlapChars.set(sg.nextOverlapChars);
+                
+                g.secondaryChars.set(sg.secondaryChars);
+                g.secondaryColors.set(sg.secondaryColors);
+                g.secondaryAlphas.set(sg.secondaryAlphas);
+                g.secondaryGlows.set(sg.secondaryGlows);
+                g.secondaryFontIndices.set(sg.secondaryFontIndices);
+                
+                g.mix.set(sg.mix);
+                
+                if (sg.activeIndices.size > 0) {
+                    g.activeIndices.clear();
+                    for (const idx of sg.activeIndices) {
+                        g.activeIndices.add(idx);
+                    }
+                }
+                
+                g.complexStyles.clear();
+                for (const [key, value] of sg.complexStyles) {
+                    g.complexStyles.set(key, {...value});
+                }
+                
+                if (window.matrix && window.matrix.simulation) {
+                    const mainSim = window.matrix.simulation;
+                    const shadowMgr = this.shadowSim.streamManager;
+                    
+                    const streamMap = new Map();
+                    const serializedStreams = shadowMgr.activeStreams.map(s => {
+                        const copy = {...s};
+                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                        streamMap.set(s, copy);
+                        return copy;
+                    });
+                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                    
+                    const state = {
+                        activeStreams: serializedStreams, 
+                        columnSpeeds: shadowMgr.columnSpeeds,
+                        streamsPerColumn: shadowMgr.streamsPerColumn,   
+                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                        overlapInitialized: this.shadowSim.overlapInitialized,
+                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                        activeIndices: Array.from(sg.activeIndices)
+                    };
+                    
+                    const frameOffset = mainSim.frame || 0; 
+                    state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
+
+                    if (mainSim.useWorker && mainSim.worker) {
+                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
+                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                    } else {
+                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
+                        const mainMgr = mainSim.streamManager;
+                        mainMgr.activeStreams = state.activeStreams;
+                        mainMgr.columnSpeeds.set(state.columnSpeeds);
+                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                        mainSim.overlapInitialized = state.overlapInitialized;
+                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                        if (state.activeIndices) {
+                            mainSim.grid.activeIndices.clear();
+                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                        }
+                    }
+                }
+            }
+            
+            this.resetExpansion();
+            this.g.clearAllOverrides(); 
+            this._updateFlashes();
+            this.shadowGrid = null;
+            this.shadowSim = null;
+            
+        } catch (e) {
+            console.error("[QuantizedPulse] Swap failed:", e);
+            this.g.clearAllOverrides();
+            this.stop();
+        }
+    }
+
+    _addBlockByIndex(idx, burstId = 0) {
+        if (this.map[idx] & 1) return; // Already occupied
+
+        this.blocks.push(idx);
+        this.blocksAdded++;
+        
+        // Mark Occupied (Bit 0) and BurstID (Bits 2-15)
+        this.map[idx] = (this.map[idx] & ~2) | 1 | (burstId << 2);
+        
+        const coords = this._mapIdxToCoords(idx);
+        const x = coords.x;
+        const y = coords.y;
+
+        // Check if On Screen
+        if (coords.bx >= 0 && coords.bx < this.gridBlockCols && coords.by >= 0 && coords.by < this.gridBlockRows) {
+            this.visibleBlocksFilled++;
+            
+            const rowOff = y * this.g.cols;
+            const bs = 4;
+            const centerX = this.g.cols / 2;
+            const centerY = this.g.rows / 2;
+            const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
+            const dx = (x + 2) - centerX;
+            const dy = (y + 2) - centerY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            let scale = Math.max(0, 1.0 - (dist / maxDist));
+            scale = Math.pow(scale, 1.5);
+
+            for(let by=0; by<bs; by++) {
+                const rowOffLocal = (y + by) * this.g.cols;
+                for(let bx=0; bx<bs; bx++) {
+                     const gx = x + bx;
+                     if (gx >= 0 && gx < this.g.cols && (y + by) >= 0 && (y + by) < this.g.rows) {
+                         const cellIdx = rowOffLocal + gx;
+                         this.g.overrideActive[cellIdx] = 3; 
+                         if (this.shadowGrid) {
+                             this.g.overrideMix[cellIdx] = this.shadowGrid.mix[cellIdx];
+                         }
+                         this.flashIntensity[cellIdx] = 1.0 * scale;
+                         this.activeFlashes.add(cellIdx);
+                     }
+                }
+            }
+        }
+
+        // Active Spawn Logic (Shadow World)
+        if (this.shadowSim && this.shadowSim.streamManager) {
+            if (Math.random() < 0.3) {
+                const spawnX = x + Math.floor(Math.random() * 4);
+                const spawnY = y + Math.floor(Math.random() * 4);
+                if (spawnX >= 0 && spawnX < this.shadowGrid.cols && spawnY >= 0 && spawnY < this.shadowGrid.rows) {
+                    const isEraser = Math.random() < 0.7;
+                    const stream = this.shadowSim.streamManager._initializeStream(spawnX, isEraser, this.c.state);
+                    stream.y = spawnY;
+                    stream.age = spawnY; 
+                    this.shadowSim.streamManager.addActiveStream(stream);
+                }
+            }
+        }
+
+        // Neighbors
+        const neighbors = [
+            idx - this.mapCols, // Top
+            idx + 1,            // Right
+            idx + this.mapCols, // Bottom
+            idx - 1             // Left
+        ];
+        
+        const offsets = [
+            {lx: x, ly: y, lw: 4, lh: 0, side: 0},     // Top Line
+            {lx: x + 4, ly: y, lw: 0, lh: 4, side: 1}, // Right Line
+            {lx: x, ly: y + 4, lw: 4, lh: 0, side: 2}, // Bottom Line
+            {lx: x, ly: y, lw: 0, lh: 4, side: 3}      // Left Line
+        ];
+
+        for (let i = 0; i < 4; i++) {
+            const nIdx = neighbors[i];
+            
+            if (nIdx < 0 || nIdx >= this.map.length) continue;
+            if (i === 1 && nIdx % this.mapCols === 0) continue;
+            if (i === 3 && (nIdx + 1) % this.mapCols === 0) continue;
+
+            const nVal = this.map[nIdx];
+            
+            if (nVal & 1) { // Occupied
+                const nBurst = nVal >> 2;
+                if (burstId === 0 || nBurst !== burstId) {
+                    const off = offsets[i];
+                    const s = this._getEffectiveState();
+                    const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10;
+                    
+                    this.lines.push({
+                        x: off.lx, y: off.ly, w: off.lw, h: off.lh,
+                        alpha: 1.0,
+                        persistence: persistence,
+                        isNew: true,
+                        mergeDelay: 3
+                    });
+                }
+            } else {
+                if ((nVal & 2) === 0) {
+                    this.frontier.push(nIdx);
+                    this.map[nIdx] |= 2; 
+                }
+            }
+        }
+    }
+    
+    _addBlock(x, y, burstId = 0) {
+        const idx = this._coordsToMapIdx(x, y);
+        if (idx >= 0 && idx < this.map.length) {
+            this._addBlockByIndex(idx, burstId);
+        }
+    }
+    
+    _isOccupied(x, y) {
+        const idx = this._coordsToMapIdx(x, y);
+        if (idx < 0 || idx >= this.map.length) return false;
+        return (this.map[idx] & 1) !== 0;
+    }
+    
+    _isOccupiedIdx(idx) {
+        if (idx < 0 || idx >= this.map.length) return false;
+        return (this.map[idx] & 1) !== 0;
+    }
+
+    _applyMask() {
+        const bs = 4;
+        const g = this.g;
+        const sg = this.shadowGrid;
+        
+        for (const idx of this.blocks) {
+             const coords = this._mapIdxToCoords(idx);
+             const bx = coords.x;
+             const by = coords.y;
+             
+             if (bx >= g.cols || by >= g.rows || bx + 4 < 0 || by + 4 < 0) continue;
+
+             for(let py=0; py<bs; py++) {
+                 const gy = by + py;
+                 if (gy < 0 || gy >= g.rows) continue;
+                 const rowOff = gy * g.cols;
+                 for(let px=0; px<bs; px++) {
+                     const gx = bx + px;
+                     if (gx < 0 || gx >= g.cols) continue;
+                     
+                     const i = rowOff + gx;
+                     g.overrideActive[i] = 3; 
+                     if (sg) g.overrideMix[i] = sg.mix[i];
+                 }
+             }
+        }
+    }
+
+    update() {
+        if (!this.active) return;
+        
+        if (this.isExpanding) {
+            this.localFrame++;
+            const s = this._getEffectiveState();
+            
+            this._updateShadowWorld();
+            this._applyMask();
+            this._updateBorderIllumination();
+            
+            if (this.fadeInAlpha < 1.0) {
+                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
+                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
+            }
+            
+            const elapsed = Date.now() - this.startTime;
+            
+            // Safety Timeout 30s
+            if (elapsed > 30000) {
+                this._finishExpansion();
+            }
+            
+            if (this.isExpanding) {
+                if (this.growthPhase === 0) {
+                    this.growthPhase = 1;
+                    this.nextExpandTime = this.localFrame + 10;
+                }
+                else if (this.growthPhase === 1) {
+                    if (this.localFrame >= this.nextExpandTime) {
+                        const offsets = [{x:0, y:-4}, {x:0, y:4}, {x:-4, y:0}, {x:4, y:0}];
+                        for (const o of offsets) {
+                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
+                        }
+                        this.growthPhase = 2;
+                        this.nextExpandTime = this.localFrame + 10;
+                    }
+                }
+                else if (this.growthPhase === 2) {
+                    if (this.localFrame >= this.nextExpandTime) {
+                        const offsets = [{x:0, y:-8}, {x:0, y:8}];
+                        for (const o of offsets) {
+                            this._addBlock(this.origin.x + o.x, this.origin.y + o.y, this.burstCounter);
+                        }
+                        this.growthPhase = 3;
+                        this.phase3StartTime = Date.now();
+                        this.phase3StartBlocks = this.blocksAdded;
+                    }
+                }
+                else {
+                    if (!this.phase3StartTime) {
+                         this.phase3StartTime = Date.now();
+                         this.phase3StartBlocks = this.blocksAdded;
+                    }
+
+                    // --- CONSISTENT RATE FILLING ---
+                    // Calculate blocks per frame based on total capacity and duration
+                    // duration is seconds, frames = duration * 60
+                    const durationFrames = Math.max(1, s.duration * 60);
+                    const blocksPerFrame = this.totalVisibleBlocks / durationFrames;
+                    
+                    this.pendingBudget += blocksPerFrame;
+                    
+                    // Cap budget to prevent infinite loop spikes
+                    if (this.pendingBudget > 2000) this.pendingBudget = 2000;
+                    
+                    this.burstCounter = (this.burstCounter + 1) & 0x3FFF; 
+                    if (this.burstCounter === 0) this.burstCounter = 1;
+
+                    // Execute Growth Cycles until budget consumed
+                    let attempts = 0;
+                    while (this.pendingBudget >= 1 && this.frontier.length > 0 && attempts < 2000) {
+                        const added = this._executeCycleStage(this.cycleStage);
+                        this.pendingBudget -= added; 
+                        this.cycleStage = (this.cycleStage + 1) % 8; 
+                        attempts++;
+                        
+                        // Force break if we added massive amount in one step? No, added is tracked.
+                        // pendingBudget decreases.
+                        // If added is 0 (failed to find spot), we decrement slightly to avoid infinite loop
+                        if (added === 0) this.pendingBudget -= 0.5;
+                    }
+
+                    const tendrilFreq = Math.max(2, Math.floor(s.duration * 2));
+                    if (this.localFrame % tendrilFreq === 0) {
+                        this._updateTendrils(s);
+                    }
+
+                    // TRUE FINISH CONDITION: Capacity Check
+                    // If we have filled >= 99% of valid blocks, we are done.
+                    // This is robust against frontier bugs.
+                    if (this.visibleBlocksFilled >= this.totalVisibleBlocks * 0.99) {
+                         this._finishExpansion();
+                    }
+                }
+                
+                this._updateLines(s);
+            }
+        }
+        
+        this._updateFlashes();
+
+        if (!this.isExpanding && this.activeFlashes.size === 0) {
+            this.stop(); 
+        }
+    }
+    
+    _executeCycleStage(stage) {
+        // Returns number of blocks added (approx)
+        let added = 0;
+        
+        // 0: Vertical Bar
+        // 1: Thicken
+        // 2: Horizontal Bar
+        // 3: Thicken
+        // 4: Hole Fill
+        // 5: Random Chunk
+        // 6: Vertical Bar
+        // 7: Thicken
+        
+        if (stage === 0 || stage === 6) {
+            added = this._addVerticalBar();
+        }
+        else if (stage === 2) {
+            added = this._addHorizontalBar();
+        }
+        else if (stage === 1 || stage === 3 || stage === 7) {
+            added = this._thickenLastBar();
+        }
+        else if (stage === 4) {
+            added = this._performHoleCleanup();
+        }
+        else if (stage === 5) {
+             added = this._addRandomChunk();
+        }
+        
+        return added;
+    }
+    
+    _addVerticalBar() {
+        this.lastBarIndices = [];
+        this.lastBarType = 'v';
+        
+        const bestIdx = this._findBestFrontier(true);
+        if (bestIdx === -1) return 0;
+        
+        let count = 0;
+        if (!this._isOccupiedIdx(bestIdx)) {
+            this._addBlockByIndex(bestIdx, this.burstCounter);
+            this.lastBarIndices.push(bestIdx);
+            count++;
+        }
+        
+        const C = this.mapCols;
+        const len = 2 + Math.floor(Math.random() * 3); 
+        const dir = Math.random() < 0.5 ? C : -C;
+        
+        let curr = bestIdx;
+        for(let i = 1; i < len; i++) {
+            curr += dir;
+            if (curr < 0 || curr >= this.map.length || this._isOccupiedIdx(curr)) break;
+            
+            this._addBlockByIndex(curr, this.burstCounter);
+            this.map[curr] &= ~2; 
+            this.lastBarIndices.push(curr);
+            count++;
+        }
+        return count;
+    }
+
+    _addHorizontalBar() {
+        this.lastBarIndices = [];
+        this.lastBarType = 'h';
+        
+        const bestIdx = this._findBestFrontier(false);
+        if (bestIdx === -1) return 0;
+        
+        let count = 0;
+        if (!this._isOccupiedIdx(bestIdx)) {
+            this._addBlockByIndex(bestIdx, this.burstCounter);
+            this.lastBarIndices.push(bestIdx);
+            count++;
+        }
+        
+        const len = 2 + Math.floor(Math.random() * 3); 
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        
+        let curr = bestIdx;
+        for(let i = 1; i < len; i++) {
+            const oldX = curr % this.mapCols;
+            curr += dir;
+            const newX = curr % this.mapCols;
+            if (Math.abs(oldX - newX) > 1 || curr < 0 || curr >= this.map.length || this._isOccupiedIdx(curr)) break;
+
+            this._addBlockByIndex(curr, this.burstCounter);
+            this.map[curr] &= ~2;
+            this.lastBarIndices.push(curr);
+            count++;
+        }
+        return count;
+    }
+    
+    _thickenLastBar() {
+        if (!this.lastBarIndices || this.lastBarIndices.length === 0) return 0;
+        
+        let count = 0;
+        const C = this.mapCols;
+        
+        // If V, expand Left/Right (-1, +1). If H, expand Top/Bottom (-C, +C)
+        const offsets = (this.lastBarType === 'v') ? [-1, 1] : [-C, C];
+        
+        for (const idx of this.lastBarIndices) {
+            for (const off of offsets) {
+                const target = idx + off;
+                
+                if (target >= 0 && target < this.map.length) {
+                    // Wrap Check for Vertical type (Left/Right expansion)
+                    if (this.lastBarType === 'v') {
+                        const x1 = idx % C;
+                        const x2 = target % C;
+                        if (Math.abs(x1 - x2) > 1) continue;
+                    }
+                    
+                    if (!this._isOccupiedIdx(target)) {
+                         this._addBlockByIndex(target, this.burstCounter);
+                         this.map[target] &= ~2; 
+                         count++;
+                    }
+                }
+            }
+        }
+        this.lastBarIndices = [];
+        return count;
+    }
+
+    _addRandomChunk() {
+        // Random Frontier
+        if (this.frontier.length === 0) return 0;
+        const randArrIdx = Math.floor(Math.random() * this.frontier.length);
+        const idx = this.frontier[randArrIdx];
+        
+        // Validate
+        if (this.map[idx] & 1) { // Occupied
+             this.frontier[randArrIdx] = this.frontier[this.frontier.length-1];
+             this.frontier.pop();
+             return 0;
+        }
+        
+        this._addBlockByIndex(idx, this.burstCounter);
+        // Remove from frontier array manually to keep it clean
+        this.frontier[randArrIdx] = this.frontier[this.frontier.length-1];
+        this.frontier.pop();
+        this.map[idx] &= ~2;
+        
+        // Add Group
+        let added = 1;
+        added += this._performGroupAddition(idx);
+        return added;
+    }
+
+    _findBestFrontier(biasVertical) {
+        if (this.frontier.length === 0) return -1;
+        
+        let bestIdx = -1;
+        let bestScore = -Infinity;
+        
+        // Scan FULL frontier to ensure we find the true cross tips
+        // Performance: Frontier is typically < 1000 items, loop is trivial.
+        const len = this.frontier.length;
+        
+        for(let k = 0; k < len; k++) {
+            const idx = this.frontier[k];
+            
+            // Skip if somehow occupied (stale)
+            if (this.map[idx] & 1) continue; 
+            
+            const c = this._mapIdxToCoords(idx);
+            
+            // 1. Strict Axis Alignment (The "Philosophy")
+            let axisDist;
+            if (biasVertical) {
+                // Distance to Center X
+                axisDist = Math.abs(c.bx - this.origin.bx);
+            } else {
+                // Distance to Center Y
+                axisDist = Math.abs(c.by - this.origin.by);
+            }
+            
+            // 2. Growth Potential (Look ahead)
+            let potential = 0;
+            const step = biasVertical ? this.mapCols : 1;
+            // Only check the OUTWARD direction if possible? 
+            // Checking both is fine, we want to grow lines.
+            for(let dir of [step, -step]) {
+                for(let i = 1; i <= 3; i++) {
+                    const check = idx + (dir * i);
+                    if (check >= 0 && check < this.map.length && !this._isOccupiedIdx(check)) {
+                        potential++;
+                    } else break;
+                }
+            }
+            
+            // SCORING:
+            // Heavy penalty for leaving the axis (-1000 per block deviation)
+            // Bonus for potential (+50 per block)
+            // Tiny noise to break ties (+5)
+            let score = (potential * 50) - (axisDist * 1000) + (Math.random() * 5);
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestIdx = idx;
+            }
+        }
+        
+        return bestIdx;
+    }
+
+    _updateBorderIllumination() {
+        const centerX = this.g.cols / 2;
+        const centerY = this.g.rows / 2;
+        const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
+        
+        for (const l of this.lines) {
+            if (!l.isNew) continue; 
+            
+            const dx = (l.x + (l.w > 0 ? l.w/2 : 0)) - centerX;
+            const dy = (l.y + (l.h > 0 ? l.h/2 : 0)) - centerY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            let scale = Math.max(0, 1.0 - (dist / maxDist));
+            scale = Math.pow(scale, 1.5); 
+
+            let isHorizontal = (l.w > 0);
+            
+            if (isHorizontal) {
+                const isTop = this._isOccupied(l.x, l.y - 4);
+                const isBot = this._isOccupied(l.x, l.y);
+                if (isTop && !isBot) this._illuminateSpan(l.x, l.y - 1, 4, 1, scale);
+                else if (isBot && !isTop) this._illuminateSpan(l.x, l.y, 4, 1, scale);
+            } else {
+                const isLeft = this._isOccupied(l.x - 4, l.y);
+                const isRight = this._isOccupied(l.x, l.y);
+                if (isLeft && !isRight) this._illuminateSpan(l.x - 1, l.y, 1, 4, scale);
+                else if (isRight && !isLeft) this._illuminateSpan(l.x, l.y, 1, 4, scale);
+            }
+        }
+    }
+    
+    _illuminateSpan(x, y, w, h, scale = 1.0) {
+        if (!this.shadowGrid) return;
+        
+        for(let py = y; py < y + h; py++) {
+            if (py < 0 || py >= this.g.rows) continue;
+            for(let px = x; px < x + w; px++) {
+                if (px < 0 || px >= this.g.cols) continue;
+                
+                const idx = py * this.g.cols + px;
+                if (this.shadowGrid.chars[idx] !== 0) {
+                     this.flashIntensity[idx] = 1.0 * scale; 
+                     this.activeFlashes.add(idx);
+                }
+            }
+        }
+    }
+
+    _updateTendrils(s) {
+        const attempts = 6; 
+        const maxSearch = 3; 
+        const maxBlind = 3;  
+        
+        for (let i = 0; i < attempts; i++) {
+            if (this.frontier.length === 0) break;
+            
+            const randIdx = Math.floor(Math.random() * this.frontier.length);
+            const startIdx = this.frontier[randIdx];
+            
+            const dirs = [
+                {off: -this.mapCols}, 
+                {off: 1}, 
+                {off: this.mapCols}, 
+                {off: -1}
+            ];
+            const d = dirs[Math.floor(Math.random() * dirs.length)];
+            
+            let limit = 0;
+            let foundTarget = false;
+            let currIdx = startIdx;
+            
+            for (let k = 0; k < maxSearch; k++) {
+                currIdx += d.off;
+                if (currIdx < 0 || currIdx >= this.map.length) break;
+                if (this._isOccupiedIdx(currIdx)) break;
+                
+                limit++;
+                const cc = this._mapIdxToCoords(currIdx);
+                if (this._hasCode(cc.x, cc.y)) {
+                    foundTarget = true;
+                    break;
+                }
+            }
+            
+            if (!foundTarget) limit = Math.min(limit, maxBlind);
+            
+            if (limit > 0) {
+                currIdx = startIdx;
+                for (let k = 0; k < limit; k++) {
+                    currIdx += d.off;
+                    if (currIdx >= 0 && currIdx < this.map.length) {
+                        this._addBlockByIndex(currIdx, this.burstCounter);
+                    }
+                }
+            }
+        }
+    }
+
+    _hasCode(x, y) {
+        const gx = x + 2;
+        const gy = y + 2;
+        if (gx < 0 || gy < 0 || gx >= this.g.cols || gy >= this.g.rows) return false;
+        const idx = this.g.getIndex(gx, gy);
+        return (this.g.state && this.g.state[idx] === 1);
+    }
+
+    _updateLines(s) {
+        const greenDuration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
+        
+        // Filter in place
+        let writeIdx = 0;
+        for (let i = 0; i < this.lines.length; i++) {
+            const l = this.lines[i];
+            
+            // Check Merge Delay for New Lines
+            if (l.isNew) {
+                // New lines must transition to Green first
+                // If this is a NEW frame (implied by this function being called), we decrement delay
+                if (l.mergeDelay > 0) {
+                     l.mergeDelay--;
+                     this.lines[writeIdx++] = l;
+                     continue;
+                }
+                
+                // Delay over. Turn Green.
+                l.isNew = false;
+                l.persistence = 0; // Immediate decay starts
+                l.alpha = 1.0;
+            }
+            
+            if (l.persistence > 0) {
+                l.persistence--;
+                this.lines[writeIdx++] = l;
+            } else {
+                let speed;
+                 // Old Green lines fade based on config
+                speed = (greenDuration <= 0.01) ? 1.0 : (1.0 / (greenDuration * 60));
+                
+                l.alpha -= speed;
+                if (l.alpha > 0) {
+                    this.lines[writeIdx++] = l;
+                }
+            }
+        }
+        this.lines.length = writeIdx;
+    }
+
+    _performHoleCleanup() {
+        let limit = 50; 
+        let filledCount = 0;
+        
+        // 2 Passes to catch cascading holes
+        for (let pass = 0; pass < 2; pass++) {
+            if (filledCount >= limit) break;
+            
+            // 1. Identification Phase
+            const candidates = [];
+            for (let i = 0; i < this.frontier.length; i++) {
+                const idx = this.frontier[i];
+                // Check if actually empty (Lazy check)
+                if (this.map[idx] & 1) continue;
+                
+                if (this._countOccupiedNeighborsIdx(idx) >= 3) {
+                    candidates.push(idx);
+                    if (candidates.length >= (limit - filledCount)) break;
+                }
+            }
+            
+            if (candidates.length === 0) break;
+            
+            // 2. Filling Phase
+            for (const idx of candidates) {
+                if (this.map[idx] & 1) continue; // Double check
+                this._addBlockByIndex(idx, this.burstCounter);
+                filledCount++;
+                // Note: We don't remove from frontier here to avoid O(N) shift. 
+                // We do a batch clean after.
+            }
+            
+            // 3. Batch Cleanup Phase (Remove occupied blocks from frontier)
+            let write = 0;
+            for(let i=0; i<this.frontier.length; i++) {
+                const idx = this.frontier[i];
+                // Keep only if NOT occupied (Bit 0 is 0)
+                if ((this.map[idx] & 1) === 0) { 
+                    this.frontier[write++] = idx;
+                } else {
+                    // It's occupied, so map bit 1 (Frontier) should strictly be cleared
+                    // but _addBlockByIndex handles setting Occupied.
+                    // We just drop it from the list.
+                }
+            }
+            this.frontier.length = write;
+        }
+        return filledCount;
+    }
+
+    _countOccupiedNeighborsIdx(idx) {
+        let n = 0;
+        if (this._isOccupiedIdx(idx - this.mapCols)) n++;
+        if (this._isOccupiedIdx(idx + 1)) n++;
+        if (this._isOccupiedIdx(idx + this.mapCols)) n++;
+        if (this._isOccupiedIdx(idx - 1)) n++;
+        return n;
+    }
+    
+    _performGroupAddition(winnerIdx) {
+        const rand = Math.random();
+        const C = this.mapCols;
+        let count = 0;
+        
+        const tryAdd = (offsets) => {
+            offsets.forEach(off => {
+                const tIdx = winnerIdx + off;
+                if (tIdx >= 0 && tIdx < this.map.length) {
+                    if (!this._isOccupiedIdx(tIdx)) {
+                         this._addBlockByIndex(tIdx, this.burstCounter);
+                         this.map[tIdx] &= ~2; 
+                         count++;
+                    }
+                }
+            });
+        };
+
+        if (rand < 0.20) { // 3x3
+             const candidates = [
+                [1, -1, C, -C, C+1, -C-1, C-1, -C+1],
+                [1, 2, C, C+1, C+2, C*2, C*2+1, C*2+2], 
+                [-1, -2, -C, -C-1, -C-2, -C*2, -C*2-1, -C*2-2]
+             ];
+             tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
+        }
+        else if (rand < 0.40) { // 2x3
+             const candidates = [
+                [1, C, C+1, C*2, C*2+1],
+                [-1, C, C-1, C*2, C*2-1],
+                [1, 2, C, C+1, C+2],
+                [1, 2, -C, -C+1, -C+2]
+             ];
+             tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
+        }
+        else if (rand < 0.60) { // 2x2
+            const candidates = [
+                [1, C, C+1],    
+                [-1, C, C-1],  
+                [1, -C, -C+1],  
+                [-1, -C, -C-1] 
+            ];
+            tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
+        }
+        else if (rand < 0.75) { // 1x3
+            const candidates = [
+                [1, 2],      
+                [-1, -2],    
+                [-1, 1],     
+                [C, C*2],      
+                [-C, -C*2],    
+                [-C, C]      
+            ];
+            tryAdd(candidates[Math.floor(Math.random() * candidates.length)]);
+        }
+        else if (rand < 0.95) { // 1x2
+            const candidates = [[1], [-1], [C], [-C]];
+            const off = candidates[Math.floor(Math.random() * candidates.length)];
+            tryAdd(off);
+        }
+        return count;
+    }
+
+    _updateFlashes() {
+        if (this.activeFlashes.size === 0) return;
+        const g = this.g;
+        const decay = 1.0 / 30.0; 
+        const toRemove = [];
+        
+        for (const idx of this.activeFlashes) {
+            let intensity = this.flashIntensity[idx];
+            if (intensity <= 0) {
+                toRemove.push(idx);
+                continue;
+            }
+            intensity -= decay;
+            this.flashIntensity[idx] = intensity;
+            
+            if (intensity > 0) {
+                if (g.overrideActive[idx] !== 3) {
+                     g.overrideActive[idx] = 1; 
+                }
+                const illumination = this.c.state.quantizedPulseBorderIllumination !== undefined ? this.c.state.quantizedPulseBorderIllumination : 4.0;
+                g.overrideGlows[idx] += illumination * intensity;
+                
+                const col = g.overrideColors[idx];
+                const r = col & 0xFF;
+                const gVal = (col >> 8) & 0xFF;
+                const b = (col >> 16) & 0xFF;
+                const a = (col >> 24) & 0xFF;
+                
+                const maxVal = Math.max(r, gVal, b, 1);
+                const targetScale = 255 / maxVal;
+                const scale = 1.0 + (targetScale - 1.0) * intensity;
+                
+                const rNew = Math.min(255, Math.floor(r * scale));
+                const gNew = Math.min(255, Math.floor(gVal * scale));
+                const bNew = Math.min(255, Math.floor(b * scale));
+                
+                g.overrideColors[idx] = (a << 24) | (bNew << 16) | (gNew << 8) | rNew;
+            } else {
+                toRemove.push(idx);
+            }
+        }
+        for (const idx of toRemove) {
+            this.activeFlashes.delete(idx);
+            this.flashIntensity[idx] = 0;
+        }
+    }
+
+    render(ctx, derived) {
+        if (!this.active || !this.isExpanding) return;
+        const s = this.c.state;
+        const cw = derived.cellWidth * s.stretchX;
+        const ch = derived.cellHeight * s.stretchY;
+        const colorStr = '#FFFF6E';
+        
+        const masterAlpha = this.fadeAlpha * this.fadeInAlpha;
+        
+        ctx.lineCap = 'butt';
+        ctx.lineWidth = Math.max(1, cw * 0.15); 
+        ctx.strokeStyle = colorStr;
+        ctx.shadowBlur = 25; 
+        ctx.shadowColor = colorStr;
+        ctx.globalAlpha = masterAlpha;
+        
+        const hPath = new Path2D();
+        const vPath = new Path2D();
+
+        const bs = 4;
+        
+        for (const idx of this.blocks) {
+            const coords = this._mapIdxToCoords(idx);
+            const bx = coords.x * cw;
+            const by = coords.y * ch;
+            const bw = 4 * cw;
+            const bh = 4 * ch;
+            
+            const nTop = this._isOccupiedIdx(idx - this.mapCols);
+            const nRight = this._isOccupiedIdx(idx + 1);
+            const nBottom = this._isOccupiedIdx(idx + this.mapCols);
+            const nLeft = this._isOccupiedIdx(idx - 1);
+            
+            const seed = coords.bx * 13 + coords.by * 29;
+
+            if (!nTop) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }
+            if (!nRight) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); }
+            if (!nBottom) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); }
+            if (!nLeft) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }
+        }
+        
+        ctx.stroke(hPath);
+        ctx.stroke(vPath);
+
+        if (this.tendrils.length > 0) {
+            // Tendrils rendering
+        }
+
+        ctx.shadowBlur = 0; 
+        ctx.strokeStyle = derived.streamColorStr; 
+        ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
+        
+        for (const l of this.lines) {
+            let lineAlpha = l.alpha * masterAlpha;
+            
+            if (l.isNew) {
+                ctx.strokeStyle = colorStr; 
+                ctx.shadowBlur = 25;
+                ctx.shadowColor = colorStr; 
+                if (Math.random() < 0.4) {
+                    lineAlpha *= (0.1 + Math.random() * 0.5);
+                }
+            } else {
+                const col = derived.streamColorStr;
+                ctx.strokeStyle = col; 
+                ctx.shadowColor = col; 
+            }
+            
+            ctx.globalAlpha = lineAlpha;
+            ctx.beginPath();
+            
+            const lx = l.x * cw;
+            const ly = l.y * ch;
+            const lPxW = l.w * cw;
+            const lPxH = l.h * ch;
+            ctx.moveTo(lx, ly);
+            ctx.lineTo(lx + lPxW, ly + lPxH);
+            ctx.stroke();
+        }
+        
+        ctx.setLineDash([]); 
+        ctx.globalAlpha = 1.0; 
+        ctx.shadowBlur = 0;
+    }
+}

@@ -191,6 +191,7 @@ class ConfigurationManager {
             "quantizedPulseEnabled": true,
             "quantizedPulseFrequencySeconds": 40,
             "quantizedPulseDurationSeconds": 2.0,
+            "quantizedPulseSpeed": 1,
             "quantizedPulseSimultaneousSpawns": 3,
             "quantizedPulseGreenFadeSeconds": 0.5,
             "quantizedPulseBorderIllumination": 4.0,

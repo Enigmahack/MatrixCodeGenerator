@@ -353,6 +353,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
             { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 1, invert: true, dep: 'quantizedPulseEnabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 10 cycles)." },
             { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
