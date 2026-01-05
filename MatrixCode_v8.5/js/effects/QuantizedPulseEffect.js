@@ -79,108 +79,175 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     applyToGrid(grid) {
+        // No grid overrides - we render directly to overlayCanvas
+    }
+
+    render(ctx, d) {
         if (!this.active || this.alpha <= 0.01) return;
 
         const s = this.c.state;
-        const d = this.c.derived;
+        const grid = this.g;
         const total = grid.cols * grid.rows;
 
         // 1. Grid Properties
         // "Grid lines will be 1/4 the width of the current font px height"
-        // lineWidth = fontSize * 0.25
-        const lineWidth = s.fontSize * 0.25;
+        const fontSize = s.fontSize + (s.tracerSizeIncrease || 0);
+        const lineWidth = fontSize * 0.25;
         const halfLine = lineWidth / 2;
 
-        // Pitch in pixels
-        // 4x4 characters
-        const pitchX = 4 * d.cellWidth * s.stretchX;
-        const pitchY = 4 * d.cellHeight * s.stretchY;
+        const cellW = d.cellWidth * s.stretchX;
+        const cellH = d.cellHeight * s.stretchY;
 
-        // Offsets in pixels
-        // "offset slightly". 
-        // Let's use the 0.5 fraction established in trigger, converted to pixels.
-        // Actually, to ensure overlap, we want the line to pass through the *center* of some cells.
-        // If we offset by 0, lines are at 0, 4, 8... (Left edge of col 0, 4, 8).
-        // Center of Col 0 is at 0.5 * cellWidth.
-        // If we want the line to overlap characters, we should align it with cell centers?
-        // Let's try aligning to the center of the 4x4 block boundary + a slight shift.
-        // Let's just use a fixed small pixel offset + the grid logic.
-        // Let's stick to the prompt: "Grid lines will be offset slightly".
-        // We'll calculate intersection based on cell centers.
+        // Pitch in pixels (4x4 chars)
+        const pitchX = 4 * cellW;
+        const pitchY = 4 * cellH;
+
+        // Offsets for Line Logic (0.5 cell width/height)
+        const pixelOffsetX = cellW * 0.5;
+        const pixelOffsetY = cellH * 0.5;
+
+        // Screen Centering Logic (Match WebGL Vertex Shader)
+        const canvasW = ctx.canvas.width;
+        const canvasH = ctx.canvas.height;
+        const gridPixW = grid.cols * d.cellWidth; // Unstretched Grid Size
+        const gridPixH = grid.rows * d.cellHeight;
         
-        // We will define the grid lines in screen space.
-        // Vertical lines at: X = (k * pitchX) + pixelOffsetX
-        // Horizontal lines at: Y = (k * pitchY) + pixelOffsetY
-        const pixelOffsetX = d.cellWidth * 0.5; 
-        const pixelOffsetY = d.cellHeight * 0.5;
+        // Font Offsets (Unstretched)
+        const fOffX = s.fontOffsetX;
+        const fOffY = s.fontOffsetY;
 
-        // 2. Color
-        // Gold: #FFD700
-        // We need it in ABGR for setHighPriorityEffect (which expects Uint32)
-        // Utils.packAbgr(r, g, b, a)
-        // Gold RGB: 255, 215, 0
-        const goldColor = Utils.packAbgr(255, 215, 0); 
-        const glowAmount = s.quantizedPulseBorderIllumination;
+        // 2. Context Setup
+        ctx.save();
+        
+        const style = s.italicEnabled ? 'italic ' : '';
+        const weight = s.fontWeight;
+        const family = s.fontFamily;
+        ctx.font = `${style}${weight} ${fontSize}px ${family}`;
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        ctx.fillStyle = '#FFD700';
+        
+        const glowStrength = s.quantizedPulseBorderIllumination || 0;
+        if (glowStrength > 0) {
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = glowStrength * this.alpha;
+        }
+        
+        ctx.globalAlpha = this.alpha;
 
-        // Iterate all cells
+        // 3. Render Loop
         for (let i = 0; i < total; i++) {
-            // Optimization: Skip empty cells ("Black space will remain black space")
-            // Check current alpha in grid
-            const currentAlpha = grid.alphas[i];
-            if (currentAlpha <= 0.05) continue;
+            if (grid.alphas[i] <= 0.05) continue;
+            const charCode = grid.chars[i];
+            if (charCode <= 32) continue; 
 
             const x = i % grid.cols;
             const y = Math.floor(i / grid.cols);
 
-            // Calculate Center of this cell in pixels
-            const cx = (x * d.cellWidth * s.stretchX) + (d.cellWidth * s.stretchX * 0.5);
-            const cy = (y * d.cellHeight * s.stretchY) + (d.cellHeight * s.stretchY * 0.5);
+            // --- Coordinate Calculation (Matches WebGL) ---
+            // 1. Base Position (Center of Cell in Grid Space)
+            const baseCX = (x * d.cellWidth) + (d.cellWidth * 0.5) + fOffX;
+            const baseCY = (y * d.cellHeight) + (d.cellHeight * 0.5) + fOffY;
+            
+            // 2. Center Grid around (0,0)
+            const centeredX = baseCX - (gridPixW * 0.5);
+            const centeredY = baseCY - (gridPixH * 0.5);
+            
+            // 3. Stretch and Re-center to Screen
+            const cx = (centeredX * s.stretchX) + (canvasW * 0.5);
+            const cy = (centeredY * s.stretchY) + (canvasH * 0.5);
 
-            // Check distance to nearest vertical line
-            // X relative to grid
-            const relX = (cx - pixelOffsetX) % pitchX;
-            // Distance is min(relX, pitchX - relX)
-            // But % can be negative if offset > cx, so use Math.abs or ensure positive
-            // Since we start from 0, cx is usually > offset.
-            // (a % n + n) % n handles negatives
-            const distX = Math.min(
-                Math.abs((cx - pixelOffsetX) % pitchX),
-                Math.abs(pitchX - ((cx - pixelOffsetX) % pitchX))
-            );
+            // --- Grid Line Logic (Relative to Screen Cell Position) ---
+            // Calculate relative offset from the "start" of the virtual grid on screen.
+            // Virtual Grid 0,0 is at Screen (cx for col 0, cy for row 0).
+            // But we can just work relative to the current cell center.
+            // We want lines at indices 0, 4, 8... 
+            // Relative to cell center, the "local grid start" is (cx - pixelOffsetX).
+            // We want to find the nearest grid line to THIS cell center.
+            
+            // Note: The grid lines must be fixed in space relative to the grid structure, 
+            // not floating.
+            // We treat the "Global Grid" as aligned such that Column 0 is index 0.
+            // So for Column X, we look for lines based on X % 4.
+            // Actually, we calculated 'pitchX' based on pixel width.
+            // It's safer to use Column Indices for "Hit" logic to avoid floating point drift,
+            // then map that Hit to screen pixels.
 
-            // Check distance to nearest horizontal line
-            const distY = Math.min(
-                Math.abs((cy - pixelOffsetY) % pitchY),
-                Math.abs(pitchY - ((cy - pixelOffsetY) % pitchY))
-            );
+            // Logic Update: Determine hit based on INDEX, draw based on SCREEN PIXELS.
+            // Vertical Line: Occurs every 4 columns. 
+            // We want lines overlap characters. "Overlaps the current characters".
+            // Previous logic: line at center of 4x4 block boundary?
+            // "Grid lines will be 1/4 width... grid boxes 4x4".
+            // Let's assume lines are at Col 0, 4, 8...
+            // If Col % 4 == 0? 
+            // Or between Col 3 and 4?
+            // "Overlaps the current characters". So the line is ON TOP of a column.
+            // Let's say lines are centered on Columns 0, 4, 8...
+            
+            // Distance Check in Pixels (Screen Space)
+            // We need to define where the lines are in Screen Space.
+            // If lines are attached to cols 0, 4, 8... they are at center of those cols.
+            // So if x % 4 == 0, there is a vertical line at cx.
+            // We want to draw if `abs(screenX - lineX) < halfLine`.
+            // But if the line is exactly at cx, then `dist = 0`.
+            // What if we are at x=1? Distance is `1 * cellW`.
+            // So we check `distance to nearest multiple of 4 columns`.
+            
+            // X Distance
+            // Closest multiple of 4 to x
+            const nearestColMul4 = Math.round(x / 4) * 4;
+            const distInCols = Math.abs(x - nearestColMul4);
+            const distInPixelsX = distInCols * cellW;
+            const hitV = distInPixelsX < halfLine; // Using 1/4 font size width
+            
+            // Y Distance
+            const nearestRowMul4 = Math.round(y / 4) * 4;
+            const distInRows = Math.abs(y - nearestRowMul4);
+            const distInPixelsY = distInRows * cellH;
+            const hitH = distInPixelsY < halfLine;
 
-            // Intersect if distance < halfLine
-            const intersectsX = distX < halfLine;
-            const intersectsY = distY < halfLine;
-
-            if (intersectsX || intersectsY) {
-                // Apply Effect
-                // We want to overlay Gold, but preserve the char.
-                // grid.chars[i] is the code.
-                // We assume we want to override the color.
-                
-                // Existing char
-                const charCode = grid.chars[i];
+            if (hitV || hitH) {
                 const char = String.fromCharCode(charCode);
-                const fontIdx = grid.fontIndices[i];
+
+                ctx.save();
+                ctx.beginPath();
+
+                // Define Clip Rects
+                // Cell Boundary on Screen
+                const cellLeft = cx - (cellW * 0.5);
+                const cellTop = cy - (cellH * 0.5);
                 
-                // Calculate final alpha based on effect alpha * cell alpha (don't make invisible cells visible, but we already skipped them)
-                // Actually, if we want "Black space remains black", we multiply by currentAlpha?
-                // The prompt says "Glow only where the characters intersect".
-                // We typically use the Grid's mechanism.
-                // setHighPriorityEffect overrides everything.
+                if (hitV) {
+                    // Vertical Strip
+                    // The line is at the center of the nearest column (nearestColMul4).
+                    // We need the screen X of that column.
+                    // But simpler: We are checking if THIS cell intersects the line.
+                    // If hitV is true, the line is "close enough" to cx.
+                    // The line is at `cx + (nearestColMul4 - x) * cellW`.
+                    // Example: x=3, nearest=4. Line is at x+1. `cx + cellW`.
+                    // Example: x=4, nearest=4. Line is at x. `cx`.
+                    
+                    const lineScreenX = cx + (nearestColMul4 - x) * cellW;
+                    ctx.rect(lineScreenX - halfLine, cellTop, lineWidth, cellH);
+                }
                 
-                // If we want to blend or just replace?
-                // "Glow should make the character illumination that intersects with the line a gold color."
-                // Implies replacement of color.
+                if (hitH) {
+                    const lineScreenY = cy + (nearestRowMul4 - y) * cellH;
+                    ctx.rect(cellLeft, lineScreenY - halfLine, cellW, lineWidth);
+                }
                 
-                grid.setHighPriorityEffect(i, char, goldColor, currentAlpha * this.alpha, fontIdx, glowAmount * this.alpha);
+                ctx.clip();
+                
+                // Draw
+                ctx.globalAlpha = this.alpha * grid.alphas[i];
+                ctx.fillText(char, cx, cy);
+                
+                ctx.restore();
             }
         }
+        
+        ctx.restore();
     }
 }

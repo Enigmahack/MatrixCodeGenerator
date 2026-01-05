@@ -1,9 +1,11 @@
 ToDo: 
 Go through code and fix all comments.
-Edit the 'Gradual Stream Color' to start from behind the tracer instead of including the tracer itself. 
+Edit the 'Gradual Stream Color' to start from behind the tracer. 
+Increase the tracer fade length. 
 
 <- Bugs: 
 Fix performance for low-end machines [DONE - Enabled SharedArrayBuffer in Electron]
+
 
 <- Behavior:
 
