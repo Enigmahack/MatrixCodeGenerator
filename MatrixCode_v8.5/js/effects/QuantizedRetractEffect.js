@@ -700,7 +700,7 @@ class QuantizedRetractEffect extends AbstractEffect {
                 if (this.lines[i].isNew) {
                     speed = s.lineFadeSpeed; 
                 } else {
-                    const duration = this.c.state.quantizedRetractGreenFadeSeconds !== undefined ? this.c.state.quantizedRetractGreenFadeSeconds : 0.5;
+                    const duration = 0.5;
                     speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
                 }
                 
@@ -712,7 +712,7 @@ class QuantizedRetractEffect extends AbstractEffect {
 
     _updateExpansionBurst(count) {
         // Merge Lines
-        const duration = this.c.state.quantizedRetractGreenFadeSeconds !== undefined ? this.c.state.quantizedRetractGreenFadeSeconds : 0.5;
+        const duration = 0.5;
         
         for (let i = this.lines.length - 1; i >= 0; i--) {
             const l = this.lines[i];

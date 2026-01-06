@@ -139,6 +139,8 @@ class UIManager {
             
             { cat: 'Appearance', type: 'accordion_subheader', label: 'Stream Trails' },
             { cat: 'Appearance', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit:'fr' },
+            { cat: 'Appearance', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length' },
+            { cat: 'Appearance', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', description: "Randomizes the length of the trail. Range is between Fade Speed and this value." },
             { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails' }, 
             { cat: 'Appearance', id: 'dissolveScalePercent', type: 'range', label: 'Dissolve Scale', min: -100, max: 100, unit: '%', dep: 'dissolveEnabled', description: 'Percentage size change during dissolve. Negative values shrink, positive values grow.' },
             { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting' },
@@ -356,8 +358,8 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 1, invert: true, dep: 'quantizedPulseEnabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 10 cycles)." },
             { cat: 'Effects', id: 'quantizedPulseFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseSimultaneousSpawns', type: 'range', label: 'Burst Size', min: 1, max: 10, step: 1, dep: 'quantizedPulseEnabled', description: "Number of block clusters to spawn simultaneously." },
+            { cat: 'Effects', id: 'quantizedBlockWidthCells', type: 'range', label: 'Block Width', min: 1, max: 20, step: 1, dep: 'quantizedPulseEnabled', description: "Width of each block in character cells." },
+            { cat: 'Effects', id: 'quantizedBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedPulseEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
@@ -367,7 +369,6 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedAddDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedAddEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Retract' },
@@ -377,7 +378,6 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedRetractDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractGreenFadeSeconds', type: 'range', label: 'Line Fade Duration', min: 0.0, max: 0.5, step: 0.01, unit: 's', dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedRetractEnabled' },
 
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects

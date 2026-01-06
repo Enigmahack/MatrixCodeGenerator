@@ -1719,7 +1719,7 @@ class QuantizedAddEffect extends AbstractEffect {
 
 
     _updateLines(s) {
-        const duration = this.c.state.quantizedAddGreenFadeSeconds !== undefined ? this.c.state.quantizedAddGreenFadeSeconds : 0.5;
+        const duration = 0.5;
         const speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
 
         for (let i = this.lines.length - 1; i >= 0; i--) {
@@ -1808,7 +1808,7 @@ class QuantizedAddEffect extends AbstractEffect {
 
     _updateExpansionBurst(count) {
         // CYCLE START: Merge previous new lines (turn them green)
-        const greenDuration = this.c.state.quantizedAddGreenFadeSeconds !== undefined ? this.c.state.quantizedAddGreenFadeSeconds : 0.5;
+        const greenDuration = 0.5;
         
         // Use a loop that allows removal (iterate backwards or filter)
         for (let i = this.lines.length - 1; i >= 0; i--) {

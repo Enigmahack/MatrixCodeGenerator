@@ -70,6 +70,7 @@ class CellGrid {
         // --- Simulation Logic Storage ---
         this.types = null;      // Uint8 (Tracer, Rotator, Empty)
         this.decays = null;     // Uint8
+        this.maxDecays = null;  // Uint16 (Per-cell fade duration)
         this.ages = null;       // Int32
         this.brightness = null; // Float32
         this.rotatorOffsets = null; // Uint8 (Static noise for desync)
@@ -232,6 +233,7 @@ class CellGrid {
         this.types[idx] = 0;
         this.ages[idx] = 0;
         this.decays[idx] = 0;
+        this.maxDecays[idx] = 0;
         
         // Also clear secondary to be safe
         this.secondaryChars[idx] = 32;
@@ -295,6 +297,7 @@ class CellGrid {
 
             this.types = buffers.types;
             this.decays = buffers.decays;
+            this.maxDecays = buffers.maxDecays;
             this.ages = buffers.ages;
             this.brightness = buffers.brightness;
             this.rotatorOffsets = buffers.rotatorOffsets;
@@ -348,6 +351,7 @@ class CellGrid {
             // Simulation
             this.types = new Uint8Array(total);
             this.decays = new Uint8Array(total);
+            this.maxDecays = new Uint16Array(total);
             this.ages = new Int32Array(total);
             this.brightness = new Float32Array(total);
             this.rotatorOffsets = new Uint8Array(total);

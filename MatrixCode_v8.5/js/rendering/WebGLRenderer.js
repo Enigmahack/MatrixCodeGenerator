@@ -248,6 +248,7 @@ class WebGLRenderer {
                 layout(location=7) in float a_mix;
                 layout(location=8) in float a_nextChar;
                 layout(location=9) in vec3 a_depth;
+                layout(location=10) in float a_maxDecay;
     
                 out vec2 v_uv;
                 out vec2 v_uv2;
@@ -279,7 +280,8 @@ class WebGLRenderer {
                     v_prog = 0.0;
                     v_cellUV = a_quad;
                     if (a_decay >= 2.0) {
-                        v_prog = (a_decay - 2.0) / u_decayDur;
+                        float duration = (a_maxDecay > 0.0) ? a_maxDecay : u_decayDur;
+                        v_prog = (a_decay - 2.0) / duration;
                         if (u_dissolveEnabled > 0.5) {
                             scale = mix(1.0, u_dissolveScale, v_prog);
                         } else {
@@ -706,6 +708,7 @@ class WebGLRenderer {
         this.glowBuffer = null;
         this.mixBuffer = null;
         this.nextCharBuffer = null;
+        this.maxDecayBuffer = null;
         
         // Mapped Arrays (CPU side)
         this.mappedChars = null;
@@ -822,6 +825,7 @@ class WebGLRenderer {
         this.glowBuffer = ensureBuf(this.glowBuffer, totalCells * 4); // Float32
         this.mixBuffer = ensureBuf(this.mixBuffer, totalCells * 4); // Float32
         this.nextCharBuffer = ensureBuf(this.nextCharBuffer, totalCells * 2); // Uint16
+        this.maxDecayBuffer = ensureBuf(this.maxDecayBuffer, totalCells * 2); // Uint16
 
         // Mapped Arrays
         this.mappedChars = new Uint16Array(totalCells);
@@ -831,6 +835,7 @@ class WebGLRenderer {
         this.uploadColors = new Uint32Array(totalCells);
         this.uploadAlphas = new Float32Array(totalCells);
         this.uploadDecays = new Uint8Array(totalCells); // Decays usually don't have overrides but safe to copy
+        this.uploadMaxDecays = new Uint16Array(totalCells);
         this.uploadGlows = new Float32Array(totalCells);
         this.uploadMix = new Float32Array(totalCells);
 
@@ -894,6 +899,13 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(8);
         this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
         this.gl.vertexAttribDivisor(8, 1);
+
+        // 10: MaxDecay (Dynamic Instance, Uint16 -> Float)
+        // Location 9 is depth (unused in 2D but reserved), skipping to 10
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.maxDecayBuffer);
+        this.gl.enableVertexAttribArray(10);
+        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
+        this.gl.vertexAttribDivisor(10, 1);
 
         this.gl.bindVertexArray(null);
     }
@@ -1001,6 +1013,7 @@ class WebGLRenderer {
         const gColors = grid.colors;
         const gAlphas = grid.alphas;
         const gDecays = grid.decays;
+        const gMaxDecays = grid.maxDecays;
         const gGlows = grid.glows;
         const gMix = grid.mix;
         const gMode = grid.renderMode;
@@ -1027,6 +1040,7 @@ class WebGLRenderer {
         const uColors = this.uploadColors;
         const uAlphas = this.uploadAlphas;
         const uDecays = this.uploadDecays;
+        const uMaxDecays = this.uploadMaxDecays;
         const uGlows = this.uploadGlows;
         const uMix = this.uploadMix;
 
@@ -1050,6 +1064,7 @@ class WebGLRenderer {
                     uColors[i] = gColors[i];
                     uAlphas[i] = 1.0; // Force full alpha, let ovAlpha handle opacity
                     uDecays[i] = gDecays[i];
+                    uMaxDecays[i] = 0; // Effects don't use variable decay
                     uGlows[i] = 0.0; // Disable glow for shadowboxes
                     
                     let eAlpha = effAlphas[i];
@@ -1165,6 +1180,7 @@ class WebGLRenderer {
             uColors[i] = gColors[i];
             uAlphas[i] = gAlphas[i];
             uDecays[i] = gDecays[i];
+            uMaxDecays[i] = gMaxDecays ? gMaxDecays[i] : 0;
             uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
             
             const mode = gMode[i];
@@ -1200,6 +1216,9 @@ class WebGLRenderer {
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.decayBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uDecays);
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.maxDecayBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uMaxDecays);
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glowBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uGlows);

@@ -441,6 +441,26 @@ class StreamManager {
 
     _initializeTracerStream(stream, s) {
         stream.len = this.grid.rows; 
+        
+        // Variable Fade Duration Logic
+        // Calculate a specific fade-out duration for this stream's cells
+        stream.maxDecay = 0; 
+
+        if (s.trailLengthVarianceEnabled) {
+            // "increase the length by a value between the Fade Out Speed and the Length Variance amount"
+            const baseFade = s.decayFadeDurationFrames || 24;
+            const varianceVal = s.trailLengthVariance || 0;
+            
+            // The additional length is random between [FadeSpeed, Variance]
+            // Ensure bounds are valid (min <= max)
+            const minAdd = baseFade;
+            const maxAdd = Math.max(baseFade, varianceVal);
+            
+            const additional = Utils.randomInt(minAdd, maxAdd);
+            
+            stream.maxDecay = baseFade + additional;
+        }
+
         const travelDuration = stream.len // * stream.tickInterval;
         stream.visibleLen = travelDuration + (this.grid.rows * 4);
 
@@ -510,6 +530,10 @@ class StreamManager {
             grid.types[idx] = cellType;
             grid.ages[idx] = 1;
             grid.decays[idx] = 1;
+            // Store per-stream max decay (fade duration)
+            if (grid.maxDecays) {
+                grid.maxDecays[idx] = stream.maxDecay || 0; 
+            }
             grid.mix[idx] = 0; // Reset Rotator/Mix Progress
             grid.renderMode[idx] = RENDER_MODE.STANDARD;
             

@@ -311,13 +311,18 @@ class WorkerSimulationSystem {
             }
             grid.decays[idx]++;
             const newDecay = grid.decays[idx];
-            if (newDecay > s.decayFadeDurationFrames + 2) {
+            
+            // Use per-cell max decay if set, otherwise use global config
+            const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
+
+            if (newDecay > maxFade + 2) {
                 grid.clearCell(idx);
                 return;
             }
-            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
+            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, maxFade);
         } else {
-            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
+            const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
+            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, maxFade);
         }
         
         // Run Glimmer Lifecycle (Rotation/Fade)

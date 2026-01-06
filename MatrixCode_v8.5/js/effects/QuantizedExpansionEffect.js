@@ -404,9 +404,8 @@ class QuantizedExpansionEffect extends AbstractEffect {
                 if (this.lines[i].isNew) {
                     speed = s.lineFadeSpeed; // Use standard fade for yellow lines
                 } else {
-                    // Use configurable fade for Green lines
-                    // If setting is 0, fade is instant (speed = 1.0)
-                    const duration = this.c.state.quantizedPulseGreenFadeSeconds !== undefined ? this.c.state.quantizedPulseGreenFadeSeconds : 0.5;
+                    // Use fixed fade for Green lines
+                    const duration = 0.5;
                     speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
                 }
                 

@@ -20,6 +20,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.cyclesCompleted = 0;
         this.expansionPhase = 0;
         this.activeBlocks = [];
+        this.animFrame = 0;
     }
 
     trigger() {
@@ -38,6 +39,7 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.cyclesCompleted = 0;
         this.expansionPhase = 0;
         this.activeBlocks = [];
+        this.animFrame = 0;
         this._maskDirty = true;
         
         // Offset slightly (1/2 cell to overlap characters effectively)
@@ -52,6 +54,8 @@ class QuantizedPulseEffect extends AbstractEffect {
         const fps = 60;
 
         if (!this.active) return;
+
+        this.animFrame++;
 
         // 1. Lifecycle State Machine (Alpha Fading)
         const fadeInFrames = Math.max(1, s.quantizedPulseFadeInFrames);
@@ -106,10 +110,19 @@ class QuantizedPulseEffect extends AbstractEffect {
     _processAnimationStep() {
         // Placeholder Logic: Expand from center every cycle
         const grid = this.g;
+        const s = this.c.state;
         if (!grid) return;
 
-        const centerBlockX = Math.floor((grid.cols / 4) / 2);
-        const centerBlockY = Math.floor((grid.rows / 4) / 2);
+        // "Cells per Block" Logic
+        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
+        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
+
+        // Calculate total blocks covering the screen
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
+
+        const centerBlockX = Math.floor(blocksX / 2);
+        const centerBlockY = Math.floor(blocksY / 2);
         
         // Phase 0: Center Block
         // Phase 1: 3x3 Block
@@ -169,12 +182,22 @@ class QuantizedPulseEffect extends AbstractEffect {
         scratchCtx.textAlign = 'center';
         scratchCtx.textBaseline = 'middle';
 
-        // Colors & Glow
-        const t = glowStrength / 10.0;
-        const charG = Math.floor(204 + (240 - 204) * t);
-        const charB = Math.floor(0 + (50 - 0) * t);
-        const charColor = `rgb(255, ${charG}, ${charB})`;
-        const glowColor = '#FFD700'; // Pure Gold for the glow
+        // Colors & Glow - Dynamic Saturation
+        // Map glowStrength (0-10) to t (0.0-1.0)
+        const t = Math.min(1.0, glowStrength / 10.0);
+        
+        // Interpolate Fill Color: Gold (255, 204, 0) -> White (255, 255, 255)
+        const charR = 255;
+        const charG = Math.floor(204 + (255 - 204) * t);
+        const charB = Math.floor(0 + (255 - 0) * t);
+        const charColor = `rgb(${charR}, ${charG}, ${charB})`;
+
+        // Interpolate Glow Color: Pure Gold (#FFD700) -> White (#FFFFFF)
+        // #FFD700 is rgb(255, 215, 0)
+        const glowR = 255;
+        const glowG = Math.floor(215 + (255 - 215) * t);
+        const glowB = Math.floor(0 + (255 - 0) * t);
+        const glowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
 
         scratchCtx.fillStyle = charColor;
         
@@ -187,38 +210,70 @@ class QuantizedPulseEffect extends AbstractEffect {
         const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (width * 0.5);
         const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (height * 0.5);
 
-        // Sparse Loop (Only Hit Rows/Cols that align with the grid lines)
+        // Sparse Loop - Optimized for Dynamic Grid
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
+        
+        // Use "Cells per Block" settings directly for pitch
+        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
+        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
+        
+        // Calculate total blocks based on grid size and pitch
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
 
-        for (let y = 0; y < rows; y++) {
-            // Is this a horizontal line row?
-            const isHitRow = (y % 4 === 0);
-            const step = isHitRow ? 1 : 4; // If hit row, draw ALL cols. Else only hit cols.
+        // Set common drawing state
+        // Alpha is purely based on the effect's fade, ignoring grid alpha
+        scratchCtx.globalAlpha = this.alpha; 
 
+        // Helper to draw a single character
+        const drawChar = (x, y) => {
+            if (x >= cols || y >= rows) return;
+            const i = (y * cols) + x;
+            
+            let charCode = chars[i];
+            // If empty, generate a RANDOM character (Matrix Static)
+            if (charCode <= 32) {
+                // Match Rotator Frequency
+                const rotatorCycle = d.rotatorCycleFrames || 20;
+                const timeSeed = Math.floor(this.animFrame / rotatorCycle);
+                
+                // Stable hash per cell per cycle
+                const hash = (i * 12345 + timeSeed * 67890);
+                charCode = 0x30A0 + (hash % 96); 
+            }
+
+            const cx = screenOriginX + (x * screenStepX);
             const cy = screenOriginY + (y * screenStepY);
-            const rowOffset = y * cols;
+            
+            scratchCtx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
+            scratchCtx.fillText(String.fromCharCode(charCode), 0, 0);
+        };
 
-            for (let x = 0; x < cols; x += step) {
-                const i = rowOffset + x;
-                
-                // IGNORE ALPHAS - Draw everything to highlight structure
-                let charCode = chars[i];
-                
-                // If empty, generate a static pseudo-random character for the "dark" areas
-                if (charCode <= 32) {
-                    // Simple hash to keep it stable per cell
-                    const hash = (i * 12345 + y * 67890); 
-                    charCode = 0x30A0 + (hash % 96); // Katakana range
-                }
+        // 1. Draw Horizontal Lines (Rows)
+        // We iterate block boundaries (0 to blocksY)
+        for (let by = 0; by <= blocksY; by++) {
+            const y = Math.floor(by * cellPitchY);
+            if (y >= rows) continue; // Skip if off-grid
+            
+            for (let x = 0; x < cols; x++) {
+                drawChar(x, y);
+            }
+        }
 
-                const cx = screenOriginX + (x * screenStepX);
-                
-                scratchCtx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
-                // Alpha is purely based on the effect's fade, ignoring grid alpha
-                scratchCtx.globalAlpha = this.alpha; 
-                scratchCtx.fillText(String.fromCharCode(charCode), 0, 0);
+        // 2. Draw Vertical Lines (Cols)
+        // Avoid re-drawing intersections if possible, but overdraw is cheap here
+        for (let bx = 0; bx <= blocksX; bx++) {
+            const x = Math.floor(bx * cellPitchX);
+            if (x >= cols) continue;
+
+            for (let y = 0; y < rows; y++) {
+                // Optimization: Don't redraw intersections we just drew in Horizontal loop
+                // Intersection happens when y is also a block boundary
+                // Checking float equality with tolerance or just re-drawing. 
+                // Re-drawing is faster than math check in JS usually.
+                drawChar(x, y);
             }
         }
         
@@ -292,13 +347,22 @@ class QuantizedPulseEffect extends AbstractEffect {
         const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
         const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
 
+        // Dynamic Grid Calculation
+        // User specifies how many cells wide/high each block is.
+        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
+        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
+        
+        // Note: Layout no longer needs blocksX/blocksY for drawing, only pitch.
+        // But we store pitch for the helper functions.
+
         // Store layout for dynamic block addition
         this.layout = {
             screenStepX, screenStepY,
             lineWidthX, lineWidthY,
             halfLineX, halfLineY,
             screenOriginX, screenOriginY,
-            gridPixW, gridPixH
+            gridPixW, gridPixH,
+            cellPitchX, cellPitchY
         };
 
         // Render Active Blocks
@@ -311,7 +375,7 @@ class QuantizedPulseEffect extends AbstractEffect {
 
     /**
      * Dynamically adds a grid block region to the mask.
-     * @param {Object} blockStart - {x, y} grid block indices (where 1 block = 4x4 cells)
+     * @param {Object} blockStart - {x, y} grid block indices
      * @param {Object} blockEnd - {x, y} grid block indices
      * @param {boolean} isExtending - If true, draws only the perimeter (hollow). If false, draws full grid.
      */
@@ -320,14 +384,31 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         const ctx = this.maskCtx;
         const l = this.layout;
-        const pitch = 4; // 4x4 chars per block
 
         // Calculate Loop Ranges (in grid cell units)
-        // Start is inclusive, End is inclusive block index -> convert to cell index
-        const startX = blockStart.x * pitch;
-        const endX = (blockEnd.x + 1) * pitch; // +1 to include the end block's far edge
-        const startY = blockStart.y * pitch;
-        const endY = (blockEnd.y + 1) * pitch;
+        // We use Math.floor/ceil to map block index -> cell index
+        // This distributes rounding errors reasonably well
+        const startX = Math.floor(blockStart.x * l.cellPitchX);
+        const endX = Math.floor((blockEnd.x + 1) * l.cellPitchX);
+        const startY = Math.floor(blockStart.y * l.cellPitchY);
+        const endY = Math.floor((blockEnd.y + 1) * l.cellPitchY);
+        
+        // Determine "Block Pitch" for internal grid lines (sub-blocks?)
+        // The user request implies the "Block" IS the grid unit.
+        // So we draw lines at the block boundaries.
+        // If we want lines *inside* the blocks, that's different.
+        // Assuming the user wants to see the grid OF these blocks.
+        
+        // However, the original code drew a grid of cells. 
+        // If the block is 10x10 cells, do we draw 100 squares or 1 big square?
+        // "Quantized Pulse" usually implies large chunky blocks.
+        // Let's assume we draw the border of the block, and maybe the internal lines?
+        // Original code: pitch=4, drew rects.
+        // "Make the grid 5x4" -> The *visible* grid is 5x4.
+        // So we only draw lines at the block boundaries.
+        
+        const blockStepX = l.cellPitchX; // In cells
+        const blockStepY = l.cellPitchY; // In cells
 
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
@@ -350,21 +431,27 @@ class QuantizedPulseEffect extends AbstractEffect {
             cx = l.screenOriginX + (endX * l.screenStepX);
             ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
         } else {
-            // FULL GRID (Draw all lines within range)
+            // FULL GRID (Draw all block boundaries within range)
             
+            // Note: We iterate by BLOCK index, not cell index, to match the visual grid
+            const rangeMinBx = blockStart.x;
+            const rangeMaxBx = blockEnd.x;
+            const rangeMinBy = blockStart.y;
+            const rangeMaxBy = blockEnd.y;
+
             // Verticals
-            for (let x = startX; x <= endX; x += pitch) {
-                const cx = l.screenOriginX + (x * l.screenStepX);
-                // Height covers startY to endY
+            for (let bx = rangeMinBx; bx <= rangeMaxBx + 1; bx++) {
+                const cellX = Math.floor(bx * l.cellPitchX);
+                const cx = l.screenOriginX + (cellX * l.screenStepX);
                 const yPos = l.screenOriginY + (startY * l.screenStepY);
                 const h = (endY - startY) * l.screenStepY;
                 ctx.rect(cx - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
             }
 
             // Horizontals
-            for (let y = startY; y <= endY; y += pitch) {
-                const cy = l.screenOriginY + (y * l.screenStepY);
-                // Width covers startX to endX
+            for (let by = rangeMinBy; by <= rangeMaxBy + 1; by++) {
+                const cellY = Math.floor(by * l.cellPitchY);
+                const cy = l.screenOriginY + (cellY * l.screenStepY);
                 const xPos = l.screenOriginX + (startX * l.screenStepX);
                 const w = (endX - startX) * l.screenStepX;
                 ctx.rect(xPos - l.halfLineX, cy - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
@@ -388,7 +475,6 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         const ctx = this.maskCtx;
         const l = this.layout;
-        const pitch = 4;
         const f = face.toUpperCase();
 
         // Normalize Range
@@ -417,10 +503,10 @@ class QuantizedPulseEffect extends AbstractEffect {
                 // West Line: at bx*pitch
                 // East Line: at (bx+1)*pitch
 
-                const startCellX = bx * pitch;
-                const startCellY = by * pitch;
-                const endCellX = (bx + 1) * pitch;
-                const endCellY = (by + 1) * pitch;
+                const startCellX = Math.floor(bx * l.cellPitchX);
+                const startCellY = Math.floor(by * l.cellPitchY);
+                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                const endCellY = Math.floor((by + 1) * l.cellPitchY);
 
                 // Corners (Perpendicular line overlap safety)
                 // We shrink the erase rect by lineWidth so we don't cut the corners

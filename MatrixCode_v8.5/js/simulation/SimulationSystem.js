@@ -158,6 +158,7 @@ class SimulationSystem {
 
             types: new Uint8Array(createSAB(uint8Size)),
             decays: new Uint8Array(createSAB(uint8Size)),
+            maxDecays: new Uint16Array(createSAB(uint16Size)),
             ages: new Int32Array(createSAB(int32Size)),
             brightness: new Float32Array(createSAB(float32Size)),
             rotatorOffsets: new Uint8Array(createSAB(uint8Size)),
@@ -507,13 +508,17 @@ class SimulationSystem {
             
             grid.decays[idx]++;
             const newDecay = grid.decays[idx];
-            if (this._shouldDecay(idx, newDecay, s.decayFadeDurationFrames)) {
+            // Use per-cell max decay if set (non-zero), otherwise use global config
+            const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
+            
+            if (this._shouldDecay(idx, newDecay, maxFade)) {
                 grid.clearCell(idx);
                 return;
             }
-            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, s.decayFadeDurationFrames);
+            grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, maxFade);
         } else {
-            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, s.decayFadeDurationFrames);
+            const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
+            grid.alphas[idx] = this._calculateAlpha(idx, age, decay, maxFade);
         }
     }
 
