@@ -55,7 +55,7 @@ class ClearPulseEffect extends AbstractEffect {
 
         for (let i = 0; i < total; i++) {
             // Identify Tracer State (for center finding)
-            const type = this.g.types[i]; 
+            const type = this.g.types[i] & CELL_TYPE_MASK; 
             const age = this.g.ages[i];
             let isTracer = false;
             

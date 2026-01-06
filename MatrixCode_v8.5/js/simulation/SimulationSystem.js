@@ -325,7 +325,7 @@ class SimulationSystem {
 
         const setOverlapChar = (i) => {
             let fIdx;
-            if (this.grid.types[i] === CELL_TYPE.EMPTY) {
+            if ((this.grid.types[i] & CELL_TYPE_MASK) === CELL_TYPE.EMPTY) {
                 fIdx = Math.floor(Math.random() * numFonts);
             } else {
                 fIdx = this.grid.fontIndices[i];
@@ -397,8 +397,12 @@ class SimulationSystem {
         // --- TRACER COLOR FADE ---
         // Transitions from Tracer Color -> Stream Color based on Age
         // Only apply if NOT decaying (Erasers trigger decay)
-        const isTracer = (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR);
-        const isUpward = (grid.types[idx] === CELL_TYPE.UPWARD_TRACER);
+        const type = grid.types[idx];
+        const baseType = type & CELL_TYPE_MASK;
+        const isGradual = (type & CELL_FLAGS.GRADUAL) !== 0;
+        
+        const isTracer = (baseType === CELL_TYPE.TRACER || baseType === CELL_TYPE.ROTATOR);
+        const isUpward = (baseType === CELL_TYPE.UPWARD_TRACER);
 
         if (decay < 2 && isTracer) {
             const attack = s.tracerAttackFrames;
@@ -417,7 +421,7 @@ class SimulationSystem {
             
             const activeAge = age - 1;
             
-            if (s.gradualColorStreams && !isUpward) {
+            if (isGradual && !isUpward) {
                 // Gradual Fade: Linearly interpolate over a long distance (e.g. 45 chars/frames)
                 // Starts fading immediately after attack+hold
                 const fadeStart = attack + hold;
@@ -459,7 +463,7 @@ class SimulationSystem {
                 
                 grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
                 
-                if (s.gradualColorStreams && !isUpward) {
+                if (isGradual && !isUpward) {
                     grid.glows[idx] = 0;
                 } else {
                     grid.glows[idx] = targetGlow * (1.0 - ratio);
@@ -473,7 +477,7 @@ class SimulationSystem {
 
         // Handle Rotator
         // Allow rotator to finish its transition (mix > 0) even if subsequently disabled
-        if ((s.rotatorEnabled || grid.mix[idx] > 0) && grid.types[idx] === CELL_TYPE.ROTATOR) {
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && baseType === CELL_TYPE.ROTATOR) {
             this._handleRotator(idx, frame, s, d);
         }
 
@@ -638,7 +642,7 @@ class SimulationSystem {
         
         // Fading IN
         let attack = s.tracerAttackFrames;
-        if (this.grid.types[idx] === CELL_TYPE.UPWARD_TRACER) {
+        if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.UPWARD_TRACER) {
             attack = s.upwardTracerAttackFrames;
         }
 

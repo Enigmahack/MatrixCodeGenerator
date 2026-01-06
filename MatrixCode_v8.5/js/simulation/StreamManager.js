@@ -465,6 +465,7 @@ class StreamManager {
         stream.visibleLen = travelDuration + (this.grid.rows * 4);
 
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
+        stream.isGradual = s.gradualColorStreams && (Math.random() * 100 < s.gradualColorStreamsFrequency);
 
         for (let i = 0; i < stream.len; i++) {
             if (Math.random() < s.holeRate) stream.holes.add(i);
@@ -499,7 +500,7 @@ class StreamManager {
         const decays = this.grid.decays;
         if (decays[idx] >= 2) return;
 
-        if (decays[idx] > 0 && this.grid.types[idx] !== CELL_TYPE.EMPTY) {
+        if (decays[idx] > 0 && (this.grid.types[idx] & CELL_TYPE_MASK) !== CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             decays[idx] = 2;
         } else {
@@ -523,9 +524,13 @@ class StreamManager {
             const d = this.config.derived;
             const grid = this.grid;
 
-            const cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
+            let cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
                 ? CELL_TYPE.ROTATOR
                 : CELL_TYPE.TRACER;
+
+            if (stream.isGradual) {
+                cellType |= CELL_FLAGS.GRADUAL;
+            }
 
             grid.types[idx] = cellType;
             grid.ages[idx] = 1;

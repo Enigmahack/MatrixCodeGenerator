@@ -137,6 +137,7 @@ class UIManager {
             { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', description: 'Allows for brightness variance when characters are written' },
             { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled' },
             { cat: 'Appearance', id: 'gradualColorStreams', type: 'checkbox', label: 'Gradual Color Streams', description: "Immediately blends tracer color to stream color behind the head, removing tracer glow." },
+            { cat: 'Appearance', id: 'gradualColorStreamsFrequency', type: 'range', label: 'Frequency', min: 1, max: 100, step: 1, unit: '%', dep: 'gradualColorStreams', description: "Probability that a tracer will use the gradual color effect." },
 
             { cat: 'Appearance', type: 'accordion_subheader', label: 'Tracers' },
             { cat: 'Appearance', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 20, unit: 'fr' },

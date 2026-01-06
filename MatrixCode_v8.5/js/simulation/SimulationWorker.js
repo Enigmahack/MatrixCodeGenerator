@@ -167,7 +167,7 @@ class WorkerSimulationSystem {
 
         const setOverlapChar = (i) => {
             let fIdx;
-            if (this.grid.types[i] === CELL_TYPE.EMPTY) {
+            if ((this.grid.types[i] & CELL_TYPE_MASK) === CELL_TYPE.EMPTY) {
                 fIdx = Math.floor(Math.random() * numFonts);
             } else {
                 fIdx = this.grid.fontIndices[i];
@@ -230,8 +230,12 @@ class WorkerSimulationSystem {
             grid.ages[idx] = age;
         }
 
-        const isTracer = (grid.types[idx] === CELL_TYPE.TRACER || grid.types[idx] === CELL_TYPE.ROTATOR);
-        const isUpward = (grid.types[idx] === CELL_TYPE.UPWARD_TRACER);
+        const type = grid.types[idx];
+        const baseType = type & CELL_TYPE_MASK;
+        const isGradual = (type & CELL_FLAGS.GRADUAL) !== 0;
+
+        const isTracer = (baseType === CELL_TYPE.TRACER || baseType === CELL_TYPE.ROTATOR);
+        const isUpward = (baseType === CELL_TYPE.UPWARD_TRACER);
 
         if (decay < 2 && isTracer) {
             const attack = s.tracerAttackFrames;
@@ -245,7 +249,7 @@ class WorkerSimulationSystem {
             let ratio = 0; 
             const activeAge = age - 1;
             
-            if (s.gradualColorStreams && !isUpward) {
+            if (isGradual && !isUpward) {
                 const fadeStart = attack + hold;
                 const fadeLen = 45.0; 
                 if (activeAge > fadeStart) {
@@ -277,7 +281,7 @@ class WorkerSimulationSystem {
                 const mB = Math.floor(tB + (bB - tB) * ratio);
                 grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
                 
-                if (s.gradualColorStreams && !isUpward) {
+                if (isGradual && !isUpward) {
                     grid.glows[idx] = 0;
                 } else {
                     grid.glows[idx] = targetGlow * (1.0 - ratio);
@@ -288,7 +292,7 @@ class WorkerSimulationSystem {
             }
         }
 
-        if ((s.rotatorEnabled || grid.mix[idx] > 0) && grid.types[idx] === CELL_TYPE.ROTATOR) {
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && baseType === CELL_TYPE.ROTATOR) {
             this._handleRotator(idx, frame, s, d);
         }
 
@@ -414,7 +418,7 @@ class WorkerSimulationSystem {
         }
         
         let attack = s.tracerAttackFrames;
-        if (this.grid.types[idx] === CELL_TYPE.UPWARD_TRACER) {
+        if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.UPWARD_TRACER) {
             attack = s.upwardTracerAttackFrames;
         }
 
