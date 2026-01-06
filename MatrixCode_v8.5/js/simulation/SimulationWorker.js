@@ -276,7 +276,12 @@ class WorkerSimulationSystem {
                 const mG = Math.floor(tG + (bG - tG) * ratio);
                 const mB = Math.floor(tB + (bB - tB) * ratio);
                 grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
-                grid.glows[idx] = targetGlow * (1.0 - ratio);
+                
+                if (s.gradualColorStreams && !isUpward) {
+                    grid.glows[idx] = 0;
+                } else {
+                    grid.glows[idx] = targetGlow * (1.0 - ratio);
+                }
             } else {
                 grid.colors[idx] = tracerColor;
                 grid.glows[idx] = targetGlow;

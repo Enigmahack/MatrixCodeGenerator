@@ -184,7 +184,7 @@ class UIManager {
             { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px' },
             { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', description: "Minimum space between tracer types, preventing short streams" },
             { cat: 'Behavior', id: 'allowTinyStreams', type: 'checkbox', label: 'Allow Tiny Streams', description: "Increases the probability of very short streams spawning." },
-            { cat: 'Behavior', id: 'gradualColorStreams', type: 'checkbox', label: 'Gradual Color Streams', description: "Fades tracer brightness gradually over the entire stream length." },
+            { cat: 'Behavior', id: 'gradualColorStreams', type: 'checkbox', label: 'Gradual Color Streams', description: "Immediately blends tracer color to stream color behind the head, removing tracer glow." },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
