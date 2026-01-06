@@ -308,17 +308,17 @@ class ConfigurationManager {
      * @returns {Array<Object>} An array of slot data.
      */
     _loadSlots() {
+        let loadedSlots = [];
         try {
             const storedSlots = localStorage.getItem(this.slotsKey);
             if (storedSlots) {
-                return JSON.parse(storedSlots);
+                loadedSlots = JSON.parse(storedSlots);
             }
         } catch (e) {
             console.warn('Failed to load slots:', e);
         }
 
-        // Default slots if not found or error occurs
-        return [
+        const defaults = [
             { name: "Trilogy", data: this._deepClone(this.defaults) },
             {
                 name: "Neo Code",
@@ -443,8 +443,21 @@ class ConfigurationManager {
                         }
                     }
                 }
-            }
+            },
+            { name: "Morpheus Code", data: this._deepClone(this.defaults) },
+            { name: "Operator Code", data: this._deepClone(this.defaults) }
         ];
+
+        // Ensure we have at least the default number of slots (migration for existing users)
+        if (!Array.isArray(loadedSlots) || loadedSlots.length === 0) {
+            return defaults;
+        }
+
+        while (loadedSlots.length < defaults.length) {
+            loadedSlots.push(defaults[loadedSlots.length]);
+        }
+
+        return loadedSlots;
     }
 
     /**

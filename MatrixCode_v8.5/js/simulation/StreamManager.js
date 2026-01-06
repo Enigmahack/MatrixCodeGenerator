@@ -108,7 +108,7 @@ class StreamManager {
             if (colCounts[col] < limit) {
                 if (Math.random() < spawnChance) {
                     this._spawnUpwardTracerAt(col);
-                    colCounts[col]++;
+                    return; // Prevent clustering: Max 1 spawn per frame
                 }
             }
         }
@@ -608,6 +608,7 @@ class StreamManager {
         const s = this.config.state;
         const stream = this._initializeUpwardTracerStream(x, s);
         this.activeStreams.push(stream);
+        this.streamsPerColumn[x]++;
         this.lastUpwardTracerInColumn[x] = stream;
     }
 
@@ -619,8 +620,8 @@ class StreamManager {
 
         return {
             x,
-            // Always start at the bottom to ensure upward movement only
-            y: this.grid.rows, 
+            // Random start position: throughout screen or delayed from bottom
+            y: Utils.randomInt(0, this.grid.rows + 15), 
             active: true,
             delay: 0, // Remove delay for immediate feedback
             age: 0,
