@@ -173,6 +173,8 @@ class SimulationSystem {
     }
 
     update(frame) {
+        if (this.config.state.simulationPaused) return;
+
         if (this.useWorker && this.worker) {
             // Offload to Worker
             this.worker.postMessage({

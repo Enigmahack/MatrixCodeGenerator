@@ -79,6 +79,7 @@ class ConfigurationManager {
             "showFpsCounter": false,
             "debugEnabled": false,
             "highlightErasers": false,
+            "simulationPaused": false,
             "logErrors": false,
             "fontFamily": "MatrixEmbedded",
             "fontWeight": "normal",

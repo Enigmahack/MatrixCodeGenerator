@@ -21,6 +21,11 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.expansionPhase = 0;
         this.maskOps = [];
         this.animFrame = 0;
+        
+        // Debug
+        this.debugMode = true; 
+        this.manualStep = false;
+        this._boundDebugHandler = this._handleDebugInput.bind(this);
     }
 
     trigger() {
@@ -46,7 +51,22 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.offsetX = 0.5; // Fraction of cell width
         this.offsetY = 0.5; // Fraction of cell height
 
+        if (this.debugMode) {
+            window.addEventListener('keydown', this._boundDebugHandler);
+        }
+
         return true;
+    }
+    
+    _handleDebugInput(e) {
+        if (e.key === '.') {
+            this.manualStep = true;
+        } else if (e.key === 'Escape') {
+            this.active = false;
+            this.state = 'IDLE';
+            this.alpha = 0.0;
+            window.removeEventListener('keydown', this._boundDebugHandler);
+        }
     }
 
     update() {
@@ -74,7 +94,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
         } else if (this.state === 'SUSTAIN') {
             this.timer++;
-            if (this.timer >= durationFrames) {
+            // Infinite duration in debug mode
+            if (!this.debugMode && this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
             }
@@ -85,6 +106,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                 this.active = false;
                 this.state = 'IDLE';
                 this.alpha = 0.0;
+                window.removeEventListener('keydown', this._boundDebugHandler);
             }
         }
 
@@ -98,7 +120,12 @@ class QuantizedPulseEffect extends AbstractEffect {
             const delayCycles = Math.max(1, s.quantizedPulseSpeed || 1);
             if (this.cyclesCompleted >= delayCycles) {
                 this.cyclesCompleted = 0;
-                this._processAnimationStep();
+                
+                // Debug stepping gate
+                if (!this.debugMode || this.manualStep) {
+                    this._processAnimationStep();
+                    this.manualStep = false;
+                }
             }
         }
 
@@ -135,7 +162,16 @@ class QuantizedPulseEffect extends AbstractEffect {
         const rem = (dx, dy, face) => {
             this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
         };
+        const addLine = (dx, dy, face) => {
+            this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now });
+        };
+        const remLine = (dx, dy, face) => {
+            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
+        };
 
+
+        // add(+E -W, -N +S)
+        // addRect(From x, From -y, To x, To -y)
         if (p === 0) {
             add(0, 0); // Center
         } else if (p === 1) {
@@ -153,10 +189,45 @@ class QuantizedPulseEffect extends AbstractEffect {
             add(0, 2);  // South of South
         } else if (p === 5) {
             rem(0, 0, 'W'); // Fade Center West
+            rem(-1, 0, 'W'); // Fade West of Center Left
             add(-2, 0); // West of West
             add(2, 0);  // East of East
+            add(0, 3); // South of South
+
             // Add 2x2 overlap South-East of Center (0,0 to 1,1)
             addRect(0, 0, 1, 1);
+            rem(0, 2, 'S');
+        } else if (p === 6) {
+            add(-1, -1); 
+            add(1, -1);  
+        } else if (p === 7) {
+            add(-1, 1);              
+            add(3, 0);
+            add(-3, 0);
+            rem(-3, 0, 'E');
+            rem(0, 1, 'S');
+            rem(0, 3, 'S'); 
+            rem(0, -1,'N');
+            rem(2, 0, 'E');
+            addRect(0,2,0,4);
+            addLine(0, 2,'S');
+
+        } else if (p === 8) {
+            addRect(0,-3, 0, -4);
+            add(1, -2);
+            add(0, 5);
+            add(1, 2);
+            addLine(3, 0, 'W');
+            rem(1, -1, 'N');
+            rem(0, -1, 'S');
+            rem(1, 1, 'N');
+            rem(1, 1, 'W');
+            // rem(1, 0, 'S');
+            // rem(0, 1, 'E');
+            rem(0, 4, 'S');
+            rem(0, -3, 'N');
+            addLine(0, 3, 'S');
+            remLine(0, 2, 'S');
         }
 
         this.expansionPhase++;
@@ -233,10 +304,20 @@ class QuantizedPulseEffect extends AbstractEffect {
             const i = (y * cols) + x;
             let charCode = chars[i];
             if (charCode <= 32) {
+                const activeFonts = d.activeFonts;
+                const fontData = activeFonts[0] || { chars: "01" };
+                const charSet = fontData.chars;
+                
                 const rotatorCycle = d.rotatorCycleFrames || 20;
                 const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-                const hash = (i * 12345 + timeSeed * 67890);
-                charCode = 0x30A0 + (hash % 96); 
+                
+                // Use a more robust pseudo-random hash to prevent patterns
+                // (Standard sin-based hash common in shaders)
+                const seed = i * 12.9898 + timeSeed * 78.233;
+                const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
+                
+                const char = charSet[Math.floor(hash * charSet.length)];
+                charCode = char.charCodeAt(0);
             }
             const cx = screenOriginX + (x * screenStepX);
             const cy = screenOriginY + (y * screenStepY);
@@ -432,7 +513,204 @@ class QuantizedPulseEffect extends AbstractEffect {
             if (!nW) this._drawPerimeterFace(bx, by, 'W', boldLineWidthX, boldLineWidthY);
             if (!nE) this._drawPerimeterFace(bx, by, 'E', boldLineWidthX, boldLineWidthY);
         }
+
+        // --- PASS 4: Forced Lines (Add Line) ---
+        for (const op of this.maskOps) {
+            if (op.type !== 'addLine') continue;
+
+            let opacity = 1.0;
+            if (s.quantizedPulseFadeInFrames === 0) {
+                opacity = 1.0;
+            } else if (op.startFrame) {
+                const age = now - op.startFrame;
+                opacity = Math.min(1.0, age / addDuration);
+            }
+            ctx.globalAlpha = opacity;
+
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            
+            this._addBlockFace(start, end, op.face);
+        }
         
+        // --- PASS 5: Forced Removals (Remove Line) ---
+        ctx.globalCompositeOperation = 'destination-out';
+        for (const op of this.maskOps) {
+            if (op.type !== 'removeLine') continue;
+
+            let opacity = 1.0;
+            if (s.quantizedPulseFadeFrames === 0) {
+                opacity = 1.0;
+            } else if (op.startFrame) {
+                const age = now - op.startFrame;
+                opacity = Math.min(1.0, age / removeDuration);
+            }
+            ctx.globalAlpha = opacity;
+
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            
+            // Reuse _removeBlockFace logic as it's geometrically identical for the operation
+            this._removeBlockFace(start, end, op.face, op.force);
+        }
+
+        // --- PASS 6: Corner Cleanup ---
+        // If two adjacent faces are removed (e.g. N and W), the corner intersection
+        // remains because of the safety margin. We must explicitly clear it.
+        const removed = new Map(); // key "x,y" -> {N,S,E,W}
+        const getRem = (x, y) => {
+            let r = removed.get(`${x},${y}`);
+            if (!r) { r = {N:0,S:0,E:0,W:0}; removed.set(`${x},${y}`, r); }
+            return r;
+        };
+
+        const activeRemovals = this.maskOps.filter(op => {
+            if (op.type !== 'remove' && op.type !== 'removeLine') return false;
+            // Check timing
+            if (!op.startFrame) return false;
+            // Consider active if opacity > 0 (simplification, or strict timing)
+            // Ideally we check if it's "fully removed" or just "started removing".
+            // Since we want to clear the corner as lines fade, we consider any active op.
+            return (now >= op.startFrame);
+        });
+
+        for (const op of activeRemovals) {
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
+            const f = op.face.toUpperCase();
+            const force = op.force;
+
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                    if (!force) {
+                        if (f === 'N' && by === minY) continue;
+                        if (f === 'S' && by === maxY) continue;
+                        if (f === 'W' && bx === minX) continue;
+                        if (f === 'E' && bx === maxX) continue;
+                    }
+                    const r = getRem(bx, by);
+                    if (f === 'N') r.N = 1;
+                    else if (f === 'S') r.S = 1;
+                    else if (f === 'W') r.W = 1;
+                    else if (f === 'E') r.E = 1;
+                }
+            }
+        }
+
+        // Apply Corner Erasures
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.globalAlpha = 1.0; // Force full erase for corners to avoid artifacts
+        for (const [key, r] of removed) {
+            const [bx, by] = key.split(',').map(Number);
+            if (r.N && r.W) this._removeBlockCorner(bx, by, 'NW');
+            if (r.N && r.E) this._removeBlockCorner(bx, by, 'NE');
+            if (r.S && r.W) this._removeBlockCorner(bx, by, 'SW');
+            if (r.S && r.E) this._removeBlockCorner(bx, by, 'SE');
+        }
+        
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1.0;
+    }
+
+    _removeBlockCorner(bx, by, corner) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        
+        const cellX = Math.floor(bx * l.cellPitchX);
+        const cellY = Math.floor(by * l.cellPitchY);
+        // North-West corner of the block is (cellX, cellY) in screen logic terms of lines
+        // N Line is at y = screenOriginY + cellY*stepY
+        // W Line is at x = screenOriginX + cellX*stepX
+        
+        // Wait, cellY is top row of block.
+        // N face is at top of block.
+        // S face is at bottom of block (cellY + pitchY).
+        
+        let cx, cy;
+        
+        if (corner === 'NW') {
+            cx = l.screenOriginX + (cellX * l.screenStepX);
+            cy = l.screenOriginY + (cellY * l.screenStepY);
+        } else if (corner === 'NE') {
+            const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+            cx = l.screenOriginX + (endCellX * l.screenStepX);
+            cy = l.screenOriginY + (cellY * l.screenStepY);
+        } else if (corner === 'SW') {
+            const endCellY = Math.floor((by + 1) * l.cellPitchY);
+            cx = l.screenOriginX + (cellX * l.screenStepX);
+            cy = l.screenOriginY + (endCellY * l.screenStepY);
+        } else if (corner === 'SE') {
+            const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+            const endCellY = Math.floor((by + 1) * l.cellPitchY);
+            cx = l.screenOriginX + (endCellX * l.screenStepX);
+            cy = l.screenOriginY + (endCellY * l.screenStepY);
+        }
+        
+        // Clear a box the size of the line width centered at intersection
+        // Inflate slightly to ensure full coverage
+        const inflate = 1.0; 
+        ctx.beginPath();
+        ctx.rect(cx - l.halfLineX - inflate, cy - l.halfLineY - inflate, l.lineWidthX + (inflate*2), l.lineWidthY + (inflate*2));
+        ctx.fill();
+    }
+
+    /**
+     * Adds the specified face (border line) to blocks in the given range.
+     */
+    _addBlockFace(blockStart, blockEnd, face) {
+        if (!this.maskCtx || !this.layout) return;
+
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const f = face.toUpperCase();
+
+        const minX = Math.min(blockStart.x, blockEnd.x);
+        const maxX = Math.max(blockStart.x, blockEnd.x);
+        const minY = Math.min(blockStart.y, blockEnd.y);
+        const maxY = Math.max(blockStart.y, blockEnd.y);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+
+        for (let by = minY; by <= maxY; by++) {
+            for (let bx = minX; bx <= maxX; bx++) {
+                
+                const startCellX = Math.floor(bx * l.cellPitchX);
+                const startCellY = Math.floor(by * l.cellPitchY);
+                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+
+                const hx = l.lineWidthX / 2;
+                const hy = l.lineWidthY / 2;
+
+                if (f === 'N') {
+                    const cy = l.screenOriginY + (startCellY * l.screenStepY);
+                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                    ctx.rect(x, cy - hy, w, l.lineWidthY);
+                } else if (f === 'S') {
+                    const cy = l.screenOriginY + (endCellY * l.screenStepY);
+                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                    ctx.rect(x, cy - hy, w, l.lineWidthY);
+                } else if (f === 'W') {
+                    const cx = l.screenOriginX + (startCellX * l.screenStepX);
+                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                    ctx.rect(cx - hx, y, l.lineWidthX, h);
+                } else if (f === 'E') {
+                    const cx = l.screenOriginX + (endCellX * l.screenStepX);
+                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                    ctx.rect(cx - hx, y, l.lineWidthX, h);
+                }
+            }
+        }
+        ctx.fill();
         ctx.globalAlpha = 1.0;
     }
 
@@ -559,32 +837,38 @@ class QuantizedPulseEffect extends AbstractEffect {
                 const startCellY = Math.floor(by * l.cellPitchY);
                 const endCellX = Math.floor((bx + 1) * l.cellPitchX);
                 const endCellY = Math.floor((by + 1) * l.cellPitchY);
-                const safeX = l.lineWidthX; 
-                const safeY = l.lineWidthY; 
+                // Use halfLine for safe inset to align exactly with the perpendicular line edge
+                // Add a tiny safety margin to prevent cutting into the perpendicular line due to AA
+                const safety = 0.5;
+                const safeX = l.halfLineX + safety; 
+                const safeY = l.halfLineY + safety; 
+                
+                // Inflate the erasure rectangle slightly to fully clear anti-aliased edges
+                const inflate = 0.5; 
 
                 if (f === 'N') {
                     const cy = l.screenOriginY + (startCellY * l.screenStepY);
                     const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
                     const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
-                    ctx.rect(left, cy - l.halfLineY, width, l.lineWidthY);
+                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 }
                 else if (f === 'S') {
                     const cy = l.screenOriginY + (endCellY * l.screenStepY);
                     const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
                     const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
-                    ctx.rect(left, cy - l.halfLineY, width, l.lineWidthY);
+                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 }
                 else if (f === 'W') {
                     const cx = l.screenOriginX + (startCellX * l.screenStepX);
                     const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
                     const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
-                    ctx.rect(cx - l.halfLineX, top, l.lineWidthX, height);
+                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
                 }
                 else if (f === 'E') {
                     const cx = l.screenOriginX + (endCellX * l.screenStepX);
                     const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
                     const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
-                    ctx.rect(cx - l.halfLineX, top, l.lineWidthX, height);
+                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
                 }
             }
         }
