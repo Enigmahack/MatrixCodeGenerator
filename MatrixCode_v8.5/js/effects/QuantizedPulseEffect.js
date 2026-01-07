@@ -152,15 +152,99 @@ class QuantizedPulseEffect extends AbstractEffect {
         const p = this.expansionPhase;
         const now = this.animFrame;
 
+        // --- Build State Snapshot ---
+        const s = this.c.state;
+        const grid = this.g;
+        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
+        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+
+        const activeMap = new Set();
+        // Replay history to determine current state
+        for (const op of this.maskOps) {
+            if (op.startFrame > now) continue;
+
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const minX = Math.min(cx + op.x1, cx + op.x2);
+                const maxX = Math.max(cx + op.x1, cx + op.x2);
+                const minY = Math.min(cy + op.y1, cy + op.y2);
+                const maxY = Math.max(cy + op.y1, cy + op.y2);
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        activeMap.add(`${x},${y}`);
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                if (op.startFrame && now < op.startFrame) continue; 
+                const minX = Math.min(cx + op.x1, cx + op.x2);
+                const maxX = Math.max(cx + op.x1, cx + op.x2);
+                const minY = Math.min(cy + op.y1, cy + op.y2);
+                const maxY = Math.max(cy + op.y1, cy + op.y2);
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        activeMap.delete(`${x},${y}`);
+                    }
+                }
+            }
+        }
+
         // Helper to push relative ops with timestamp
         const add = (dx, dy) => {
-            this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+            const bx = cx + dx;
+            const by = cy + dy;
+            if (activeMap.has(`${bx},${by}`)) {
+                // If already full/active, ensure lines are added (Force Border)
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now });
+            } else {
+                this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+                activeMap.add(`${bx},${by}`);
+            }
+        };
+        const addPerimeter = (dx, dy) => {
+            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+            activeMap.add(`${cx+dx},${cy+dy}`);
         };
         const addRect = (dx1, dy1, dx2, dy2) => {
             this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now });
+            // Update map
+            const minX = Math.min(cx + dx1, cx + dx2);
+            const maxX = Math.max(cx + dx1, cx + dx2);
+            const minY = Math.min(cy + dy1, cy + dy2);
+            const maxY = Math.max(cy + dy1, cy + dy2);
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) activeMap.add(`${x},${y}`);
+            }
         };
         const rem = (dx, dy, face) => {
-            this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
+            if (face) {
+                this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
+            } else {
+                const bx = cx + dx;
+                const by = cy + dy;
+                // Check neighbors in current active map
+                const nN = activeMap.has(`${bx},${by-1}`);
+                const nS = activeMap.has(`${bx},${by+1}`);
+                const nE = activeMap.has(`${bx+1},${by}`);
+                const nW = activeMap.has(`${bx-1},${by}`);
+                
+                if (nN && nS && nE && nW) {
+                    // Internal: Simply remove lines
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                } else {
+                    // External: Standard remove
+                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
+                    activeMap.delete(`${bx},${by}`);
+                }
+            }
         };
         const addLine = (dx, dy, face) => {
             this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now });
@@ -197,6 +281,10 @@ class QuantizedPulseEffect extends AbstractEffect {
             // Add 2x2 overlap South-East of Center (0,0 to 1,1)
             addRect(0, 0, 1, 1);
             rem(0, 2, 'S');
+            rem(0, 0, 'N');
+            rem(0, 0, 'E');
+            rem(0, 0, 'S');
+
         } else if (p === 6) {
             add(-1, -1); 
             add(1, -1);  
@@ -209,7 +297,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             rem(0, 3, 'S'); 
             rem(0, -1,'N');
             rem(2, 0, 'E');
-            addRect(0,2,0,4);
+            addRect(0, 2, 0, 4);
             addLine(0, 2,'S');
 
         } else if (p === 8) {
@@ -222,12 +310,310 @@ class QuantizedPulseEffect extends AbstractEffect {
             rem(0, -1, 'S');
             rem(1, 1, 'N');
             rem(1, 1, 'W');
-            // rem(1, 0, 'S');
-            // rem(0, 1, 'E');
             rem(0, 4, 'S');
             rem(0, -3, 'N');
             addLine(0, 3, 'S');
             remLine(0, 2, 'S');
+
+        } else if (p === 9) {
+            add(1, 3);
+            remLine(1, 3, 'N');
+            add(-1, -2);
+            remLine(-1, -1, 'E');
+            remLine(-1, -1, 'S');
+            add(-2, -1);
+            add(1, -3);
+            rem(-1, -1, 'E');
+            rem(-1, -1, 'S');
+            rem(-1, 1);
+            remLine(1, 0, 'E');            
+            rem(1, -1, 'W');
+            rem(1, -1, 'S');
+            rem(1, -3, 'S')
+            rem(1, -3, 'W');
+            addLine(1, -2, 'S');
+
+        } else if (p === 10) {
+            addLine(-1, 1, 'W');
+            addLine(-1, 1, 'S');
+            add(1, 5);
+            add(0, 6);
+            remLine(0, 3, 'S');
+            addRect(3, 0, 6, 0);
+            remLine(2, 0, 'E');
+            rem(3, 0, 'E');
+            rem(4, 0, 'E');
+            rem(5, 0, 'E');
+            rem(0, 5, 'S');
+            addRect(0, -3, 1, -5);
+            rem(0, -3, 'N');
+            rem(0, -3, 'E');
+            rem(1, -2, 'N');
+            rem(1, -4, 'W');
+            rem(1, -4, 'S');
+            add(-1, 1,);
+            addLine(0, 4, 'S');
+
+        } else if (p === 11) {
+            addRect(2, 2, 1, 4);
+            addRect(-1, 2, -1, 5);
+            addRect(-4, 0, -4, 1);
+            rem(-4, 0, 'S');
+            add(-2, 2);
+            add(-2, -2);
+            rem(-2, -2, 'E');
+            rem(-2, -2, 'S');
+            add(1, 6);
+            add(0, 7);
+            addRect(0, -6, 0, -8);
+            addLine(1, -3, 'S');
+            addLine(1, -3, 'W');
+            addLine(1, -4, 'W');
+            addLine(1, -4, 'N');
+            addLine(1, 2, 'S');
+            rem(1, 2, 'W');
+            rem(1, 2, 'N');
+            rem(0, -2, 'E');
+            rem(0, -2, 'N');
+            remLine(1, -1, 'N');
+            remLine(1, -5, 'S');
+            addLine(1, -5, 'W');
+            rem(1, 5);
+            rem(1, 4, 'E');
+            rem(1, 4, 'N');
+            rem(1, 3, 'E');
+            rem(-1, 2, 'W');
+            rem(-1, 2, 'S');
+            rem(-1, 3, 'S');
+            rem(-1, 4, 'S');
+            rem(0, 5, 'S');
+            remLine(0, 5, 'N');
+            rem(0, 6, 'S');
+            rem(0, 6, 'E');
+            addLine(0, 5, 'S');
+            remLine(-1, 3, 'W')
+            remLine(-1, 4, 'W')
+            remLine(-1, 5, 'W')
+
+        } else if (p === 12) {
+            // Stopping here, start validating from this point. 
+            add(-1, -4);
+            add(1, -3);
+            add(3, 2);
+            addRect(-1, 2, -2, 5);
+            addRect(0, 8, 0, 9);
+            addRect(-3, -1, -3, -2);
+            add(1, 3);
+            add(1, 4);
+            addLine(-2, 4, 'N');
+            rem(2, 3);
+            rem(2, 4);
+            rem(1, 6);
+            rem(-1, 5);
+            rem(-2, 5);
+            rem(-4, 1);
+            remLine(-4, 1, 'W');
+            remLine(-4, 1, 'S');
+            remLine(-4, 1, 'E');
+            rem(-2, 3, 'N');
+            rem(-2, 3, 'E');
+            rem(-2, 4, 'E');
+            rem(-1, -2, 'E');
+            rem(-1, -2, 'S');
+            rem(-2, -1, 'E');
+            rem(-2, -1, 'S');
+            rem(-3, -2, 'S');
+            rem(0, 8, 'S');
+            rem(2, 2, 'E');
+            remLine(0, 3, 'E');
+            remLine(1, 3, 'N');
+            remLine(-1, 3, 'N');
+            remLine(-1, 3, 'S');
+            
+        } else if (p === 13){
+            addRect(2, -1, 3, -1);
+            rem(-3, -1);
+            remLine(2, -1, 'E');
+            remLine(-3, 0, 'W');
+            remLine(-2, -2, 'W');
+            remLine(1, -3, 'S');
+            remLine(1, -3, 'W');
+            remLine(-1, 1, 'S');
+            remLine(-1, 2, 'W');
+            remLine(-4, -2, 'S');
+            addLine(-4, -1, 'E');
+            addLine(-3, -2, 'S');
+            add(-5, 0);
+            rem(-1, 1);
+            rem(0, 5, 'S');
+            remLine(-2, 1, 'S');
+            remLine(-1, 1, 'W');
+            remLine(-2, 2, 'W');
+            remLine(-2, 3, 'W');
+            addRect(2, 1, 2, 2);
+            addRect(0, -9, 0, -12);
+            addRect(0, 10, 0, 13);
+            add(-1, -3);
+            add(-4, -2);
+            add(-5, -1);
+
+            rem(3, 2);
+            remLine(2, 2, 'N');
+            remLine(2, 2, 'S');
+            remLine(0, 7, 'S');
+            rem(0, 8, 'S');
+            rem(0, 9, 'S');
+            rem(0, 11, 'S');
+            rem(0, 12, 'S');
+            rem(-5, 0, 'N');
+            remLine(-1, -3, 'N');
+            remLine(1, -4, 'S');
+            remLine(1, -4, 'W');
+            remLine(1, -5, 'W');
+
+        } else if (p === 14) {
+            add(2, 3);
+            add(-1, 1);
+            add(-1, -4);
+            add(-5, -1);
+            addLine(0, -10, 'S');
+            addLine(1, 5, 'E');
+            rem(3, 2);
+            remLine(2, 2, 'N');
+            remLine(2, 2, 'S');
+            remLine(0, 7, 'S');
+            rem(0, 8, 'S');
+            rem(0, 9, 'S');
+            rem(0, 11, 'S');
+            rem(0, 12, 'S');
+            rem(-5, 0, 'N');
+            remLine(-1, -3, 'N');
+            remLine(1, -4, 'S');
+            remLine(1, -4, 'W');
+            remLine(1, -5, 'W');
+
+        } else if (p === 15){
+            add(-5, 1);
+            addRect(-2, 5, -1, 5);
+            addRect(2, -2, 3, -2);
+            add(-2, -4);
+            addRect(7, 0, 9, 0);
+            addLine(2, 4, 'E');
+            addRect(-6, 0, -6, -1);
+            rem(2, -2, 'S');
+            rem(2, -2, 'E');
+            rem(3, -2, 'S');
+            rem(2, 1, 'W');
+            rem(2, 2, 'W');
+            remLine(0, 4, 'E');
+            rem(1, 3);
+            remLine(0, 5, 'S');
+            remLine(1, 5, 'E');
+            addLine(1, 5, 'S');
+            addLine(1, 6, 'S');
+            addLine(0, 7, 'S');
+            addRect(0, 14, 0, 15);
+            rem(0, 10, 'S');
+            rem(0, 14, 'S');
+            rem(1, 6);
+            rem(8, 0, 'W');
+            rem(8, 0, 'E');
+            remLine(-1, -4, 'W');
+            add(-2, 2);
+            remLine(-2, 2, 'E');
+            add(-2, 1);
+            remLine(-2, 1, 'E');
+            remLine(-2, 1, 'W');
+            remLine(0, 2, 'W');
+            remLine(0, 3, 'W');
+            remLine(0, 4, 'W');
+            remLine(-3, -2, 'S');
+            rem(-6, 0, 'N');
+            remLine(-5, -1, 'W');
+            remLine(-5, -1, 'E');
+            rem(-5, 0, 'E');
+            addLine(-5, 0, 'N');
+            addLine(-4, -2, 'E');
+            add(-5, 1);
+
+        } else if (p === 16){
+            rem(-6, -1);
+            add(-5, -2);
+            rem(-5, -2, 'E')
+            rem(-5, -2, 'S');
+            addLine(-5, -1, 'W');
+            rem(-5, 1);
+            remLine(-5, 1, 'S');
+            remLine(-5, 1, 'E');
+            remLine(-5, 1, 'W');
+            remLine(-2, 1, 'S');
+            remLine(-1, 1, 'S');
+            remLine(-2, -2, 'S');
+            rem(0, 1);
+            rem(-1, 1);
+            remLine(0, -4, 'W');
+            add(-1, 4);
+            add(-4, -2);
+            add(4, -1);
+            remLine(-4, -2, 'E');
+            remLine(-4, -2, 'S');
+            rem(-4, -1, 'S');
+            rem(-3, -1);
+            addRect(-5, -1, -5, -2);
+            addRect(-1, 4, -2, 6);
+            remLine(-1, 4, 'W');
+            remLine(-1, 4, 'S');
+            addLine(0, 5, 'W');
+            remLine(-1, 6, 'W');
+            remLine(0, 7, 'S');
+            addLine(0, 9, 'S');
+            remLine(0, 13, 'S');
+            addLine(0, 15, 'S');
+            addRect(0, 16, 0, 25);
+            remLine(0, -9, 'N');
+            addLine(0, -11, 'N');
+            addRect(0, -13, 0, -18);
+            addRect(2, 3, 2, 4);
+            addRect(2, -2, 3, -3);
+            addLine(-2, 4, 'S');
+            addLine(-1, 4, 'S');
+            remLine(-2, 3, 'S');
+            remLine(-1, 3, 'S');
+            remLine(0, 4, 'W');
+            rem(2, -2);
+            rem(2, -1);
+            rem(3, -2, 'N');
+            rem(3, -2, 'S');
+            remLine(1, -3, 'E');
+            addRect(3, 1, 3, 2);
+            remLine(2, 0, 'S');
+            remLine(3, -1, 'E');
+            addRect(4, 1, 4, 2);
+            remLine(3, 1, 'W');
+            remLine(3, 1, 'E');
+            remLine(1, 6, 'N');
+            remLine(1, 6, 'S');
+            addLine(2, 3, 'W');
+            remLine(3, 2, 'N');
+            addLine(2, 2, 'S');
+
+        } else if (p === 17){
+
+            remLine(0, 9, 'S');
+            addLine(0, 11, 'S');
+            remLine(0, 15, 'S');
+            add(-2, -3);
+            add(-5, 2);
+            rem(-1, -3);
+            rem(-2, -3, 'N');
+            rem(-5, -1, 'E');
+            remLine(-5, 0, 'N');
+            add(1, 6);
+            remLine(-1, 5, 'W');
+            remLine(-1, 5, 'S');
+            rem(-1, 6);
+            rem(-2, 5);
+            rem(-2, 6);
         }
 
         this.expansionPhase++;
@@ -417,47 +803,127 @@ class QuantizedPulseEffect extends AbstractEffect {
         const addDuration = Math.max(1, s.quantizedPulseFadeInFrames || 0);
         const removeDuration = Math.max(1, s.quantizedPulseFadeFrames || 0);
 
-        // --- PASS 1: Base Grid (Active Blocks) ---
-        // Build map of active blocks for Perimeter pass later
+        // --- PRE-PASS: Build Active Block Map ---
+        // We need to know ALL active blocks (from add and addSmart) to determine connectivity
+        // Iterate sequentially to respect order of operations (Add -> Remove -> Add)
         const activeBlockMap = new Map(); // key "x,y" -> startFrame
+        
+        // Helper: Check if location is covered by a LATER add op
+        const isLocationCoveredByLaterAdd = (bx, by, time) => {
+             for (const subOp of this.maskOps) {
+                 if (subOp.type !== 'add' && subOp.type !== 'addSmart') continue;
+                 if (!subOp.startFrame || subOp.startFrame <= time) continue; 
+                 if (subOp.startFrame > now) continue; 
+                 
+                 const s = { x: cx + subOp.x1, y: cy + subOp.y1 };
+                 const e = { x: cx + subOp.x2, y: cy + subOp.y2 };
+                 const mx = Math.min(s.x, e.x), Mx = Math.max(s.x, e.x);
+                 const my = Math.min(s.y, e.y), My = Math.max(s.y, e.y);
+                 
+                 if (bx >= mx && bx <= Mx && by >= my && by <= My) return true;
+             }
+             return false;
+        };
 
+        for (const op of this.maskOps) {
+            // Only process if operation has started
+            if (op.startFrame && now < op.startFrame) continue;
+
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        activeBlockMap.set(`${bx},${by}`, op.startFrame || 0);
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        activeBlockMap.delete(`${bx},${by}`);
+                    }
+                }
+            }
+        }
+
+        // --- PASS 1: Base Grid (Standard Add) ---
         for (const op of this.maskOps) {
             if (op.type !== 'add') continue;
 
-            // Calculate Opacity based on age
             let opacity = 1.0;
-            // If configured duration is 0, instant 1.0 (handled by max(1, 0) and age check)
-            // If fade in frames is 0, addDuration is 1. age will be >= 0.
-            // If age 0, 0/1 = 0. We want instant if 0.
-            
-            if (s.quantizedPulseFadeInFrames === 0) {
-                opacity = 1.0;
-            } else if (op.startFrame) {
-                const age = now - op.startFrame;
-                opacity = Math.min(1.0, age / addDuration);
-            }
+            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
             ctx.globalAlpha = opacity;
 
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             
             this._addBlock(start, end, op.ext);
-
-            // Register blocks for Perimeter Pass
-             const minX = Math.min(start.x, end.x);
-             const maxX = Math.max(start.x, end.x);
-             const minY = Math.min(start.y, end.y);
-             const maxY = Math.max(start.y, end.y);
-             
-             for (let by = minY; by <= maxY; by++) {
-                 for (let bx = minX; bx <= maxX; bx++) {
-                     const key = `${bx},${by}`;
-                     if (!activeBlockMap.has(key)) {
-                         activeBlockMap.set(key, op.startFrame || 0);
-                     }
-                 }
-             }
         }
+
+        // --- PASS 1.5: Smart Perimeter (addSmart) ---
+        for (const op of this.maskOps) {
+            if (op.type !== 'addSmart') continue;
+
+            let opacity = 1.0;
+            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+            ctx.globalAlpha = opacity;
+
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
+
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                    // Check connectivity to any active block (including neighbors from same op)
+                    const nN = activeBlockMap.has(`${bx},${by-1}`);
+                    const nS = activeBlockMap.has(`${bx},${by+1}`);
+                    const nW = activeBlockMap.has(`${bx-1},${by}`);
+                    const nE = activeBlockMap.has(`${bx+1},${by}`);
+                    
+                    const isConnected = nN || nS || nW || nE;
+                    
+                    // Connected -> Perimeter Only (true), Isolated -> Full Grid (false)
+                    this._addBlock({x:bx, y:by}, {x:bx, y:by}, isConnected);
+                }
+            }
+        }
+        
+        // --- PASS 1.9: Block Erasure (removeBlock) ---
+        ctx.globalCompositeOperation = 'destination-out';
+        for (const op of this.maskOps) {
+            if (op.type !== 'removeBlock') continue;
+
+            let opacity = 1.0;
+            if (s.quantizedPulseFadeFrames === 0) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
+            ctx.globalAlpha = opacity;
+
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            
+            // Use _addBlock logic (drawing the rect) but with destination-out to erase
+            // We pass 'false' for isExtending to erase the full block content
+            this._addBlock(start, end, false);
+        }
+        ctx.globalCompositeOperation = 'source-over';
 
         // --- PASS 2: Erasures (Internal Walls) ---
         ctx.globalCompositeOperation = 'destination-out';
@@ -465,24 +931,28 @@ class QuantizedPulseEffect extends AbstractEffect {
             if (op.type !== 'remove') continue;
 
             let opacity = 1.0;
-            if (s.quantizedPulseFadeFrames === 0) {
-                opacity = 1.0;
-            } else if (op.startFrame) {
-                const age = now - op.startFrame;
-                opacity = Math.min(1.0, age / removeDuration);
-            }
+            if (s.quantizedPulseFadeFrames === 0) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
             ctx.globalAlpha = opacity;
 
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
             
-            this._removeBlockFace(start, end, op.face, op.force);
+            // Iterate blocks to check if erasure is overridden
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                     if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
+                     this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
+                }
+            }
         }
         ctx.globalCompositeOperation = 'source-over';
 
         // --- PASS 3: Perimeter (Bold Outer Barrier) ---
-        // Iterate all active blocks and check neighbors
-        // Bold line width
         const boldLineWidthX = lineWidthX * 2.0; 
         const boldLineWidthY = lineWidthY * 2.0;
         
@@ -491,72 +961,59 @@ class QuantizedPulseEffect extends AbstractEffect {
             const bx = parseInt(bxStr);
             const by = parseInt(byStr);
 
-            // Fade in the perimeter just like the block
             let opacity = 1.0;
-            if (s.quantizedPulseFadeInFrames === 0) {
-                opacity = 1.0;
-            } else if (startFrame) {
-                const age = now - startFrame;
-                opacity = Math.min(1.0, age / addDuration);
-            }
+            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
+            else if (startFrame) opacity = Math.min(1.0, (now - startFrame) / addDuration);
             ctx.globalAlpha = opacity;
 
-            // Check Neighbors
             const nN = activeBlockMap.has(`${bx},${by-1}`);
             const nS = activeBlockMap.has(`${bx},${by+1}`);
             const nW = activeBlockMap.has(`${bx-1},${by}`);
             const nE = activeBlockMap.has(`${bx+1},${by}`);
 
-            // Draw Face if Neighbor is Missing
             if (!nN) this._drawPerimeterFace(bx, by, 'N', boldLineWidthX, boldLineWidthY);
             if (!nS) this._drawPerimeterFace(bx, by, 'S', boldLineWidthX, boldLineWidthY);
             if (!nW) this._drawPerimeterFace(bx, by, 'W', boldLineWidthX, boldLineWidthY);
             if (!nE) this._drawPerimeterFace(bx, by, 'E', boldLineWidthX, boldLineWidthY);
         }
 
-        // --- PASS 4: Forced Lines (Add Line) ---
-        for (const op of this.maskOps) {
-            if (op.type !== 'addLine') continue;
+        // --- PASS 4: Line Operations (Sorted by Time) ---
+        // Combine addLine and removeLine ops to respect temporal order
+        const lineOps = this.maskOps.filter(op => op.type === 'addLine' || op.type === 'removeLine');
+        lineOps.sort((a, b) => (a.startFrame - b.startFrame));
 
+        for (const op of lineOps) {
             let opacity = 1.0;
-            if (s.quantizedPulseFadeInFrames === 0) {
-                opacity = 1.0;
-            } else if (op.startFrame) {
-                const age = now - op.startFrame;
-                opacity = Math.min(1.0, age / addDuration);
-            }
+            const duration = (op.type === 'addLine') ? addDuration : removeDuration;
+            
+            if (op.type === 'addLine' && s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
+            else if (op.type === 'removeLine' && s.quantizedPulseFadeFrames === 0) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / duration);
             ctx.globalAlpha = opacity;
 
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
-            
-            this._addBlockFace(start, end, op.face);
+
+            if (op.type === 'addLine') {
+                ctx.globalCompositeOperation = 'source-over';
+                this._addBlockFace(start, end, op.face);
+            } else {
+                ctx.globalCompositeOperation = 'destination-out';
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
+                        this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
+                    }
+                }
+            }
         }
         
-        // --- PASS 5: Forced Removals (Remove Line) ---
-        ctx.globalCompositeOperation = 'destination-out';
-        for (const op of this.maskOps) {
-            if (op.type !== 'removeLine') continue;
-
-            let opacity = 1.0;
-            if (s.quantizedPulseFadeFrames === 0) {
-                opacity = 1.0;
-            } else if (op.startFrame) {
-                const age = now - op.startFrame;
-                opacity = Math.min(1.0, age / removeDuration);
-            }
-            ctx.globalAlpha = opacity;
-
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
-            
-            // Reuse _removeBlockFace logic as it's geometrically identical for the operation
-            this._removeBlockFace(start, end, op.face, op.force);
-        }
-
         // --- PASS 6: Corner Cleanup ---
-        // If two adjacent faces are removed (e.g. N and W), the corner intersection
-        // remains because of the safety margin. We must explicitly clear it.
         const removed = new Map(); // key "x,y" -> {N,S,E,W}
         const getRem = (x, y) => {
             let r = removed.get(`${x},${y}`);
@@ -566,15 +1023,12 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         const activeRemovals = this.maskOps.filter(op => {
             if (op.type !== 'remove' && op.type !== 'removeLine') return false;
-            // Check timing
             if (!op.startFrame) return false;
-            // Consider active if opacity > 0 (simplification, or strict timing)
-            // Ideally we check if it's "fully removed" or just "started removing".
-            // Since we want to clear the corner as lines fade, we consider any active op.
             return (now >= op.startFrame);
         });
 
         for (const op of activeRemovals) {
+            if (!op.face) continue;
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             const minX = Math.min(start.x, end.x);
@@ -586,6 +1040,7 @@ class QuantizedPulseEffect extends AbstractEffect {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
+                    if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue; // Also skip corners!
                     if (!force) {
                         if (f === 'N' && by === minY) continue;
                         if (f === 'S' && by === maxY) continue;
@@ -601,9 +1056,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
         }
 
-        // Apply Corner Erasures
         ctx.globalCompositeOperation = 'destination-out';
-        ctx.globalAlpha = 1.0; // Force full erase for corners to avoid artifacts
+        ctx.globalAlpha = 1.0; 
         for (const [key, r] of removed) {
             const [bx, by] = key.split(',').map(Number);
             if (r.N && r.W) this._removeBlockCorner(bx, by, 'NW');
