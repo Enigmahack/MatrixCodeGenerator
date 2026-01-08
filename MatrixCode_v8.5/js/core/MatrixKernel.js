@@ -1,3 +1,7 @@
+// =======================================================================
+// MATRIX KERNEL
+// =========================================================================
+
 class MatrixKernel {
     constructor() {
         // Initialize core components
@@ -129,8 +133,6 @@ class MatrixKernel {
             this.config.set('customShader', null);
         }
     }
-
-
 
     /**
      * Sets up a debounced window resize listener.

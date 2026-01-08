@@ -1,3 +1,7 @@
+// =========================================================================
+// CELL GRID
+// =========================================================================
+
 // Constants for Cell State and Render Modes
 const CELL_STATE = {
     INACTIVE: 0,
@@ -189,14 +193,12 @@ class CellGrid {
     setEffectShadow(idx, alpha) {
         this.effectActive[idx] = 3; // 3 = Shadow Mode
         this.effectAlphas[idx] = alpha;
-        // Chars/Colors/Fonts ignored for shadow
     }
 
     setSolidOverride(idx, colorUint32, alpha) {
         this.overrideColors[idx] = colorUint32;
         this.overrideAlphas[idx] = alpha;
         this.overrideActive[idx] = OVERRIDE_MODE.SOLID;
-        // Chars/Glows ignored for Solid
     }
 
     clearOverride(idx) {
@@ -365,14 +367,7 @@ class CellGrid {
             this.envGlows = new Float32Array(total);
         }
 
-        // Initialize static data (Common to both modes)
-        // Note: For SAB, we might skip this if the worker handles initialization, 
-        // but it's safe to re-run or let the worker overwrite it.
-        // If we are the MAIN thread and just adopting SABs, we probably shouldn't random fill 
-        // because the Worker might be doing it.
-        // However, this random fill is for "initial static noise".
-        // Let's rely on the buffer content being zeroed or initialized elsewhere if buffers are passed.
-        
+        // Initialize static data
         if (!buffers) {
             const activeFonts = this.config.derived ? this.config.derived.activeFonts : null;
             const fallbackChars = "012345789Z:<=>\"*+-._!|";

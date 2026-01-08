@@ -1764,7 +1764,6 @@ void main() {
             if (settings && settings[value]) {
                 let changed = false;
                 // Create a new settings object to trigger reactivity if needed, or mutate copy
-                // We'll mutate deeper objects but clone the top level to be safe/clean
                 const newSettings = { ...settings };
                 
                 for (const fName in newSettings) {
@@ -1804,7 +1803,6 @@ void main() {
         // Load the "Trilogy" preset (slot 0) after a factory reset
         // This ensures the desired default configuration is applied consistently.
         this.loadFromSlot(0);
-        // The loadFromSlot method already calls updateDerivedValues(), save(), and notify('ALL')
         this._showToast("Configuration Reset", "info");
     }
 

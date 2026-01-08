@@ -26,19 +26,6 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.debugMode = true; 
         this.manualStep = false;
         this._boundDebugHandler = this._handleDebugInput.bind(this);
-
-        // Optimization: Persistent Logic Grid
-        this.logicGrid = null;
-        this.logicGridW = 0;
-        this.logicGridH = 0;
-        
-        // Optimization: Render Grid
-        this.renderGrid = null; // Int32Array storing startFrames
-        
-        // Optimization: Static Grid Cache
-        this.gridCacheCanvas = null;
-        this.gridCacheCtx = null;
-        this.lastGridSeed = -1;
     }
 
     trigger() {
@@ -63,20 +50,6 @@ class QuantizedPulseEffect extends AbstractEffect {
         // Offset slightly (1/2 cell to overlap characters effectively)
         this.offsetX = 0.5; // Fraction of cell width
         this.offsetY = 0.5; // Fraction of cell height
-
-        // Initialize Logic Grid
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
-        
-        if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
-            this.logicGrid = new Uint8Array(blocksX * blocksY);
-        } else {
-            this.logicGrid.fill(0);
-        }
-        this.logicGridW = blocksX;
-        this.logicGridH = blocksY;
 
         if (this.debugMode) {
             window.addEventListener('keydown', this._boundDebugHandler);
@@ -178,37 +151,51 @@ class QuantizedPulseEffect extends AbstractEffect {
         // Animation Sequence
         const p = this.expansionPhase;
         const now = this.animFrame;
-        
-        // Grid setup
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
+
+        // --- Build State Snapshot ---
+        const s = this.c.state;
+        const grid = this.g;
+        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
+        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
 
-        // Helper functions using Optimized Logic Grid
-        const getIdx = (bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
-            return by * blocksX + bx;
-        };
+        const activeMap = new Set();
+        // Replay history to determine current state
+        for (const op of this.maskOps) {
+            if (op.startFrame > now) continue;
 
-        const isActive = (dx, dy) => {
-            const idx = getIdx(cx + dx, cy + dy);
-            return (idx >= 0 && this.logicGrid[idx] === 1);
-        };
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const minX = Math.min(cx + op.x1, cx + op.x2);
+                const maxX = Math.max(cx + op.x1, cx + op.x2);
+                const minY = Math.min(cy + op.y1, cy + op.y2);
+                const maxY = Math.max(cy + op.y1, cy + op.y2);
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        activeMap.add(`${x},${y}`);
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                if (op.startFrame && now < op.startFrame) continue; 
+                const minX = Math.min(cx + op.x1, cx + op.x2);
+                const maxX = Math.max(cx + op.x1, cx + op.x2);
+                const minY = Math.min(cy + op.y1, cy + op.y2);
+                const maxY = Math.max(cy + op.y1, cy + op.y2);
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        activeMap.delete(`${x},${y}`);
+                    }
+                }
+            }
+        }
 
-        const setLocalActive = (dx, dy) => {
-             const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 1;
-        };
-        
-        const setLocalInactive = (dx, dy) => {
-             const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 0;
-        };
-
-        // Replaces old 'add'
+        // Helper to push relative ops with timestamp
         const add = (dx, dy) => {
-            if (isActive(dx, dy)) {
+            const bx = cx + dx;
+            const by = cy + dy;
+            if (activeMap.has(`${bx},${by}`)) {
                 // If already full/active, ensure lines are added (Force Border)
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now });
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now });
@@ -216,15 +203,13 @@ class QuantizedPulseEffect extends AbstractEffect {
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now });
             } else {
                 this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
-                setLocalActive(dx, dy);
+                activeMap.add(`${bx},${by}`);
             }
         };
-
         const addPerimeter = (dx, dy) => {
             this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
-            setLocalActive(dx, dy);
+            activeMap.add(`${cx+dx},${cy+dy}`);
         };
-
         const addRect = (dx1, dy1, dx2, dy2) => {
             this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now });
             // Update map
@@ -232,24 +217,21 @@ class QuantizedPulseEffect extends AbstractEffect {
             const maxX = Math.max(cx + dx1, cx + dx2);
             const minY = Math.min(cy + dy1, cy + dy2);
             const maxY = Math.max(cy + dy1, cy + dy2);
-            
             for (let y = minY; y <= maxY; y++) {
-                for (let x = minX; x <= maxX; x++) {
-                    const idx = getIdx(x, y);
-                    if (idx >= 0) this.logicGrid[idx] = 1;
-                }
+                for (let x = minX; x <= maxX; x++) activeMap.add(`${x},${y}`);
             }
         };
-
         const rem = (dx, dy, face) => {
             if (face) {
                 this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
             } else {
+                const bx = cx + dx;
+                const by = cy + dy;
                 // Check neighbors in current active map
-                const nN = isActive(dx, dy - 1);
-                const nS = isActive(dx, dy + 1);
-                const nE = isActive(dx + 1, dy);
-                const nW = isActive(dx - 1, dy);
+                const nN = activeMap.has(`${bx},${by-1}`);
+                const nS = activeMap.has(`${bx},${by+1}`);
+                const nE = activeMap.has(`${bx+1},${by}`);
+                const nW = activeMap.has(`${bx-1},${by}`);
                 
                 if (nN && nS && nE && nW) {
                     // Internal: Simply remove lines
@@ -260,11 +242,10 @@ class QuantizedPulseEffect extends AbstractEffect {
                 } else {
                     // External: Standard remove
                     this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
-                    setLocalInactive(dx, dy);
+                    activeMap.delete(`${bx},${by}`);
                 }
             }
         };
-
         const addLine = (dx, dy, face) => {
             this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now });
         };
@@ -415,6 +396,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             remLine(-1, 5, 'W')
 
         } else if (p === 12) {
+            // Stopping here, start validating from this point. 
             add(-1, -4);
             add(1, -3);
             add(3, 2);
@@ -651,7 +633,7 @@ class QuantizedPulseEffect extends AbstractEffect {
 
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
-        this._ensureCanvases(width, height, s);
+        this._ensureCanvases(width, height);
 
         if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
             this._updateMask(width, height, s, d);
@@ -659,118 +641,39 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
 
         // 1. Render Text to Scratch Canvas
-        // Optimization: Use cached grid
-        this._updateGridCache(width, height, s, d);
-        
         const scratchCtx = this.scratchCtx;
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
 
-        // Draw cached grid
-        scratchCtx.globalAlpha = this.alpha; 
-        scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-        scratchCtx.globalAlpha = 1.0;
+        const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
+        const style = s.italicEnabled ? 'italic ' : '';
+        const weight = s.fontWeight;
+        const family = s.fontFamily;
+        scratchCtx.font = `${style}${weight} ${visualFontSize}px ${family}`;
+        scratchCtx.textAlign = 'center';
+        scratchCtx.textBaseline = 'middle';
 
-        // 2. Apply Mask
-        scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.maskCanvas, 0, 0);
-
-        // 3. Composite
-        ctx.save();
-        if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
-            ctx.canvas.style.mixBlendMode = 'plus-lighter';
-        }
-        ctx.globalCompositeOperation = 'lighter';
-        
         // Colors
-        const t = Math.min(1.0, glowStrength / 10.0);
-        const glowR = 255;
-        const glowG = Math.floor(215 + (255 - 215) * t);
-        const glowB = Math.floor(0 + (255 - 0) * t);
-        const glowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
-        
-        ctx.globalAlpha = 1.0;
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
-        ctx.drawImage(this.scratchCanvas, 0, 0);
-        ctx.restore();
-    }
-
-    _ensureCanvases(w, h, s) {
-        if (!this.maskCanvas) {
-            this.maskCanvas = document.createElement('canvas');
-            this.maskCtx = this.maskCanvas.getContext('2d');
-            this._maskDirty = true;
-        }
-        if (!this.scratchCanvas) {
-            this.scratchCanvas = document.createElement('canvas');
-            this.scratchCtx = this.scratchCanvas.getContext('2d');
-        }
-        if (!this.gridCacheCanvas) {
-            this.gridCacheCanvas = document.createElement('canvas');
-            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
-        }
-
-        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
-            this.maskCanvas.width = w;
-            this.maskCanvas.height = h;
-            this._maskDirty = true;
-        }
-        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
-            this.scratchCanvas.width = w;
-            this.scratchCanvas.height = h;
-        }
-        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
-            this.gridCacheCanvas.width = w;
-            this.gridCacheCanvas.height = h;
-            this.lastGridSeed = -1; // Force redraw
-        }
-        
-        // Ensure Render Grid is correct size
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
-        const requiredSize = blocksX * blocksY;
-        
-        if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
-             this.renderGrid = new Int32Array(requiredSize);
-        }
-    }
-    
-    _updateGridCache(w, h, s, d) {
-        const rotatorCycle = d.rotatorCycleFrames || 20;
-        const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-        
-        if (timeSeed === this.lastGridSeed) return; // Cached
-        this.lastGridSeed = timeSeed;
-        
-        const ctx = this.gridCacheCtx;
-        ctx.clearRect(0, 0, w, h);
-        
-        const glowStrength = s.quantizedPulseBorderIllumination || 0;
         const t = Math.min(1.0, glowStrength / 10.0);
         const charR = 255;
         const charG = Math.floor(204 + (255 - 204) * t);
         const charB = Math.floor(0 + (255 - 0) * t);
         const charColor = `rgb(${charR}, ${charG}, ${charB})`;
-        
-        const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
-        const style = s.italicEnabled ? 'italic ' : '';
-        const weight = s.fontWeight;
-        const family = s.fontFamily;
-        ctx.font = `${style}${weight} ${visualFontSize}px ${family}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = charColor;
+        const glowR = 255;
+        const glowG = Math.floor(215 + (255 - 215) * t);
+        const glowB = Math.floor(0 + (255 - 0) * t);
+        const glowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
+
+        scratchCtx.fillStyle = charColor;
         
         const grid = this.g;
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
         const gridPixW = grid.cols * d.cellWidth; 
         const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (width * 0.5);
+        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (height * 0.5);
+
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
@@ -779,7 +682,9 @@ class QuantizedPulseEffect extends AbstractEffect {
         const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
         const blocksX = Math.ceil(grid.cols / cellPitchX);
         const blocksY = Math.ceil(grid.rows / cellPitchY);
-        
+
+        scratchCtx.globalAlpha = this.alpha; 
+
         const drawChar = (x, y) => {
             if (x >= cols || y >= rows) return;
             const i = (y * cols) + x;
@@ -789,6 +694,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 const fontData = activeFonts[0] || { chars: "01" };
                 const charSet = fontData.chars;
                 
+                const rotatorCycle = d.rotatorCycleFrames || 20;
+                const timeSeed = Math.floor(this.animFrame / rotatorCycle);
+                
+                // Use a more robust pseudo-random hash to prevent patterns
+                // (Standard sin-based hash common in shaders)
                 const seed = i * 12.9898 + timeSeed * 78.233;
                 const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
                 
@@ -797,8 +707,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             }
             const cx = screenOriginX + (x * screenStepX);
             const cy = screenOriginY + (y * screenStepY);
-            ctx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
-            ctx.fillText(String.fromCharCode(charCode), 0, 0);
+            scratchCtx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
+            scratchCtx.fillText(String.fromCharCode(charCode), 0, 0);
         };
 
         // Standard Grid Loop (Sparse)
@@ -813,7 +723,45 @@ class QuantizedPulseEffect extends AbstractEffect {
             for (let y = 0; y < rows; y++) drawChar(x, y);
         }
         
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+        // 2. Apply Mask
+        scratchCtx.globalCompositeOperation = 'destination-in';
+        scratchCtx.globalAlpha = 1.0; 
+        scratchCtx.drawImage(this.maskCanvas, 0, 0);
+
+        // 3. Composite
+        ctx.save();
+        if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
+            ctx.canvas.style.mixBlendMode = 'plus-lighter';
+        }
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 1.0;
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
+        ctx.drawImage(this.scratchCanvas, 0, 0);
+        ctx.restore();
+    }
+
+    _ensureCanvases(w, h) {
+        if (!this.maskCanvas) {
+            this.maskCanvas = document.createElement('canvas');
+            this.maskCtx = this.maskCanvas.getContext('2d');
+            this._maskDirty = true;
+        }
+        if (!this.scratchCanvas) {
+            this.scratchCanvas = document.createElement('canvas');
+            this.scratchCtx = this.scratchCanvas.getContext('2d');
+        }
+        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
+            this.maskCanvas.width = w;
+            this.maskCanvas.height = h;
+            this._maskDirty = true;
+        }
+        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
+            this.scratchCanvas.width = w;
+            this.scratchCanvas.height = h;
+        }
     }
 
     _updateMask(w, h, s, d) {
@@ -855,24 +803,28 @@ class QuantizedPulseEffect extends AbstractEffect {
         const addDuration = Math.max(1, s.quantizedPulseFadeInFrames || 0);
         const removeDuration = Math.max(1, s.quantizedPulseFadeFrames || 0);
 
-        // --- PRE-PASS: Build Active Block Map (Optimized) ---
-        // We use Int32Array (renderGrid) for O(1) storage. 
-        // Stores startFrame. -1 means inactive.
-        this.renderGrid.fill(-1);
+        // --- PRE-PASS: Build Active Block Map ---
+        // We need to know ALL active blocks (from add and addSmart) to determine connectivity
+        // Iterate sequentially to respect order of operations (Add -> Remove -> Add)
+        const activeBlockMap = new Map(); // key "x,y" -> startFrame
         
-        // Helper to check later adds
-        // Note: For checking "later adds" efficiently, we could do a second pass or check forward. 
-        // Since we iterate ops in order, we can just blindly overwrite in renderGrid for occupancy.
-        // But for the "isLocationCoveredByLaterAdd" check needed for Removals, we need to know.
-        // We can optimize this by maintaining a 'latestAddGrid' if needed. 
-        // For now, let's just stick to checking maskOps for "later add" only when processing a remove.
-        // Or better: Iterate ops, if Add -> write to grid. If Remove -> write -1 to grid.
-        // This gives us the state *at the end of the frame*.
-        // But we need to render *fading* states too.
-        
-        // Let's build the map of "Currently Active Blocks" (opacity > 0)
-        // AND track startFrames.
-        
+        // Helper: Check if location is covered by a LATER add op
+        const isLocationCoveredByLaterAdd = (bx, by, time) => {
+             for (const subOp of this.maskOps) {
+                 if (subOp.type !== 'add' && subOp.type !== 'addSmart') continue;
+                 if (!subOp.startFrame || subOp.startFrame <= time) continue; 
+                 if (subOp.startFrame > now) continue; 
+                 
+                 const s = { x: cx + subOp.x1, y: cy + subOp.y1 };
+                 const e = { x: cx + subOp.x2, y: cy + subOp.y2 };
+                 const mx = Math.min(s.x, e.x), Mx = Math.max(s.x, e.x);
+                 const my = Math.min(s.y, e.y), My = Math.max(s.y, e.y);
+                 
+                 if (bx >= mx && bx <= Mx && by >= my && by <= My) return true;
+             }
+             return false;
+        };
+
         for (const op of this.maskOps) {
             // Only process if operation has started
             if (op.startFrame && now < op.startFrame) continue;
@@ -887,9 +839,7 @@ class QuantizedPulseEffect extends AbstractEffect {
                 
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                        }
+                        activeBlockMap.set(`${bx},${by}`, op.startFrame || 0);
                     }
                 }
             } else if (op.type === 'removeBlock') {
@@ -902,35 +852,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = -1;
-                        }
+                        activeBlockMap.delete(`${bx},${by}`);
                     }
                 }
             }
         }
-
-        // Helper for Optimized Connectivity Check
-        const isRenderActive = (bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-            return this.renderGrid[by * blocksX + bx] !== -1;
-        };
-        
-        // Helper for checking if a location is covered by a LATER add op
-        // (Used for removing internal walls/corners without erasing newer blocks)
-        const isLocationCoveredByLaterAdd = (bx, by, time) => {
-             // Optimization: Scan ops backwards? No, "Later" means startFrame > time.
-             // Or index > current op index.
-             // We can check if renderGrid has a startFrame > time?
-             // If renderGrid has a value, it means the *latest* op was an Add (active).
-             // If that latest add was *after* the remove op (time), then yes.
-             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-             const activeStart = this.renderGrid[by * blocksX + bx];
-             if (activeStart !== -1 && activeStart > time) return true;
-             // Also check if there's a *pending* add (future) if we were looking ahead, but we are rendering 'now'.
-             // So relying on activeStart is correct for "currently visible later adds".
-             return false;
-        };
 
         // --- PASS 1: Base Grid (Standard Add) ---
         for (const op of this.maskOps) {
@@ -966,12 +892,15 @@ class QuantizedPulseEffect extends AbstractEffect {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
-                    const nN = isRenderActive(bx, by - 1);
-                    const nS = isRenderActive(bx, by + 1);
-                    const nW = isRenderActive(bx - 1, by);
-                    const nE = isRenderActive(bx + 1, by);
+                    // Check connectivity to any active block (including neighbors from same op)
+                    const nN = activeBlockMap.has(`${bx},${by-1}`);
+                    const nS = activeBlockMap.has(`${bx},${by+1}`);
+                    const nW = activeBlockMap.has(`${bx-1},${by}`);
+                    const nE = activeBlockMap.has(`${bx+1},${by}`);
                     
                     const isConnected = nN || nS || nW || nE;
+                    
+                    // Connected -> Perimeter Only (true), Isolated -> Full Grid (false)
                     this._addBlock({x:bx, y:by}, {x:bx, y:by}, isConnected);
                 }
             }
@@ -990,6 +919,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             
+            // Use _addBlock logic (drawing the rect) but with destination-out to erase
+            // We pass 'false' for isExtending to erase the full block content
             this._addBlock(start, end, false);
         }
         ctx.globalCompositeOperation = 'source-over';
@@ -1011,6 +942,7 @@ class QuantizedPulseEffect extends AbstractEffect {
             const minY = Math.min(start.y, end.y);
             const maxY = Math.max(start.y, end.y);
             
+            // Iterate blocks to check if erasure is overridden
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
                      if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
@@ -1024,27 +956,25 @@ class QuantizedPulseEffect extends AbstractEffect {
         const boldLineWidthX = lineWidthX * 2.0; 
         const boldLineWidthY = lineWidthY * 2.0;
         
-        // Optimize: Iterate renderGrid instead of map entries
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const startFrame = this.renderGrid[by * blocksX + bx];
-                if (startFrame === -1) continue;
+        for (const [key, startFrame] of activeBlockMap) {
+            const [bxStr, byStr] = key.split(',');
+            const bx = parseInt(bxStr);
+            const by = parseInt(byStr);
 
-                let opacity = 1.0;
-                if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
-                else if (startFrame) opacity = Math.min(1.0, (now - startFrame) / addDuration);
-                ctx.globalAlpha = opacity;
+            let opacity = 1.0;
+            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
+            else if (startFrame) opacity = Math.min(1.0, (now - startFrame) / addDuration);
+            ctx.globalAlpha = opacity;
 
-                const nN = isRenderActive(bx, by - 1);
-                const nS = isRenderActive(bx, by + 1);
-                const nW = isRenderActive(bx - 1, by);
-                const nE = isRenderActive(bx + 1, by);
+            const nN = activeBlockMap.has(`${bx},${by-1}`);
+            const nS = activeBlockMap.has(`${bx},${by+1}`);
+            const nW = activeBlockMap.has(`${bx-1},${by}`);
+            const nE = activeBlockMap.has(`${bx+1},${by}`);
 
-                if (!nN) this._drawPerimeterFace(bx, by, 'N', boldLineWidthX, boldLineWidthY);
-                if (!nS) this._drawPerimeterFace(bx, by, 'S', boldLineWidthX, boldLineWidthY);
-                if (!nW) this._drawPerimeterFace(bx, by, 'W', boldLineWidthX, boldLineWidthY);
-                if (!nE) this._drawPerimeterFace(bx, by, 'E', boldLineWidthX, boldLineWidthY);
-            }
+            if (!nN) this._drawPerimeterFace(bx, by, 'N', boldLineWidthX, boldLineWidthY);
+            if (!nS) this._drawPerimeterFace(bx, by, 'S', boldLineWidthX, boldLineWidthY);
+            if (!nW) this._drawPerimeterFace(bx, by, 'W', boldLineWidthX, boldLineWidthY);
+            if (!nE) this._drawPerimeterFace(bx, by, 'E', boldLineWidthX, boldLineWidthY);
         }
 
         // --- PASS 4: Line Operations (Sorted by Time) ---
@@ -1084,16 +1014,12 @@ class QuantizedPulseEffect extends AbstractEffect {
         }
         
         // --- PASS 6: Corner Cleanup ---
-        // Use an Int8Array for corner flags? 
-        // 0=None, 1=N, 2=S, 4=E, 8=W. 
-        // 1|8 = NW, etc.
-        // Actually, just using a small temporary map or object is fine for sparse corners.
-        // Or iterate ops and draw directly? No, we need to accumulate N/S/E/W to know if it's a corner.
-        
-        // Use a temporary flat array for corners if needed, but sparse map is likely faster for just a few corners.
-        // Let's stick to Map for sparse corner data to avoid clearing a huge array.
-        // Key: block index (integer). Value: bitmask.
-        const cornerMap = new Map(); 
+        const removed = new Map(); // key "x,y" -> {N,S,E,W}
+        const getRem = (x, y) => {
+            let r = removed.get(`${x},${y}`);
+            if (!r) { r = {N:0,S:0,E:0,W:0}; removed.set(`${x},${y}`, r); }
+            return r;
+        };
 
         const activeRemovals = this.maskOps.filter(op => {
             if (op.type !== 'remove' && op.type !== 'removeLine') return false;
@@ -1114,35 +1040,30 @@ class QuantizedPulseEffect extends AbstractEffect {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
-                    if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue; 
+                    if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue; // Also skip corners!
                     if (!force) {
                         if (f === 'N' && by === minY) continue;
                         if (f === 'S' && by === maxY) continue;
                         if (f === 'W' && bx === minX) continue;
                         if (f === 'E' && bx === maxX) continue;
                     }
-                    
-                    const idx = by * blocksX + bx;
-                    let mask = cornerMap.get(idx) || 0;
-                    if (f === 'N') mask |= 1;
-                    else if (f === 'S') mask |= 2;
-                    else if (f === 'E') mask |= 4;
-                    else if (f === 'W') mask |= 8;
-                    cornerMap.set(idx, mask);
+                    const r = getRem(bx, by);
+                    if (f === 'N') r.N = 1;
+                    else if (f === 'S') r.S = 1;
+                    else if (f === 'W') r.W = 1;
+                    else if (f === 'E') r.E = 1;
                 }
             }
         }
 
         ctx.globalCompositeOperation = 'destination-out';
         ctx.globalAlpha = 1.0; 
-        for (const [idx, mask] of cornerMap) {
-            const bx = idx % blocksX;
-            const by = Math.floor(idx / blocksX);
-            
-            if ((mask & 1) && (mask & 8)) this._removeBlockCorner(bx, by, 'NW');
-            if ((mask & 1) && (mask & 4)) this._removeBlockCorner(bx, by, 'NE');
-            if ((mask & 2) && (mask & 8)) this._removeBlockCorner(bx, by, 'SW');
-            if ((mask & 2) && (mask & 4)) this._removeBlockCorner(bx, by, 'SE');
+        for (const [key, r] of removed) {
+            const [bx, by] = key.split(',').map(Number);
+            if (r.N && r.W) this._removeBlockCorner(bx, by, 'NW');
+            if (r.N && r.E) this._removeBlockCorner(bx, by, 'NE');
+            if (r.S && r.W) this._removeBlockCorner(bx, by, 'SW');
+            if (r.S && r.E) this._removeBlockCorner(bx, by, 'SE');
         }
         
         ctx.globalCompositeOperation = 'source-over';
@@ -1155,6 +1076,13 @@ class QuantizedPulseEffect extends AbstractEffect {
         
         const cellX = Math.floor(bx * l.cellPitchX);
         const cellY = Math.floor(by * l.cellPitchY);
+        // North-West corner of the block is (cellX, cellY) in screen logic terms of lines
+        // N Line is at y = screenOriginY + cellY*stepY
+        // W Line is at x = screenOriginX + cellX*stepX
+        
+        // Wait, cellY is top row of block.
+        // N face is at top of block.
+        // S face is at bottom of block (cellY + pitchY).
         
         let cx, cy;
         
@@ -1176,6 +1104,8 @@ class QuantizedPulseEffect extends AbstractEffect {
             cy = l.screenOriginY + (endCellY * l.screenStepY);
         }
         
+        // Clear a box the size of the line width centered at intersection
+        // Inflate slightly to ensure full coverage
         const inflate = 1.0; 
         ctx.beginPath();
         ctx.rect(cx - l.halfLineX - inflate, cy - l.halfLineY - inflate, l.lineWidthX + (inflate*2), l.lineWidthY + (inflate*2));
@@ -1361,11 +1291,13 @@ class QuantizedPulseEffect extends AbstractEffect {
                 const startCellY = Math.floor(by * l.cellPitchY);
                 const endCellX = Math.floor((bx + 1) * l.cellPitchX);
                 const endCellY = Math.floor((by + 1) * l.cellPitchY);
-                
+                // Use halfLine for safe inset to align exactly with the perpendicular line edge
+                // Add a tiny safety margin to prevent cutting into the perpendicular line due to AA
                 const safety = 0.5;
                 const safeX = l.halfLineX + safety; 
                 const safeY = l.halfLineY + safety; 
                 
+                // Inflate the erasure rectangle slightly to fully clear anti-aliased edges
                 const inflate = 0.5; 
 
                 if (f === 'N') {

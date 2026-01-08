@@ -1,3 +1,7 @@
+// =========================================================================
+// STREAM MODE
+// =========================================================================
+
 class StreamMode {
     constructor(config) {
         this.config = config;
@@ -58,7 +62,3 @@ class RainbowMode extends StreamMode {
         return { h: hue, s: saturation, l: lightness, cycle: false, speed: 0, isEffect: true };
     }
 }
-
-    // =========================================================================
-    // 5.0 SIMULATION SYSTEM 
-    // =========================================================================

@@ -1,3 +1,6 @@
+// =========================================================================
+// GLYPH ATLAS
+// =========================================================================
 
 class GlyphAtlas {
     constructor(config, fontName = null, customChars = null) {
@@ -230,9 +233,6 @@ class GlyphAtlas {
         // Re-calculate dimensions and resize canvas (preserving content)
         const d = this.config.derived; 
         this._resizeAtlas(d, false);
-        
-        // No need to redraw old characters! 
-        // Fixed columns ensure indices match locations.
     }
 
     _drawSingleChar(char, index) {
@@ -316,15 +316,6 @@ class GlyphAtlas {
                 filtered.push(char);
             }
         }
-        
-        // If we filtered out everything (e.g. font not loaded yet), 
-        // fall back to raw list to avoid complete invisibility, 
-        // or return empty string? 
-        // Returning empty string means nothing draws.
-        // Returning raw list means we might draw boxes.
-        // Let's return filtered. If font loads later, update() should be triggered by something?
-        // Actually, GlyphAtlas doesn't auto-update on font load unless triggered externally.
-        // But usually FontManager triggers a re-render/update.
         
         this._cachedFilteredChars = (typeof rawList === 'string') ? filtered.join('') : filtered;
         this._cachedFilterKey = key;

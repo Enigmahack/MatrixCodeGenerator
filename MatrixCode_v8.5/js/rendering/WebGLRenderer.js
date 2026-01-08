@@ -1,3 +1,7 @@
+// =========================================================================
+// WEBGL RENDERER
+// =========================================================================
+
 class WebGLRenderer {
     constructor(canvasId, grid, config, effects) {
         this.cvs = document.getElementById(canvasId);
@@ -1652,5 +1656,4 @@ class WebGLRenderer {
             }
         }
     }
-
 }

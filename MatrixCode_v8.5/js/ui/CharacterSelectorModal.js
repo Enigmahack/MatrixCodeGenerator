@@ -1,3 +1,7 @@
+// =========================================================================
+// CHARACTER SELECTOR MODAL
+// =========================================================================
+
 class CharacterSelectorModal {
     constructor(config, fontManager, notificationMgr) {
         this.config = config;

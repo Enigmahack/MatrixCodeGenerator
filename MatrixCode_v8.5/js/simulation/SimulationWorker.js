@@ -1,5 +1,7 @@
+// =========================================================================
+// SIMULATION WORKER
+// =========================================================================
 
-// SimulationWorker.js
 // Handles physics/simulation logic in a separate thread.
 
 // 1. Import Dependencies (Synchronous in Workers)
@@ -494,10 +496,6 @@ self.onmessage = function(e) {
                 if (s.columnSpeeds) sm.columnSpeeds = new Float32Array(s.columnSpeeds);
                 
                 // Reconstruct Column References
-                // Because QuantizedPulseEffect pre-mapped these arrays to the serialized objects in activeStreams,
-                // and postMessage preserves the object identity graph (topology),
-                // s.lastStreamInColumn[i] ALREADY points to the correct object inside s.activeStreams.
-                // We don't need to manually re-link them.
                 if (s.lastStreamInColumn) sm.lastStreamInColumn = s.lastStreamInColumn;
                 if (s.lastEraserInColumn) sm.lastEraserInColumn = s.lastEraserInColumn;
                 if (s.lastUpwardTracerInColumn) sm.lastUpwardTracerInColumn = s.lastUpwardTracerInColumn;
@@ -514,7 +512,6 @@ self.onmessage = function(e) {
                     }
                 }
                 
-                // CRITICAL: Rebuild Active Indices
                 // We prefer the explicit list sent from main thread to avoid SAB race conditions.
                 if (grid && grid.state) {
                     grid.activeIndices.clear();
@@ -544,7 +541,6 @@ self.onmessage = function(e) {
             if (simSystem) {
                 simSystem.update(msg.frame);
                 // No need to post back data, it's in SharedArrayBuffer
-                // We can post a 'tick' for sync if needed, but not strictly required for purely visual detached sim.
             }
             break;
     }

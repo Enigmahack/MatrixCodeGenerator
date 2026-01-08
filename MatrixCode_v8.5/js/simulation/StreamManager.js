@@ -1,3 +1,7 @@
+// =========================================================================
+// STREAM MANAGER
+// =========================================================================
+
 class StreamManager {
     constructor(grid, config) {
         this.grid = grid;
@@ -305,6 +309,7 @@ class StreamManager {
                     }
 
                     // In 3D mode, ignore collision with existing trails to allow high density
+                    // 3D mode is gone, but we keep this check for future modes
                     const nextY = stream.y + 1;
                     if (nextY < rows) {
                         const nextIdx = grid.getIndex(stream.x, nextY);
@@ -443,11 +448,9 @@ class StreamManager {
         stream.len = this.grid.rows; 
         
         // Variable Fade Duration Logic
-        // Calculate a specific fade-out duration for this stream's cells
         stream.maxDecay = 0; 
 
         if (s.trailLengthVarianceEnabled) {
-            // "increase the length by a value between the Fade Out Speed and the Length Variance amount"
             const baseFade = s.decayFadeDurationFrames || 24;
             const varianceVal = s.trailLengthVariance || 0;
             
@@ -508,9 +511,9 @@ class StreamManager {
         }
 
         if (this.config.state.highlightErasers) {
-            // Debug: Show Eraser as Red 'E' using High Priority Effect layer (0xFF0000FF = Red)
-            // This overlays the 'E' without destroying the underlying simulation state (decay/clear)
-            this.grid.setHighPriorityEffect(idx, 'E', 0xFF0000FF, 1.0, 0, 0);
+            // Debug: Show Eraser as Red 'W' using High Priority Effect layer (0xFF0000FF = Red)
+            // This overlays the 'W' without destroying the underlying simulation state (decay/clear)
+            this.grid.setHighPriorityEffect(idx, 'W', 0xFF0000FF, 1.0, 0, 0);
         }
     }
 
@@ -593,10 +596,6 @@ class StreamManager {
             // Handle Overlap (Secondary)
             if (s.overlapEnabled && Math.random() < s.overlapDensity) {
                 const overlapChar = charSet[Math.floor(Math.random() * charSet.length)];
-                // For overlaps, we usually use the same color? Or Overlap Color?
-                // Previously, renderer used `overlapColor` from config for overlaps.
-                // But now CellGrid stores the color.
-                // We should resolve Overlap Color here.
                 const ovRgb = Utils.hexToRgb(s.overlapColor);
                 const ovColor = Utils.packAbgr(ovRgb.r, ovRgb.g, ovRgb.b);
                 

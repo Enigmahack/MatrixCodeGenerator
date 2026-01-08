@@ -1,3 +1,7 @@
+// =========================================================================
+// EFFECT REGISTRY
+// =========================================================================
+
 class EffectRegistry {
             constructor(grid, config) { 
                 this.grid = grid; 
@@ -52,18 +56,7 @@ class EffectRegistry {
                                 }
                             }
                             
-                            // If explicit alpha property exists, use it?
-                            // Legacy used bgColor string for solid color.
-                            // But over.alpha property might exist too?
-                            // Usually solid overrides use bgColor fully.
-                            
                             const color = Utils.packAbgr(r, g, b, a);
-                            // Store alpha as Float (0..1) for renderer?
-                            // CellGrid stores alpha as Float32.
-                            // But packAbgr puts alpha in Uint32.
-                            // Renderer uses Float32 alpha array.
-                            // So we need to set grid.overrideAlphas[i] = a / 255.
-                            
                             this.grid.setSolidOverride(i, color, a / 255.0);
                             
                         } else {

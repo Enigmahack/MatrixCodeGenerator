@@ -1,11 +1,7 @@
 ToDo: 
 Go through code and fix all comments.
-Edit the 'Gradual Stream Color' to start from behind the tracer. 
-Increase the tracer fade length. 
-Deja Vu seems to load the last loaded shader from the custom space into the effects space when running when it shouldn't. 
 
 <- Bugs: 
-Fix performance for low-end machines [DONE - Enabled SharedArrayBuffer in Electron]
 
 <- Behavior:
 
