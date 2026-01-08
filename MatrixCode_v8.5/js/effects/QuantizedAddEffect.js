@@ -1,8 +1,10 @@
-class QuantizedAddEffect extends AbstractEffect {
+class QuantizedAddEffect extends QuantizedSequenceEffect {
     constructor(grid, config) {
         super(grid, config);
         this.name = "QuantizedAdd";
         this.active = false;
+        this.configPrefix = "quantizedAdd";
+        this.sequence = [[]]; // Editor support
         
         // Simulation State
         this.blocks = [];      // {x, y}
@@ -56,6 +58,10 @@ class QuantizedAddEffect extends AbstractEffect {
         // Manual Step State (Debug)
         this.manualStep = false;
         this._onKeyDown = this._onKeyDown.bind(this);
+    }
+
+    getBlockSize() {
+        return { w: 2, h: 2 };
     }
 
     _getEffectiveState() {
@@ -145,14 +151,15 @@ class QuantizedAddEffect extends AbstractEffect {
         // Do NOT clear flashes or overrides here
     }
 
-    trigger() {
+    trigger(force = false) {
+        if (!super.trigger(force)) return false;
+
         document.addEventListener('keydown', this._onKeyDown);
         this.manualStep = false;
         
         // If already expanding, reset the expansion part but keep flashes
         if (this.isExpanding) this.resetExpansion();
         
-        this.active = true;
         this.isExpanding = true;
         this.isFading = false;
         this.isFinishing = false;
@@ -207,17 +214,26 @@ class QuantizedAddEffect extends AbstractEffect {
         
         const cx = (Math.floor((this.g.cols / 2) / 2) * 2) + 6; // Shifted right by 3 blocks
         const cy = Math.floor((this.g.rows / 2) / 2) * 2;
-        
-        // Phase 0: Initial 4x6 Block (Centered)
-        const b = 2; // Block size
-        for(let by = -3; by < 3; by++) {
-            for(let bx = -2; bx < 2; bx++) {
-                this._addBlock(cx + bx * b, cy + by * b);
-            }
-        }
-        
         this.origin = {x: cx, y: cy};
-        this.blocksAdded = 4 * 6; 
+        
+        // Editor Sequence State
+        this.sequencePhase = 0;
+        // Check if we have a valid non-empty sequence
+        this.isSequencePlaying = (this.sequence && this.sequence.length > 0 && 
+                                 (this.sequence.length > 1 || this.sequence[0].length > 0));
+
+        if (this.isSequencePlaying) {
+            this.isExpanding = false; // Delay procedural expansion
+        } else {
+            // Phase 0: Initial 4x6 Block (Centered) - Default Behavior
+            const b = 2; // Block size
+            for(let by = -3; by < 3; by++) {
+                for(let bx = -2; bx < 2; bx++) {
+                    this._addBlock(cx + bx * b, cy + by * b);
+                }
+            }
+            this.blocksAdded = 4 * 6; 
+        }
         
         this.nextExpandTime = s.cycleInterval;
         
@@ -679,13 +695,84 @@ class QuantizedAddEffect extends AbstractEffect {
         }
     }
 
+    _executeSequenceStep(step) {
+        if (!step) return;
+        for (const op of step) {
+            if (op.op === 'add' || op.op === 'addSmart') {
+                this._addBlock(op.args[0], op.args[1], this.burstCounter);
+            } else if (op.op === 'addRect') {
+                const [x1, y1, x2, y2] = op.args;
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+                for(let y=minY; y<=maxY; y++) {
+                    for(let x=minX; x<=maxX; x++) {
+                        this._addBlock(x, y, this.burstCounter);
+                    }
+                }
+            } else if (op.op === 'removeBlock' || op.op === 'rem') {
+                 const [x, y] = op.args;
+                 const idx = this.blocks.findIndex(b => b.x === x && b.y === y);
+                 if (idx !== -1) {
+                     this.blocks.splice(idx, 1);
+                     const mx = x + this.mapPad;
+                     const my = y + this.mapPad;
+                     if (mx >= 0 && mx < this.mapCols && my >= 0 && my < this.mapRows) {
+                         this.map[my * this.mapCols + mx] &= ~1;
+                     }
+                 }
+            }
+        }
+    }
+
     update() {
         if (!this.active) return;
+
+        if (this.debugMode) {
+            super.update();
+            return;
+        }
         
         this.frame++;
         
+        // 0. Sequence Playback
+        if (this.isSequencePlaying) {
+            const s = this._getEffectiveState();
+            
+            // Visual Updates
+            this._applyMask();
+            this._updateBorderIllumination();
+            this._updateLines(s);
+            this._updateFlashes();
+            
+            // Shadow Sim
+            this.localFrame++;
+            this._updateShadowWorld();
+            
+            // Fade In
+            if (this.fadeInAlpha < 1.0) {
+                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
+                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
+            }
+
+            // Sequence Step
+            if (this.localFrame % s.cycleInterval === 0) {
+                if (this.sequencePhase < this.sequence.length) {
+                    const step = this.sequence[this.sequencePhase];
+                    this._executeSequenceStep(step);
+                    this.sequencePhase++;
+                } else {
+                    // Sequence Complete -> Transition to Procedural
+                    this.isSequencePlaying = false;
+                    this.isExpanding = true;
+                    this.growthPhase = 0; 
+                    this._rebuildFrontier(); 
+                }
+            }
+        }
         // 1. Expansion Logic
-        if (this.isExpanding) {
+        else if (this.isExpanding) {
             const s = this._getEffectiveState();
             
             // --- VISUAL UPDATES (Every Frame to prevent flicker) ---
@@ -2091,6 +2178,11 @@ class QuantizedAddEffect extends AbstractEffect {
     }
 
     render(ctx, derived) {
+        if (this.debugMode) {
+            super.renderDebug(ctx, derived);
+            return;
+        }
+
         if (!this.active || !this.isExpanding) return;
         const s = this.c.state;
         const cw = derived.cellWidth * s.stretchX;

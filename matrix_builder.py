@@ -209,8 +209,10 @@ def split_monolith(input_file, output_dir):
         if any(kw in js_chunk for kw in ["class ", "function ", "const "]): full_js += js_chunk + "\n"
     
     if full_js:
+        # 1. Try splitting by explicit file markers
         parts = re.split(r'// --- ([a-zA-Z0-9_/\\.]+\.js) ---\n', full_js)
         files_to_write = defaultdict(str)
+        
         if len(parts) > 1:
             if parts[0].strip(): files_to_write['js/core/Utils.js'] += parts[0]
             for i in range(1, len(parts), 2):
@@ -224,16 +226,55 @@ def split_monolith(input_file, output_dir):
                         elif 'Manager' in fname: fname = f"js/ui/{fname}"
                         else: fname = f"js/core/{fname}"
                 files_to_write[fname] += parts[i+1]
+        
+        # 2. Try splitting by Semantic Class Headers (// === NAME ===)
         else:
-            lines = full_js.split('\n'); current_file = 'js/core/Utils.js'; buffer = []
-            for line in lines:
-                if line.strip().startswith(('class ', 'const ')):
-                     temp_target = identify_target_file(line)
-                     if temp_target and temp_target != current_file:
-                         if buffer: files_to_write[current_file] += '\n'.join(buffer) + '\n'
-                         buffer = []; current_file = temp_target
-                buffer.append(line)
-            if buffer: files_to_write[current_file] += '\n'.join(buffer)
+            # Regex for: // ====... \n // NAME \n // ====...
+            # We capture the Name to help identify, and the content until the next match
+            header_pattern = r'//\s*=+\s*\n//\s*([A-Z0-9 _\-]+?)\s*\n//\s*=+\s*\n'
+            
+            # Check if headers exist
+            if re.search(header_pattern, full_js, re.MULTILINE):
+                print("  - Detected Semantic Class Headers. Splitting by headers...")
+                # Split and keep delimiters
+                # re.split with capturing group returns [preamble, name1, content1, name2, content2, ...]
+                header_parts = re.split(header_pattern, full_js, flags=re.MULTILINE)
+                
+                # header_parts[0] is content before the first header (likely utils/globals)
+                if header_parts[0].strip():
+                    files_to_write['js/core/Utils.js'] += header_parts[0]
+                
+                for i in range(1, len(header_parts), 2):
+                    section_name = header_parts[i].strip() # e.g. "MATRIX KERNEL"
+                    section_content = header_parts[i+1]
+                    
+                    # Reconstruct the header for the file content
+                    full_block = f"// =========================================================================\n// {section_name}\n// =========================================================================\n{section_content}"
+                    
+                    # Identify target file based on the content (looking for class X)
+                    # We pass the content without the header to identify_target_file, or just use the block
+                    target_file = identify_target_file(section_content)
+                    
+                    # Fallback mapping if identify returns default but we have a strong hint from section_name
+                    if target_file == "js/core/Utils.js":
+                         # Heuristics for "MATRIX KERNEL" -> MatrixKernel
+                         # "WEBGL RENDERER" -> WebGLRenderer
+                         # "SIMULATION SYSTEM" -> SimulationSystem
+                         pass 
+                         
+                    files_to_write[target_file] += full_block
+
+            # 3. Fallback to line-by-line scanning (Legacy)
+            else:
+                lines = full_js.split('\n'); current_file = 'js/core/Utils.js'; buffer = []
+                for line in lines:
+                    if line.strip().startswith(('class ', 'const ')):
+                         temp_target = identify_target_file(line)
+                         if temp_target and temp_target != current_file:
+                             if buffer: files_to_write[current_file] += '\n'.join(buffer) + '\n'
+                             buffer = []; current_file = temp_target
+                    buffer.append(line)
+                if buffer: files_to_write[current_file] += '\n'.join(buffer)
 
         for fpath, fcontent in files_to_write.items():
             full_path = os.path.join(output_dir, fpath)
@@ -262,8 +303,47 @@ def split_monolith(input_file, output_dir):
 
 # --- Combine Logic ---
 
+def validate_unique_classes(source_dir):
+    """
+    Scans all JS files in source_dir and ensures no class is defined in more than one file.
+    """
+    class_locations = defaultdict(list)
+    
+    scan_dir = os.path.join(source_dir, 'js') if os.path.exists(os.path.join(source_dir, 'js')) else source_dir
+
+    for root, dirs, files in os.walk(scan_dir):
+        dirs[:] = [d for d in dirs if d not in ['node_modules', '.git', '.github', '.vscode']]
+        for file in files:
+            if file.endswith(".js") and file != 'main.js' and file != 'SimulationWorker.js':
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, source_dir).replace('\\', '/')
+                
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                defs, _ = scan_file_content(content)
+                for cls in defs:
+                    class_locations[cls].append(rel_path)
+
+    duplicates = {cls: paths for cls, paths in class_locations.items() if len(paths) > 1}
+    
+    if duplicates:
+        print("\n[ERROR] Duplicate Class Definitions Detected!")
+        for cls, paths in duplicates.items():
+            print(f"  - Class '{cls}' is defined in:")
+            for p in paths:
+                print(f"    * {p}")
+        print("Build Aborted to prevent conflicts.\n")
+        sys.exit(1)
+    else:
+        print("[Validation] Class Uniqueness Check Passed.")
+
 def combine_modular(source_dir, output_file):
     print(f"Combining {source_dir} into {output_file}...")
+    
+    # Run Validation First
+    validate_unique_classes(source_dir)
+
     index_path = os.path.join(source_dir, 'index.html')
     if not os.path.exists(index_path):
         print("Error: index.html not found."); return

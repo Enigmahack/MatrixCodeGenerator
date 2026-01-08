@@ -1,11 +1,11 @@
-class QuantizedPulseEffect extends AbstractEffect {
+class QuantizedPulseEffect extends QuantizedSequenceEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedPulse";
         this.active = false;
         
-        // Configuration defaults are handled in ConfigurationManager, 
-        // but we init our internal state here.
+        this.configPrefix = "quantizedPulse";
+
         this.timer = 0;
         this.state = 'IDLE'; // IDLE, FADE_IN, SUSTAIN, FADE_OUT
         this.alpha = 0.0;
@@ -15,85 +15,108 @@ class QuantizedPulseEffect extends AbstractEffect {
         this.offsetX = 0;
         this.offsetY = 0;
 
-        // Animation State
-        this.cycleTimer = 0;
-        this.cyclesCompleted = 0;
-        this.expansionPhase = 0;
-        this.maskOps = [];
-        this.animFrame = 0;
-        
-        // Debug
-        this.debugMode = true; 
-        this.manualStep = false;
-        this._boundDebugHandler = this._handleDebugInput.bind(this);
-
-        // Optimization: Persistent Logic Grid
-        this.logicGrid = null;
-        this.logicGridW = 0;
-        this.logicGridH = 0;
-        
-        // Optimization: Render Grid
-        this.renderGrid = null; // Int32Array storing startFrames
-        
-        // Optimization: Static Grid Cache
-        this.gridCacheCanvas = null;
-        this.gridCacheCtx = null;
-        this.lastGridSeed = -1;
+        // Animation Sequence Data
+        this.sequence = [
+            [{ op: 'add', args: [0, 0] }], // 0
+            [{ op: 'add', args: [1, 0] }], // 1
+            [{ op: 'add', args: [0, -1] }, { op: 'add', args: [0, 1] }, { op: 'rem', args: [0, 0, 'E'] }], // 2
+            [{ op: 'add', args: [-1, 0] }, { op: 'rem', args: [0, 0, 'N'] }, { op: 'rem', args: [0, 0, 'S'] }], // 3
+            [{ op: 'add', args: [0, -2] }, { op: 'add', args: [0, 2] }], // 4
+            [{ op: 'rem', args: [0, 0, 'W'] }, { op: 'rem', args: [-1, 0, 'W'] }, { op: 'add', args: [-2, 0] }, { op: 'add', args: [2, 0] }, { op: 'add', args: [0, 3] }, { op: 'addRect', args: [0, 0, 1, 1] }, { op: 'rem', args: [0, 2, 'S'] }, { op: 'rem', args: [0, 0, 'N'] }, { op: 'rem', args: [0, 0, 'E'] }, { op: 'rem', args: [0, 0, 'S'] }], // 5
+            [{ op: 'add', args: [-1, -1] }, { op: 'add', args: [1, -1] }], // 6
+            [{ op: 'add', args: [-1, 1] }, { op: 'add', args: [3, 0] }, { op: 'add', args: [-3, 0] }, { op: 'rem', args: [-3, 0, 'E'] }, { op: 'rem', args: [0, 1, 'S'] }, { op: 'rem', args: [0, 3, 'S'] }, { op: 'rem', args: [0, -1, 'N'] }, { op: 'rem', args: [2, 0, 'E'] }, { op: 'addRect', args: [0, 2, 0, 4] }, { op: 'addLine', args: [0, 2, 'S'] }], // 7
+            [{ op: 'addRect', args: [0, -3, 0, -4] }, { op: 'add', args: [1, -2] }, { op: 'add', args: [0, 5] }, { op: 'add', args: [1, 2] }, { op: 'addLine', args: [3, 0, 'W'] }, { op: 'rem', args: [1, -1, 'N'] }, { op: 'rem', args: [0, -1, 'S'] }, { op: 'rem', args: [1, 1, 'N'] }, { op: 'rem', args: [1, 1, 'W'] }, { op: 'rem', args: [0, 4, 'S'] }, { op: 'rem', args: [0, -3, 'N'] }, { op: 'addLine', args: [0, 3, 'S'] }, { op: 'remLine', args: [0, 2, 'S'] }], // 8
+            [{ op: 'add', args: [1, 3] }, { op: 'remLine', args: [1, 3, 'N'] }, { op: 'add', args: [-1, -2] }, { op: 'remLine', args: [-1, -1, 'E'] }, { op: 'remLine', args: [-1, -1, 'S'] }, { op: 'add', args: [-2, -1] }, { op: 'add', args: [1, -3] }, { op: 'rem', args: [-1, -1, 'E'] }, { op: 'rem', args: [-1, -1, 'S'] }, { op: 'rem', args: [-1, 1] }, { op: 'remLine', args: [1, 0, 'E'] }, { op: 'rem', args: [1, -1, 'W'] }, { op: 'rem', args: [1, -1, 'S'] }, { op: 'rem', args: [1, -3, 'S'] }, { op: 'rem', args: [1, -3, 'W'] }, { op: 'addLine', args: [1, -2, 'S'] }], // 9
+            [{ op: 'addLine', args: [-1, 1, 'W'] }, { op: 'addLine', args: [-1, 1, 'S'] }, { op: 'add', args: [1, 5] }, { op: 'add', args: [0, 6] }, { op: 'remLine', args: [0, 3, 'S'] }, { op: 'addRect', args: [3, 0, 6, 0] }, { op: 'remLine', args: [2, 0, 'E'] }, { op: 'rem', args: [3, 0, 'E'] }, { op: 'rem', args: [4, 0, 'E'] }, { op: 'rem', args: [5, 0, 'E'] }, { op: 'rem', args: [0, 5, 'S'] }, { op: 'addRect', args: [0, -3, 1, -5] }, { op: 'rem', args: [0, -3, 'N'] }, { op: 'rem', args: [0, -3, 'E'] }, { op: 'rem', args: [1, -2, 'N'] }, { op: 'rem', args: [1, -4, 'W'] }, { op: 'rem', args: [1, -4, 'S'] }, { op: 'add', args: [-1, 1] }, { op: 'addLine', args: [0, 4, 'S'] }], // 10
+            [
+                { op: 'addRect', args: [2, 2, 1, 4] }, { op: 'addRect', args: [-1, 2, -1, 5] }, { op: 'addRect', args: [-4, 0, -4, 1] }, { op: 'rem', args: [-4, 0, 'S'] }, { op: 'add', args: [-2, 2] }, { op: 'add', args: [-2, -2] }, { op: 'rem', args: [-2, -2, 'E'] }, { op: 'rem', args: [-2, -2, 'S'] }, { op: 'add', args: [1, 6] }, { op: 'add', args: [0, 7] }, { op: 'addRect', args: [0, -6, 0, -8] }, 
+                { op: 'addLine', args: [1, -3, 'S'] }, { op: 'addLine', args: [1, -3, 'W'] }, { op: 'addLine', args: [1, -4, 'W'] }, { op: 'addLine', args: [1, -4, 'N'] }, { op: 'addLine', args: [1, 2, 'S'] }, 
+                { op: 'rem', args: [1, 2, 'W'] }, { op: 'rem', args: [1, 2, 'N'] }, { op: 'rem', args: [0, -2, 'E'] }, { op: 'rem', args: [0, -2, 'N'] }, 
+                { op: 'remLine', args: [1, -1, 'N'] }, { op: 'remLine', args: [1, -5, 'S'] }, { op: 'addLine', args: [1, -5, 'W'] }, 
+                { op: 'rem', args: [1, 5] }, { op: 'rem', args: [1, 4, 'E'] }, { op: 'rem', args: [1, 4, 'N'] }, { op: 'rem', args: [1, 3, 'E'] }, 
+                { op: 'rem', args: [-1, 2, 'W'] }, { op: 'rem', args: [-1, 2, 'S'] }, { op: 'rem', args: [-1, 3, 'S'] }, { op: 'rem', args: [-1, 4, 'S'] }, 
+                { op: 'rem', args: [0, 5, 'S'] }, { op: 'remLine', args: [0, 5, 'N'] }, { op: 'rem', args: [0, 6, 'S'] }, { op: 'rem', args: [0, 6, 'E'] }, 
+                { op: 'addLine', args: [0, 5, 'S'] }, { op: 'remLine', args: [-1, 3, 'W'] }, { op: 'remLine', args: [-1, 4, 'W'] }, { op: 'remLine', args: [-1, 5, 'W'] }
+            ], // 11
+            [
+                { op: 'add', args: [-1, -4] }, { op: 'add', args: [1, -3] }, { op: 'add', args: [3, 2] }, { op: 'addRect', args: [-1, 2, -2, 5] }, { op: 'addRect', args: [0, 8, 0, 9] }, { op: 'addRect', args: [-3, -1, -3, -2] }, { op: 'add', args: [1, 3] }, { op: 'add', args: [1, 4] }, 
+                { op: 'addLine', args: [-2, 4, 'N'] }, 
+                { op: 'rem', args: [2, 3] }, { op: 'rem', args: [2, 4] }, { op: 'rem', args: [1, 6] }, { op: 'rem', args: [-1, 5] }, { op: 'rem', args: [-2, 5] }, { op: 'rem', args: [-4, 1] }, 
+                { op: 'remLine', args: [-4, 1, 'W'] }, { op: 'remLine', args: [-4, 1, 'S'] }, { op: 'remLine', args: [-4, 1, 'E'] }, 
+                { op: 'rem', args: [-2, 3, 'N'] }, { op: 'rem', args: [-2, 3, 'E'] }, { op: 'rem', args: [-2, 4, 'E'] }, 
+                { op: 'rem', args: [-1, -2, 'E'] }, { op: 'rem', args: [-1, -2, 'S'] }, { op: 'rem', args: [-2, -1, 'E'] }, { op: 'rem', args: [-2, -1, 'S'] }, { op: 'rem', args: [-3, -2, 'S'] }, 
+                { op: 'rem', args: [0, 8, 'S'] }, { op: 'rem', args: [2, 2, 'E'] }, 
+                { op: 'remLine', args: [0, 3, 'E'] }, { op: 'remLine', args: [1, 3, 'N'] }, { op: 'remLine', args: [-1, 3, 'N'] }, { op: 'remLine', args: [-1, 3, 'S'] }
+            ], // 12
+            [
+                { op: 'addRect', args: [2, -1, 3, -1] }, { op: 'rem', args: [-3, -1] }, { op: 'remLine', args: [2, -1, 'E'] }, { op: 'remLine', args: [-3, 0, 'W'] }, { op: 'remLine', args: [-2, -2, 'W'] }, 
+                { op: 'remLine', args: [1, -3, 'S'] }, { op: 'remLine', args: [1, -3, 'W'] }, { op: 'remLine', args: [-1, 1, 'S'] }, { op: 'remLine', args: [-1, 2, 'W'] }, { op: 'remLine', args: [-4, -2, 'S'] }, 
+                { op: 'addLine', args: [-4, -1, 'E'] }, { op: 'addLine', args: [-3, -2, 'S'] }, { op: 'add', args: [-5, 0] }, 
+                { op: 'rem', args: [-1, 1] }, { op: 'rem', args: [0, 5, 'S'] }, { op: 'remLine', args: [-2, 1, 'S'] }, { op: 'remLine', args: [-1, 1, 'W'] }, { op: 'remLine', args: [-2, 2, 'W'] }, { op: 'remLine', args: [-2, 3, 'W'] }, 
+                { op: 'addRect', args: [2, 1, 2, 2] }, { op: 'addRect', args: [0, -9, 0, -12] }, { op: 'addRect', args: [0, 10, 0, 13] }, { op: 'add', args: [-1, -3] }, { op: 'add', args: [-4, -2] }, { op: 'add', args: [-5, -1] }, 
+                { op: 'rem', args: [3, 2] }, { op: 'remLine', args: [2, 2, 'N'] }, { op: 'remLine', args: [2, 2, 'S'] }, 
+                { op: 'remLine', args: [0, 7, 'S'] }, { op: 'rem', args: [0, 8, 'S'] }, { op: 'rem', args: [0, 9, 'S'] }, { op: 'rem', args: [0, 11, 'S'] }, { op: 'rem', args: [0, 12, 'S'] }, 
+                { op: 'rem', args: [-5, 0, 'N'] }, { op: 'remLine', args: [-1, -3, 'N'] }, { op: 'remLine', args: [1, -4, 'S'] }, { op: 'remLine', args: [1, -4, 'W'] }, { op: 'remLine', args: [1, -5, 'W'] }
+            ], // 13
+            [
+                { op: 'add', args: [2, 3] }, { op: 'add', args: [-1, 1] }, { op: 'add', args: [-1, -4] }, { op: 'add', args: [-5, -1] }, 
+                { op: 'addLine', args: [0, -10, 'S'] }, { op: 'addLine', args: [1, 5, 'E'] }, 
+                { op: 'rem', args: [3, 2] }, { op: 'remLine', args: [2, 2, 'N'] }, { op: 'remLine', args: [2, 2, 'S'] }, 
+                { op: 'remLine', args: [0, 7, 'S'] }, { op: 'rem', args: [0, 8, 'S'] }, { op: 'rem', args: [0, 9, 'S'] }, { op: 'rem', args: [0, 11, 'S'] }, { op: 'rem', args: [0, 12, 'S'] }, 
+                { op: 'rem', args: [-5, 0, 'N'] }, { op: 'remLine', args: [-1, -3, 'N'] }, { op: 'remLine', args: [1, -4, 'S'] }, { op: 'remLine', args: [1, -4, 'W'] }, { op: 'remLine', args: [1, -5, 'W'] }
+            ], // 14
+            [
+                { op: 'add', args: [-5, 1] }, { op: 'addRect', args: [-2, 5, -1, 5] }, { op: 'addRect', args: [2, -2, 3, -2] }, { op: 'add', args: [-2, -4] }, { op: 'addRect', args: [7, 0, 9, 0] }, 
+                { op: 'addLine', args: [2, 4, 'E'] }, { op: 'addRect', args: [-6, 0, -6, -1] }, 
+                { op: 'rem', args: [2, -2, 'S'] }, { op: 'rem', args: [2, -2, 'E'] }, { op: 'rem', args: [3, -2, 'S'] }, { op: 'rem', args: [2, 1, 'W'] }, { op: 'rem', args: [2, 2, 'W'] }, 
+                { op: 'remLine', args: [0, 4, 'E'] }, { op: 'rem', args: [1, 3] }, { op: 'remLine', args: [0, 5, 'S'] }, { op: 'remLine', args: [1, 5, 'E'] }, 
+                { op: 'addLine', args: [1, 5, 'S'] }, { op: 'addLine', args: [1, 6, 'S'] }, { op: 'addLine', args: [0, 7, 'S'] }, 
+                { op: 'addRect', args: [0, 14, 0, 15] }, { op: 'rem', args: [0, 10, 'S'] }, { op: 'rem', args: [0, 14, 'S'] }, 
+                { op: 'rem', args: [1, 6] }, { op: 'rem', args: [8, 0, 'W'] }, { op: 'rem', args: [8, 0, 'E'] }, 
+                { op: 'remLine', args: [-1, -4, 'W'] }, { op: 'add', args: [-2, 2] }, { op: 'remLine', args: [-2, 2, 'E'] }, { op: 'add', args: [-2, 1] }, { op: 'remLine', args: [-2, 1, 'E'] }, { op: 'remLine', args: [-2, 1, 'W'] }, 
+                { op: 'remLine', args: [0, 2, 'W'] }, { op: 'remLine', args: [0, 3, 'W'] }, { op: 'remLine', args: [0, 4, 'W'] }, { op: 'remLine', args: [-3, -2, 'S'] }, 
+                { op: 'rem', args: [-6, 0, 'N'] }, { op: 'remLine', args: [-5, -1, 'W'] }, { op: 'remLine', args: [-5, -1, 'E'] }, { op: 'rem', args: [-5, 0, 'E'] }, 
+                { op: 'addLine', args: [-5, 0, 'N'] }, { op: 'addLine', args: [-4, -2, 'E'] }, { op: 'add', args: [-5, 1] }
+            ], // 15
+            [
+                { op: 'rem', args: [-6, -1] }, { op: 'add', args: [-5, -2] }, { op: 'rem', args: [-5, -2, 'E'] }, { op: 'rem', args: [-5, -2, 'S'] }, { op: 'addLine', args: [-5, -1, 'W'] }, 
+                { op: 'rem', args: [-5, 1] }, { op: 'remLine', args: [-5, 1, 'S'] }, { op: 'remLine', args: [-5, 1, 'E'] }, { op: 'remLine', args: [-5, 1, 'W'] }, 
+                { op: 'remLine', args: [-2, 1, 'S'] }, { op: 'remLine', args: [-1, 1, 'S'] }, { op: 'remLine', args: [-2, -2, 'S'] }, 
+                { op: 'rem', args: [0, 1] }, { op: 'rem', args: [-1, 1] }, { op: 'remLine', args: [0, -4, 'W'] }, 
+                { op: 'add', args: [-1, 4] }, { op: 'add', args: [-4, -2] }, { op: 'add', args: [4, -1] }, 
+                { op: 'remLine', args: [-4, -2, 'E'] }, { op: 'remLine', args: [-4, -2, 'S'] }, { op: 'rem', args: [-4, -1, 'S'] }, { op: 'rem', args: [-3, -1] }, 
+                { op: 'addRect', args: [-5, -1, -5, -2] }, { op: 'addRect', args: [-1, 4, -2, 6] }, 
+                { op: 'remLine', args: [-1, 4, 'W'] }, { op: 'remLine', args: [-1, 4, 'S'] }, { op: 'addLine', args: [0, 5, 'W'] }, { op: 'remLine', args: [-1, 6, 'W'] }, 
+                { op: 'remLine', args: [0, 7, 'S'] }, { op: 'addLine', args: [0, 9, 'S'] }, { op: 'remLine', args: [0, 13, 'S'] }, { op: 'addLine', args: [0, 15, 'S'] }, 
+                { op: 'addRect', args: [0, 16, 0, 25] }, { op: 'remLine', args: [0, -9, 'N'] }, { op: 'addLine', args: [0, -11, 'N'] }, { op: 'addRect', args: [0, -13, 0, -18] }, 
+                { op: 'addRect', args: [2, 3, 2, 4] }, { op: 'addRect', args: [2, -2, 3, -3] }, 
+                { op: 'addLine', args: [-2, 4, 'S'] }, { op: 'addLine', args: [-1, 4, 'S'] }, { op: 'remLine', args: [-2, 3, 'S'] }, { op: 'remLine', args: [-1, 3, 'S'] }, { op: 'remLine', args: [0, 4, 'W'] }, 
+                { op: 'rem', args: [2, -2] }, { op: 'rem', args: [2, -1] }, { op: 'rem', args: [3, -2, 'N'] }, { op: 'rem', args: [3, -2, 'S'] }, { op: 'remLine', args: [1, -3, 'E'] }, 
+                { op: 'addRect', args: [3, 1, 3, 2] }, { op: 'remLine', args: [2, 0, 'S'] }, { op: 'remLine', args: [3, -1, 'E'] }, { op: 'addRect', args: [4, 1, 4, 2] }, 
+                { op: 'remLine', args: [3, 1, 'W'] }, { op: 'remLine', args: [3, 1, 'E'] }, { op: 'remLine', args: [1, 6, 'N'] }, { op: 'remLine', args: [1, 6, 'S'] }, 
+                { op: 'addLine', args: [2, 3, 'W'] }, { op: 'remLine', args: [3, 2, 'N'] }, { op: 'addLine', args: [2, 2, 'S'] }
+            ], // 16
+            [
+                { op: 'remLine', args: [0, 9, 'S'] }, { op: 'addLine', args: [0, 11, 'S'] }, { op: 'remLine', args: [0, 15, 'S'] }, 
+                { op: 'add', args: [-2, -3] }, { op: 'add', args: [-5, 2] }, 
+                { op: 'rem', args: [-1, -3] }, { op: 'rem', args: [-2, -3, 'N'] }, { op: 'rem', args: [-5, -1, 'E'] }, { op: 'remLine', args: [-5, 0, 'N'] }, 
+                { op: 'add', args: [1, 6] }, { op: 'remLine', args: [-1, 5, 'W'] }, { op: 'remLine', args: [-1, 5, 'S'] }, 
+                { op: 'rem', args: [-1, 6] }, { op: 'rem', args: [-2, 5] }, { op: 'rem', args: [-2, 6] }
+            ] // 17
+        ];
+        this.editorHighlight = false;
     }
 
-    trigger() {
-        if (this.active) return false;
+    trigger(force = false) {
+        if (!super.trigger(force)) return false;
         
-        const s = this.c.state;
-        if (!s.quantizedPulseEnabled) return false;
-
-        this.active = true;
         this.state = 'FADE_IN';
         this.timer = 0;
         this.alpha = 0.0;
-        
-        // Reset Animation State
-        this.cycleTimer = 0;
-        this.cyclesCompleted = 0;
-        this.expansionPhase = 0;
-        this.maskOps = [];
-        this.animFrame = 0;
-        this._maskDirty = true;
-        
-        // Offset slightly (1/2 cell to overlap characters effectively)
         this.offsetX = 0.5; // Fraction of cell width
         this.offsetY = 0.5; // Fraction of cell height
 
-        // Initialize Logic Grid
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
-        
-        if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
-            this.logicGrid = new Uint8Array(blocksX * blocksY);
-        } else {
-            this.logicGrid.fill(0);
-        }
-        this.logicGridW = blocksX;
-        this.logicGridH = blocksY;
-
-        if (this.debugMode) {
-            window.addEventListener('keydown', this._boundDebugHandler);
-        }
-
         return true;
-    }
-    
-    _handleDebugInput(e) {
-        if (e.key === '.') {
-            this.manualStep = true;
-        } else if (e.key === 'Escape') {
-            this.active = false;
-            this.state = 'IDLE';
-            this.alpha = 0.0;
-            window.removeEventListener('keydown', this._boundDebugHandler);
-        }
     }
 
     update() {
@@ -133,6 +156,11 @@ class QuantizedPulseEffect extends AbstractEffect {
                 this.active = false;
                 this.state = 'IDLE';
                 this.alpha = 0.0;
+                // window.removeEventListener('keydown', this._boundDebugHandler); // Handled by super or state transition? 
+                // Super removes it in _handleDebugInput on Escape.
+                // But if animation finishes naturally, we should remove it?
+                // Super doesn't track natural finish. 
+                // Let's remove it here to be safe.
                 window.removeEventListener('keydown', this._boundDebugHandler);
             }
         }
@@ -175,467 +203,12 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     _processAnimationStep() {
-        // Animation Sequence
-        const p = this.expansionPhase;
-        const now = this.animFrame;
-        
-        // Grid setup
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-
-        // Helper functions using Optimized Logic Grid
-        const getIdx = (bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
-            return by * blocksX + bx;
-        };
-
-        const isActive = (dx, dy) => {
-            const idx = getIdx(cx + dx, cy + dy);
-            return (idx >= 0 && this.logicGrid[idx] === 1);
-        };
-
-        const setLocalActive = (dx, dy) => {
-             const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 1;
-        };
-        
-        const setLocalInactive = (dx, dy) => {
-             const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 0;
-        };
-
-        // Replaces old 'add'
-        const add = (dx, dy) => {
-            if (isActive(dx, dy)) {
-                // If already full/active, ensure lines are added (Force Border)
-                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now });
-                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now });
-                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now });
-                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now });
-            } else {
-                this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
-                setLocalActive(dx, dy);
-            }
-        };
-
-        const addPerimeter = (dx, dy) => {
-            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
-            setLocalActive(dx, dy);
-        };
-
-        const addRect = (dx1, dy1, dx2, dy2) => {
-            this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now });
-            // Update map
-            const minX = Math.min(cx + dx1, cx + dx2);
-            const maxX = Math.max(cx + dx1, cx + dx2);
-            const minY = Math.min(cy + dy1, cy + dy2);
-            const maxY = Math.max(cy + dy1, cy + dy2);
-            
-            for (let y = minY; y <= maxY; y++) {
-                for (let x = minX; x <= maxX; x++) {
-                    const idx = getIdx(x, y);
-                    if (idx >= 0) this.logicGrid[idx] = 1;
-                }
-            }
-        };
-
-        const rem = (dx, dy, face) => {
-            if (face) {
-                this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
-            } else {
-                // Check neighbors in current active map
-                const nN = isActive(dx, dy - 1);
-                const nS = isActive(dx, dy + 1);
-                const nE = isActive(dx + 1, dy);
-                const nW = isActive(dx - 1, dy);
-                
-                if (nN && nS && nE && nW) {
-                    // Internal: Simply remove lines
-                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
-                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
-                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
-                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
-                } else {
-                    // External: Standard remove
-                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
-                    setLocalInactive(dx, dy);
-                }
-            }
-        };
-
-        const addLine = (dx, dy, face) => {
-            this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now });
-        };
-        const remLine = (dx, dy, face) => {
-            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now });
-        };
-
-
-        // add(+E -W, -N +S)
-        // addRect(From x, From -y, To x, To -y)
-        if (p === 0) {
-            add(0, 0); // Center
-        } else if (p === 1) {
-            add(1, 0); // East
-        } else if (p === 2) {
-            add(0, -1); // North
-            add(0, 1);  // South
-            rem(0, 0, 'E'); // Fade Center East
-        } else if (p === 3) {
-            add(-1, 0); // West
-            rem(0, 0, 'N'); // Fade Center North
-            rem(0, 0, 'S'); // Fade Center South
-        } else if (p === 4) {
-            add(0, -2); // North of North
-            add(0, 2);  // South of South
-        } else if (p === 5) {
-            rem(0, 0, 'W'); // Fade Center West
-            rem(-1, 0, 'W'); // Fade West of Center Left
-            add(-2, 0); // West of West
-            add(2, 0);  // East of East
-            add(0, 3); // South of South
-
-            // Add 2x2 overlap South-East of Center (0,0 to 1,1)
-            addRect(0, 0, 1, 1);
-            rem(0, 2, 'S');
-            rem(0, 0, 'N');
-            rem(0, 0, 'E');
-            rem(0, 0, 'S');
-
-        } else if (p === 6) {
-            add(-1, -1); 
-            add(1, -1);  
-        } else if (p === 7) {
-            add(-1, 1);              
-            add(3, 0);
-            add(-3, 0);
-            rem(-3, 0, 'E');
-            rem(0, 1, 'S');
-            rem(0, 3, 'S'); 
-            rem(0, -1,'N');
-            rem(2, 0, 'E');
-            addRect(0, 2, 0, 4);
-            addLine(0, 2,'S');
-
-        } else if (p === 8) {
-            addRect(0,-3, 0, -4);
-            add(1, -2);
-            add(0, 5);
-            add(1, 2);
-            addLine(3, 0, 'W');
-            rem(1, -1, 'N');
-            rem(0, -1, 'S');
-            rem(1, 1, 'N');
-            rem(1, 1, 'W');
-            rem(0, 4, 'S');
-            rem(0, -3, 'N');
-            addLine(0, 3, 'S');
-            remLine(0, 2, 'S');
-
-        } else if (p === 9) {
-            add(1, 3);
-            remLine(1, 3, 'N');
-            add(-1, -2);
-            remLine(-1, -1, 'E');
-            remLine(-1, -1, 'S');
-            add(-2, -1);
-            add(1, -3);
-            rem(-1, -1, 'E');
-            rem(-1, -1, 'S');
-            rem(-1, 1);
-            remLine(1, 0, 'E');            
-            rem(1, -1, 'W');
-            rem(1, -1, 'S');
-            rem(1, -3, 'S')
-            rem(1, -3, 'W');
-            addLine(1, -2, 'S');
-
-        } else if (p === 10) {
-            addLine(-1, 1, 'W');
-            addLine(-1, 1, 'S');
-            add(1, 5);
-            add(0, 6);
-            remLine(0, 3, 'S');
-            addRect(3, 0, 6, 0);
-            remLine(2, 0, 'E');
-            rem(3, 0, 'E');
-            rem(4, 0, 'E');
-            rem(5, 0, 'E');
-            rem(0, 5, 'S');
-            addRect(0, -3, 1, -5);
-            rem(0, -3, 'N');
-            rem(0, -3, 'E');
-            rem(1, -2, 'N');
-            rem(1, -4, 'W');
-            rem(1, -4, 'S');
-            add(-1, 1,);
-            addLine(0, 4, 'S');
-
-        } else if (p === 11) {
-            addRect(2, 2, 1, 4);
-            addRect(-1, 2, -1, 5);
-            addRect(-4, 0, -4, 1);
-            rem(-4, 0, 'S');
-            add(-2, 2);
-            add(-2, -2);
-            rem(-2, -2, 'E');
-            rem(-2, -2, 'S');
-            add(1, 6);
-            add(0, 7);
-            addRect(0, -6, 0, -8);
-            addLine(1, -3, 'S');
-            addLine(1, -3, 'W');
-            addLine(1, -4, 'W');
-            addLine(1, -4, 'N');
-            addLine(1, 2, 'S');
-            rem(1, 2, 'W');
-            rem(1, 2, 'N');
-            rem(0, -2, 'E');
-            rem(0, -2, 'N');
-            remLine(1, -1, 'N');
-            remLine(1, -5, 'S');
-            addLine(1, -5, 'W');
-            rem(1, 5);
-            rem(1, 4, 'E');
-            rem(1, 4, 'N');
-            rem(1, 3, 'E');
-            rem(-1, 2, 'W');
-            rem(-1, 2, 'S');
-            rem(-1, 3, 'S');
-            rem(-1, 4, 'S');
-            rem(0, 5, 'S');
-            remLine(0, 5, 'N');
-            rem(0, 6, 'S');
-            rem(0, 6, 'E');
-            addLine(0, 5, 'S');
-            remLine(-1, 3, 'W')
-            remLine(-1, 4, 'W')
-            remLine(-1, 5, 'W')
-
-        } else if (p === 12) {
-            add(-1, -4);
-            add(1, -3);
-            add(3, 2);
-            addRect(-1, 2, -2, 5);
-            addRect(0, 8, 0, 9);
-            addRect(-3, -1, -3, -2);
-            add(1, 3);
-            add(1, 4);
-            addLine(-2, 4, 'N');
-            rem(2, 3);
-            rem(2, 4);
-            rem(1, 6);
-            rem(-1, 5);
-            rem(-2, 5);
-            rem(-4, 1);
-            remLine(-4, 1, 'W');
-            remLine(-4, 1, 'S');
-            remLine(-4, 1, 'E');
-            rem(-2, 3, 'N');
-            rem(-2, 3, 'E');
-            rem(-2, 4, 'E');
-            rem(-1, -2, 'E');
-            rem(-1, -2, 'S');
-            rem(-2, -1, 'E');
-            rem(-2, -1, 'S');
-            rem(-3, -2, 'S');
-            rem(0, 8, 'S');
-            rem(2, 2, 'E');
-            remLine(0, 3, 'E');
-            remLine(1, 3, 'N');
-            remLine(-1, 3, 'N');
-            remLine(-1, 3, 'S');
-            
-        } else if (p === 13){
-            addRect(2, -1, 3, -1);
-            rem(-3, -1);
-            remLine(2, -1, 'E');
-            remLine(-3, 0, 'W');
-            remLine(-2, -2, 'W');
-            remLine(1, -3, 'S');
-            remLine(1, -3, 'W');
-            remLine(-1, 1, 'S');
-            remLine(-1, 2, 'W');
-            remLine(-4, -2, 'S');
-            addLine(-4, -1, 'E');
-            addLine(-3, -2, 'S');
-            add(-5, 0);
-            rem(-1, 1);
-            rem(0, 5, 'S');
-            remLine(-2, 1, 'S');
-            remLine(-1, 1, 'W');
-            remLine(-2, 2, 'W');
-            remLine(-2, 3, 'W');
-            addRect(2, 1, 2, 2);
-            addRect(0, -9, 0, -12);
-            addRect(0, 10, 0, 13);
-            add(-1, -3);
-            add(-4, -2);
-            add(-5, -1);
-
-            rem(3, 2);
-            remLine(2, 2, 'N');
-            remLine(2, 2, 'S');
-            remLine(0, 7, 'S');
-            rem(0, 8, 'S');
-            rem(0, 9, 'S');
-            rem(0, 11, 'S');
-            rem(0, 12, 'S');
-            rem(-5, 0, 'N');
-            remLine(-1, -3, 'N');
-            remLine(1, -4, 'S');
-            remLine(1, -4, 'W');
-            remLine(1, -5, 'W');
-
-        } else if (p === 14) {
-            add(2, 3);
-            add(-1, 1);
-            add(-1, -4);
-            add(-5, -1);
-            addLine(0, -10, 'S');
-            addLine(1, 5, 'E');
-            rem(3, 2);
-            remLine(2, 2, 'N');
-            remLine(2, 2, 'S');
-            remLine(0, 7, 'S');
-            rem(0, 8, 'S');
-            rem(0, 9, 'S');
-            rem(0, 11, 'S');
-            rem(0, 12, 'S');
-            rem(-5, 0, 'N');
-            remLine(-1, -3, 'N');
-            remLine(1, -4, 'S');
-            remLine(1, -4, 'W');
-            remLine(1, -5, 'W');
-
-        } else if (p === 15){
-            add(-5, 1);
-            addRect(-2, 5, -1, 5);
-            addRect(2, -2, 3, -2);
-            add(-2, -4);
-            addRect(7, 0, 9, 0);
-            addLine(2, 4, 'E');
-            addRect(-6, 0, -6, -1);
-            rem(2, -2, 'S');
-            rem(2, -2, 'E');
-            rem(3, -2, 'S');
-            rem(2, 1, 'W');
-            rem(2, 2, 'W');
-            remLine(0, 4, 'E');
-            rem(1, 3);
-            remLine(0, 5, 'S');
-            remLine(1, 5, 'E');
-            addLine(1, 5, 'S');
-            addLine(1, 6, 'S');
-            addLine(0, 7, 'S');
-            addRect(0, 14, 0, 15);
-            rem(0, 10, 'S');
-            rem(0, 14, 'S');
-            rem(1, 6);
-            rem(8, 0, 'W');
-            rem(8, 0, 'E');
-            remLine(-1, -4, 'W');
-            add(-2, 2);
-            remLine(-2, 2, 'E');
-            add(-2, 1);
-            remLine(-2, 1, 'E');
-            remLine(-2, 1, 'W');
-            remLine(0, 2, 'W');
-            remLine(0, 3, 'W');
-            remLine(0, 4, 'W');
-            remLine(-3, -2, 'S');
-            rem(-6, 0, 'N');
-            remLine(-5, -1, 'W');
-            remLine(-5, -1, 'E');
-            rem(-5, 0, 'E');
-            addLine(-5, 0, 'N');
-            addLine(-4, -2, 'E');
-            add(-5, 1);
-
-        } else if (p === 16){
-            rem(-6, -1);
-            add(-5, -2);
-            rem(-5, -2, 'E')
-            rem(-5, -2, 'S');
-            addLine(-5, -1, 'W');
-            rem(-5, 1);
-            remLine(-5, 1, 'S');
-            remLine(-5, 1, 'E');
-            remLine(-5, 1, 'W');
-            remLine(-2, 1, 'S');
-            remLine(-1, 1, 'S');
-            remLine(-2, -2, 'S');
-            rem(0, 1);
-            rem(-1, 1);
-            remLine(0, -4, 'W');
-            add(-1, 4);
-            add(-4, -2);
-            add(4, -1);
-            remLine(-4, -2, 'E');
-            remLine(-4, -2, 'S');
-            rem(-4, -1, 'S');
-            rem(-3, -1);
-            addRect(-5, -1, -5, -2);
-            addRect(-1, 4, -2, 6);
-            remLine(-1, 4, 'W');
-            remLine(-1, 4, 'S');
-            addLine(0, 5, 'W');
-            remLine(-1, 6, 'W');
-            remLine(0, 7, 'S');
-            addLine(0, 9, 'S');
-            remLine(0, 13, 'S');
-            addLine(0, 15, 'S');
-            addRect(0, 16, 0, 25);
-            remLine(0, -9, 'N');
-            addLine(0, -11, 'N');
-            addRect(0, -13, 0, -18);
-            addRect(2, 3, 2, 4);
-            addRect(2, -2, 3, -3);
-            addLine(-2, 4, 'S');
-            addLine(-1, 4, 'S');
-            remLine(-2, 3, 'S');
-            remLine(-1, 3, 'S');
-            remLine(0, 4, 'W');
-            rem(2, -2);
-            rem(2, -1);
-            rem(3, -2, 'N');
-            rem(3, -2, 'S');
-            remLine(1, -3, 'E');
-            addRect(3, 1, 3, 2);
-            remLine(2, 0, 'S');
-            remLine(3, -1, 'E');
-            addRect(4, 1, 4, 2);
-            remLine(3, 1, 'W');
-            remLine(3, 1, 'E');
-            remLine(1, 6, 'N');
-            remLine(1, 6, 'S');
-            addLine(2, 3, 'W');
-            remLine(3, 2, 'N');
-            addLine(2, 2, 'S');
-
-        } else if (p === 17){
-
-            remLine(0, 9, 'S');
-            addLine(0, 11, 'S');
-            remLine(0, 15, 'S');
-            add(-2, -3);
-            add(-5, 2);
-            rem(-1, -3);
-            rem(-2, -3, 'N');
-            rem(-5, -1, 'E');
-            remLine(-5, 0, 'N');
-            add(1, 6);
-            remLine(-1, 5, 'W');
-            remLine(-1, 5, 'S');
-            rem(-1, 6);
-            rem(-2, 5);
-            rem(-2, 6);
+        if (this.expansionPhase < this.sequence.length) {
+            const step = this.sequence[this.expansionPhase];
+            if (step) this._executeStepOps(step);
+            this.expansionPhase++;
+            this._maskDirty = true;
         }
-
-        this.expansionPhase++;
-        this._maskDirty = true;
     }
 
     applyToGrid(grid) {
@@ -643,758 +216,62 @@ class QuantizedPulseEffect extends AbstractEffect {
     }
 
     render(ctx, d) {
-        if (!this.active || this.alpha <= 0.01) return;
+        if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
         const s = this.c.state;
         const glowStrength = s.quantizedPulseBorderIllumination || 0;
-        if (glowStrength <= 0) return;
-
+        
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
-        this._ensureCanvases(width, height, s);
+        this._ensureCanvases(width, height); // Call super (generic args)
 
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-            this._updateMask(width, height, s, d);
-            this._maskDirty = false;
-        }
-
-        // 1. Render Text to Scratch Canvas
-        // Optimization: Use cached grid
-        this._updateGridCache(width, height, s, d);
-        
-        const scratchCtx = this.scratchCtx;
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-
-        // Draw cached grid
-        scratchCtx.globalAlpha = this.alpha; 
-        scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-        scratchCtx.globalAlpha = 1.0;
-
-        // 2. Apply Mask
-        scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.maskCanvas, 0, 0);
-
-        // 3. Composite
-        ctx.save();
-        if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
-            ctx.canvas.style.mixBlendMode = 'plus-lighter';
-        }
-        ctx.globalCompositeOperation = 'lighter';
-        
-        // Colors
-        const t = Math.min(1.0, glowStrength / 10.0);
-        const glowR = 255;
-        const glowG = Math.floor(215 + (255 - 215) * t);
-        const glowB = Math.floor(0 + (255 - 0) * t);
-        const glowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
-        
-        ctx.globalAlpha = 1.0;
-        ctx.shadowColor = glowColor;
-        ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
-        ctx.drawImage(this.scratchCanvas, 0, 0);
-        ctx.restore();
-    }
-
-    _ensureCanvases(w, h, s) {
-        if (!this.maskCanvas) {
-            this.maskCanvas = document.createElement('canvas');
-            this.maskCtx = this.maskCanvas.getContext('2d');
-            this._maskDirty = true;
-        }
-        if (!this.scratchCanvas) {
-            this.scratchCanvas = document.createElement('canvas');
-            this.scratchCtx = this.scratchCanvas.getContext('2d');
-        }
-        if (!this.gridCacheCanvas) {
-            this.gridCacheCanvas = document.createElement('canvas');
-            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
+        // Ensure layout is calculated for debug mode even if glow is off
+        if (this.debugMode && (!this.layout || this.maskCanvas.width !== width || this._maskDirty)) {
+             this._updateMask(width, height, s, d);
+             this._maskDirty = false;
         }
 
-        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
-            this.maskCanvas.width = w;
-            this.maskCanvas.height = h;
-            this._maskDirty = true;
-        }
-        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
-            this.scratchCanvas.width = w;
-            this.scratchCanvas.height = h;
-        }
-        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
-            this.gridCacheCanvas.width = w;
-            this.gridCacheCanvas.height = h;
-            this.lastGridSeed = -1; // Force redraw
-        }
-        
-        // Ensure Render Grid is correct size
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
-        const requiredSize = blocksX * blocksY;
-        
-        if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
-             this.renderGrid = new Int32Array(requiredSize);
-        }
-    }
-    
-    _updateGridCache(w, h, s, d) {
-        const rotatorCycle = d.rotatorCycleFrames || 20;
-        const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-        
-        if (timeSeed === this.lastGridSeed) return; // Cached
-        this.lastGridSeed = timeSeed;
-        
-        const ctx = this.gridCacheCtx;
-        ctx.clearRect(0, 0, w, h);
-        
-        const glowStrength = s.quantizedPulseBorderIllumination || 0;
-        const t = Math.min(1.0, glowStrength / 10.0);
-        const charR = 255;
-        const charG = Math.floor(204 + (255 - 204) * t);
-        const charB = Math.floor(0 + (255 - 0) * t);
-        const charColor = `rgb(${charR}, ${charG}, ${charB})`;
-        
-        const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
-        const style = s.italicEnabled ? 'italic ' : '';
-        const weight = s.fontWeight;
-        const family = s.fontFamily;
-        ctx.font = `${style}${weight} ${visualFontSize}px ${family}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = charColor;
-        
-        const grid = this.g;
-        const screenStepX = d.cellWidth * s.stretchX;
-        const screenStepY = d.cellHeight * s.stretchY;
-        const gridPixW = grid.cols * d.cellWidth; 
-        const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
-        const cols = grid.cols;
-        const rows = grid.rows;
-        const chars = grid.chars;
-        
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-        const blocksX = Math.ceil(grid.cols / cellPitchX);
-        const blocksY = Math.ceil(grid.rows / cellPitchY);
-        
-        const drawChar = (x, y) => {
-            if (x >= cols || y >= rows) return;
-            const i = (y * cols) + x;
-            let charCode = chars[i];
-            if (charCode <= 32) {
-                const activeFonts = d.activeFonts;
-                const fontData = activeFonts[0] || { chars: "01" };
-                const charSet = fontData.chars;
-                
-                const seed = i * 12.9898 + timeSeed * 78.233;
-                const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
-                
-                const char = charSet[Math.floor(hash * charSet.length)];
-                charCode = char.charCodeAt(0);
+        if (glowStrength > 0) {
+            if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
+                this._updateMask(width, height, s, d);
+                this._maskDirty = false;
             }
-            const cx = screenOriginX + (x * screenStepX);
-            const cy = screenOriginY + (y * screenStepY);
-            ctx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
-            ctx.fillText(String.fromCharCode(charCode), 0, 0);
-        };
 
-        // Standard Grid Loop (Sparse)
-        for (let by = 0; by <= blocksY; by++) {
-            const y = Math.floor(by * cellPitchY);
-            if (y >= rows) continue; 
-            for (let x = 0; x < cols; x++) drawChar(x, y);
-        }
-        for (let bx = 0; bx <= blocksX; bx++) {
-            const x = Math.floor(bx * cellPitchX);
-            if (x >= cols) continue;
-            for (let y = 0; y < rows; y++) drawChar(x, y);
-        }
-        
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-
-    _updateMask(w, h, s, d) {
-        const ctx = this.maskCtx;
-        const grid = this.g;
-        
-        ctx.clearRect(0, 0, w, h);
-        
-        const screenStepX = d.cellWidth * s.stretchX;
-        const screenStepY = d.cellHeight * s.stretchY;
-        const lineWidthX = screenStepX * 0.25;
-        const lineWidthY = screenStepY * 0.25;
-        const halfLineX = lineWidthX / 2;
-        const halfLineY = lineWidthY / 2;
-        const gridPixW = grid.cols * d.cellWidth; 
-        const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
-        const cellPitchX = Math.max(1, s.quantizedBlockWidthCells || 4);
-        const cellPitchY = Math.max(1, s.quantizedBlockHeightCells || 4);
-
-        this.layout = {
-            screenStepX, screenStepY,
-            lineWidthX, lineWidthY,
-            halfLineX, halfLineY,
-            screenOriginX, screenOriginY,
-            gridPixW, gridPixH,
-            cellPitchX, cellPitchY
-        };
-
-        const blocksX = Math.ceil(grid.cols / cellPitchX);
-        const blocksY = Math.ceil(grid.rows / cellPitchY);
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-
-        if (!this.maskOps || this.maskOps.length === 0) return;
-
-        const now = this.animFrame;
-        const addDuration = Math.max(1, s.quantizedPulseFadeInFrames || 0);
-        const removeDuration = Math.max(1, s.quantizedPulseFadeFrames || 0);
-
-        // --- PRE-PASS: Build Active Block Map (Optimized) ---
-        // We use Int32Array (renderGrid) for O(1) storage. 
-        // Stores startFrame. -1 means inactive.
-        this.renderGrid.fill(-1);
-        
-        // Helper to check later adds
-        // Note: For checking "later adds" efficiently, we could do a second pass or check forward. 
-        // Since we iterate ops in order, we can just blindly overwrite in renderGrid for occupancy.
-        // But for the "isLocationCoveredByLaterAdd" check needed for Removals, we need to know.
-        // We can optimize this by maintaining a 'latestAddGrid' if needed. 
-        // For now, let's just stick to checking maskOps for "later add" only when processing a remove.
-        // Or better: Iterate ops, if Add -> write to grid. If Remove -> write -1 to grid.
-        // This gives us the state *at the end of the frame*.
-        // But we need to render *fading* states too.
-        
-        // Let's build the map of "Currently Active Blocks" (opacity > 0)
-        // AND track startFrames.
-        
-        for (const op of this.maskOps) {
-            // Only process if operation has started
-            if (op.startFrame && now < op.startFrame) continue;
-
-            if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                        }
-                    }
-                }
-            } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = -1;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Helper for Optimized Connectivity Check
-        const isRenderActive = (bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-            return this.renderGrid[by * blocksX + bx] !== -1;
-        };
-        
-        // Helper for checking if a location is covered by a LATER add op
-        // (Used for removing internal walls/corners without erasing newer blocks)
-        const isLocationCoveredByLaterAdd = (bx, by, time) => {
-             // Optimization: Scan ops backwards? No, "Later" means startFrame > time.
-             // Or index > current op index.
-             // We can check if renderGrid has a startFrame > time?
-             // If renderGrid has a value, it means the *latest* op was an Add (active).
-             // If that latest add was *after* the remove op (time), then yes.
-             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-             const activeStart = this.renderGrid[by * blocksX + bx];
-             if (activeStart !== -1 && activeStart > time) return true;
-             // Also check if there's a *pending* add (future) if we were looking ahead, but we are rendering 'now'.
-             // So relying on activeStart is correct for "currently visible later adds".
-             return false;
-        };
-
-        // --- PASS 1: Base Grid (Standard Add) ---
-        for (const op of this.maskOps) {
-            if (op.type !== 'add') continue;
-
-            let opacity = 1.0;
-            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-            ctx.globalAlpha = opacity;
-
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
+            // 1. Render Text to Scratch Canvas
+            this._updateGridCache(width, height, s, d);
             
-            this._addBlock(start, end, op.ext);
-        }
+            const scratchCtx = this.scratchCtx;
+            scratchCtx.globalCompositeOperation = 'source-over';
+            scratchCtx.clearRect(0, 0, width, height);
 
-        // --- PASS 1.5: Smart Perimeter (addSmart) ---
-        for (const op of this.maskOps) {
-            if (op.type !== 'addSmart') continue;
+            // Draw cached grid
+            scratchCtx.globalAlpha = this.alpha; 
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            scratchCtx.globalAlpha = 1.0;
 
-            let opacity = 1.0;
-            if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-            ctx.globalAlpha = opacity;
+            // 2. Apply Mask
+            scratchCtx.globalCompositeOperation = 'destination-in';
+            scratchCtx.drawImage(this.maskCanvas, 0, 0);
 
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
+            // 3. Composite
+            ctx.save();
+            if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
+                ctx.canvas.style.mixBlendMode = 'plus-lighter';
+            }
+            ctx.globalCompositeOperation = 'lighter';
             
-            const minX = Math.min(start.x, end.x);
-            const maxX = Math.max(start.x, end.x);
-            const minY = Math.min(start.y, end.y);
-            const maxY = Math.max(start.y, end.y);
-
-            for (let by = minY; by <= maxY; by++) {
-                for (let bx = minX; bx <= maxX; bx++) {
-                    const nN = isRenderActive(bx, by - 1);
-                    const nS = isRenderActive(bx, by + 1);
-                    const nW = isRenderActive(bx - 1, by);
-                    const nE = isRenderActive(bx + 1, by);
-                    
-                    const isConnected = nN || nS || nW || nE;
-                    this._addBlock({x:bx, y:by}, {x:bx, y:by}, isConnected);
-                }
-            }
-        }
-        
-        // --- PASS 1.9: Block Erasure (removeBlock) ---
-        ctx.globalCompositeOperation = 'destination-out';
-        for (const op of this.maskOps) {
-            if (op.type !== 'removeBlock') continue;
-
-            let opacity = 1.0;
-            if (s.quantizedPulseFadeFrames === 0) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
-            ctx.globalAlpha = opacity;
-
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
+            // Colors
+            const t = Math.min(1.0, glowStrength / 10.0);
+            const glowR = 255;
+            const glowG = Math.floor(215 + (255 - 215) * t);
+            const glowB = Math.floor(0 + (255 - 0) * t);
+            const glowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
             
-            this._addBlock(start, end, false);
+            ctx.globalAlpha = 1.0;
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            ctx.restore();
         }
-        ctx.globalCompositeOperation = 'source-over';
-
-        // --- PASS 2: Erasures (Internal Walls) ---
-        ctx.globalCompositeOperation = 'destination-out';
-        for (const op of this.maskOps) {
-            if (op.type !== 'remove') continue;
-
-            let opacity = 1.0;
-            if (s.quantizedPulseFadeFrames === 0) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
-            ctx.globalAlpha = opacity;
-
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
-            const minX = Math.min(start.x, end.x);
-            const maxX = Math.max(start.x, end.x);
-            const minY = Math.min(start.y, end.y);
-            const maxY = Math.max(start.y, end.y);
-            
-            for (let by = minY; by <= maxY; by++) {
-                for (let bx = minX; bx <= maxX; bx++) {
-                     if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                     this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
-                }
-            }
-        }
-        ctx.globalCompositeOperation = 'source-over';
-
-        // --- PASS 3: Perimeter (Bold Outer Barrier) ---
-        const boldLineWidthX = lineWidthX * 2.0; 
-        const boldLineWidthY = lineWidthY * 2.0;
-        
-        // Optimize: Iterate renderGrid instead of map entries
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const startFrame = this.renderGrid[by * blocksX + bx];
-                if (startFrame === -1) continue;
-
-                let opacity = 1.0;
-                if (s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
-                else if (startFrame) opacity = Math.min(1.0, (now - startFrame) / addDuration);
-                ctx.globalAlpha = opacity;
-
-                const nN = isRenderActive(bx, by - 1);
-                const nS = isRenderActive(bx, by + 1);
-                const nW = isRenderActive(bx - 1, by);
-                const nE = isRenderActive(bx + 1, by);
-
-                if (!nN) this._drawPerimeterFace(bx, by, 'N', boldLineWidthX, boldLineWidthY);
-                if (!nS) this._drawPerimeterFace(bx, by, 'S', boldLineWidthX, boldLineWidthY);
-                if (!nW) this._drawPerimeterFace(bx, by, 'W', boldLineWidthX, boldLineWidthY);
-                if (!nE) this._drawPerimeterFace(bx, by, 'E', boldLineWidthX, boldLineWidthY);
-            }
-        }
-
-        // --- PASS 4: Line Operations (Sorted by Time) ---
-        // Combine addLine and removeLine ops to respect temporal order
-        const lineOps = this.maskOps.filter(op => op.type === 'addLine' || op.type === 'removeLine');
-        lineOps.sort((a, b) => (a.startFrame - b.startFrame));
-
-        for (const op of lineOps) {
-            let opacity = 1.0;
-            const duration = (op.type === 'addLine') ? addDuration : removeDuration;
-            
-            if (op.type === 'addLine' && s.quantizedPulseFadeInFrames === 0) opacity = 1.0;
-            else if (op.type === 'removeLine' && s.quantizedPulseFadeFrames === 0) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / duration);
-            ctx.globalAlpha = opacity;
-
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
-
-            if (op.type === 'addLine') {
-                ctx.globalCompositeOperation = 'source-over';
-                this._addBlockFace(start, end, op.face);
-            } else {
-                ctx.globalCompositeOperation = 'destination-out';
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                        this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
-                    }
-                }
-            }
-        }
-        
-        // --- PASS 6: Corner Cleanup ---
-        // Use an Int8Array for corner flags? 
-        // 0=None, 1=N, 2=S, 4=E, 8=W. 
-        // 1|8 = NW, etc.
-        // Actually, just using a small temporary map or object is fine for sparse corners.
-        // Or iterate ops and draw directly? No, we need to accumulate N/S/E/W to know if it's a corner.
-        
-        // Use a temporary flat array for corners if needed, but sparse map is likely faster for just a few corners.
-        // Let's stick to Map for sparse corner data to avoid clearing a huge array.
-        // Key: block index (integer). Value: bitmask.
-        const cornerMap = new Map(); 
-
-        const activeRemovals = this.maskOps.filter(op => {
-            if (op.type !== 'remove' && op.type !== 'removeLine') return false;
-            if (!op.startFrame) return false;
-            return (now >= op.startFrame);
-        });
-
-        for (const op of activeRemovals) {
-            if (!op.face) continue;
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
-            const minX = Math.min(start.x, end.x);
-            const maxX = Math.max(start.x, end.x);
-            const minY = Math.min(start.y, end.y);
-            const maxY = Math.max(start.y, end.y);
-            const f = op.face.toUpperCase();
-            const force = op.force;
-
-            for (let by = minY; by <= maxY; by++) {
-                for (let bx = minX; bx <= maxX; bx++) {
-                    if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue; 
-                    if (!force) {
-                        if (f === 'N' && by === minY) continue;
-                        if (f === 'S' && by === maxY) continue;
-                        if (f === 'W' && bx === minX) continue;
-                        if (f === 'E' && bx === maxX) continue;
-                    }
-                    
-                    const idx = by * blocksX + bx;
-                    let mask = cornerMap.get(idx) || 0;
-                    if (f === 'N') mask |= 1;
-                    else if (f === 'S') mask |= 2;
-                    else if (f === 'E') mask |= 4;
-                    else if (f === 'W') mask |= 8;
-                    cornerMap.set(idx, mask);
-                }
-            }
-        }
-
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.globalAlpha = 1.0; 
-        for (const [idx, mask] of cornerMap) {
-            const bx = idx % blocksX;
-            const by = Math.floor(idx / blocksX);
-            
-            if ((mask & 1) && (mask & 8)) this._removeBlockCorner(bx, by, 'NW');
-            if ((mask & 1) && (mask & 4)) this._removeBlockCorner(bx, by, 'NE');
-            if ((mask & 2) && (mask & 8)) this._removeBlockCorner(bx, by, 'SW');
-            if ((mask & 2) && (mask & 4)) this._removeBlockCorner(bx, by, 'SE');
-        }
-        
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1.0;
-    }
-
-    _removeBlockCorner(bx, by, corner) {
-        const ctx = this.maskCtx;
-        const l = this.layout;
-        
-        const cellX = Math.floor(bx * l.cellPitchX);
-        const cellY = Math.floor(by * l.cellPitchY);
-        
-        let cx, cy;
-        
-        if (corner === 'NW') {
-            cx = l.screenOriginX + (cellX * l.screenStepX);
-            cy = l.screenOriginY + (cellY * l.screenStepY);
-        } else if (corner === 'NE') {
-            const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-            cx = l.screenOriginX + (endCellX * l.screenStepX);
-            cy = l.screenOriginY + (cellY * l.screenStepY);
-        } else if (corner === 'SW') {
-            const endCellY = Math.floor((by + 1) * l.cellPitchY);
-            cx = l.screenOriginX + (cellX * l.screenStepX);
-            cy = l.screenOriginY + (endCellY * l.screenStepY);
-        } else if (corner === 'SE') {
-            const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-            const endCellY = Math.floor((by + 1) * l.cellPitchY);
-            cx = l.screenOriginX + (endCellX * l.screenStepX);
-            cy = l.screenOriginY + (endCellY * l.screenStepY);
-        }
-        
-        const inflate = 1.0; 
-        ctx.beginPath();
-        ctx.rect(cx - l.halfLineX - inflate, cy - l.halfLineY - inflate, l.lineWidthX + (inflate*2), l.lineWidthY + (inflate*2));
-        ctx.fill();
-    }
-
-    /**
-     * Adds the specified face (border line) to blocks in the given range.
-     */
-    _addBlockFace(blockStart, blockEnd, face) {
-        if (!this.maskCtx || !this.layout) return;
-
-        const ctx = this.maskCtx;
-        const l = this.layout;
-        const f = face.toUpperCase();
-
-        const minX = Math.min(blockStart.x, blockEnd.x);
-        const maxX = Math.max(blockStart.x, blockEnd.x);
-        const minY = Math.min(blockStart.y, blockEnd.y);
-        const maxY = Math.max(blockStart.y, blockEnd.y);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-
-        for (let by = minY; by <= maxY; by++) {
-            for (let bx = minX; bx <= maxX; bx++) {
-                
-                const startCellX = Math.floor(bx * l.cellPitchX);
-                const startCellY = Math.floor(by * l.cellPitchY);
-                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-                const endCellY = Math.floor((by + 1) * l.cellPitchY);
-
-                const hx = l.lineWidthX / 2;
-                const hy = l.lineWidthY / 2;
-
-                if (f === 'N') {
-                    const cy = l.screenOriginY + (startCellY * l.screenStepY);
-                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
-                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
-                    ctx.rect(x, cy - hy, w, l.lineWidthY);
-                } else if (f === 'S') {
-                    const cy = l.screenOriginY + (endCellY * l.screenStepY);
-                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
-                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
-                    ctx.rect(x, cy - hy, w, l.lineWidthY);
-                } else if (f === 'W') {
-                    const cx = l.screenOriginX + (startCellX * l.screenStepX);
-                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
-                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
-                    ctx.rect(cx - hx, y, l.lineWidthX, h);
-                } else if (f === 'E') {
-                    const cx = l.screenOriginX + (endCellX * l.screenStepX);
-                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
-                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
-                    ctx.rect(cx - hx, y, l.lineWidthX, h);
-                }
-            }
-        }
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-    }
-
-    _drawPerimeterFace(bx, by, face, widthX, widthY) {
-        const ctx = this.maskCtx;
-        const l = this.layout;
-        const startCellX = Math.floor(bx * l.cellPitchX);
-        const startCellY = Math.floor(by * l.cellPitchY);
-        const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-        const endCellY = Math.floor((by + 1) * l.cellPitchY);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        
-        const hx = widthX / 2;
-        const hy = widthY / 2;
-
-        if (face === 'N') {
-            const cy = l.screenOriginY + (startCellY * l.screenStepY);
-            const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
-            const w = ((endCellX - startCellX) * l.screenStepX) + widthX;
-            ctx.rect(x, cy - hy, w, widthY);
-        } else if (face === 'S') {
-            const cy = l.screenOriginY + (endCellY * l.screenStepY);
-            const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
-            const w = ((endCellX - startCellX) * l.screenStepX) + widthX;
-            ctx.rect(x, cy - hy, w, widthY);
-        } else if (face === 'W') {
-            const cx = l.screenOriginX + (startCellX * l.screenStepX);
-            const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
-            const h = ((endCellY - startCellY) * l.screenStepY) + widthY;
-            ctx.rect(cx - hx, y, widthX, h);
-        } else if (face === 'E') {
-            const cx = l.screenOriginX + (endCellX * l.screenStepX);
-            const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
-            const h = ((endCellY - startCellY) * l.screenStepY) + widthY;
-            ctx.rect(cx - hx, y, widthX, h);
-        }
-        ctx.fill();
-    }
-
-    /**
-     * Dynamically adds a grid block region to the mask.
-     */
-    _addBlock(blockStart, blockEnd, isExtending) {
-        if (!this.maskCtx || !this.layout) return;
-
-        const ctx = this.maskCtx;
-        const l = this.layout;
-
-        const startX = Math.floor(blockStart.x * l.cellPitchX);
-        const endX = Math.floor((blockEnd.x + 1) * l.cellPitchX);
-        const startY = Math.floor(blockStart.y * l.cellPitchY);
-        const endY = Math.floor((blockEnd.y + 1) * l.cellPitchY);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-
-        if (isExtending) {
-            let cy = l.screenOriginY + (startY * l.screenStepY);
-            ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
-            
-            cy = l.screenOriginY + (endY * l.screenStepY);
-            ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
-
-            let cx = l.screenOriginX + (startX * l.screenStepX);
-            ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
-
-            cx = l.screenOriginX + (endX * l.screenStepX);
-            ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
-        } else {
-            const rangeMinBx = blockStart.x;
-            const rangeMaxBx = blockEnd.x;
-            const rangeMinBy = blockStart.y;
-            const rangeMaxBy = blockEnd.y;
-
-            for (let bx = rangeMinBx; bx <= rangeMaxBx + 1; bx++) {
-                const cellX = Math.floor(bx * l.cellPitchX);
-                const cx = l.screenOriginX + (cellX * l.screenStepX);
-                const yPos = l.screenOriginY + (startY * l.screenStepY);
-                const h = (endY - startY) * l.screenStepY;
-                ctx.rect(cx - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
-            }
-
-            for (let by = rangeMinBy; by <= rangeMaxBy + 1; by++) {
-                const cellY = Math.floor(by * l.cellPitchY);
-                const cy = l.screenOriginY + (cellY * l.screenStepY);
-                const xPos = l.screenOriginX + (startX * l.screenStepX);
-                const w = (endX - startX) * l.screenStepX;
-                ctx.rect(xPos - l.halfLineX, cy - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
-            }
-        }
-        ctx.fill();
-    }
-
-    /**
-     * Removes the specified face (border line) from blocks in the given range.
-     */
-    _removeBlockFace(blockStart, blockEnd, face, force = false) {
-        if (!this.maskCtx || !this.layout) return;
-
-        const ctx = this.maskCtx;
-        const l = this.layout;
-        const f = face.toUpperCase();
-
-        const minX = Math.min(blockStart.x, blockEnd.x);
-        const maxX = Math.max(blockStart.x, blockEnd.x);
-        const minY = Math.min(blockStart.y, blockEnd.y);
-        const maxY = Math.max(blockStart.y, blockEnd.y);
-
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.beginPath();
-
-        for (let by = minY; by <= maxY; by++) {
-            for (let bx = minX; bx <= maxX; bx++) {
-                if (!force) {
-                    if (f === 'N' && by === minY) continue;
-                    if (f === 'S' && by === maxY) continue;
-                    if (f === 'W' && bx === minX) continue;
-                    if (f === 'E' && bx === maxX) continue;
-                }
-
-                const startCellX = Math.floor(bx * l.cellPitchX);
-                const startCellY = Math.floor(by * l.cellPitchY);
-                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-                const endCellY = Math.floor((by + 1) * l.cellPitchY);
-                
-                const safety = 0.5;
-                const safeX = l.halfLineX + safety; 
-                const safeY = l.halfLineY + safety; 
-                
-                const inflate = 0.5; 
-
-                if (f === 'N') {
-                    const cy = l.screenOriginY + (startCellY * l.screenStepY);
-                    const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
-                    const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
-                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
-                }
-                else if (f === 'S') {
-                    const cy = l.screenOriginY + (endCellY * l.screenStepY);
-                    const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
-                    const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
-                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
-                }
-                else if (f === 'W') {
-                    const cx = l.screenOriginX + (startCellX * l.screenStepX);
-                    const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
-                    const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
-                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
-                }
-                else if (f === 'E') {
-                    const cx = l.screenOriginX + (endCellX * l.screenStepX);
-                    const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
-                    const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
-                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
-                }
-            }
-        }
-        ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
     }
 }

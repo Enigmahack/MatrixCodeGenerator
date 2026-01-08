@@ -467,6 +467,7 @@ class UIManager {
             { cat: 'System', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', description: "Freezes the entire simulation state (streams, rotators, etc)." },
             { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
             { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
+            { cat: 'System', id: 'quantEditorEnabled', type: 'checkbox', label: 'QuantEditor', description: "Enable the visual editor for Quantized Pulse Effect." },
 
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
@@ -1532,6 +1533,16 @@ class UIManager {
                         favicon.href = Utils.generateGlyphSVG(randomChar, color, 32, this.c.get('fontFamily'));
                      }
                  }
+            }
+
+            if (key === 'quantEditorEnabled' || key === 'ALL') {
+                const enabled = this.c.get('quantEditorEnabled');
+                if (typeof QuantizedPulseEditor !== 'undefined') {
+                    if (!this.quantEditor) {
+                        this.quantEditor = new QuantizedPulseEditor(this.effects, this);
+                    }
+                    this.quantEditor.toggle(enabled);
+                }
             }
 
             if (key === 'hideMenuIcon' || key === 'ALL') {

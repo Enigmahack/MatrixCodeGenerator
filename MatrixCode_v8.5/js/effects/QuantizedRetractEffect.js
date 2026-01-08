@@ -1,8 +1,10 @@
-class QuantizedRetractEffect extends AbstractEffect {
+class QuantizedRetractEffect extends QuantizedSequenceEffect {
     constructor(grid, config) {
         super(grid, config);
         this.name = "QuantizedRetract";
         this.active = false;
+        this.configPrefix = "quantizedRetract";
+        this.sequence = [[]]; // Editor support
         
         // Simulation State
         this.blocks = [];      // {x, y}
@@ -33,6 +35,10 @@ class QuantizedRetractEffect extends AbstractEffect {
         // Flash State
         this.flashIntensity = null; 
         this.activeFlashes = new Set();
+    }
+
+    getBlockSize() {
+        return { w: 4, h: 4 };
     }
 
     _getEffectiveState() {
@@ -92,10 +98,11 @@ class QuantizedRetractEffect extends AbstractEffect {
         if (this.map) this.map.fill(0);
     }
 
-    trigger() {
+    trigger(force = false) {
+        if (!super.trigger(force)) return false;
+
         if (this.isExpanding) this.resetExpansion();
         
-        this.active = true;
         this.isExpanding = true;
         this.isFading = false;
         this.fadeAlpha = 1.0;
@@ -138,8 +145,18 @@ class QuantizedRetractEffect extends AbstractEffect {
         this.blocksAdded = 0;
         this.localFrame = 0;
         
-        // INITIALIZATION: Start from Edges
-        this._initEdges();
+        // Editor Sequence State
+        this.sequencePhase = 0;
+        this.isSequencePlaying = (this.sequence && this.sequence.length > 0 && 
+                                 (this.sequence.length > 1 || this.sequence[0].length > 0));
+
+        if (this.isSequencePlaying) {
+            this.isExpanding = false; 
+        } else {
+            this.isExpanding = true;
+            // INITIALIZATION: Start from Edges (Default)
+            this._initEdges();
+        }
         
         this.currentDelay = s.baseDelay;
         this.nextExpandTime = this.currentDelay;
@@ -507,10 +524,99 @@ class QuantizedRetractEffect extends AbstractEffect {
         }
     }
 
+    _executeSequenceStep(step) {
+        if (!step) return;
+        for (const op of step) {
+            if (op.op === 'add' || op.op === 'addSmart') {
+                this._addBlock(op.args[0], op.args[1], this.burstCounter);
+            } else if (op.op === 'addRect') {
+                const [x1, y1, x2, y2] = op.args;
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+                for(let y=minY; y<=maxY; y++) {
+                    for(let x=minX; x<=maxX; x++) {
+                        this._addBlock(x, y, this.burstCounter);
+                    }
+                }
+            } else if (op.op === 'removeBlock' || op.op === 'rem') {
+                 const [x, y] = op.args;
+                 const idx = this.blocks.findIndex(b => b.x === x && b.y === y);
+                 if (idx !== -1) {
+                     this.blocks.splice(idx, 1);
+                     const mx = x + this.mapPad;
+                     const my = y + this.mapPad;
+                     if (mx >= 0 && mx < this.mapCols && my >= 0 && my < this.mapRows) {
+                         this.map[my * this.mapCols + mx] &= ~1;
+                     }
+                 }
+            }
+        }
+    }
+
+    _rebuildFrontier() {
+        this.frontier = [];
+        const seen = new Set();
+        const step = Math.max(1, Math.ceil(this.blocks.length / 200)); 
+        for(let i=0; i<this.blocks.length; i+=step) {
+            const b = this.blocks[i];
+            const neighbors = [
+                {x: b.x, y: b.y - 4}, {x: b.x + 4, y: b.y},
+                {x: b.x, y: b.y + 4}, {x: b.x - 4, y: b.y}
+            ];
+            for (const n of neighbors) {
+                if (!this._isOccupied(n.x, n.y)) {
+                    const k = `${n.x},${n.y}`;
+                    if (!seen.has(k)) {
+                        this.frontier.push(n);
+                        seen.add(k);
+                    }
+                }
+            }
+        }
+    }
+
     update() {
         if (!this.active) return;
         
-        if (this.isExpanding) {
+        if (this.debugMode) {
+            super.update();
+            return;
+        }
+        
+        // 0. Sequence Playback
+        if (this.isSequencePlaying) {
+            this.localFrame++;
+            const s = this._getEffectiveState();
+            
+            this._updateShadowWorld();
+            this._applyMask();
+            this._updateBorderIllumination(); 
+            
+            if (this.fadeInAlpha < 1.0) {
+                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
+                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
+            }
+            
+            this._updateLines(s);
+            this._updateFlashes();
+
+            const freq = Math.max(1, Math.floor(s.duration * 2)); 
+            if (this.localFrame % freq === 0) {
+                if (this.sequencePhase < this.sequence.length) {
+                    const step = this.sequence[this.sequencePhase];
+                    this._executeSequenceStep(step);
+                    this.sequencePhase++;
+                } else {
+                    this.isSequencePlaying = false;
+                    this.isExpanding = true;
+                    this._rebuildFrontier();
+                }
+            }
+        }
+        // 1. Expansion Logic
+        else if (this.isExpanding) {
             this.localFrame++;
             const s = this._getEffectiveState();
             
@@ -877,6 +983,11 @@ class QuantizedRetractEffect extends AbstractEffect {
     }
 
     render(ctx, derived) {
+        if (this.debugMode) {
+            super.renderDebug(ctx, derived);
+            return;
+        }
+
         if (!this.active || !this.isExpanding) return;
         const s = this.c.state;
         const cw = derived.cellWidth * s.stretchX;

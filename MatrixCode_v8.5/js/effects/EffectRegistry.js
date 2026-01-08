@@ -12,6 +12,7 @@ class EffectRegistry {
             registerDefaults() {
                 // ... (Load dynamically or manually)
             }
+            get(name) { return this.effects.find(e => e.name === name); }
             trigger(name, ...args) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(...args); return false; }
             
             update() { 

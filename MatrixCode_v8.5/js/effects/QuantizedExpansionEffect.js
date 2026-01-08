@@ -1,8 +1,10 @@
-class QuantizedExpansionEffect extends AbstractEffect {
+class QuantizedExpansionEffect extends QuantizedSequenceEffect {
     constructor(grid, config) {
         super(grid, config);
         this.name = "QuantizedExpansion";
         this.active = false;
+        this.configPrefix = "quantizedExpansion";
+        this.sequence = [[]]; // Editor support
         
         // Simulation State
         this.blocks = [];      // {x, y}
@@ -38,6 +40,91 @@ class QuantizedExpansionEffect extends AbstractEffect {
         // Flash State
         this.flashIntensity = null; 
         this.activeFlashes = new Set();
+        
+        // Manual Step State (Debug)
+        this.manualStep = false;
+        this._onKeyDown = this._onKeyDown.bind(this);
+    }
+
+    getBlockSize() {
+        return { w: 4, h: 4 };
+    }
+    
+    _onKeyDown(e) {
+        if (e.key === '.' || e.code === 'Period') {
+            this.manualStep = true;
+        }
+    }
+
+    trigger(force = false) {
+        if (!super.trigger(force)) return false;
+
+        document.addEventListener('keydown', this._onKeyDown);
+        
+        // Editor Sequence State
+        this.sequencePhase = 0;
+        this.isSequencePlaying = (this.sequence && this.sequence.length > 0 && 
+                                 (this.sequence.length > 1 || this.sequence[0].length > 0));
+
+        if (this.isSequencePlaying) {
+            this.isExpanding = false; 
+        } else {
+            this.isExpanding = true;
+            this.growthPhase = 0; 
+        }
+        
+        this.isFading = false;
+        this.isFinishing = false;
+        this.fadeAlpha = 1.0;
+        this.startTime = Date.now();
+        
+        const s = this._getEffectiveState();
+        this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
+
+        this._initShadowWorld();
+        
+        this.mapPad = 60; 
+        this.mapCols = this.g.cols + this.mapPad * 2;
+        this.mapRows = this.g.rows + this.mapPad * 2;
+        const total = this.mapCols * this.mapRows;
+        if (!this.map || this.map.length !== total) {
+            this.map = new Uint16Array(total);
+        } else {
+            this.map.fill(0);
+        }
+        
+        const totalGrid = this.g.cols * this.g.rows;
+        if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
+            this.flashIntensity = new Float32Array(totalGrid);
+            this.activeFlashes.clear();
+        }
+        
+        this.burstCounter = 0;
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        this.localFrame = 0;
+        
+        const cx = Math.floor((this.g.cols / 2) / 4) * 4;
+        const cy = Math.floor((this.g.rows / 2) / 4) * 4;
+        this.origin = {x: cx, y: cy};
+
+        if (!this.isSequencePlaying) {
+             this._addBlock(cx, cy);
+             this._addBlock(cx-4, cy);
+             this._addBlock(cx, cy-4);
+             this._addBlock(cx-4, cy-4);
+             this.blocksAdded = 4;
+        }
+        
+        this.nextExpandTime = 0;
+        
+        this.rngBuffer = new Float32Array(1024);
+        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
+
+        return true;
     }
 
     _getEffectiveState() {
@@ -61,7 +148,266 @@ class QuantizedExpansionEffect extends AbstractEffect {
         };
     }
     
-    // ... (rest of standard methods same as Pulse) ...
+    resetExpansion() {
+        this.isExpanding = false;
+        this.blocks = [];
+        this.lines = [];
+        this.frontier = [];
+        this.tendrils = [];
+        this.blocksAdded = 0;
+        if (this.map) this.map.fill(0);
+    }
+
+    _initShadowWorld() {
+        this.shadowGrid = new CellGrid(this.c);
+        const d = this.c.derived;
+        const w = this.g.cols * d.cellWidth;
+        const h = this.g.rows * d.cellHeight;
+        this.shadowGrid.resize(w, h);
+        
+        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c);
+        this.shadowSim.useWorker = false;
+
+        if (this.shadowSim.worker) {
+            this.shadowSim.worker.terminate();
+            this.shadowSim.worker = null;
+        }
+        
+        // Pre-warm / Populate
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        sm.resize(this.shadowGrid.cols);
+
+        // Shuffled columns to guarantee distribution
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+
+        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
+
+        for (let k = 0; k < injectionCount; k++) {
+            const col = columns[k];
+            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
+            const isEraser = Math.random() < 0.2;
+            const stream = sm._initializeStream(col, isEraser, s);
+            stream.y = startY;
+            stream.age = startY; 
+            sm.addActiveStream(stream);
+        }
+    
+        this.shadowSim.timeScale = 1.0;
+        const warmupFrames = 400;
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
+        }
+        this.localFrame = warmupFrames;
+    }
+
+    _finishExpansion() {
+        try {
+            const g = this.g;
+            const sg = this.shadowGrid;
+            
+            if (sg) {
+                // Commit Buffer State
+                g.state.set(sg.state); 
+                g.chars.set(sg.chars);
+                g.colors.set(sg.colors);
+                g.baseColors.set(sg.baseColors); 
+                g.alphas.set(sg.alphas);
+                g.glows.set(sg.glows);
+                g.fontIndices.set(sg.fontIndices);
+                g.renderMode.set(sg.renderMode); 
+                
+                g.types.set(sg.types);
+                g.decays.set(sg.decays);
+                g.ages.set(sg.ages);
+                g.brightness.set(sg.brightness);
+                g.rotatorOffsets.set(sg.rotatorOffsets);
+                g.cellLocks.set(sg.cellLocks);
+                
+                g.nextChars.set(sg.nextChars);
+                g.nextOverlapChars.set(sg.nextOverlapChars);
+                
+                g.secondaryChars.set(sg.secondaryChars);
+                g.secondaryColors.set(sg.secondaryColors);
+                g.secondaryAlphas.set(sg.secondaryAlphas);
+                g.secondaryGlows.set(sg.secondaryGlows);
+                g.secondaryFontIndices.set(sg.secondaryFontIndices);
+                
+                g.mix.set(sg.mix);
+                
+                if (sg.activeIndices.size > 0) {
+                    g.activeIndices.clear();
+                    for (const idx of sg.activeIndices) {
+                        g.activeIndices.add(idx);
+                    }
+                }
+                
+                g.complexStyles.clear();
+                for (const [key, value] of sg.complexStyles) {
+                    g.complexStyles.set(key, {...value});
+                }
+                
+                // Swap Stream Manager
+                if (window.matrix && window.matrix.simulation) {
+                    const mainSim = window.matrix.simulation;
+                    const shadowMgr = this.shadowSim.streamManager;
+                    
+                    const streamMap = new Map();
+                    const serializedStreams = shadowMgr.activeStreams.map(s => {
+                        const copy = {...s};
+                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                        streamMap.set(s, copy);
+                        return copy;
+                    });
+                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                    
+                    const state = {
+                        activeStreams: serializedStreams, 
+                        columnSpeeds: shadowMgr.columnSpeeds,
+                        streamsPerColumn: shadowMgr.streamsPerColumn,   
+                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                        overlapInitialized: this.shadowSim.overlapInitialized,
+                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                        activeIndices: Array.from(sg.activeIndices)
+                    };
+                    
+                    const frameOffset = mainSim.frame || 0; 
+                    state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
+
+                    if (mainSim.useWorker && mainSim.worker) {
+                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
+                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                    } else {
+                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
+                        const mainMgr = mainSim.streamManager;
+                        mainMgr.activeStreams = state.activeStreams;
+                        mainMgr.columnSpeeds.set(state.columnSpeeds);
+                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                        mainSim.overlapInitialized = state.overlapInitialized;
+                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                        if (state.activeIndices) {
+                            mainSim.grid.activeIndices.clear();
+                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                        }
+                    }
+                }
+            }
+            
+            // End Expansion
+            if (this.isExpanding) this.resetExpansion();
+            this.isSequencePlaying = false; 
+            this.g.clearAllOverrides(); 
+            this._updateFlashes(); 
+            this.shadowGrid = null;
+            this.shadowSim = null;
+            
+        } catch (e) {
+            console.error("[QuantizedExpansion] Swap failed:", e);
+            this.g.clearAllOverrides();
+            this.active = false;
+        }
+    }
+
+    _addBlock(x, y, burstId = 0, merge = false) {
+        if (this._isOccupied(x, y)) return;
+
+        this.blocks.push({x, y});
+        
+        const mx = x + this.mapPad;
+        const my = y + this.mapPad;
+        
+        if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
+            const idx = my * this.mapCols + mx;
+            this.map[idx] = (this.map[idx] & ~2) | 1 | (burstId << 2);
+            
+            if (x >= -4 && y >= -4 && x < this.g.cols && y < this.g.rows) {
+                 const bs = 4;
+                 for(let by=0; by<bs; by++) {
+                    for(let bx=0; bx<bs; bx++) {
+                         const gx = x + bx;
+                         const gy = y + by;
+                         if (gx >= 0 && gy >= 0 && gx < this.g.cols && gy < this.g.rows) {
+                             const ci = gy * this.g.cols + gx;
+                             this.flashIntensity[ci] = 1.0;
+                             this.activeFlashes.add(ci);
+                         }
+                    }
+                 }
+            }
+        }
+
+        const bs = 4;
+        const neighbors = [
+            {x: x, y: y - bs, side: 0}, 
+            {x: x + bs, y: y, side: 1}, 
+            {x: x, y: y + bs, side: 2}, 
+            {x: x - bs, y: y, side: 3}  
+        ];
+
+        for (const pn of neighbors) {
+            if (this._isOccupied(pn.x, pn.y)) {
+                let isSameBurst = false;
+                const nmx = pn.x + this.mapPad;
+                const nmy = pn.y + this.mapPad;
+                
+                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
+                     const nbVal = this.map[nmy * this.mapCols + nmx];
+                     const nbBurst = nbVal >> 2;
+                     if (burstId > 0 && nbBurst === burstId) isSameBurst = true;
+                }
+                
+                if (merge) isSameBurst = true;
+                
+                if (!isSameBurst) {
+                    let lx, ly, lw, lh;
+                    if (pn.side === 0) { lx = x; ly = y; lw = bs; lh = 0; }      
+                    else if (pn.side === 1) { lx = x + bs; ly = y; lw = 0; lh = bs; } 
+                    else if (pn.side === 2) { lx = x; ly = y + bs; lw = bs; lh = 0; } 
+                    else if (pn.side === 3) { lx = x; ly = y; lw = 0; lh = bs; }      
+                    
+                    this.lines.push({
+                        x: lx, y: ly, w: lw, h: lh, 
+                        alpha: 1.0, 
+                        persistence: 0, 
+                        isNew: false 
+                    });
+                }
+            } else {
+                const nmx = pn.x + this.mapPad;
+                const nmy = pn.y + this.mapPad;
+                
+                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
+                    const pIdx = nmy * this.mapCols + nmx;
+                    if ((this.map[pIdx] & 3) === 0) {
+                        this.frontier.push({x: pn.x, y: pn.y});
+                        this.map[pIdx] |= 2; 
+                    }
+                }
+            }
+        }
+    }
+
+    _isOccupied(x, y) {
+        const mx = x + this.mapPad;
+        const my = y + this.mapPad;
+        if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) return false;
+        return (this.map[my * this.mapCols + mx] & 1) !== 0;
+    }
+
+    _isValidBoundary(x, y) {
+        return x >= 0 && x < this.g.cols && y >= 0 && y < this.g.rows;
+    }
 
     _updateShadowWorld() {
         // FREEZE: Do not update simulation. We want a "Screenshot".
@@ -138,11 +484,101 @@ class QuantizedExpansionEffect extends AbstractEffect {
     }
 
 
+    _executeSequenceStep(step) {
+        if (!step) return;
+        for (const op of step) {
+            if (op.op === 'add' || op.op === 'addSmart') {
+                this._addBlock(op.args[0], op.args[1], this.burstCounter);
+            } else if (op.op === 'addRect') {
+                const [x1, y1, x2, y2] = op.args;
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+                for(let y=minY; y<=maxY; y++) {
+                    for(let x=minX; x<=maxX; x++) {
+                        this._addBlock(x, y, this.burstCounter);
+                    }
+                }
+            } else if (op.op === 'removeBlock' || op.op === 'rem') {
+                 const [x, y] = op.args;
+                 const idx = this.blocks.findIndex(b => b.x === x && b.y === y);
+                 if (idx !== -1) {
+                     this.blocks.splice(idx, 1);
+                     const mx = x + this.mapPad;
+                     const my = y + this.mapPad;
+                     if (mx >= 0 && mx < this.mapCols && my >= 0 && my < this.mapRows) {
+                         this.map[my * this.mapCols + mx] &= ~1;
+                     }
+                 }
+            }
+        }
+    }
+
+    _rebuildFrontier() {
+        this.frontier = [];
+        const seen = new Set();
+        const step = Math.max(1, Math.ceil(this.blocks.length / 200)); 
+        for(let i=0; i<this.blocks.length; i+=step) {
+            const b = this.blocks[i];
+            const neighbors = [
+                {x: b.x, y: b.y - 4}, {x: b.x + 4, y: b.y},
+                {x: b.x, y: b.y + 4}, {x: b.x - 4, y: b.y}
+            ];
+            for (const n of neighbors) {
+                if (!this._isOccupied(n.x, n.y)) {
+                    const k = `${n.x},${n.y}`;
+                    if (!seen.has(k)) {
+                        this.frontier.push(n);
+                        seen.add(k);
+                    }
+                }
+            }
+        }
+    }
+
     update() {
         if (!this.active) return;
+
+        if (this.debugMode) {
+            super.update();
+            return;
+        }
         
+        // 0. Sequence Playback
+        if (this.isSequencePlaying) {
+            this.localFrame++;
+            const s = this._getEffectiveState();
+            
+            this._updateShadowWorld();
+            this._applyMask();
+            this._updateBorderIllumination(); 
+            
+            if (this.fadeInAlpha < 1.0) {
+                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
+                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
+            }
+            
+            this._updateLines(s);
+            this._updateFlashes();
+
+            const freq = Math.max(1, Math.floor(s.duration * 2)); 
+            if (this.localFrame % freq === 0) {
+                if (this.sequencePhase < this.sequence.length) {
+                    const step = this.sequence[this.sequencePhase];
+                    this._executeSequenceStep(step);
+                    this.sequencePhase++;
+                } else {
+                    this.isSequencePlaying = false;
+                    this.isExpanding = true;
+                    this.growthPhase = 1; 
+                    this.nextExpandTime = this.localFrame + 10;
+                    this._rebuildFrontier();
+                }
+            }
+        }
         // 1. Expansion Logic (If active)
-        if (this.isExpanding) {
+        else if (this.isExpanding) {
             this.localFrame++;
             const s = this._getEffectiveState();
             
@@ -781,6 +1217,11 @@ class QuantizedExpansionEffect extends AbstractEffect {
     }
 
     render(ctx, derived) {
+        if (this.debugMode) {
+            super.renderDebug(ctx, derived);
+            return;
+        }
+
         if (!this.active || !this.isExpanding) return;
         const s = this.c.state;
         const cw = derived.cellWidth * s.stretchX;
