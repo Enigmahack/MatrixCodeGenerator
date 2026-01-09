@@ -32,7 +32,64 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this.offsetX = 0.5; // Fraction of cell width
         this.offsetY = 0.5; // Fraction of cell height
 
+        this._initShadowWorld();
+        this.hasSwapped = false;
+
+        // Flicker Prevention: Ensure renderGrid is initialized to 'Inactive' (-1)
+        // super.trigger() calls _initLogicGrid which zeroes it (Active).
+        if (this.renderGrid) {
+            this.renderGrid.fill(-1);
+        }
+
         return true;
+    }
+
+    _initShadowWorld() {
+        this.shadowGrid = new CellGrid(this.c);
+        const d = this.c.derived;
+        const w = this.g.cols * d.cellWidth;
+        const h = this.g.rows * d.cellHeight;
+        this.shadowGrid.resize(w, h);
+        
+        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c);
+        this.shadowSim.useWorker = false;
+
+        if (this.shadowSim.worker) {
+            this.shadowSim.worker.terminate();
+            this.shadowSim.worker = null;
+        }
+        
+        // Pre-warm / Populate
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        sm.resize(this.shadowGrid.cols);
+
+        // Shuffled columns to guarantee distribution
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+
+        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
+
+        for (let k = 0; k < injectionCount; k++) {
+            const col = columns[k];
+            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
+            const isEraser = Math.random() < 0.2;
+            const stream = sm._initializeStream(col, isEraser, s);
+            stream.y = startY;
+            stream.age = startY; 
+            sm.addActiveStream(stream);
+        }
+    
+        this.shadowSim.timeScale = 1.0;
+        const warmupFrames = 400;
+        this.shadowSimFrame = warmupFrames;
+        
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
+        }
     }
 
     update() {
@@ -42,6 +99,11 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         if (!this.active) return;
 
         this.animFrame++;
+
+        // 0. Update Shadow Simulation
+        if (!this.hasSwapped) {
+            this._updateShadowSim();
+        }
 
         // 1. Lifecycle State Machine (Alpha Fading)
         const fadeInFrames = Math.max(1, s.quantizedPulseFadeInFrames);
@@ -64,6 +126,10 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             if (!this.debugMode && this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
+                // Swap State Trigger
+                if (!this.hasSwapped) {
+                    this._swapStates();
+                }
             }
         } else if (this.state === 'FADE_OUT') {
             this.timer++;
@@ -78,6 +144,11 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                 // Super doesn't track natural finish. 
                 // Let's remove it here to be safe.
                 window.removeEventListener('keydown', this._boundDebugHandler);
+                
+                // Cleanup
+                this.g.clearAllOverrides();
+                this.shadowGrid = null;
+                this.shadowSim = null;
             }
         }
 
@@ -115,6 +186,225 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     break;
                 }
             }
+        }
+    }
+
+    _updateShadowSim() {
+        if (!this.shadowSim) return;
+        
+        // Flicker Prevention: If mask is dirty, we haven't rendered the new shape yet.
+        // The renderGrid might be stale or empty. Skip override update this frame.
+        if (this._maskDirty) return;
+
+        // 1. Advance Simulation
+        // Increment shadow time to ensure StreamManager continues spawning
+        this.shadowSim.update(++this.shadowSimFrame);
+        
+        // 2. Compute "True Outside" Mask
+        // Using renderGrid from the Sequence Effect logic
+        // If logicGrid or renderGrid are not initialized yet, skip
+        if (!this.renderGrid || !this.layout) return;
+
+        const blocksX = Math.ceil(this.g.cols / this.layout.cellPitchX);
+        const blocksY = Math.ceil(this.g.rows / this.layout.cellPitchY);
+        
+        // Compute True Outside (Flood fill from edges)
+        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
+        
+        // 3. Apply Overrides
+        const sg = this.shadowGrid;
+        const g = this.g;
+        const l = this.layout;
+        
+        // Helper to check valid block
+        const isValid = (bx, by) => (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY);
+
+        // Iterate all blocks
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                const idx = by * blocksX + bx;
+                const isOutside = outsideMask[idx] === 1;
+                
+                // Map block to cells
+                const startCellX = Math.floor(bx * l.cellPitchX);
+                const startCellY = Math.floor(by * l.cellPitchY);
+                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+                
+                for (let cy = startCellY; cy < endCellY; cy++) {
+                    if (cy >= g.rows) continue;
+                    for (let cx = startCellX; cx < endCellX; cx++) {
+                        if (cx >= g.cols) continue;
+                        
+                        const cellIdx = cy * g.cols + cx;
+                        
+                        if (!isOutside) {
+                            // INSIDE: Override with Shadow
+                            g.overrideActive[cellIdx] = 3; // Full Override
+                            g.overrideChars[cellIdx] = sg.chars[cellIdx];
+                            g.overrideColors[cellIdx] = sg.colors[cellIdx];
+                            g.overrideAlphas[cellIdx] = sg.alphas[cellIdx];
+                            g.overrideGlows[cellIdx] = sg.glows[cellIdx];
+                            g.overrideMix[cellIdx] = sg.mix[cellIdx];
+                            g.overrideNextChars[cellIdx] = sg.nextChars[cellIdx];
+                        } else {
+                            // OUTSIDE: Restore Main
+                            // Only clear if we were the ones who set it? 
+                            // For safety, we just clear it.
+                            if (g.overrideActive[cellIdx] === 3) {
+                                g.overrideActive[cellIdx] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    _computeTrueOutside(blocksX, blocksY) {
+        // 0 = Unknown/Inside, 1 = Outside
+        const status = new Uint8Array(blocksX * blocksY);
+        const queue = [];
+
+        const add = (x, y) => {
+            if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
+            const idx = y * blocksX + x;
+            // -1 in renderGrid means Inactive/Hole
+            if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
+                status[idx] = 1;
+                queue.push(idx);
+            }
+        };
+
+        // Seed from borders
+        for (let x = 0; x < blocksX; x++) { add(x, 0); add(x, blocksY - 1); }
+        for (let y = 0; y < blocksY; y++) { add(0, y); add(blocksX - 1, y); }
+
+        let head = 0;
+        while (head < queue.length) {
+            const idx = queue[head++];
+            const cx = idx % blocksX;
+            const cy = Math.floor(idx / blocksX);
+            add(cx - 1, cy);
+            add(cx + 1, cy);
+            add(cx, cy - 1);
+            add(cx, cy + 1);
+        }
+        return status;
+    }
+
+    _swapStates() {
+        if (this.hasSwapped) return;
+        
+        try {
+            const g = this.g;
+            const sg = this.shadowGrid;
+            
+            if (sg) {
+                // Commit Buffer State
+                g.state.set(sg.state); 
+                g.chars.set(sg.chars);
+                g.colors.set(sg.colors);
+                g.baseColors.set(sg.baseColors); 
+                g.alphas.set(sg.alphas);
+                g.glows.set(sg.glows);
+                g.fontIndices.set(sg.fontIndices);
+                g.renderMode.set(sg.renderMode); 
+                
+                g.types.set(sg.types);
+                g.decays.set(sg.decays);
+                g.maxDecays.set(sg.maxDecays);
+                g.ages.set(sg.ages);
+                g.brightness.set(sg.brightness);
+                g.rotatorOffsets.set(sg.rotatorOffsets);
+                g.cellLocks.set(sg.cellLocks);
+                
+                g.nextChars.set(sg.nextChars);
+                g.nextOverlapChars.set(sg.nextOverlapChars);
+                
+                g.secondaryChars.set(sg.secondaryChars);
+                g.secondaryColors.set(sg.secondaryColors);
+                g.secondaryAlphas.set(sg.secondaryAlphas);
+                g.secondaryGlows.set(sg.secondaryGlows);
+                g.secondaryFontIndices.set(sg.secondaryFontIndices);
+                
+                g.mix.set(sg.mix);
+                
+                if (sg.activeIndices.size > 0) {
+                    g.activeIndices.clear();
+                    for (const idx of sg.activeIndices) {
+                        g.activeIndices.add(idx);
+                    }
+                }
+                
+                g.complexStyles.clear();
+                for (const [key, value] of sg.complexStyles) {
+                    g.complexStyles.set(key, {...value});
+                }
+                
+                // Swap Stream Manager
+                if (window.matrix && window.matrix.simulation) {
+                    const mainSim = window.matrix.simulation;
+                    const shadowMgr = this.shadowSim.streamManager;
+                    
+                    const streamMap = new Map();
+                    const serializedStreams = shadowMgr.activeStreams.map(s => {
+                        const copy = {...s};
+                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                        streamMap.set(s, copy);
+                        return copy;
+                    });
+                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                    
+                    const state = {
+                        activeStreams: serializedStreams, 
+                        columnSpeeds: shadowMgr.columnSpeeds,
+                        streamsPerColumn: shadowMgr.streamsPerColumn,   
+                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                        overlapInitialized: this.shadowSim.overlapInitialized,
+                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                        activeIndices: Array.from(sg.activeIndices)
+                    };
+                    
+                    const frameOffset = mainSim.frame || 0; 
+                    // Adjust spawn frame to match main sim time relative to shadow sim
+                    const delta = frameOffset - (this.shadowSimFrame || 0);
+                    state.nextSpawnFrame = shadowMgr.nextSpawnFrame + delta;
+
+                    if (mainSim.useWorker && mainSim.worker) {
+                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
+                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                    } else {
+                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
+                        const mainMgr = mainSim.streamManager;
+                        mainMgr.activeStreams = state.activeStreams;
+                        mainMgr.columnSpeeds.set(state.columnSpeeds);
+                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                        mainSim.overlapInitialized = state.overlapInitialized;
+                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                        if (state.activeIndices) {
+                            mainSim.grid.activeIndices.clear();
+                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                        }
+                    }
+                }
+            }
+            
+            // Clear overrides after swap (Main grid now HAS the content)
+            this.g.clearAllOverrides();
+            this.hasSwapped = true;
+            
+        } catch (e) {
+            console.error("[QuantizedPulseEffect] Swap failed:", e);
+            this.g.clearAllOverrides();
+            this.active = false;
         }
     }
 
