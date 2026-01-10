@@ -153,21 +153,23 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         }
 
         // 2. Animation Cycle (Grid Expansion)
-        const cycleDuration = Math.max(1, this.c.derived.cycleDuration);
+        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+        const delayMult = (s.quantizedPulseSpeed !== undefined) ? s.quantizedPulseSpeed : 1;
+        // delayMult acts as a delay multiplier. 
+        // User requested 1 to be 4x faster (0.25 multiplier) and 4 to be normal (1.0 multiplier).
+        const effectiveInterval = baseDuration * (delayMult / 4.0);
+
         this.cycleTimer++;
 
-        if (this.cycleTimer >= cycleDuration) {
+        if (this.cycleTimer >= effectiveInterval) {
             this.cycleTimer = 0;
+            // cyclesCompleted is mostly for debug or legacy tracking now, but we keep it
             this.cyclesCompleted++;
-            const delayCycles = Math.max(1, s.quantizedPulseSpeed || 1);
-            if (this.cyclesCompleted >= delayCycles) {
-                this.cyclesCompleted = 0;
-                
-                // Debug stepping gate
-                if (!this.debugMode || this.manualStep) {
-                    this._processAnimationStep();
-                    this.manualStep = false;
-                }
+            
+            // Debug stepping gate
+            if (!this.debugMode || this.manualStep) {
+                this._processAnimationStep();
+                this.manualStep = false;
             }
         }
 
@@ -347,17 +349,38 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     const mainSim = window.matrix.simulation;
                     const shadowMgr = this.shadowSim.streamManager;
                     
+                    // Collect ALL streams that need to be serialized (Active + References)
+                    const streamsToSerialize = new Set(shadowMgr.activeStreams);
+                    
+                    const addRefs = (arr) => {
+                        for (const s of arr) {
+                            if (s) streamsToSerialize.add(s);
+                        }
+                    };
+                    addRefs(shadowMgr.lastStreamInColumn);
+                    addRefs(shadowMgr.lastEraserInColumn);
+                    addRefs(shadowMgr.lastUpwardTracerInColumn);
+
                     const streamMap = new Map();
-                    const serializedStreams = shadowMgr.activeStreams.map(s => {
+                    const serializedActiveStreams = [];
+
+                    // Serialize objects
+                    for (const s of streamsToSerialize) {
                         const copy = {...s};
                         if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                        
                         streamMap.set(s, copy);
-                        return copy;
-                    });
+                        
+                        // Only add to active list if it was originally active
+                        if (shadowMgr.activeStreams.includes(s)) {
+                            serializedActiveStreams.push(copy);
+                        }
+                    }
+
                     const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
                     
                     const state = {
-                        activeStreams: serializedStreams, 
+                        activeStreams: serializedActiveStreams, 
                         columnSpeeds: shadowMgr.columnSpeeds,
                         streamsPerColumn: shadowMgr.streamsPerColumn,   
                         lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),

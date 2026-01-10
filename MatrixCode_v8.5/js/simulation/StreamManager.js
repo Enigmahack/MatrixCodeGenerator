@@ -440,7 +440,8 @@ class StreamManager {
 
     _initializeEraserStream(stream, s) {
         stream.len = this.grid.rows + 5;
-        stream.visibleLen = this.grid.rows + 20; 
+        const scale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
+        stream.visibleLen = (this.grid.rows + 20) * scale; 
         return stream;
     }
 
@@ -465,7 +466,8 @@ class StreamManager {
         }
 
         const travelDuration = stream.len // * stream.tickInterval;
-        stream.visibleLen = travelDuration + (this.grid.rows * 4);
+        const scale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
+        stream.visibleLen = (travelDuration + (this.grid.rows * 4)) * scale;
 
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
         stream.isGradual = s.gradualColorStreams && (Math.random() * 100 < s.gradualColorStreamsFrequency);
