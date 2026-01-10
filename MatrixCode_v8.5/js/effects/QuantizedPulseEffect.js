@@ -47,6 +47,7 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     _initShadowWorld() {
         this.shadowGrid = new CellGrid(this.c);
         const d = this.c.derived;
+        const s = this.c.state;
         const w = this.g.cols * d.cellWidth;
         const h = this.g.rows * d.cellHeight;
         this.shadowGrid.resize(w, h);
@@ -61,26 +62,68 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         
         // Pre-warm / Populate
         const sm = this.shadowSim.streamManager;
-        const s = this.c.state;
         sm.resize(this.shadowGrid.cols);
 
-        // Shuffled columns to guarantee distribution
+        // --- Dynamic Density Injection ---
+        // Calculate target active streams based on configuration to match "Steady State".
+        // This prevents the "Wall of Code" (too dense) and "Mass Despawning" (synchronized death) issues.
+
+        // 1. Calculate Target Count
+        // Spawn Interval (frames) = releaseInterval * cycleDuration
+        const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
+        // Spawn Rate (streams per frame)
+        const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
+        
+        // Average Life (frames) = Rows * cycleDuration (approx time to traverse screen)
+        // We use this to estimate how many streams exist on screen at any moment.
+        const avgLifeFrames = this.shadowGrid.rows * (d.cycleDuration || 1);
+        
+        // Target Count = Rate * Life
+        let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
+        
+        // Clamp to avoid extreme behaviors
+        targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
+        targetStreamCount = Math.max(targetStreamCount, 5); // Ensure at least some activity
+        
+        // 2. Eraser Ratio
+        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
+        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
+
+        // 3. Smart Distribution
         const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        // Shuffle for random column selection
         for (let i = columns.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [columns[i], columns[j]] = [columns[j], columns[i]];
         }
 
-        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
+        let spawned = 0;
+        let colIdx = 0;
+        const maxAttempts = targetStreamCount * 3; // Safety break
+        let attempts = 0;
 
-        for (let k = 0; k < injectionCount; k++) {
-            const col = columns[k];
+        while (spawned < targetStreamCount && attempts < maxAttempts) {
+            attempts++;
+            const col = columns[colIdx % columns.length];
+            colIdx++;
+            
+            // Random Y Position
             const startY = Math.floor(Math.random() * this.shadowGrid.rows);
-            const isEraser = Math.random() < 0.2;
+            const isEraser = Math.random() < eraserChance;
+            
             const stream = sm._initializeStream(col, isEraser, s);
             stream.y = startY;
-            stream.age = startY; 
-            sm.addActiveStream(stream);
+            
+            // Age Adjustment:
+            // "Backward calculate" age as if the stream started at the top and fell to startY.
+            // This effectively randomizes the 'remaining life' (visibleLen - age), 
+            // preventing synchronized death/despawning.
+            // Only add if the stream would still be alive at this position.
+            if (startY < stream.visibleLen) {
+                stream.age = startY;
+                sm.addActiveStream(stream);
+                spawned++;
+            }
         }
     
         this.shadowSim.timeScale = 1.0;
@@ -583,8 +626,9 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
-        const lineWidthX = screenStepX * 0.25;
-        const lineWidthY = screenStepY * 0.25;
+        const thickness = (s.quantizedPulsePerimeterThickness !== undefined) ? s.quantizedPulsePerimeterThickness : 1.0;
+        const lineWidthX = screenStepX * 0.25 * thickness;
+        const lineWidthY = screenStepY * 0.25 * thickness;
         const halfLineX = lineWidthX / 2;
         const halfLineY = lineWidthY / 2;
         const gridPixW = grid.cols * d.cellWidth; 
