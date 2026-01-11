@@ -57,6 +57,27 @@ class QuantizedExpansionEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
+        // Interruption Logic: Force-commit and stop other Quantized effects
+        if (window.matrix && window.matrix.effectRegistry) {
+            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract"];
+            for (const name of siblings) {
+                const eff = window.matrix.effectRegistry.get(name);
+                if (eff && eff.active) {
+                    if (typeof eff._swapStates === 'function') {
+                        // Pulse/Add style
+                        if (!eff.hasSwapped) eff._swapStates();
+                        eff.active = false;
+                        eff.state = 'IDLE';
+                    } else if (typeof eff._finishExpansion === 'function') {
+                        // Retract/Expansion style
+                        eff._finishExpansion();
+                    } else {
+                        eff.active = false;
+                    }
+                }
+            }
+        }
+
         if (!super.trigger(force)) return false;
 
         document.addEventListener('keydown', this._onKeyDown);
