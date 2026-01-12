@@ -317,7 +317,9 @@ void main() {
             "ttlMinSeconds": 1,
             "ttlMaxSeconds": 8,
             "renderMode3D": false,
-            "flySpeed": 15
+            "flySpeed": 15,
+            "performanceMode": false,
+            "performanceBackup": null
         };
     }
 
@@ -1737,6 +1739,52 @@ void main() {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
+
+        // Special handling for performanceMode
+        if (key === 'performanceMode') {
+            if (value === true) {
+                // Enable Performance Mode - Backup current settings
+                this.state.performanceBackup = {
+                    fontSize: this.state.fontSize,
+                    enableBloom: this.state.enableBloom,
+                    shaderEnabled: this.state.shaderEnabled,
+                    resolution: this.state.resolution,
+                    smoothingEnabled: this.state.smoothingEnabled
+                };
+
+                // Apply Performance Settings
+                // 1. Min Font Size 24 (Larger font = fewer cells = better performance)
+                this.state.fontSize = Math.max(24, this.state.fontSize);
+                
+                // 2. Disable Effects
+                this.state.enableBloom = false;
+                this.state.shaderEnabled = false;
+                this.state.smoothingEnabled = false;
+
+                // 3. Lower Resolution
+                this.state.resolution = 0.75;
+                
+                this.state.performanceMode = true;
+            } else {
+                // Disable Performance Mode - Restore settings
+                if (this.state.performanceBackup) {
+                    const b = this.state.performanceBackup;
+                    if (b.fontSize !== undefined) this.state.fontSize = b.fontSize;
+                    if (b.enableBloom !== undefined) this.state.enableBloom = b.enableBloom;
+                    if (b.shaderEnabled !== undefined) this.state.shaderEnabled = b.shaderEnabled;
+                    if (b.resolution !== undefined) this.state.resolution = b.resolution;
+                    if (b.smoothingEnabled !== undefined) this.state.smoothingEnabled = b.smoothingEnabled;
+                    
+                    this.state.performanceBackup = null;
+                }
+                this.state.performanceMode = false;
+            }
+
+            this.updateDerivedValues();
+            this.save();
+            this.notify('ALL');
+            return;
+        }
 
         // Special handling for shaderEnabled
         if (key === 'shaderEnabled') {

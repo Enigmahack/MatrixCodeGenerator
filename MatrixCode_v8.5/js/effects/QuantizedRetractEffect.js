@@ -532,13 +532,16 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
                 const gy = b.y + by;
                 if (gy >= this.g.rows) continue;
                 const rowOffset = gy * this.g.cols;
+                const srcRowOffset = gy * sg.cols; // Use ShadowGrid Stride
+
                 for(let bx=0; bx<bs; bx++) {
                      const gx = b.x + bx;
                      if (gx < this.g.cols) {
                          const idx = rowOffset + gx;
                          g.overrideActive[idx] = 3; 
-                         if (sg) {
-                             g.overrideMix[idx] = sg.mix[idx];
+                         if (sg && gx < sg.cols) {
+                             const srcIdx = srcRowOffset + gx;
+                             g.overrideMix[idx] = sg.mix[srcIdx];
                          }
                      }
                 }

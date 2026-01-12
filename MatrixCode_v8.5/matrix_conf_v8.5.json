@@ -201,7 +201,9 @@
     "renderingEngine": "canvas",
     "flySpeed": 15,
     "dissolveMinSize": 19,
-    "crashMovieFps": true
+    "crashMovieFps": true,
+    "performanceMode": false,
+    "performanceBackup": null
   },
   "savedPresets": [
     {

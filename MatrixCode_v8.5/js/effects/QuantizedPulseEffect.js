@@ -21,11 +21,14 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this.expansionPhase = 0;
         this.maskOps = [];
         this.editorHighlight = false;
+        
+        // Flicker Fix: Swap Transition State
+        this.isSwapping = false;
+        this.swapTimer = 0;
     }
 
     trigger(force = false) {
         // Fix: If restarting while active and not yet swapped, commit the current state first.
-        // Otherwise we revert to the pre-effect state because the overrides are cleared.
         if (this.active && !this.hasSwapped) {
             this._swapStates();
         }
@@ -37,15 +40,12 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
                     if (typeof eff._swapStates === 'function') {
-                        // Pulse/Add style
                         if (!eff.hasSwapped) eff._swapStates();
                         eff.active = false;
                         eff.state = 'IDLE';
                     } else if (typeof eff._finishExpansion === 'function') {
-                        // Retract/Expansion style (handles swap + stop)
                         eff._finishExpansion();
                     } else {
-                        // Fallback
                         eff.active = false;
                     }
                 }
@@ -57,14 +57,14 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this.state = 'FADE_IN';
         this.timer = 0;
         this.alpha = 0.0;
-        this.offsetX = 0.5; // Fraction of cell width
-        this.offsetY = 0.5; // Fraction of cell height
+        this.offsetX = 0.5; 
+        this.offsetY = 0.5;
 
         this._initShadowWorld();
         this.hasSwapped = false;
+        this.isSwapping = false;
 
-        // Flicker Prevention: Ensure renderGrid is initialized to 'Inactive' (-1)
-        // super.trigger() calls _initLogicGrid which zeroes it (Active).
+        // Ensure renderGrid is initialized
         if (this.renderGrid) {
             this.renderGrid.fill(-1);
         }
@@ -76,11 +76,11 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this.shadowGrid = new CellGrid(this.c);
         const d = this.c.derived;
         const s = this.c.state;
-        const w = this.g.cols * d.cellWidth;
+        // Add padding to ensure floor() doesn't drop a column due to precision
+        const w = (this.g.cols * d.cellWidth) + (d.cellWidth * 0.5);
         const h = this.g.rows * d.cellHeight;
         this.shadowGrid.resize(w, h);
         
-        // Pass false to disable worker initialization for shadow sim
         this.shadowSim = new SimulationSystem(this.shadowGrid, this.c, false);
         this.shadowSim.useWorker = false;
 
@@ -89,38 +89,22 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             this.shadowSim.worker = null;
         }
         
-        // Pre-warm / Populate
         const sm = this.shadowSim.streamManager;
         sm.resize(this.shadowGrid.cols);
 
         // --- Dynamic Density Injection ---
-        // Calculate target active streams based on configuration to match "Steady State".
-        // This prevents the "Wall of Code" (too dense) and "Mass Despawning" (synchronized death) issues.
-
-        // 1. Calculate Target Count
-        // Spawn Interval (frames) = releaseInterval * cycleDuration
         const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
-        // Spawn Rate (streams per frame)
         const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
-        
-        // Average Life (frames) = Rows * cycleDuration (approx time to traverse screen)
-        // We use this to estimate how many streams exist on screen at any moment.
         const avgLifeFrames = this.shadowGrid.rows * (d.cycleDuration || 1);
         
-        // Target Count = Rate * Life
         let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
-        
-        // Clamp to avoid extreme behaviors
         targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
-        targetStreamCount = Math.max(targetStreamCount, 5); // Ensure at least some activity
+        targetStreamCount = Math.max(targetStreamCount, 5);
         
-        // 2. Eraser Ratio
         const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
         const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
 
-        // 3. Smart Distribution
         const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
-        // Shuffle for random column selection
         for (let i = columns.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [columns[i], columns[j]] = [columns[j], columns[i]];
@@ -128,7 +112,7 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
         let spawned = 0;
         let colIdx = 0;
-        const maxAttempts = targetStreamCount * 3; // Safety break
+        const maxAttempts = targetStreamCount * 3; 
         let attempts = 0;
 
         while (spawned < targetStreamCount && attempts < maxAttempts) {
@@ -136,18 +120,12 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             const col = columns[colIdx % columns.length];
             colIdx++;
             
-            // Random Y Position
             const startY = Math.floor(Math.random() * this.shadowGrid.rows);
             const isEraser = Math.random() < eraserChance;
             
             const stream = sm._initializeStream(col, isEraser, s);
             stream.y = startY;
             
-            // Age Adjustment:
-            // "Backward calculate" age as if the stream started at the top and fell to startY.
-            // This effectively randomizes the 'remaining life' (visibleLen - age), 
-            // preventing synchronized death/despawning.
-            // Only add if the stream would still be alive at this position.
             if (startY < stream.visibleLen) {
                 stream.age = startY;
                 sm.addActiveStream(stream);
@@ -172,12 +150,52 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
         this.animFrame++;
 
-        // 0. Update Shadow Simulation
-        if (!this.hasSwapped) {
-            this._updateShadowSim();
+        // 1. Animation Cycle (Grid Expansion) - Logic Update
+        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+        const delayMult = (s.quantizedPulseSpeed !== undefined) ? s.quantizedPulseSpeed : 1;
+        const effectiveInterval = baseDuration * (delayMult / 4.0);
+
+        this.cycleTimer++;
+
+        if (this.cycleTimer >= effectiveInterval) {
+            this.cycleTimer = 0;
+            this.cyclesCompleted++;
+            
+            if (!this.debugMode || this.manualStep) {
+                this._processAnimationStep();
+                this.manualStep = false;
+            }
         }
 
-        // 1. Lifecycle State Machine (Alpha Fading)
+        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
+        this._updateRenderGridLogic();
+
+        // 2. Update Shadow Simulation & Apply Overrides
+        if (!this.hasSwapped && !this.isSwapping) {
+            this._updateShadowSim();
+        } else if (this.isSwapping) {
+            // Keep applying overrides during swap transition buffer
+            // This prevents the "flash of old content" while worker syncs
+            this._updateShadowSim();
+            
+            this.swapTimer--;
+            if (this.swapTimer <= 0) {
+                // Transition Complete
+                this.g.clearAllOverrides();
+                this.isSwapping = false;
+                this.hasSwapped = true;
+                this.active = false;
+                this.state = 'IDLE';
+                
+                // Cleanup
+                this.shadowGrid = null;
+                this.shadowSim = null;
+                
+                window.removeEventListener('keydown', this._boundDebugHandler);
+            }
+        }
+
+        // 3. Lifecycle State Machine
         const fadeInFrames = Math.max(1, s.quantizedPulseFadeInFrames);
         const fadeOutFrames = Math.max(1, s.quantizedPulseFadeFrames);
         const durationFrames = s.quantizedPulseDurationSeconds * fps;
@@ -194,59 +212,32 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             }
         } else if (this.state === 'SUSTAIN') {
             this.timer++;
-            // Infinite duration in debug mode
             if (!this.debugMode && this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
-                // Swap State Trigger
-                if (!this.hasSwapped) {
+                if (!this.hasSwapped && !this.isSwapping) {
                     this._swapStates();
                 }
             }
         } else if (this.state === 'FADE_OUT') {
-            this.timer++;
-            setAlpha(1.0 - (this.timer / fadeOutFrames));
-            if (this.timer >= fadeOutFrames) {
-                this.active = false;
-                this.state = 'IDLE';
-                this.alpha = 0.0;
-                // window.removeEventListener('keydown', this._boundDebugHandler); // Handled by super or state transition? 
-                // Super removes it in _handleDebugInput on Escape.
-                // But if animation finishes naturally, we should remove it?
-                // Super doesn't track natural finish. 
-                // Let's remove it here to be safe.
-                window.removeEventListener('keydown', this._boundDebugHandler);
-                
-                // Cleanup
-                this.g.clearAllOverrides();
-                this.shadowGrid = null;
-                this.shadowSim = null;
+            // If swapping, we handle termination in swap logic.
+            // If just fading out (e.g. cancelled), handle standard fade.
+            if (!this.isSwapping) {
+                this.timer++;
+                setAlpha(1.0 - (this.timer / fadeOutFrames));
+                if (this.timer >= fadeOutFrames) {
+                    this.active = false;
+                    this.state = 'IDLE';
+                    this.alpha = 0.0;
+                    window.removeEventListener('keydown', this._boundDebugHandler);
+                    this.g.clearAllOverrides();
+                    this.shadowGrid = null;
+                    this.shadowSim = null;
+                }
             }
         }
 
-        // 2. Animation Cycle (Grid Expansion)
-        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const delayMult = (s.quantizedPulseSpeed !== undefined) ? s.quantizedPulseSpeed : 1;
-        // delayMult acts as a delay multiplier. 
-        // User requested 1 to be 4x faster (0.25 multiplier) and 4 to be normal (1.0 multiplier).
-        const effectiveInterval = baseDuration * (delayMult / 4.0);
-
-        this.cycleTimer++;
-
-        if (this.cycleTimer >= effectiveInterval) {
-            this.cycleTimer = 0;
-            // cyclesCompleted is mostly for debug or legacy tracking now, but we keep it
-            this.cyclesCompleted++;
-            
-            // Debug stepping gate
-            if (!this.debugMode || this.manualStep) {
-                this._processAnimationStep();
-                this.manualStep = false;
-            }
-        }
-
-        // 3. Animation Transition Management
-        // Use config values for internal transitions
+        // 4. Animation Transition Management (Dirtiness)
         const addDuration = Math.max(1, s.quantizedPulseFadeInFrames || 0);
         const removeDuration = Math.max(1, s.quantizedPulseFadeFrames || 0);
 
@@ -254,7 +245,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             for (const op of this.maskOps) {
                 const age = this.animFrame - op.startFrame;
                 const duration = (op.type === 'remove') ? removeDuration : addDuration;
-                
                 if (age < duration) {
                     this._maskDirty = true;
                     break;
@@ -263,72 +253,134 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         }
     }
 
+    _updateRenderGridLogic() {
+        // Calculates the logical state of the expansion grid (what is active/inactive)
+        // This is decoupled from rendering to ensure simulation has latest bounds.
+        
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+        
+        const blocksX = Math.ceil(this.g.cols / cellPitchX);
+        const blocksY = Math.ceil(this.g.rows / cellPitchY);
+        const totalBlocks = blocksX * blocksY;
+
+        // Initialize or Resize Logic Grid
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
+            this.renderGrid = new Int32Array(totalBlocks);
+            this.renderGrid.fill(-1);
+        } else {
+            // Reset for reconstruction
+            this.renderGrid.fill(-1);
+        }
+
+        if (!this.maskOps || this.maskOps.length === 0) return;
+
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        for (const op of this.maskOps) {
+            if (op.startFrame && this.animFrame < op.startFrame) continue;
+
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
+                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
+                        }
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
+                            this.renderGrid[by * blocksX + bx] = -1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Cache dimensions for _updateShadowSim
+        this._lastBlocksX = blocksX;
+        this._lastBlocksY = blocksY;
+        this._lastPitchX = cellPitchX;
+        this._lastPitchY = cellPitchY;
+    }
+
     _updateShadowSim() {
         if (!this.shadowSim) return;
         
-        // Flicker Prevention: If mask is dirty, we haven't rendered the new shape yet.
-        // The renderGrid might be stale or empty. Skip override update this frame.
-        if (this._maskDirty) return;
+        // Removed: "if (this._maskDirty) return;" 
+        // We MUST update sim even if mask is changing to prevent rain freeze.
 
         // 1. Advance Simulation
-        // Increment shadow time to ensure StreamManager continues spawning
         this.shadowSim.update(++this.shadowSimFrame);
         
         // 2. Compute "True Outside" Mask
-        // Using renderGrid from the Sequence Effect logic
-        // If logicGrid or renderGrid are not initialized yet, skip
-        if (!this.renderGrid || !this.layout) return;
+        if (!this.renderGrid || !this._lastBlocksX) return;
 
-        const blocksX = Math.ceil(this.g.cols / this.layout.cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / this.layout.cellPitchY);
+        const blocksX = this._lastBlocksX;
+        const blocksY = this._lastBlocksY;
+        const pitchX = this._lastPitchX;
+        const pitchY = this._lastPitchY;
         
-        // Compute True Outside (Flood fill from edges)
         const outsideMask = this._computeTrueOutside(blocksX, blocksY);
         
         // 3. Apply Overrides
         const sg = this.shadowGrid;
         const g = this.g;
-        const l = this.layout;
         
-        // Helper to check valid block
-        const isValid = (bx, by) => (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY);
-
-        // Iterate all blocks
         for (let by = 0; by < blocksY; by++) {
             for (let bx = 0; bx < blocksX; bx++) {
                 const idx = by * blocksX + bx;
                 const isOutside = outsideMask[idx] === 1;
                 
-                // Map block to cells
-                const startCellX = Math.floor(bx * l.cellPitchX);
-                const startCellY = Math.floor(by * l.cellPitchY);
-                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+                const startCellX = Math.floor(bx * pitchX);
+                const startCellY = Math.floor(by * pitchY);
+                const endCellX = Math.floor((bx + 1) * pitchX);
+                const endCellY = Math.floor((by + 1) * pitchY);
                 
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
                         if (cx >= g.cols) continue;
                         
-                        const cellIdx = cy * g.cols + cx;
+                        const destIdx = cy * g.cols + cx;
+                        
+                        // Safety check for shadow grid bounds
+                        if (cy >= sg.rows || cx >= sg.cols) continue;
+                        const srcIdx = cy * sg.cols + cx;
                         
                         if (!isOutside) {
                             // INSIDE: Override with Shadow
-                            if (sg && sg.chars && cellIdx < sg.chars.length) {
-                                g.overrideActive[cellIdx] = 3; // Full Override
-                                g.overrideChars[cellIdx] = sg.chars[cellIdx];
-                                g.overrideColors[cellIdx] = sg.colors[cellIdx];
-                                g.overrideAlphas[cellIdx] = sg.alphas[cellIdx];
-                                g.overrideGlows[cellIdx] = sg.glows[cellIdx];
-                                g.overrideMix[cellIdx] = sg.mix[cellIdx];
-                                g.overrideNextChars[cellIdx] = sg.nextChars[cellIdx];
+                            if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                g.overrideActive[destIdx] = 3; 
+                                g.overrideChars[destIdx] = sg.chars[srcIdx];
+                                g.overrideColors[destIdx] = sg.colors[srcIdx];
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
+                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
+                                g.overrideMix[destIdx] = sg.mix[srcIdx];
+                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
                             }
                         } else {
                             // OUTSIDE: Restore Main
-                            // Only clear if we were the ones who set it? 
-                            // For safety, we just clear it.
-                            if (g.overrideActive[cellIdx] === 3) {
-                                g.overrideActive[cellIdx] = 0;
+                            if (g.overrideActive[destIdx] === 3) {
+                                g.overrideActive[destIdx] = 0;
                             }
                         }
                     }
@@ -338,21 +390,18 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     }
     
     _computeTrueOutside(blocksX, blocksY) {
-        // 0 = Unknown/Inside, 1 = Outside
         const status = new Uint8Array(blocksX * blocksY);
         const queue = [];
 
         const add = (x, y) => {
             if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
             const idx = y * blocksX + x;
-            // -1 in renderGrid means Inactive/Hole
             if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
                 status[idx] = 1;
                 queue.push(idx);
             }
         };
 
-        // Seed from borders
         for (let x = 0; x < blocksX; x++) { add(x, 0); add(x, blocksY - 1); }
         for (let y = 0; y < blocksY; y++) { add(0, y); add(blocksX - 1, y); }
 
@@ -370,52 +419,78 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     }
 
     _swapStates() {
-        if (this.hasSwapped) return;
+        if (this.hasSwapped || this.isSwapping) return;
         
         try {
             const g = this.g;
             const sg = this.shadowGrid;
             
             if (sg) {
-                // Commit Buffer State
-                g.state.set(sg.state); 
-                g.chars.set(sg.chars);
-                g.colors.set(sg.colors);
-                g.baseColors.set(sg.baseColors); 
-                g.alphas.set(sg.alphas);
-                g.glows.set(sg.glows);
-                g.fontIndices.set(sg.fontIndices);
-                g.renderMode.set(sg.renderMode); 
+                // Robust Buffer Copy (Handles stride/dimension mismatch)
+                const copyData = (target, source) => {
+                    if (source.length === target.length && sg.cols === g.cols) {
+                        target.set(source);
+                    } else {
+                        const rows = Math.min(sg.rows, g.rows);
+                        const cols = Math.min(sg.cols, g.cols);
+                        for (let y = 0; y < rows; y++) {
+                            const srcOff = y * sg.cols;
+                            const dstOff = y * g.cols;
+                            target.set(source.subarray(srcOff, srcOff + cols), dstOff);
+                        }
+                    }
+                };
+
+                copyData(g.state, sg.state); 
+                copyData(g.chars, sg.chars);
+                copyData(g.colors, sg.colors);
+                copyData(g.baseColors, sg.baseColors); 
+                copyData(g.alphas, sg.alphas);
+                copyData(g.glows, sg.glows);
+                copyData(g.fontIndices, sg.fontIndices);
+                copyData(g.renderMode, sg.renderMode); 
                 
-                g.types.set(sg.types);
-                g.decays.set(sg.decays);
-                g.maxDecays.set(sg.maxDecays);
-                g.ages.set(sg.ages);
-                g.brightness.set(sg.brightness);
-                g.rotatorOffsets.set(sg.rotatorOffsets);
-                g.cellLocks.set(sg.cellLocks);
+                copyData(g.types, sg.types);
+                copyData(g.decays, sg.decays);
+                copyData(g.maxDecays, sg.maxDecays);
+                copyData(g.ages, sg.ages);
+                copyData(g.brightness, sg.brightness);
+                copyData(g.rotatorOffsets, sg.rotatorOffsets);
+                copyData(g.cellLocks, sg.cellLocks);
                 
-                g.nextChars.set(sg.nextChars);
-                g.nextOverlapChars.set(sg.nextOverlapChars);
+                copyData(g.nextChars, sg.nextChars);
+                copyData(g.nextOverlapChars, sg.nextOverlapChars);
                 
-                g.secondaryChars.set(sg.secondaryChars);
-                g.secondaryColors.set(sg.secondaryColors);
-                g.secondaryAlphas.set(sg.secondaryAlphas);
-                g.secondaryGlows.set(sg.secondaryGlows);
-                g.secondaryFontIndices.set(sg.secondaryFontIndices);
+                copyData(g.secondaryChars, sg.secondaryChars);
+                copyData(g.secondaryColors, sg.secondaryColors);
+                copyData(g.secondaryAlphas, sg.secondaryAlphas);
+                copyData(g.secondaryGlows, sg.secondaryGlows);
+                copyData(g.secondaryFontIndices, sg.secondaryFontIndices);
                 
-                g.mix.set(sg.mix);
+                copyData(g.mix, sg.mix);
                 
+                // Remap Active Indices
                 if (sg.activeIndices.size > 0) {
                     g.activeIndices.clear();
                     for (const idx of sg.activeIndices) {
-                        g.activeIndices.add(idx);
+                        const x = idx % sg.cols;
+                        const y = Math.floor(idx / sg.cols);
+                        if (x < g.cols && y < g.rows) {
+                            const newIdx = y * g.cols + x;
+                            g.activeIndices.add(newIdx);
+                        }
                     }
                 }
                 
+                // Remap Complex Styles
                 g.complexStyles.clear();
                 for (const [key, value] of sg.complexStyles) {
-                    g.complexStyles.set(key, {...value});
+                    const x = key % sg.cols;
+                    const y = Math.floor(key / sg.cols);
+                    if (x < g.cols && y < g.rows) {
+                        const newKey = y * g.cols + x;
+                        g.complexStyles.set(newKey, {...value});
+                    }
                 }
                 
                 // Swap Stream Manager
@@ -423,14 +498,8 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     const mainSim = window.matrix.simulation;
                     const shadowMgr = this.shadowSim.streamManager;
                     
-                    // Collect ALL streams that need to be serialized (Active + References)
                     const streamsToSerialize = new Set(shadowMgr.activeStreams);
-                    
-                    const addRefs = (arr) => {
-                        for (const s of arr) {
-                            if (s) streamsToSerialize.add(s);
-                        }
-                    };
+                    const addRefs = (arr) => { for (const s of arr) { if (s) streamsToSerialize.add(s); } };
                     addRefs(shadowMgr.lastStreamInColumn);
                     addRefs(shadowMgr.lastEraserInColumn);
                     addRefs(shadowMgr.lastUpwardTracerInColumn);
@@ -438,17 +507,11 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     const streamMap = new Map();
                     const serializedActiveStreams = [];
 
-                    // Serialize objects
                     for (const s of streamsToSerialize) {
                         const copy = {...s};
                         if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
-                        
                         streamMap.set(s, copy);
-                        
-                        // Only add to active list if it was originally active
-                        if (shadowMgr.activeStreams.includes(s)) {
-                            serializedActiveStreams.push(copy);
-                        }
+                        if (shadowMgr.activeStreams.includes(s)) serializedActiveStreams.push(copy);
                     }
 
                     const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
@@ -467,14 +530,19 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     };
                     
                     const frameOffset = mainSim.frame || 0; 
-                    // Adjust spawn frame to match main sim time relative to shadow sim
                     const delta = frameOffset - (this.shadowSimFrame || 0);
                     state.nextSpawnFrame = shadowMgr.nextSpawnFrame + delta;
 
                     if (mainSim.useWorker && mainSim.worker) {
+                        // Send State to Worker
                         mainSim.worker.postMessage({ type: 'replace_state', state: state });
                         mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                        
+                        // Enter Transition State (Wait for Worker)
+                        this.isSwapping = true;
+                        this.swapTimer = 5; // 5 Frames Buffer
                     } else {
+                        // Main Thread - Immediate Swap
                         state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
                         const mainMgr = mainSim.streamManager;
                         mainMgr.activeStreams = state.activeStreams;
@@ -490,14 +558,14 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                             mainSim.grid.activeIndices.clear();
                             state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
                         }
+                        
+                        // Immediate cleanup for local mode
+                        this.g.clearAllOverrides();
+                        this.hasSwapped = true;
+                        this.active = false;
                     }
                 }
             }
-            
-            // Clear overrides after swap (Main grid now HAS the content)
-            this.g.clearAllOverrides();
-            this.hasSwapped = true;
-            
         } catch (e) {
             console.error("[QuantizedPulseEffect] Swap failed:", e);
             this.g.clearAllOverrides();
@@ -523,47 +591,34 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         const size = blocksX * blocksY;
         const dist = new Uint16Array(size);
         const maxDist = 999;
-        
-        // 1. Initialize
-        // -1 in renderGrid means Inactive.
-        // We initially assume everything is 'Far' (maxDist).
-        // We will 'flood' 0s from the outside.
         dist.fill(maxDist);
 
-        // Queue for BFS (finding Outer Void)
-        // Storing indices
         const queue = [];
-        const visitedVoid = new Uint8Array(size); // 0=Unvisited, 1=OuterVoid
+        const visitedVoid = new Uint8Array(size); 
 
-        // 2. Seed Outer Void ONLY from Internal Holes
-        // We do NOT seed from screen boundaries anymore, treating the screen as a window into an infinite grid.
-        
         const addSeed = (bx, by) => {
             const idx = by * blocksX + bx;
             if (this.renderGrid[idx] === -1) {
                 if (visitedVoid[idx] === 0) {
                     visitedVoid[idx] = 1;
-                    dist[idx] = 0; // Outer Void is distance 0
+                    dist[idx] = 0; 
                     queue.push(idx);
                 }
             }
         };
 
-        // Scan all blocks for holes
         for (let y = 0; y < blocksY; y++) {
             for (let x = 0; x < blocksX; x++) {
                 addSeed(x, y);
             }
         }
 
-        // 3. Flood Fill to find all connected Outer Void
         let head = 0;
         while(head < queue.length) {
             const idx = queue[head++];
             const cx = idx % blocksX;
             const cy = Math.floor(idx / blocksX);
 
-            // Check Neighbors (N, S, E, W)
             const neighbors = [
                 { x: cx, y: cy - 1 },
                 { x: cx, y: cy + 1 },
@@ -574,7 +629,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             for (const n of neighbors) {
                 if (n.x >= 0 && n.x < blocksX && n.y >= 0 && n.y < blocksY) {
                     const nIdx = n.y * blocksX + n.x;
-                    // If neighbor is Inactive and not visited, it's part of Outer Void
                     if (this.renderGrid[nIdx] === -1 && visitedVoid[nIdx] === 0) {
                         visitedVoid[nIdx] = 1;
                         dist[nIdx] = 0;
@@ -584,16 +638,12 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             }
         }
 
-        // 4. Initialize Active Blocks Distance
-        // Active blocks adjacent to Outer Void get Dist = 1.
         for (let y = 0; y < blocksY; y++) {
             for (let x = 0; x < blocksX; x++) {
                 const idx = y * blocksX + x;
-                if (this.renderGrid[idx] === -1) continue; // Skip Inactive
+                if (this.renderGrid[idx] === -1) continue; 
 
                 let isEdge = false;
-                
-                // Check for adjacent Outer Void
                 const nIdxs = [];
                 if (x > 0) nIdxs.push(idx - 1);
                 if (x < blocksX - 1) nIdxs.push(idx + 1);
@@ -601,27 +651,20 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                 if (y < blocksY - 1) nIdxs.push(idx + blocksX);
                 
                 for (const ni of nIdxs) {
-                    if (dist[ni] === 0) { // Using dist=0 as marker for Outer Void
+                    if (dist[ni] === 0) { 
                         isEdge = true;
                         break;
                     }
                 }
-                
-                // Note: We do NOT set isEdge=true for screen boundaries anymore.
-
-                if (isEdge) {
-                    dist[idx] = 1;
-                }
+                if (isEdge) dist[idx] = 1;
             }
         }
 
-        // 5. Distance Transform (Propagate inwards through Active blocks)
-        // Forward Pass
         for (let y = 0; y < blocksY; y++) {
             for (let x = 0; x < blocksX; x++) {
                 const i = y * blocksX + x;
-                if (this.renderGrid[i] === -1) continue; // Don't propagate through holes
-                if (dist[i] === 1) continue; // Already seeded
+                if (this.renderGrid[i] === -1) continue; 
+                if (dist[i] === 1) continue; 
 
                 let minVal = maxDist;
                 if (x > 0 && this.renderGrid[i - 1] !== -1) minVal = Math.min(minVal, dist[i - 1]);
@@ -631,7 +674,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             }
         }
 
-        // Backward Pass
         for (let y = blocksY - 1; y >= 0; y--) {
             for (let x = blocksX - 1; x >= 0; x--) {
                 const i = y * blocksX + x;
@@ -650,6 +692,7 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     }
 
     _updateMask(w, h, s, d) {
+        // Updated to use pre-calculated renderGrid
         const ctx = this.maskCtx;
         const grid = this.g;
         
@@ -693,58 +736,21 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         const addDuration = Math.max(1, fadeInFrames);
         const removeDuration = Math.max(1, fadeFrames);
 
-        this.renderGrid.fill(-1);
-        
-        for (const op of this.maskOps) {
-            if (op.startFrame && now < op.startFrame) continue;
+        // Note: renderGrid is already updated by _updateRenderGridLogic in update()
 
-            if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                        }
-                    }
-                }
-            } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = -1;
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- NEW: Compute Distance Field ---
         const distMap = this._computeDistanceField(blocksX, blocksY);
         
         const isRenderActive = (bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
             const idx = by * blocksX + bx;
-            if (this.renderGrid[idx] === -1) return false;
-            // Trail Cleanup Rule: Distance > 3 is hidden
+            if (!this.renderGrid || this.renderGrid[idx] === -1) return false;
             if (distMap[idx] > 3) return false;
             return true;
         };
         
         const isLocationCoveredByLaterAdd = (bx, by, time) => {
              if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
+             if (!this.renderGrid) return false;
              const activeStart = this.renderGrid[by * blocksX + bx];
              if (activeStart !== -1 && activeStart > time) return true;
              return false;
@@ -776,7 +782,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
-            
             const minX = Math.min(start.x, end.x);
             const maxX = Math.max(start.x, end.x);
             const minY = Math.min(start.y, end.y);
@@ -784,17 +789,13 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
-                    // Check visibility of SELF
                     if (!isRenderActive(bx, by)) continue;
-
                     const nN = isRenderActive(bx, by - 1);
                     const nS = isRenderActive(bx, by + 1);
                     const nW = isRenderActive(bx - 1, by);
                     const nE = isRenderActive(bx + 1, by);
-                    
                     const isConnected = nN || nS || nW || nE;
                     this._addBlock({x:bx, y:by}, {x:bx, y:by}, isConnected);
-                    // No need to pass isRenderActive here as we already checked self
                 }
             }
         }
@@ -803,16 +804,13 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'destination-out';
         for (const op of this.maskOps) {
             if (op.type !== 'removeBlock') continue;
-
             let opacity = 1.0;
             if (fadeFrames === 0 || this.debugMode) opacity = 1.0;
             else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
             ctx.globalAlpha = opacity;
-
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
-            
-            this._addBlock(start, end, false); // Erasures don't check visibility
+            this._addBlock(start, end, false); 
         }
         ctx.globalCompositeOperation = 'source-over';
 
@@ -820,12 +818,10 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'destination-out';
         for (const op of this.maskOps) {
             if (op.type !== 'remove') continue;
-
             let opacity = 1.0;
             if (fadeFrames === 0 || this.debugMode) opacity = 1.0;
             else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
             ctx.globalAlpha = opacity;
-
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             const minX = Math.min(start.x, end.x);
@@ -836,8 +832,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
                      if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                     // Only erase if block is actually visible? 
-                     // If block is hidden, erasing it is redundant but harmless.
                      this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
                 }
             }
@@ -848,11 +842,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         const boldLineWidthX = lineWidthX * 2.0; 
         const boldLineWidthY = lineWidthY * 2.0;
         
-        // Helper: Returns TRUE if the neighbor is effectively "Active" (Solid).
-        // Returns FALSE if the neighbor is "Inactive" (Hole).
-        // We only draw a border if the neighbor is FALSE.
-        // 1. Off-screen neighbors are treated as TRUE (Active) to keep edges open.
-        // 2. Active-but-Hidden neighbors (dist > 3) are treated as TRUE (Active) to hide inner border.
         const hasActiveNeighbor = (nx, ny) => {
             if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return true;
             const nIdx = ny * blocksX + nx;
@@ -861,11 +850,9 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
         for (let by = 0; by < blocksY; by++) {
             for (let bx = 0; bx < blocksX; bx++) {
-                if (!isRenderActive(bx, by)) continue; // Visibility Check!
-
+                if (!isRenderActive(bx, by)) continue; 
                 const idx = by * blocksX + bx;
                 const startFrame = this.renderGrid[idx];
-                
                 let opacity = 1.0;
                 if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
                 else if (startFrame !== -1) opacity = Math.min(1.0, (now - startFrame) / addDuration);
@@ -901,8 +888,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
             if (op.type === 'addLine') {
                 ctx.globalCompositeOperation = 'source-over';
-                
-                // Only draw line if block is visible
                 const minX = Math.min(start.x, end.x);
                 const maxX = Math.max(start.x, end.x);
                 const minY = Math.min(start.y, end.y);
@@ -932,7 +917,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         }
         
         // --- PASS 6: Corner Cleanup ---
-        // (Similar to Pass 2, probably safe to leave as is, or check visibility if strict)
         const cornerMap = new Map(); 
         const activeRemovals = this.maskOps.filter(op => {
             if (op.type !== 'remove' && op.type !== 'removeLine') return false;
@@ -960,7 +944,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                         if (f === 'W' && bx === minX) continue;
                         if (f === 'E' && bx === maxX) continue;
                     }
-                    
                     const idx = by * blocksX + bx;
                     let mask = cornerMap.get(idx) || 0;
                     if (f === 'N') mask |= 1;
@@ -977,9 +960,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         for (const [idx, mask] of cornerMap) {
             const bx = idx % blocksX;
             const by = Math.floor(idx / blocksX);
-            
-            // Should check visibility here?
-            // If block is invisible, removing its corner is irrelevant.
             
             if ((mask & 1) && (mask & 8)) this._removeBlockCorner(bx, by, 'NW');
             if ((mask & 1) && (mask & 4)) this._removeBlockCorner(bx, by, 'NE');
@@ -1003,7 +983,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         ctx.beginPath();
 
         if (visibilityCheck) {
-            // Checked mode: Draw individually
             const rangeMinBx = blockStart.x;
             const rangeMaxBx = blockEnd.x;
             const rangeMinBy = blockStart.y;
@@ -1018,46 +997,19 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
                     const cx = l.screenOriginX + (cellX * l.screenStepX);
                     const cy = l.screenOriginY + (cellY * l.screenStepY);
                     
-                    // Draw Block Rect
                     ctx.rect(cx - l.halfLineX, cy - l.halfLineY, l.lineWidthX, l.lineWidthY);
-                    
-                    // Note: The original _addBlock drew grid lines connecting them if !isExtending.
-                    // But here we just draw the block intersection?
-                    // Original code: 
-                    // rect(cx - half, yPos - half, width, h + width) -> Vertical bar
-                    // rect(xPos - half, cy - half, w + width, width) -> Horizontal bar
-                    // This draws the full grid cross.
-                    
+                                        
                     const xPos = l.screenOriginX + (cellX * l.screenStepX);
                     const yPos = l.screenOriginY + (cellY * l.screenStepY);
-                    
-                    // Draw Cross
-                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, l.screenStepY * l.cellPitchY + l.lineWidthY); // Vert
-                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.screenStepX * l.cellPitchX + l.lineWidthX, l.lineWidthY); // Horiz
-                    
-                    // Wait, this assumes grid structure. 
-                    // The original code was optimized to draw long bars.
-                    // If I break it into blocks, I must ensure they overlap correctly to form lines.
-                    // Actually, if I just draw the 'L' shape or '+' shape?
-                    // The grid lines are:
-                    // Vertical line at X
-                    // Horizontal line at Y
-                    // For block (bx, by):
-                    //   Draw Vert line from Y to Y+1
-                    //   Draw Horiz line from X to X+1
-                    // This will tile perfectly.
                     
                     const w = l.screenStepX * l.cellPitchX;
                     const h = l.screenStepY * l.cellPitchY;
                     
-                    // Vert segment
                     ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
-                    // Horiz segment
                     ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
                 }
             }
         } else {
-            // Legacy mode (for Erasures or extending)
             if (isExtending) {
                 let cy = l.screenOriginY + (startY * l.screenStepY);
                 ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
@@ -1155,44 +1107,34 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
-        this._ensureCanvases(width, height); // Call super (generic args)
+        this._ensureCanvases(width, height); 
 
-        // Ensure layout is calculated for debug mode even if glow is off
-        if (this.debugMode && (!this.layout || this.maskCanvas.width !== width || this._maskDirty)) {
+        // Always update mask layout/drawing for current frame
+        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height || this.debugMode) {
              this._updateMask(width, height, s, d);
              this._maskDirty = false;
         }
 
         if (glowStrength > 0) {
-            if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-                this._updateMask(width, height, s, d);
-                this._maskDirty = false;
-            }
-
-            // 1. Render Text to Scratch Canvas
             this._updateGridCache(width, height, s, d);
             
             const scratchCtx = this.scratchCtx;
             scratchCtx.globalCompositeOperation = 'source-over';
             scratchCtx.clearRect(0, 0, width, height);
 
-            // Draw cached grid
             scratchCtx.globalAlpha = this.alpha; 
             scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
             scratchCtx.globalAlpha = 1.0;
 
-            // 2. Apply Mask
             scratchCtx.globalCompositeOperation = 'destination-in';
             scratchCtx.drawImage(this.maskCanvas, 0, 0);
 
-            // 3. Composite
             ctx.save();
             if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
                 ctx.canvas.style.mixBlendMode = 'plus-lighter';
             }
             ctx.globalCompositeOperation = 'lighter';
             
-            // Colors
             const t = Math.min(1.0, glowStrength / 10.0);
             const glowR = 255;
             const glowG = Math.floor(215 + (255 - 215) * t);

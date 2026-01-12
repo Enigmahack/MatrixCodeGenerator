@@ -112,6 +112,7 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
+            { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for older hardware: Font 24px (min), No Bloom/Post-Process, 0.75x Res, No Smoothing." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },

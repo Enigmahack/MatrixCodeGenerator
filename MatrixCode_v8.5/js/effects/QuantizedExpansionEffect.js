@@ -480,8 +480,8 @@ class QuantizedExpansionEffect extends QuantizedSequenceEffect {
                          const sx = Math.floor(cx + (gx - cx) / progress);
                          const sy = Math.floor(cy + (gy - cy) / progress);
                          
-                         if (sx >= 0 && sx < this.g.cols && sy >= 0 && sy < this.g.rows) {
-                             const sIdx = sy * this.g.cols + sx;
+                         if (sx >= 0 && sx < sg.cols && sy >= 0 && sy < sg.rows) {
+                             const sIdx = sy * sg.cols + sx;
                              
                              // Apply from Shadow Grid
                              g.overrideActive[idx] = 3; // Full Override
