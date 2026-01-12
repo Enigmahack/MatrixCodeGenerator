@@ -27,6 +27,78 @@ class QuantizedPulseEditor {
         this.clipboard = null;
     }
 
+    _decodeSequence(sequence) {
+        if (!sequence || sequence.length === 0) return [[]];
+        
+        // Check if first step is compressed (array of numbers)
+        // If it's empty array or array of objects/strings, it's likely not compressed or empty
+        // But we must handle mixed cases if any.
+        
+        const OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 4: 'addLine', 5: 'remLine', 6: 'addSmart', 7: 'removeBlock' };
+        
+        const decodedSeq = [];
+        for (const step of sequence) {
+            const decodedStep = [];
+            // Check if step is compressed array
+            if (Array.isArray(step) && step.length > 0 && typeof step[0] === 'number') {
+                let i = 0;
+                while (i < step.length) {
+                    const opCode = step[i++];
+                    const opName = OPS_INV[opCode];
+                    if (!opName) continue;
+                    
+                    let args = [];
+                    if (opCode === 1 || opCode === 6 || opCode === 7) {
+                        args = [step[i++], step[i++]];
+                    } else if (opCode === 3) {
+                        args = [step[i++], step[i++], step[i++], step[i++]];
+                    } else if (opCode === 2 || opCode === 4 || opCode === 5) {
+                        const x = step[i++];
+                        const y = step[i++];
+                        const mask = step[i++];
+                        // Convert mask back to separate ops for editor? 
+                        // Actually, editor supports 'N', 'S', etc.
+                        // Ideally we break it down if mask has multiple bits?
+                        // Or we support mask in editor tools?
+                        // The editor tools operate on single faces.
+                        // So we should break it down into single face ops for the editor.
+                        if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'] });
+                        if (mask & 2) decodedStep.push({ op: opName, args: [x, y, 'S'] });
+                        if (mask & 4) decodedStep.push({ op: opName, args: [x, y, 'E'] });
+                        if (mask & 8) decodedStep.push({ op: opName, args: [x, y, 'W'] });
+                        if (mask === 0 && opCode === 2) {
+                             // Special case for 'rem' with mask 0 (hollow) -> handled as logic block remove in editor?
+                             // No, in QuantizedSequenceEffect mask 0 rem checks neighbors.
+                             // But for editor visualization, let's just keep it as is or map to removeBlock?
+                             // Ops 2 with mask 0 is effectively removeBlock if surrounded, or removeLines if not.
+                             // Let's decode as 'removeBlock' for simplicity if mask is 0?
+                             // No, 'rem' with mask 0 is context sensitive. 
+                             // Let's preserve it as 'rem' with explicit 0 mask if needed?
+                             // The editor tools use 'removeBlock' (op 7). 
+                             // If the compressed data has op 2 mask 0, it means 'rem(x,y)' logic.
+                             // Let's decode as { op: 'rem', args: [x, y, null] } 
+                             decodedStep.push({ op: 'rem', args: [x, y] });
+                        }
+                        continue; // Skip the default push
+                    }
+                    decodedStep.push({ op: opName, args: args });
+                }
+            } else {
+                // Already verbose (or empty)
+                // Ensure format consistency (object vs array)
+                for (const opObj of step) {
+                    if (Array.isArray(opObj)) {
+                        decodedStep.push({ op: opObj[0], args: opObj.slice(1) });
+                    } else {
+                        decodedStep.push(opObj);
+                    }
+                }
+            }
+            decodedSeq.push(decodedStep);
+        }
+        return decodedSeq;
+    }
+
     _switchEffect(effectName) {
         const newEffect = this.registry.get(effectName);
         if (!newEffect) return;
@@ -40,6 +112,10 @@ class QuantizedPulseEditor {
         }
 
         this.effect = newEffect;
+        
+        // DECODE ON LOAD
+        // We modify the effect's sequence in-place to be the verbose format for editing
+        this.effect.sequence = this._decodeSequence(this.effect.sequence);
 
         // Activate new effect logic
         if (this.active) {
@@ -57,6 +133,9 @@ class QuantizedPulseEditor {
     toggle(isActive) {
         this.active = isActive;
         if (this.active && this.effect) {
+            // DECODE ON OPEN
+            this.effect.sequence = this._decodeSequence(this.effect.sequence);
+            
             this._createUI();
             this._createCanvas();
             this._attachListeners();
@@ -127,6 +206,12 @@ class QuantizedPulseEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
+        // 1. Render Actual Effect Preview (Base Layer)
+        // This ensures identical output to the animation
+        if (this.effect && typeof this.effect.renderEditorPreview === 'function') {
+            this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
+        }
+
         if (!this.effect.layout) return; 
         
         const l = this.effect.layout;
@@ -140,7 +225,7 @@ class QuantizedPulseEditor {
         const startX = l.screenOriginX;
         const startY = l.screenOriginY;
 
-        // Render Background Grid
+        // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
             ctx.save();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; 
@@ -173,7 +258,7 @@ class QuantizedPulseEditor {
 
         if (!this.highlightChanges) return;
 
-        // Render Holes (Flood Fill)
+        // 3. Render Holes (Flood Fill - Debug Overlay)
         const logicGrid = this.effect.logicGrid;
         const lgW = this.effect.logicGridW;
         const lgH = this.effect.logicGridH;
@@ -181,7 +266,7 @@ class QuantizedPulseEditor {
         ctx.save();
         ctx.fillStyle = 'rgba(128, 0, 128, 0.5)'; // Purple for holes
         
-        // 1. Identify External Empty Space via BFS
+        // Identify External Empty Space via BFS
         const isExternal = new Uint8Array(lgW * lgH); // 0=Unknown, 1=External
         const queue = [];
 
@@ -208,7 +293,7 @@ class QuantizedPulseEditor {
             if (y < lgH - 1) queue.push(idx + lgW);
         }
 
-        // 2. Render Internal Empty Space (Holes)
+        // Render Internal Empty Space (Holes)
         for (let y = 0; y < lgH; y++) {
             for (let x = 0; x < lgW; x++) {
                 const idx = y * lgW + x;
@@ -223,7 +308,7 @@ class QuantizedPulseEditor {
         }
         ctx.restore();
 
-        // Render Active Selection
+        // 4. Render Active Selection
         if (this.selectionRect) {
             ctx.save();
             const minX = this.selectionRect.x + cx;
@@ -245,7 +330,7 @@ class QuantizedPulseEditor {
             ctx.restore();
         }
 
-        // Render Paste Preview
+        // 5. Render Paste Preview
         if (this.currentTool === 'paste' && this.clipboard && this.hoverBlock) {
             ctx.save();
             ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
@@ -261,69 +346,6 @@ class QuantizedPulseEditor {
             }
             ctx.restore();
         }
-
-        // Render Operations
-        const step = this.effect.sequence[this.effect.expansionPhase];
-        const opsToRender = step ? [...step] : [];
-        if (this.effect.editorPreviewOp) {
-            opsToRender.push(this.effect.editorPreviewOp);
-        }
-
-        if (opsToRender.length === 0) return;
-
-        ctx.save();
-        ctx.globalAlpha = 0.8;
-
-        for (const opData of opsToRender) {
-             let op, args;
-             if (Array.isArray(opData)) {
-                 op = opData[0];
-                 args = opData.slice(1);
-             } else {
-                 op = opData.op;
-                 args = opData.args;
-             }
-             
-             ctx.beginPath();
-             if (op === 'add' || op === 'addSmart' || op === 'addRect') {
-                 ctx.strokeStyle = '#00FF00'; 
-                 ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-             } else {
-                 ctx.strokeStyle = '#FF0000'; 
-                 ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-             }
-             
-             if (opData === this.effect.editorPreviewOp) {
-                 ctx.strokeStyle = (this.currentTool === 'select') ? '#0088FF' : '#FFFF00'; 
-                 ctx.setLineDash([5, 5]);
-             } else {
-                 ctx.setLineDash([]);
-             }
-             
-             ctx.lineWidth = 2;
-
-             let x1, y1, x2, y2;
-             if (op === 'addRect') {
-                 x1 = args[0]; y1 = args[1]; x2 = args[2]; y2 = args[3];
-             } else {
-                 x1 = args[0]; y1 = args[1]; x2 = args[0]; y2 = args[1];
-             }
-             
-             const minX = Math.min(x1, x2) + cx;
-             const maxX = Math.max(x1, x2) + cx;
-             const minY = Math.min(y1, y2) + cy;
-             const maxY = Math.max(y1, y2) + cy;
-             
-             const rectX = startX + (minX * l.cellPitchX * l.screenStepX);
-             const rectY = startY + (minY * l.cellPitchY * l.screenStepY);
-             const rectW = ((maxX - minX + 1) * l.cellPitchX * l.screenStepX);
-             const rectH = ((maxY - minY + 1) * l.cellPitchY * l.screenStepY);
-             
-             ctx.rect(rectX, rectY, rectW, rectH);
-             ctx.fill();
-             ctx.stroke();
-        }
-        ctx.restore();
     }
 
     _createUI() {
@@ -591,14 +613,16 @@ class QuantizedPulseEditor {
     }
 
     _exportData() {
-        const json = JSON.stringify(this.effect.sequence);
-        navigator.clipboard.writeText(json).then(() => { alert('Sequence data copied to clipboard!'); });
+        const encoded = this._encodeSequence(this.effect.sequence);
+        const json = JSON.stringify(encoded);
+        navigator.clipboard.writeText(json).then(() => { alert('Sequence data copied to clipboard (Compressed)!'); });
     }
 
     _savePattern() {
         if (!this.effect) return;
         const patternName = this.effect.name;
-        const sequence = this.effect.sequence;
+        // Encode the sequence before saving
+        const sequence = this._encodeSequence(this.effect.sequence);
         
         // Update global object
         const fullPatterns = window.matrixPatterns || {};
@@ -618,7 +642,7 @@ class QuantizedPulseEditor {
         }
         
         // Generate JS content matching the file structure we created
-        const jsonContent = JSON.stringify(fullPatterns, null, 4);
+        const jsonContent = JSON.stringify(fullPatterns, null, 4); // Keep formatted JSON inside the JS file
         const jsContent = `window.matrixPatterns = ${jsonContent};`;
         
         const blob = new Blob([jsContent], {type: 'application/javascript'});
@@ -629,6 +653,56 @@ class QuantizedPulseEditor {
         a.click();
         URL.revokeObjectURL(url);
     }
+
+    _encodeSequence(sequence) {
+        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addLine': 4, 'remLine': 5, 'addSmart': 6, 'removeBlock': 7 };
+        const FACES = { 'N': 1, 'n': 1, 'S': 2, 's': 2, 'E': 4, 'e': 4, 'W': 8, 'w': 8 };
+        
+        const packedSequence = [];
+        for (const step of sequence) {
+            const stepData = [];
+            for (const opObj of step) {
+                let opName, args;
+                if (Array.isArray(opObj)) {
+                    // Already packed? Or intermediate array format?
+                    // Assuming we are editing objects internally, but could be mixed.
+                    // If it's a number, it's already packed logic, so just push it through?
+                    // Ideally the editor converts everything to objects on load/edit.
+                    if (typeof opObj[0] === 'number') {
+                        stepData.push(...opObj);
+                        continue;
+                    }
+                    opName = opObj[0];
+                    args = opObj.slice(1);
+                } else {
+                    opName = opObj.op;
+                    args = opObj.args;
+                }
+
+                const opCode = OPS[opName];
+                if (!opCode) continue;
+
+                stepData.push(opCode);
+                if (opCode === 1 || opCode === 6 || opCode === 7) {
+                    stepData.push(args[0], args[1]);
+                } else if (opCode === 3) {
+                    stepData.push(args[0], args[1], args[2], args[3]);
+                } else if (opCode === 2 || opCode === 4 || opCode === 5) {
+                    stepData.push(args[0], args[1]);
+                    let mask = 0;
+                    if (args.length > 2 && typeof args[2] === 'string') {
+                        mask = FACES[args[2].toUpperCase()] || 0;
+                    } else if (typeof args[2] === 'number') {
+                         mask = args[2];
+                    }
+                    stepData.push(mask);
+                }
+            }
+            packedSequence.push(stepData);
+        }
+        return packedSequence;
+    }
+
 
     _undo() {
         const step = this.effect.sequence[this.effect.expansionPhase];

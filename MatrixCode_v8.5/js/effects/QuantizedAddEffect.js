@@ -1117,4 +1117,9 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             }
         }
     }
+
+    renderDebug(ctx, d) {
+        // Delegate to main render to ensure Green visuals in Editor
+        this.render(ctx, d);
+    }
 }
