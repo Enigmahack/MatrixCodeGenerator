@@ -1403,15 +1403,15 @@ class UIManager {
      * Refreshes the UI to reflect current configuration settings.
      * @param {string} key - The specific configuration key to refresh, or 'ALL' to refresh all controls.
      */
-    refresh(key) {
+    refresh(key, isRecursive = false) {
         try {
             if(key === 'ALL') { 
-                this.defs.forEach(d => { if(d.id) this.refresh(d.id); }); 
+                this.defs.forEach(d => { if(d.id) this.refresh(d.id, true); }); 
                 
                 // Refresh Slot Names
                 this.updateSlotNames();
 
-                this.refresh('fontFamily'); // Special refresh for font list
+                this.refresh('fontFamily', true); // Special refresh for font list
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
                     try {
                         const depRule = JSON.parse(row.getAttribute('data-dep')); 
@@ -1543,6 +1543,13 @@ class UIManager {
 
             if (key === 'quantEditorEnabled' || key === 'ALL') {
                 const enabled = this.c.get('quantEditorEnabled');
+                
+                // Force reload on user toggle to ensure clean state
+                if (key === 'quantEditorEnabled' && !isRecursive) {
+                     location.reload(); 
+                     return; 
+                }
+
                 if (typeof QuantizedPulseEditor !== 'undefined') {
                     if (!this.quantEditor) {
                         this.quantEditor = new QuantizedPulseEditor(this.effects, this);

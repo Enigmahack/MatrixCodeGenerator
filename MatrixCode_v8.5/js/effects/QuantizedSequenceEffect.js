@@ -1194,4 +1194,37 @@ class QuantizedSequenceEffect extends AbstractEffect {
         ctx.drawImage(this.scratchCanvas, 0, 0);
         ctx.restore();
     }
+
+    renderEditorPreview(ctx, derived, previewOp) {
+        // 1. Save State
+        const savedLogicGrid = new Uint8Array(this.logicGrid);
+        const savedMaskOpsLen = this.maskOps.length;
+        
+        // 2. Apply Preview Op
+        if (previewOp) {
+            // previewOp is in format {op: 'add', args: [...]} or array
+            // _executeStepOps expects an array of ops (a step)
+            this._executeStepOps([previewOp]);
+        }
+        
+        // 3. Update Derived Grids (RenderGrid) if method exists
+        // This is crucial for subclasses like QuantizedPulseEffect/QuantizedAddEffect
+        // that rely on renderGrid for visibility checks in _updateMask
+        if (typeof this._updateRenderGridLogic === 'function') {
+            this._updateRenderGridLogic();
+        }
+
+        // 4. Render using the standard Debug pipeline
+        this.renderDebug(ctx, derived);
+
+        // 5. Restore State
+        if (previewOp) {
+            this.maskOps.length = savedMaskOpsLen;
+            this.logicGrid.set(savedLogicGrid);
+             // Restore RenderGrid to original state
+            if (typeof this._updateRenderGridLogic === 'function') {
+                this._updateRenderGridLogic();
+            }
+        }
+    }
 }

@@ -206,6 +206,12 @@ class QuantizedPulseEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
+        // 1. Render Actual Effect Preview (Base Layer)
+        // This ensures identical output to the animation
+        if (this.effect && typeof this.effect.renderEditorPreview === 'function') {
+            this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
+        }
+
         if (!this.effect.layout) return; 
         
         const l = this.effect.layout;
@@ -219,7 +225,7 @@ class QuantizedPulseEditor {
         const startX = l.screenOriginX;
         const startY = l.screenOriginY;
 
-        // Render Background Grid
+        // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
             ctx.save();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; 
@@ -252,7 +258,7 @@ class QuantizedPulseEditor {
 
         if (!this.highlightChanges) return;
 
-        // Render Holes (Flood Fill)
+        // 3. Render Holes (Flood Fill - Debug Overlay)
         const logicGrid = this.effect.logicGrid;
         const lgW = this.effect.logicGridW;
         const lgH = this.effect.logicGridH;
@@ -260,7 +266,7 @@ class QuantizedPulseEditor {
         ctx.save();
         ctx.fillStyle = 'rgba(128, 0, 128, 0.5)'; // Purple for holes
         
-        // 1. Identify External Empty Space via BFS
+        // Identify External Empty Space via BFS
         const isExternal = new Uint8Array(lgW * lgH); // 0=Unknown, 1=External
         const queue = [];
 
@@ -287,7 +293,7 @@ class QuantizedPulseEditor {
             if (y < lgH - 1) queue.push(idx + lgW);
         }
 
-        // 2. Render Internal Empty Space (Holes)
+        // Render Internal Empty Space (Holes)
         for (let y = 0; y < lgH; y++) {
             for (let x = 0; x < lgW; x++) {
                 const idx = y * lgW + x;
@@ -302,7 +308,7 @@ class QuantizedPulseEditor {
         }
         ctx.restore();
 
-        // Render Active Selection
+        // 4. Render Active Selection
         if (this.selectionRect) {
             ctx.save();
             const minX = this.selectionRect.x + cx;
@@ -324,7 +330,7 @@ class QuantizedPulseEditor {
             ctx.restore();
         }
 
-        // Render Paste Preview
+        // 5. Render Paste Preview
         if (this.currentTool === 'paste' && this.clipboard && this.hoverBlock) {
             ctx.save();
             ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
@@ -340,69 +346,6 @@ class QuantizedPulseEditor {
             }
             ctx.restore();
         }
-
-        // Render Operations
-        const step = this.effect.sequence[this.effect.expansionPhase];
-        const opsToRender = step ? [...step] : [];
-        if (this.effect.editorPreviewOp) {
-            opsToRender.push(this.effect.editorPreviewOp);
-        }
-
-        if (opsToRender.length === 0) return;
-
-        ctx.save();
-        ctx.globalAlpha = 0.8;
-
-        for (const opData of opsToRender) {
-             let op, args;
-             if (Array.isArray(opData)) {
-                 op = opData[0];
-                 args = opData.slice(1);
-             } else {
-                 op = opData.op;
-                 args = opData.args;
-             }
-             
-             ctx.beginPath();
-             if (op === 'add' || op === 'addSmart' || op === 'addRect') {
-                 ctx.strokeStyle = '#00FF00'; 
-                 ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-             } else {
-                 ctx.strokeStyle = '#FF0000'; 
-                 ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-             }
-             
-             if (opData === this.effect.editorPreviewOp) {
-                 ctx.strokeStyle = (this.currentTool === 'select') ? '#0088FF' : '#FFFF00'; 
-                 ctx.setLineDash([5, 5]);
-             } else {
-                 ctx.setLineDash([]);
-             }
-             
-             ctx.lineWidth = 2;
-
-             let x1, y1, x2, y2;
-             if (op === 'addRect') {
-                 x1 = args[0]; y1 = args[1]; x2 = args[2]; y2 = args[3];
-             } else {
-                 x1 = args[0]; y1 = args[1]; x2 = args[0]; y2 = args[1];
-             }
-             
-             const minX = Math.min(x1, x2) + cx;
-             const maxX = Math.max(x1, x2) + cx;
-             const minY = Math.min(y1, y2) + cy;
-             const maxY = Math.max(y1, y2) + cy;
-             
-             const rectX = startX + (minX * l.cellPitchX * l.screenStepX);
-             const rectY = startY + (minY * l.cellPitchY * l.screenStepY);
-             const rectW = ((maxX - minX + 1) * l.cellPitchX * l.screenStepX);
-             const rectH = ((maxY - minY + 1) * l.cellPitchY * l.screenStepY);
-             
-             ctx.rect(rectX, rectY, rectW, rectH);
-             ctx.fill();
-             ctx.stroke();
-        }
-        ctx.restore();
     }
 
     _createUI() {
