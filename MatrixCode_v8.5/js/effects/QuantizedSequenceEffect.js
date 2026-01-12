@@ -173,6 +173,95 @@ class QuantizedSequenceEffect extends AbstractEffect {
              if (idx >= 0) this.logicGrid[idx] = 0;
         };
 
+        // --- COMPRESSED FORMAT DECODER ---
+        if (step && step.length > 0 && typeof step[0] === 'number') {
+            let i = 0;
+            while (i < step.length) {
+                const opCode = step[i++];
+                
+                if (opCode === 1) { // add(x, y)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    if (isActive(dx, dy)) {
+                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now });
+                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now });
+                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now });
+                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now });
+                    } else {
+                        this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+                        setLocalActive(dx, dy);
+                    }
+                } else if (opCode === 2) { // rem(x, y, mask)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    const mask = step[i++];
+                    if (mask === 0) {
+                        const nN = isActive(dx, dy - 1);
+                        const nS = isActive(dx, dy + 1);
+                        const nE = isActive(dx + 1, dy);
+                        const nW = isActive(dx - 1, dy);
+                        if (nN && nS && nE && nW) {
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                        } else {
+                            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
+                            setLocalInactive(dx, dy);
+                        }
+                    } else {
+                        if (mask & 1) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
+                        if (mask & 2) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
+                        if (mask & 4) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
+                        if (mask & 8) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                    }
+                } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
+                    const dx1 = step[i++];
+                    const dy1 = step[i++];
+                    const dx2 = step[i++];
+                    const dy2 = step[i++];
+                    this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now });
+                    const minX = Math.min(cx + dx1, cx + dx2);
+                    const maxX = Math.max(cx + dx1, cx + dx2);
+                    const minY = Math.min(cy + dy1, cy + dy2);
+                    const maxY = Math.max(cy + dy1, cy + dy2);
+                    for (let y = minY; y <= maxY; y++) {
+                        for (let x = minX; x <= maxX; x++) {
+                            const idx = getIdx(x, y);
+                            if (idx >= 0) this.logicGrid[idx] = 1;
+                        }
+                    }
+                } else if (opCode === 4) { // addLine(x, y, mask)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    const mask = step[i++];
+                    if (mask & 1) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now });
+                    if (mask & 2) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now });
+                    if (mask & 4) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now });
+                    if (mask & 8) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now });
+                } else if (opCode === 5) { // remLine(x, y, mask)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    const mask = step[i++];
+                    if (mask & 1) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
+                    if (mask & 2) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
+                    if (mask & 4) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
+                    if (mask & 8) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                } else if (opCode === 6) { // addSmart(x, y)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+                    setLocalActive(dx, dy);
+                } else if (opCode === 7) { // removeBlock(x, y)
+                    const dx = step[i++];
+                    const dy = step[i++];
+                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
+                    setLocalInactive(dx, dy);
+                }
+            }
+            return;
+        }
+
         for (const opData of step) {
             let op, args;
             if (Array.isArray(opData)) {
