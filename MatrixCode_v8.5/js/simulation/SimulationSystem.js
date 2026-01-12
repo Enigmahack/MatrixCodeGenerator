@@ -3,7 +3,7 @@
 // =========================================================================
 
 class SimulationSystem {
-    constructor(grid, config) {
+    constructor(grid, config, enableWorker = true) {
         this.grid = grid;
         this.config = config;
         
@@ -12,19 +12,21 @@ class SimulationSystem {
         this.useWorker = false;
         this.workerBuffers = null; // Store current SABs
 
-        // Check for SharedArrayBuffer support
-        // Note: functionality requires secure context (HTTPS/localhost) and cross-origin isolation headers.
-        if (typeof SharedArrayBuffer !== 'undefined') {
-            try {
-                // Test creation
-                new SharedArrayBuffer(10);
-                this.useWorker = true;
-                console.log("[SimulationSystem] SharedArrayBuffer supported. Initializing Simulation Worker.");
-            } catch (e) {
-                console.warn("[SimulationSystem] SharedArrayBuffer defined but creation failed. Fallback to main thread.", e);
+        if (enableWorker) {
+            // Check for SharedArrayBuffer support
+            // Note: functionality requires secure context (HTTPS/localhost) and cross-origin isolation headers.
+            if (typeof SharedArrayBuffer !== 'undefined') {
+                try {
+                    // Test creation
+                    new SharedArrayBuffer(10);
+                    this.useWorker = true;
+                    console.log("[SimulationSystem] SharedArrayBuffer supported. Initializing Simulation Worker.");
+                } catch (e) {
+                    console.warn("[SimulationSystem] SharedArrayBuffer defined but creation failed. Fallback to main thread.", e);
+                }
+            } else {
+                 console.warn("[SimulationSystem] SharedArrayBuffer not supported. Fallback to main thread.");
             }
-        } else {
-             console.log("[SimulationSystem] SharedArrayBuffer not supported. Fallback to main thread.");
         }
 
         if (this.useWorker) {

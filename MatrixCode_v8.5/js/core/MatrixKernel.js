@@ -37,6 +37,7 @@ class MatrixKernel {
 
     async initAsync() {
         // Asynchronous initialization steps
+        await this._loadPatterns();
         await this._initializeRendererAndUI();
 
         // Perform the initial resize setup and start the loop
@@ -51,6 +52,26 @@ class MatrixKernel {
                 this.effectRegistry.trigger('BootSequence');
             }, 100);
         }
+    }
+
+    /**
+     * Loads external pattern data for effects.
+     * @private
+     */
+    async _loadPatterns() {
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = 'js/effects/QuantizedPatterns.js';
+            script.onload = () => {
+                console.log("Patterns loaded successfully.");
+                resolve();
+            };
+            script.onerror = () => {
+                console.warn("Failed to load patterns from js/effects/QuantizedPatterns.js");
+                resolve(); // Resolve anyway to allow app to start
+            };
+            document.head.appendChild(script);
+        });
     }
 
     /**
@@ -164,17 +185,21 @@ class MatrixKernel {
             const bindings = this.config.state.keyBindings || {};
             const key = e.key.toLowerCase();
 
+            // Master Switch for Keybinds
+            if (!this.config.state.enableKeybinds) return;
+
             for (const [action, boundKey] of Object.entries(bindings)) {
                 if (boundKey && boundKey.toLowerCase() === key) {
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
                     } else if (action === 'BootSequence' || action === 'CrashSequence') { 
-                        if (action === 'CrashSequence' && !this.config.state.crashEnabled) return;
-                        this.effectRegistry.trigger(action);
+                        // Allow forcing CrashSequence even if disabled in config
+                        this.effectRegistry.trigger(action, true);
                         this.notifications.show(`${action} Triggered`, 'success');
                     }
                     else {
-                        if (this.effectRegistry.trigger(action)) {
+                        // Always force execution via keybind, overriding "Automatic Enabled" toggles
+                        if (this.effectRegistry.trigger(action, true)) {
                             this.notifications.show(`${action} Triggered`, 'success');
                         }
                     }

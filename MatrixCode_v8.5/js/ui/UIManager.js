@@ -443,6 +443,7 @@ class UIManager {
             { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
 
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
+            { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', description: 'Master switch for key bindings. When enabled, keybinds will force effects to run even if the effect is disabled in settings.' },
             { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
             { cat: 'System', type: 'keybinder', id: 'BootSequence', label: 'Boot Animation' },
             { cat: 'System', type: 'keybinder', id: 'CrashSequence', label: 'Crash Animation' },

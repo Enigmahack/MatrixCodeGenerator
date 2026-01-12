@@ -76,6 +76,8 @@ class QuantizedPulseEditor {
             this._detachListeners();
             if (this.effect) {
                 this.effect.active = false; 
+                this.effect.debugMode = false; // Reset debug mode
+                this.effect.manualStep = false; // Reset manual stepping
                 this.effect.editorPreviewOp = null; 
             }
             this.selectionRect = null;
@@ -273,8 +275,14 @@ class QuantizedPulseEditor {
         ctx.globalAlpha = 0.8;
 
         for (const opData of opsToRender) {
-             const op = opData.op;
-             const args = opData.args;
+             let op, args;
+             if (Array.isArray(opData)) {
+                 op = opData[0];
+                 args = opData.slice(1);
+             } else {
+                 op = opData.op;
+                 args = opData.args;
+             }
              
              ctx.beginPath();
              if (op === 'add' || op === 'addSmart' || op === 'addRect') {
@@ -479,8 +487,14 @@ class QuantizedPulseEditor {
         
         const btnExport = this._createBtn('Copy Data', () => this._exportData());
         btnExport.style.marginTop = '10px';
-        btnExport.style.width = '100%';
+        btnExport.style.width = '48%';
         container.appendChild(btnExport);
+
+        const btnSave = this._createBtn('Save Pattern', () => this._savePattern());
+        btnSave.style.marginTop = '10px';
+        btnSave.style.width = '48%';
+        btnSave.style.marginLeft = '4%';
+        container.appendChild(btnSave);
 
         const legend = document.createElement('div');
         legend.style.marginTop = '10px';
@@ -579,6 +593,40 @@ class QuantizedPulseEditor {
     _exportData() {
         const json = JSON.stringify(this.effect.sequence);
         navigator.clipboard.writeText(json).then(() => { alert('Sequence data copied to clipboard!'); });
+    }
+
+    _savePattern() {
+        if (!this.effect) return;
+        const patternName = this.effect.name;
+        const sequence = this.effect.sequence;
+        
+        // Update global object
+        const fullPatterns = window.matrixPatterns || {};
+        fullPatterns[patternName] = sequence;
+        
+        // Try Electron IPC first
+        if (typeof require !== 'undefined') {
+            try {
+                const { ipcRenderer } = require('electron');
+                ipcRenderer.send('save-patterns', fullPatterns);
+                alert('Patterns saved to disk successfully!');
+                return;
+            } catch (e) {
+                console.warn("IPC Save failed, falling back to download:", e);
+            }
+        }
+        
+        // Generate JS content matching the file structure we created
+        const jsonContent = JSON.stringify(fullPatterns, null, 4);
+        const jsContent = `window.matrixPatterns = ${jsonContent};`;
+        
+        const blob = new Blob([jsContent], {type: 'application/javascript'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'QuantizedPatterns.js';
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     _undo() {
@@ -733,11 +781,20 @@ class QuantizedPulseEditor {
             else if (this.currentTool === 'removeLine') { opName = 'remLine'; args = [dx, dy, this.currentFace]; }
 
             if (opName) {
-                const existingIdx = step.findIndex(o => 
-                    o.op === opName && 
-                    o.args.length === args.length && 
-                    o.args.every((v, i) => v === args[i])
-                );
+                const existingIdx = step.findIndex(o => {
+                    let oOp, oArgs;
+                    if (Array.isArray(o)) {
+                        oOp = o[0];
+                        oArgs = o.slice(1);
+                    } else {
+                        oOp = o.op;
+                        oArgs = o.args;
+                    }
+                    
+                    return oOp === opName && 
+                    oArgs.length === args.length && 
+                    oArgs.every((v, i) => v === args[i]);
+                });
                 if (existingIdx !== -1) { step.splice(existingIdx, 1); } 
                 else { step.push({ op: opName, args: args }); }
                 this.effect.refreshStep();

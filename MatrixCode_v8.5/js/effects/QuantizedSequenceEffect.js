@@ -86,6 +86,11 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const enabled = this.getConfig('Enabled');
         if (!enabled && !force) return false;
 
+        // Load Pattern if available
+        if (window.matrixPatterns && window.matrixPatterns[this.name]) {
+            this.sequence = window.matrixPatterns[this.name];
+        }
+
         this.active = true;
         
         this.cycleTimer = 0;
@@ -169,8 +174,14 @@ class QuantizedSequenceEffect extends AbstractEffect {
         };
 
         for (const opData of step) {
-            const op = opData.op;
-            const args = opData.args;
+            let op, args;
+            if (Array.isArray(opData)) {
+                op = opData[0];
+                args = opData.slice(1);
+            } else {
+                op = opData.op;
+                args = opData.args;
+            }
             
             if (op === 'add') {
                 const [dx, dy] = args;

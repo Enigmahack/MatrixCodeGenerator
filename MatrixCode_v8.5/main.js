@@ -31,6 +31,21 @@ function createWindows() {
   });
 }
 
+// IPC Handlers
+const fs = require('fs');
+const { ipcMain } = require('electron');
+
+ipcMain.on('save-patterns', (event, patterns) => {
+    try {
+        const filePath = path.join(__dirname, 'js', 'effects', 'QuantizedPatterns.js');
+        const content = `window.matrixPatterns = ${JSON.stringify(patterns, null, 4)};`;
+        fs.writeFileSync(filePath, content);
+        // console.log("Patterns saved to:", filePath);
+    } catch (err) {
+        console.error("Failed to save patterns:", err);
+    }
+});
+
 app.whenReady().then(() => {
   // Enable SharedArrayBuffer support via Headers
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
