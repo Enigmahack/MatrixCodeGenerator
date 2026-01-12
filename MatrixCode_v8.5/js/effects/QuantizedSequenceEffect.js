@@ -286,6 +286,183 @@ class QuantizedSequenceEffect extends AbstractEffect {
         }
     }
 
+    _initShadowWorldBase(workerEnabled = false) {
+        this.shadowGrid = new CellGrid(this.c);
+        const d = this.c.derived;
+        // Add padding to ensure floor() doesn't drop a column due to precision
+        const w = (this.g.cols * d.cellWidth) + (d.cellWidth * 0.5);
+        const h = this.g.rows * d.cellHeight;
+        this.shadowGrid.resize(w, h);
+        
+        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c, false);
+        this.shadowSim.useWorker = workerEnabled;
+
+        if (!workerEnabled && this.shadowSim.worker) {
+            this.shadowSim.worker.terminate();
+            this.shadowSim.worker = null;
+        }
+        
+        const sm = this.shadowSim.streamManager;
+        sm.resize(this.shadowGrid.cols);
+        this.shadowSim.timeScale = 1.0;
+        
+        return this.shadowSim;
+    }
+
+    _commitShadowState() {
+        if (!this.shadowGrid || !this.shadowSim) return false;
+        
+        try {
+            const g = this.g;
+            const sg = this.shadowGrid;
+            
+            // 1. Copy Grid Buffers
+            this._copyGridBuffers(g, sg);
+            
+            // 2. Swap Stream Manager
+            if (window.matrix && window.matrix.simulation) {
+                const mainSim = window.matrix.simulation;
+                const shadowMgr = this.shadowSim.streamManager;
+                
+                // Serialize Streams
+                const streamsToSerialize = new Set(shadowMgr.activeStreams);
+                const addRefs = (arr) => { for (const s of arr) { if (s) streamsToSerialize.add(s); } };
+                addRefs(shadowMgr.lastStreamInColumn);
+                addRefs(shadowMgr.lastEraserInColumn);
+                addRefs(shadowMgr.lastUpwardTracerInColumn);
+
+                const streamMap = new Map();
+                const serializedActiveStreams = [];
+
+                for (const s of streamsToSerialize) {
+                    const copy = {...s};
+                    if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
+                    streamMap.set(s, copy);
+                    if (shadowMgr.activeStreams.includes(s)) serializedActiveStreams.push(copy);
+                }
+
+                const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                
+                const state = {
+                    activeStreams: serializedActiveStreams, 
+                    columnSpeeds: shadowMgr.columnSpeeds,
+                    streamsPerColumn: shadowMgr.streamsPerColumn,   
+                    lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
+                    lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
+                    lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
+                    nextSpawnFrame: shadowMgr.nextSpawnFrame,
+                    overlapInitialized: this.shadowSim.overlapInitialized,
+                    _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
+                    activeIndices: Array.from(sg.activeIndices)
+                };
+                
+                // Adjust Spawn Frame
+                const frameOffset = mainSim.frame || 0; 
+                // We use this.shadowSimFrame (if set) or this.localFrame (if set) to calc delta
+                const shadowFrame = (this.shadowSimFrame !== undefined) ? this.shadowSimFrame : (this.localFrame || 0);
+                const delta = frameOffset - shadowFrame;
+                state.nextSpawnFrame = shadowMgr.nextSpawnFrame + delta;
+
+                if (mainSim.useWorker && mainSim.worker) {
+                    mainSim.worker.postMessage({ type: 'replace_state', state: state });
+                    mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
+                    return 'ASYNC'; // Signal that we are entering async transition
+                } else {
+                    state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
+                    const mainMgr = mainSim.streamManager;
+                    mainMgr.activeStreams = state.activeStreams;
+                    mainMgr.columnSpeeds.set(state.columnSpeeds);
+                    if (mainMgr.streamsPerColumn && state.streamsPerColumn) mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                    mainMgr.lastStreamInColumn = state.lastStreamInColumn;
+                    mainMgr.lastEraserInColumn = state.lastEraserInColumn;
+                    mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
+                    mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                    mainSim.overlapInitialized = state.overlapInitialized;
+                    mainSim._lastOverlapDensity = state._lastOverlapDensity;
+                    if (state.activeIndices) {
+                        mainSim.grid.activeIndices.clear();
+                        state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                    }
+                    return 'SYNC'; // Signal immediate success
+                }
+            }
+            return 'SYNC';
+        } catch (e) {
+            console.error("[QuantizedEffect] Swap failed:", e);
+            return false;
+        }
+    }
+
+    _copyGridBuffers(g, sg) {
+        // Robust Buffer Copy (Handles stride/dimension mismatch)
+        const copyData = (target, source) => {
+            if (!target || !source) return;
+            if (source.length === target.length && sg.cols === g.cols) {
+                target.set(source);
+            } else {
+                const rows = Math.min(sg.rows, g.rows);
+                const cols = Math.min(sg.cols, g.cols);
+                for (let y = 0; y < rows; y++) {
+                    const srcOff = y * sg.cols;
+                    const dstOff = y * g.cols;
+                    target.set(source.subarray(srcOff, srcOff + cols), dstOff);
+                }
+            }
+        };
+
+        copyData(g.state, sg.state); 
+        copyData(g.chars, sg.chars);
+        copyData(g.colors, sg.colors);
+        copyData(g.baseColors, sg.baseColors); 
+        copyData(g.alphas, sg.alphas);
+        copyData(g.glows, sg.glows);
+        copyData(g.fontIndices, sg.fontIndices);
+        copyData(g.renderMode, sg.renderMode); 
+        
+        copyData(g.types, sg.types);
+        copyData(g.decays, sg.decays);
+        copyData(g.maxDecays, sg.maxDecays);
+        copyData(g.ages, sg.ages);
+        copyData(g.brightness, sg.brightness);
+        copyData(g.rotatorOffsets, sg.rotatorOffsets);
+        copyData(g.cellLocks, sg.cellLocks);
+        
+        copyData(g.nextChars, sg.nextChars);
+        copyData(g.nextOverlapChars, sg.nextOverlapChars);
+        
+        copyData(g.secondaryChars, sg.secondaryChars);
+        copyData(g.secondaryColors, sg.secondaryColors);
+        copyData(g.secondaryAlphas, sg.secondaryAlphas);
+        copyData(g.secondaryGlows, sg.secondaryGlows);
+        copyData(g.secondaryFontIndices, sg.secondaryFontIndices);
+        
+        copyData(g.mix, sg.mix);
+        
+        // Remap Active Indices
+        if (sg.activeIndices.size > 0) {
+            g.activeIndices.clear();
+            for (const idx of sg.activeIndices) {
+                const x = idx % sg.cols;
+                const y = Math.floor(idx / sg.cols);
+                if (x < g.cols && y < g.rows) {
+                    const newIdx = y * g.cols + x;
+                    g.activeIndices.add(newIdx);
+                }
+            }
+        }
+        
+        // Remap Complex Styles
+        g.complexStyles.clear();
+        for (const [key, value] of sg.complexStyles) {
+            const x = key % sg.cols;
+            const y = Math.floor(key / sg.cols);
+            if (x < g.cols && y < g.rows) {
+                const newKey = y * g.cols + x;
+                g.complexStyles.set(newKey, {...value});
+            }
+        }
+    }
+
     _updateGridCache(w, h, s, d) {
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);

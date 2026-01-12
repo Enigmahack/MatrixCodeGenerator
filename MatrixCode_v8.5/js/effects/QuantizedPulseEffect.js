@@ -73,24 +73,10 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     }
 
     _initShadowWorld() {
-        this.shadowGrid = new CellGrid(this.c);
-        const d = this.c.derived;
-        const s = this.c.state;
-        // Add padding to ensure floor() doesn't drop a column due to precision
-        const w = (this.g.cols * d.cellWidth) + (d.cellWidth * 0.5);
-        const h = this.g.rows * d.cellHeight;
-        this.shadowGrid.resize(w, h);
-        
-        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c, false);
-        this.shadowSim.useWorker = false;
-
-        if (this.shadowSim.worker) {
-            this.shadowSim.worker.terminate();
-            this.shadowSim.worker = null;
-        }
-        
+        this._initShadowWorldBase(false);
         const sm = this.shadowSim.streamManager;
-        sm.resize(this.shadowGrid.cols);
+        const s = this.c.state;
+        const d = this.c.derived;
 
         // --- Dynamic Density Injection ---
         const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
@@ -133,7 +119,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
             }
         }
     
-        this.shadowSim.timeScale = 1.0;
         const warmupFrames = 400;
         this.shadowSimFrame = warmupFrames;
         
@@ -421,153 +406,17 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     _swapStates() {
         if (this.hasSwapped || this.isSwapping) return;
         
-        try {
-            const g = this.g;
-            const sg = this.shadowGrid;
-            
-            if (sg) {
-                // Robust Buffer Copy (Handles stride/dimension mismatch)
-                const copyData = (target, source) => {
-                    if (source.length === target.length && sg.cols === g.cols) {
-                        target.set(source);
-                    } else {
-                        const rows = Math.min(sg.rows, g.rows);
-                        const cols = Math.min(sg.cols, g.cols);
-                        for (let y = 0; y < rows; y++) {
-                            const srcOff = y * sg.cols;
-                            const dstOff = y * g.cols;
-                            target.set(source.subarray(srcOff, srcOff + cols), dstOff);
-                        }
-                    }
-                };
-
-                copyData(g.state, sg.state); 
-                copyData(g.chars, sg.chars);
-                copyData(g.colors, sg.colors);
-                copyData(g.baseColors, sg.baseColors); 
-                copyData(g.alphas, sg.alphas);
-                copyData(g.glows, sg.glows);
-                copyData(g.fontIndices, sg.fontIndices);
-                copyData(g.renderMode, sg.renderMode); 
-                
-                copyData(g.types, sg.types);
-                copyData(g.decays, sg.decays);
-                copyData(g.maxDecays, sg.maxDecays);
-                copyData(g.ages, sg.ages);
-                copyData(g.brightness, sg.brightness);
-                copyData(g.rotatorOffsets, sg.rotatorOffsets);
-                copyData(g.cellLocks, sg.cellLocks);
-                
-                copyData(g.nextChars, sg.nextChars);
-                copyData(g.nextOverlapChars, sg.nextOverlapChars);
-                
-                copyData(g.secondaryChars, sg.secondaryChars);
-                copyData(g.secondaryColors, sg.secondaryColors);
-                copyData(g.secondaryAlphas, sg.secondaryAlphas);
-                copyData(g.secondaryGlows, sg.secondaryGlows);
-                copyData(g.secondaryFontIndices, sg.secondaryFontIndices);
-                
-                copyData(g.mix, sg.mix);
-                
-                // Remap Active Indices
-                if (sg.activeIndices.size > 0) {
-                    g.activeIndices.clear();
-                    for (const idx of sg.activeIndices) {
-                        const x = idx % sg.cols;
-                        const y = Math.floor(idx / sg.cols);
-                        if (x < g.cols && y < g.rows) {
-                            const newIdx = y * g.cols + x;
-                            g.activeIndices.add(newIdx);
-                        }
-                    }
-                }
-                
-                // Remap Complex Styles
-                g.complexStyles.clear();
-                for (const [key, value] of sg.complexStyles) {
-                    const x = key % sg.cols;
-                    const y = Math.floor(key / sg.cols);
-                    if (x < g.cols && y < g.rows) {
-                        const newKey = y * g.cols + x;
-                        g.complexStyles.set(newKey, {...value});
-                    }
-                }
-                
-                // Swap Stream Manager
-                if (window.matrix && window.matrix.simulation) {
-                    const mainSim = window.matrix.simulation;
-                    const shadowMgr = this.shadowSim.streamManager;
-                    
-                    const streamsToSerialize = new Set(shadowMgr.activeStreams);
-                    const addRefs = (arr) => { for (const s of arr) { if (s) streamsToSerialize.add(s); } };
-                    addRefs(shadowMgr.lastStreamInColumn);
-                    addRefs(shadowMgr.lastEraserInColumn);
-                    addRefs(shadowMgr.lastUpwardTracerInColumn);
-
-                    const streamMap = new Map();
-                    const serializedActiveStreams = [];
-
-                    for (const s of streamsToSerialize) {
-                        const copy = {...s};
-                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
-                        streamMap.set(s, copy);
-                        if (shadowMgr.activeStreams.includes(s)) serializedActiveStreams.push(copy);
-                    }
-
-                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
-                    
-                    const state = {
-                        activeStreams: serializedActiveStreams, 
-                        columnSpeeds: shadowMgr.columnSpeeds,
-                        streamsPerColumn: shadowMgr.streamsPerColumn,   
-                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
-                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
-                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
-                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
-                        overlapInitialized: this.shadowSim.overlapInitialized,
-                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
-                        activeIndices: Array.from(sg.activeIndices)
-                    };
-                    
-                    const frameOffset = mainSim.frame || 0; 
-                    const delta = frameOffset - (this.shadowSimFrame || 0);
-                    state.nextSpawnFrame = shadowMgr.nextSpawnFrame + delta;
-
-                    if (mainSim.useWorker && mainSim.worker) {
-                        // Send State to Worker
-                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
-                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
-                        
-                        // Enter Transition State (Wait for Worker)
-                        this.isSwapping = true;
-                        this.swapTimer = 5; // 5 Frames Buffer
-                    } else {
-                        // Main Thread - Immediate Swap
-                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
-                        const mainMgr = mainSim.streamManager;
-                        mainMgr.activeStreams = state.activeStreams;
-                        mainMgr.columnSpeeds.set(state.columnSpeeds);
-                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
-                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
-                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
-                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
-                        mainSim.overlapInitialized = state.overlapInitialized;
-                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
-                        if (state.activeIndices) {
-                            mainSim.grid.activeIndices.clear();
-                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
-                        }
-                        
-                        // Immediate cleanup for local mode
-                        this.g.clearAllOverrides();
-                        this.hasSwapped = true;
-                        this.active = false;
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("[QuantizedPulseEffect] Swap failed:", e);
+        const result = this._commitShadowState();
+        
+        if (result === 'ASYNC') {
+            this.isSwapping = true;
+            this.swapTimer = 5; 
+        } else if (result === 'SYNC') {
+            this.g.clearAllOverrides();
+            this.hasSwapped = true;
+            this.active = false;
+        } else {
+            // Failed
             this.g.clearAllOverrides();
             this.active = false;
         }

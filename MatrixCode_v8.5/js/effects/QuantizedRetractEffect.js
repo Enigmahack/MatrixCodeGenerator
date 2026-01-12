@@ -297,112 +297,17 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
     }
 
     _finishExpansion() {
-        try {
-            const g = this.g;
-            const sg = this.shadowGrid;
-            
-            if (sg) {
-                // Commit Buffer State (Same as Pulse)
-                g.state.set(sg.state); 
-                g.chars.set(sg.chars);
-                g.colors.set(sg.colors);
-                g.baseColors.set(sg.baseColors); 
-                g.alphas.set(sg.alphas);
-                g.glows.set(sg.glows);
-                g.fontIndices.set(sg.fontIndices);
-                g.renderMode.set(sg.renderMode); 
-                
-                g.types.set(sg.types);
-                g.decays.set(sg.decays);
-                g.ages.set(sg.ages);
-                g.brightness.set(sg.brightness);
-                g.rotatorOffsets.set(sg.rotatorOffsets);
-                g.cellLocks.set(sg.cellLocks);
-                
-                g.nextChars.set(sg.nextChars);
-                g.nextOverlapChars.set(sg.nextOverlapChars);
-                
-                g.secondaryChars.set(sg.secondaryChars);
-                g.secondaryColors.set(sg.secondaryColors);
-                g.secondaryAlphas.set(sg.secondaryAlphas);
-                g.secondaryGlows.set(sg.secondaryGlows);
-                g.secondaryFontIndices.set(sg.secondaryFontIndices);
-                
-                g.mix.set(sg.mix);
-                
-                if (sg.activeIndices.size > 0) {
-                    g.activeIndices.clear();
-                    for (const idx of sg.activeIndices) {
-                        g.activeIndices.add(idx);
-                    }
-                }
-                
-                g.complexStyles.clear();
-                for (const [key, value] of sg.complexStyles) {
-                    g.complexStyles.set(key, {...value});
-                }
-                
-                // Swap Stream Manager
-                if (window.matrix && window.matrix.simulation) {
-                    const mainSim = window.matrix.simulation;
-                    const shadowMgr = this.shadowSim.streamManager;
-                    
-                    const streamMap = new Map();
-                    const serializedStreams = shadowMgr.activeStreams.map(s => {
-                        const copy = {...s};
-                        if (copy.holes instanceof Set) copy.holes = Array.from(copy.holes);
-                        streamMap.set(s, copy);
-                        return copy;
-                    });
-                    const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
-                    
-                    const state = {
-                        activeStreams: serializedStreams, 
-                        columnSpeeds: shadowMgr.columnSpeeds,   
-                        lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
-                        lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
-                        lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
-                        nextSpawnFrame: shadowMgr.nextSpawnFrame,
-                        overlapInitialized: this.shadowSim.overlapInitialized,
-                        _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
-                        activeIndices: Array.from(sg.activeIndices)
-                    };
-                    
-                    const frameOffset = mainSim.frame || 0; 
-                    state.nextSpawnFrame = frameOffset + (state.nextSpawnFrame - this.localFrame);
-
-                    if (mainSim.useWorker && mainSim.worker) {
-                        mainSim.worker.postMessage({ type: 'replace_state', state: state });
-                        mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(this.c.state)), derived: this.c.derived } });
-                    } else {
-                        state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
-                        const mainMgr = mainSim.streamManager;
-                        mainMgr.activeStreams = state.activeStreams;
-                        mainMgr.columnSpeeds.set(state.columnSpeeds);
-                        mainMgr.lastStreamInColumn = state.lastStreamInColumn;
-                        mainMgr.lastEraserInColumn = state.lastEraserInColumn;
-                        mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                        mainMgr.nextSpawnFrame = state.nextSpawnFrame;
-                        mainSim.overlapInitialized = state.overlapInitialized;
-                        mainSim._lastOverlapDensity = state._lastOverlapDensity;
-                        if (state.activeIndices) {
-                            mainSim.grid.activeIndices.clear();
-                            state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
-                        }
-                    }
-                }
-            }
-            
-            this.resetExpansion(); 
-            this.g.clearAllOverrides(); 
-            this._updateFlashes(); 
-            this.shadowGrid = null;
-            this.shadowSim = null;
-            
-        } catch (e) {
-            console.error("[QuantizedRetract] Swap failed:", e);
-            this.g.clearAllOverrides();
-            this.stop();
+        const result = this._commitShadowState();
+        
+        this.resetExpansion(); 
+        this.g.clearAllOverrides(); 
+        this._updateFlashes(); 
+        this.shadowGrid = null;
+        this.shadowSim = null;
+        
+        if (result === false) {
+             console.error("[QuantizedRetract] Swap failed");
+             this.stop();
         }
     }
 
