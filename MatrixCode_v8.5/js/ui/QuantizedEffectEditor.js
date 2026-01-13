@@ -1,4 +1,4 @@
-class QuantizedPulseEditor {
+class QuantizedEffectEditor {
     constructor(registry, uimanager) {
         this.registry = registry;
         this.ui = uimanager;
@@ -366,7 +366,7 @@ class QuantizedPulseEditor {
         container.style.cursor = 'default';
 
         const header = document.createElement('div');
-        header.textContent = 'Quantized Pulse Editor';
+        header.textContent = 'Quantized Effect Editor';
         header.style.marginBottom = '10px';
         header.style.fontWeight = 'bold';
         header.style.cursor = 'move';

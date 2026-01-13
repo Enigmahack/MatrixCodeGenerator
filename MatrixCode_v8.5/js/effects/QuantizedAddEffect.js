@@ -1037,16 +1037,28 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 
+    _ensureCanvases(w, h) {
+        super._ensureCanvases(w, h);
+        if (!this.perimeterMaskCanvas) {
+            this.perimeterMaskCanvas = document.createElement('canvas');
+            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
+        }
+        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
+            this.perimeterMaskCanvas.width = w;
+            this.perimeterMaskCanvas.height = h;
+        }
+    }
+
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
         const s = this.c.state;
         const glowStrength = s.quantizedAddBorderIllumination || 0;
         
-        // Colors from config (Green Default)
+        // Colors from config
         const showInterior = (s.quantizedAddShowInterior !== undefined) ? s.quantizedAddShowInterior : false;
-        const borderColor = s.quantizedAddBorderColor || "#00FF00";
-        const interiorColor = s.quantizedAddInteriorColor || "#00FF00";
+        const borderColor = s.quantizedAddPerimeterColor || "#00FF00";
+        const interiorColor = s.quantizedAddInnerColor || "#00FF00";
         
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;

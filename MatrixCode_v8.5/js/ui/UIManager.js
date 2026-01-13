@@ -373,6 +373,8 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedPulseEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulsePerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulsePerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseInnerColor', type: 'color', label: 'Inner Line Color', dep: 'quantizedPulseEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add', action: 'quantizedAdd', class: 'btn-warn' },
@@ -384,6 +386,8 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedAddFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddPerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddPerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddInnerColor', type: 'color', label: 'Inner Line Color', dep: 'quantizedAddEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Retract' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract', action: 'quantizedRetract', class: 'btn-warn' },
@@ -1550,9 +1554,9 @@ class UIManager {
                      return; 
                 }
 
-                if (typeof QuantizedPulseEditor !== 'undefined') {
+                if (typeof QuantizedEffectEditor !== 'undefined') {
                     if (!this.quantEditor) {
-                        this.quantEditor = new QuantizedPulseEditor(this.effects, this);
+                        this.quantEditor = new QuantizedEffectEditor(this.effects, this);
                     }
                     this.quantEditor.toggle(enabled);
                 }

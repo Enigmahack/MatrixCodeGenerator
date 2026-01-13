@@ -630,6 +630,110 @@ class QuantizedSequenceEffect extends AbstractEffect {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
+    _computeDistanceField(blocksX, blocksY) {
+        const size = blocksX * blocksY;
+        const dist = new Uint16Array(size);
+        const maxDist = 999;
+        dist.fill(maxDist);
+
+        const queue = [];
+        const visitedVoid = new Uint8Array(size); 
+
+        const addSeed = (bx, by) => {
+            const idx = by * blocksX + bx;
+            if (this.renderGrid[idx] === -1) {
+                if (visitedVoid[idx] === 0) {
+                    visitedVoid[idx] = 1;
+                    dist[idx] = 0; 
+                    queue.push(idx);
+                }
+            }
+        };
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                addSeed(x, y);
+            }
+        }
+
+        let head = 0;
+        while(head < queue.length) {
+            const idx = queue[head++];
+            const cx = idx % blocksX;
+            const cy = Math.floor(idx / blocksX);
+
+            const neighbors = [
+                { x: cx, y: cy - 1 },
+                { x: cx, y: cy + 1 },
+                { x: cx - 1, y: cy },
+                { x: cx + 1, y: cy }
+            ];
+
+            for (const n of neighbors) {
+                if (n.x >= 0 && n.x < blocksX && n.y >= 0 && n.y < blocksY) {
+                    const nIdx = n.y * blocksX + n.x;
+                    if (this.renderGrid[nIdx] === -1 && visitedVoid[nIdx] === 0) {
+                        visitedVoid[nIdx] = 1;
+                        dist[nIdx] = 0;
+                        queue.push(nIdx);
+                    }
+                }
+            }
+        }
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                const idx = y * blocksX + x;
+                if (this.renderGrid[idx] === -1) continue; 
+
+                let isEdge = false;
+                const nIdxs = [];
+                if (x > 0) nIdxs.push(idx - 1);
+                if (x < blocksX - 1) nIdxs.push(idx + 1);
+                if (y > 0) nIdxs.push(idx - blocksX);
+                if (y < blocksY - 1) nIdxs.push(idx + blocksX);
+                
+                for (const ni of nIdxs) {
+                    if (dist[ni] === 0) { 
+                        isEdge = true;
+                        break;
+                    }
+                }
+                if (isEdge) dist[idx] = 1;
+            }
+        }
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                const i = y * blocksX + x;
+                if (this.renderGrid[i] === -1) continue; 
+                if (dist[i] === 1) continue; 
+
+                let minVal = maxDist;
+                if (x > 0 && this.renderGrid[i - 1] !== -1) minVal = Math.min(minVal, dist[i - 1]);
+                if (y > 0 && this.renderGrid[i - blocksX] !== -1) minVal = Math.min(minVal, dist[i - blocksX]);
+
+                if (minVal < maxDist) dist[i] = minVal + 1;
+            }
+        }
+
+        for (let y = blocksY - 1; y >= 0; y--) {
+            for (let x = blocksX - 1; x >= 0; x--) {
+                const i = y * blocksX + x;
+                if (this.renderGrid[i] === -1) continue;
+                if (dist[i] === 1) continue;
+
+                let minVal = dist[i];
+                if (x < blocksX - 1 && this.renderGrid[i + 1] !== -1) minVal = Math.min(minVal, dist[i + 1] + 1);
+                if (y < blocksY - 1 && this.renderGrid[i + blocksX] !== -1) minVal = Math.min(minVal, dist[i + blocksX] + 1);
+
+                dist[i] = minVal;
+            }
+        }
+        
+        return dist;
+    }
+
     _updateMask(w, h, s, d) {
         const ctx = this.maskCtx;
         const grid = this.g;
