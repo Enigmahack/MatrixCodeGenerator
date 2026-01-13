@@ -25,6 +25,7 @@ class QuantizedEffectEditor {
 
         this.selectionRect = null;
         this.clipboard = null;
+        this.redoStack = [];
     }
 
     _decodeSequence(sequence) {
@@ -109,38 +110,81 @@ class QuantizedEffectEditor {
         if (this.active && this.effect) {
              this.effect.active = false;
              this.effect.editorPreviewOp = null;
+             if (this.effect.g) this.effect.g.clearAllOverrides();
         }
 
+        // Disable all quantized effects to ensure a clean slate for the new one
+        const qEffects = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+        if (this.registry) {
+            qEffects.forEach(name => {
+                const eff = this.registry.get(name);
+                if (eff) {
+                    eff.active = false;
+                    if (eff.state) eff.state = 'IDLE'; 
+                    if (eff.g) eff.g.clearAllOverrides();
+                }
+            });
+        }
+
+        this.redoStack = [];
         this.effect = newEffect;
         
-        // DECODE ON LOAD
-        // We modify the effect's sequence in-place to be the verbose format for editing
-        this.effect.sequence = this._decodeSequence(this.effect.sequence);
-
         // Activate new effect logic
         if (this.active) {
             this.effect.trigger(true); 
+            
+            // Robust loading: Ensure sequence is loaded from global Patterns if trigger didn't
+            if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
+                this.effect.sequence = window.matrixPatterns[this.effect.name];
+            }
+
+            // DECODE ON LOAD (After trigger/robust load ensures pattern is present)
+            this.effect.sequence = this._decodeSequence(this.effect.sequence);
+
             this.effect.debugMode = true;
             this.effect.manualStep = true; 
             if (this.effect.expansionPhase >= this.effect.sequence.length) {
                 this.effect.expansionPhase = this.effect.sequence.length - 1;
             }
             this.effect.refreshStep();
-            this._updateUI(); // Refresh UI labels
+            this._updateUI(); // Refresh UI labels immediately
         }
     }
 
     toggle(isActive) {
         this.active = isActive;
+        if (this.active) {
+            // Disable all quantized effects to prevent interference during editing
+            const qEffects = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+            if (this.registry) {
+                qEffects.forEach(name => {
+                    const eff = this.registry.get(name);
+                    if (eff) {
+                        eff.active = false;
+                        if (eff.state) eff.state = 'IDLE'; 
+                        if (eff.g) eff.g.clearAllOverrides();
+                    }
+                });
+            }
+        }
+
         if (this.active && this.effect) {
-            // DECODE ON OPEN
-            this.effect.sequence = this._decodeSequence(this.effect.sequence);
-            
+            this.redoStack = []; 
             this._createUI();
             this._createCanvas();
             this._attachListeners();
+            
             // Force effect to be active and paused for editing
             this.effect.trigger(true); 
+            
+            // Robust loading: Ensure sequence is loaded from global Patterns if trigger didn't (or instance was cold)
+            if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
+                this.effect.sequence = window.matrixPatterns[this.effect.name];
+            }
+
+            // DECODE ON OPEN (After trigger/robust load ensures pattern is present)
+            this.effect.sequence = this._decodeSequence(this.effect.sequence);
+            
             this.effect.debugMode = true;
             this.effect.manualStep = true; 
             // Ensure we are at a valid step
@@ -148,6 +192,7 @@ class QuantizedEffectEditor {
                 this.effect.expansionPhase = this.effect.sequence.length - 1;
             }
             this.effect.refreshStep();
+            this._updateUI(); // Update UI immediately to show correct Step: 0 / X
             this._renderLoop();
         } else {
             this._removeUI();
@@ -158,8 +203,10 @@ class QuantizedEffectEditor {
                 this.effect.debugMode = false; // Reset debug mode
                 this.effect.manualStep = false; // Reset manual stepping
                 this.effect.editorPreviewOp = null; 
+                if (this.effect.g) this.effect.g.clearAllOverrides();
             }
             this.selectionRect = null;
+            this.redoStack = [];
         }
     }
 
@@ -592,6 +639,7 @@ class QuantizedEffectEditor {
     }
 
     _changeStep(delta) {
+        this.redoStack = [];
         let newStep = this.effect.expansionPhase + delta;
         if (newStep < 0) newStep = 0;
         if (newStep >= this.effect.sequence.length) newStep = this.effect.sequence.length - 1;
@@ -601,6 +649,7 @@ class QuantizedEffectEditor {
     }
 
     _addStep() {
+        this.redoStack = [];
         const newStepIdx = this.effect.expansionPhase + 1;
         this.effect.sequence.splice(newStepIdx, 0, []); 
         this._changeStep(1);
@@ -608,6 +657,7 @@ class QuantizedEffectEditor {
 
     _delStep() {
         if (this.effect.sequence.length <= 1) return;
+        this.redoStack = [];
         this.effect.sequence.splice(this.effect.expansionPhase, 1);
         this._changeStep(0); 
     }
@@ -619,14 +669,51 @@ class QuantizedEffectEditor {
     }
 
     _savePattern() {
-        if (!this.effect) return;
-        const patternName = this.effect.name;
-        // Encode the sequence before saving
-        const sequence = this._encodeSequence(this.effect.sequence);
-        
-        // Update global object
+        const effectsToSave = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
         const fullPatterns = window.matrixPatterns || {};
-        fullPatterns[patternName] = sequence;
+
+        effectsToSave.forEach(effName => {
+            const eff = this.registry.get(effName);
+            // If the effect exists in registry, use its current sequence (which might be edited)
+            // If not in registry, we leave fullPatterns[effName] alone (if it exists from file load)
+            if (!eff) return;
+
+            let sequenceToSave = eff.sequence;
+
+            // Check if instance sequence is empty/default but global has data
+            // This happens if the effect hasn't been triggered/loaded yet
+            const isInstanceEmpty = (!sequenceToSave || sequenceToSave.length === 0 || (sequenceToSave.length === 1 && sequenceToSave[0].length === 0));
+            const globalData = (window.matrixPatterns && window.matrixPatterns[effName]);
+            const hasGlobalData = globalData && globalData.length > 0;
+
+            if (isInstanceEmpty && hasGlobalData) {
+                // Instance is "cold", use global data (already encoded)
+                // Do NOT overwrite fullPatterns[effName] with empty array.
+                // fullPatterns already contains globalData since it references window.matrixPatterns.
+                return;
+            }
+
+            if (!sequenceToSave) return;
+
+            // Auto-detect if needs encoding
+            // Decoded sequences have objects {op: ...} in their steps.
+            // Encoded sequences have numbers [1, x, y...] in their steps.
+            let isDecoded = false;
+            for (const step of sequenceToSave) {
+                if (step && step.length > 0) {
+                    if (typeof step[0] === 'object') {
+                        isDecoded = true;
+                    }
+                    break;
+                }
+            }
+
+            if (isDecoded) {
+                sequenceToSave = this._encodeSequence(sequenceToSave);
+            }
+
+            fullPatterns[effName] = sequenceToSave;
+        });
         
         // Try Electron IPC first
         if (typeof window.require !== 'undefined') {
@@ -706,7 +793,20 @@ class QuantizedEffectEditor {
 
     _undo() {
         const step = this.effect.sequence[this.effect.expansionPhase];
-        if (step && step.length > 0) { step.pop(); this.effect.refreshStep(); }
+        if (step && step.length > 0) { 
+            const op = step.pop(); 
+            this.redoStack.push(op);
+            this.effect.refreshStep(); 
+        }
+    }
+
+    _redo() {
+        const step = this.effect.sequence[this.effect.expansionPhase];
+        if (this.redoStack.length > 0) {
+            const op = this.redoStack.pop();
+            step.push(op);
+            this.effect.refreshStep();
+        }
     }
 
     // CLIPBOARD OPERATIONS
@@ -737,6 +837,7 @@ class QuantizedEffectEditor {
 
     _deleteSelection() {
         if (!this.selectionRect) return;
+        this.redoStack = [];
         const step = this.effect.sequence[this.effect.expansionPhase];
         const grid = this.effect.logicGrid;
         const w = this.effect.logicGridW;
@@ -770,6 +871,7 @@ class QuantizedEffectEditor {
 
     _commitPaste(targetX, targetY) {
         if (!this.clipboard) return;
+        this.redoStack = [];
         const step = this.effect.sequence[this.effect.expansionPhase];
         for (const pt of this.clipboard.data) {
             step.push({ op: 'add', args: [targetX + pt.x, targetY + pt.y] });
@@ -786,6 +888,7 @@ class QuantizedEffectEditor {
             if (e.key === 'x') { e.preventDefault(); this._cutSelection(); return; }
             if (e.key === 'v') { e.preventDefault(); this._startPaste(); return; }
             if (e.key === 'z') { e.preventDefault(); this._undo(); return; }
+            if (e.key === 'y') { e.preventDefault(); this._redo(); return; }
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault(); this._deleteSelection(); return; 
@@ -856,6 +959,7 @@ class QuantizedEffectEditor {
             else if (this.currentTool === 'removeLine') { opName = 'remLine'; args = [dx, dy, this.currentFace]; }
 
             if (opName) {
+                this.redoStack = [];
                 const existingIdx = step.findIndex(o => {
                     let oOp, oArgs;
                     if (Array.isArray(o)) {
@@ -884,6 +988,7 @@ class QuantizedEffectEditor {
             const hit = this.effect.hitTest(e.clientX, e.clientY);
             if (hit) {
                 if (this.currentTool === 'addRect') {
+                    this.redoStack = [];
                     const step = this.effect.sequence[this.effect.expansionPhase];
                     step.push({ op: 'addRect', args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y] });
                     this.effect.refreshStep();
