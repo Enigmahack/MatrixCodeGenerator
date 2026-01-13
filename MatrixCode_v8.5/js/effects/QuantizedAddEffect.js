@@ -16,7 +16,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         this.offsetY = 0;
 
         // Animation Sequence Data
-        this.sequence = [[]];
+        this.sequence = [[]]; 
         
         this.expansionPhase = 0;
         this.maskOps = [];
@@ -57,7 +57,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         this.state = 'FADE_IN';
         this.timer = 0;
         this.alpha = 0.0;
-        this.offsetX = 0.5;
+        this.offsetX = 0.5; 
         this.offsetY = 0.5;
 
         this._initShadowWorld();
@@ -135,7 +135,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
 
         this.animFrame++;
 
-        // 1. Animation Cycle
+        // 1. Animation Cycle (Grid Expansion) - Logic Update
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const delayMult = (s.quantizedAddSpeed !== undefined) ? s.quantizedAddSpeed : 1;
         const effectiveInterval = baseDuration * (delayMult / 4.0);
@@ -152,7 +152,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             }
         }
 
-        // NEW: Update Render Grid Logic immediately
+        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
         this._updateRenderGridLogic();
 
         // 2. Update Shadow Simulation & Apply Overrides
@@ -160,6 +160,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             this._updateShadowSim();
         } else if (this.isSwapping) {
             // Keep applying overrides during swap transition buffer
+            // This prevents the "flash of old content" while worker syncs
             this._updateShadowSim();
             
             this.swapTimer--;
@@ -204,6 +205,8 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 }
             }
         } else if (this.state === 'FADE_OUT') {
+            // If swapping, we handle termination in swap logic.
+            // If just fading out (e.g. cancelled), handle standard fade.
             if (!this.isSwapping) {
                 this.timer++;
                 setAlpha(1.0 - (this.timer / fadeOutFrames));
@@ -219,7 +222,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             }
         }
 
-        // 4. Animation Transition Management
+        // 4. Animation Transition Management (Dirtiness)
         const addDuration = Math.max(1, s.quantizedAddFadeInFrames || 0);
         const removeDuration = Math.max(1, s.quantizedAddFadeFrames || 0);
 
@@ -236,6 +239,8 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
     }
 
     _updateRenderGridLogic() {
+        // Calculates the logical state of the expansion grid (what is active/inactive)
+        
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
         const cellPitchY = Math.max(1, bs.h);
@@ -244,14 +249,13 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const blocksY = Math.ceil(this.g.rows / cellPitchY);
         const totalBlocks = blocksX * blocksY;
 
-        if (!this.renderGrid || !this.barrierGrid || this.renderGrid.length !== totalBlocks) {
+        // Initialize or Resize Logic Grid
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
             this.renderGrid = new Int32Array(totalBlocks);
-            this.barrierGrid = new Uint8Array(totalBlocks);
             this.renderGrid.fill(-1);
-            this.barrierGrid.fill(0);
         } else {
+            // Reset for reconstruction
             this.renderGrid.fill(-1);
-            this.barrierGrid.fill(0);
         }
 
         if (!this.maskOps || this.maskOps.length === 0) return;
@@ -273,25 +277,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            const idx = by * blocksX + bx;
-                            this.renderGrid[idx] = op.startFrame || 0;
-                            this.barrierGrid[idx] = 1;
-                        }
-                    }
-                }
-            } else if (op.type === 'addLine') {
-                // Lines are barriers but not render-active for borders
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.barrierGrid[by * blocksX + bx] = 1;
+                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
                         }
                     }
                 }
@@ -306,15 +292,14 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
                          if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            const idx = by * blocksX + bx;
-                            this.renderGrid[idx] = -1;
-                            this.barrierGrid[idx] = 0;
+                            this.renderGrid[by * blocksX + bx] = -1;
                         }
                     }
                 }
             }
         }
         
+        // Cache dimensions for _updateShadowSim
         this._lastBlocksX = blocksX;
         this._lastBlocksY = blocksY;
         this._lastPitchX = cellPitchX;
@@ -324,8 +309,10 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
     _updateShadowSim() {
         if (!this.shadowSim) return;
         
+        // 1. Advance Simulation
         this.shadowSim.update(++this.shadowSimFrame);
         
+        // 2. Compute "True Outside" Mask
         if (!this.renderGrid || !this._lastBlocksX) return;
 
         const blocksX = this._lastBlocksX;
@@ -335,6 +322,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         
         const outsideMask = this._computeTrueOutside(blocksX, blocksY);
         
+        // 3. Apply Overrides
         const sg = this.shadowGrid;
         const g = this.g;
         
@@ -360,6 +348,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                         const srcIdx = cy * sg.cols + cx;
                         
                         if (!isOutside) {
+                            // INSIDE: Override with Shadow
                             if (sg && sg.chars && srcIdx < sg.chars.length) {
                                 g.overrideActive[destIdx] = 3; 
                                 g.overrideChars[destIdx] = sg.chars[srcIdx];
@@ -370,6 +359,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                                 g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
                             }
                         } else {
+                            // OUTSIDE: Restore Main
                             if (g.overrideActive[destIdx] === 3) {
                                 g.overrideActive[destIdx] = 0;
                             }
@@ -387,10 +377,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const add = (x, y) => {
             if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
             const idx = y * blocksX + x;
-            // Check barrierGrid if available, otherwise fallback to renderGrid logic
-            const isBarrier = this.barrierGrid ? (this.barrierGrid[idx] !== 0) : (this.renderGrid[idx] !== -1);
-            
-            if (status[idx] === 0 && !isBarrier) { 
+            if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
                 status[idx] = 1;
                 queue.push(idx);
             }
@@ -441,16 +428,18 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
     }
 
     applyToGrid(grid) {
-        // No grid overrides
+        // No grid overrides - we render directly to overlayCanvas
     }
 
     _updateMask(w, h, s, d) {
         const ctx = this.maskCtx;
         const pCtx = this.perimeterMaskCtx;
+        const lCtx = this.lineMaskCtx;
         const grid = this.g;
         
         ctx.clearRect(0, 0, w, h);
         if (pCtx) pCtx.clearRect(0, 0, w, h);
+        if (lCtx) lCtx.clearRect(0, 0, w, h);
         
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
@@ -490,12 +479,12 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const addDuration = Math.max(1, fadeInFrames);
         const removeDuration = Math.max(1, fadeFrames);
 
+        // Distance Map for Hollow Masking (Lines within 4 blocks of perimeter)
         const distMap = this._computeDistanceField(blocksX, blocksY);
         
-        // Compute True Outside to mask internal borders (Hoisted)
         const outsideMap = this._computeTrueOutside(blocksX, blocksY);
         const isTrueOutside = (nx, ny) => {
-            if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; // Screen edge is wall/inside for rendering purposes
+            if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
             return outsideMap[ny * blocksX + nx] === 1;
         };
         
@@ -503,7 +492,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
             const idx = by * blocksX + bx;
             if (!this.renderGrid || this.renderGrid[idx] === -1) return false;
-            if (distMap[idx] > 3) return false;
             return true;
         };
         
@@ -515,175 +503,24 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
              return false;
         };
 
-        const showInterior = (s.quantizedAddShowInterior !== undefined) ? s.quantizedAddShowInterior : false;
-
         // --- PASS 1: Base Grid (Interior) ---
-        if (showInterior) {
-            for (const op of this.maskOps) {
-                if (op.type !== 'add') continue;
-                let opacity = 1.0;
-                if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-                ctx.globalAlpha = opacity;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                this._addBlock(start, end, op.ext, isRenderActive);
-            }
+        // Draws Solid Blocks to ctx (maskCanvas) for Black Fill
+        for (const op of this.maskOps) {
+            if (op.type !== 'add') continue;
+            let opacity = 1.0;
+            if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+            ctx.globalAlpha = opacity;
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            // Increased inflate to +1.0 to ensure solid overlap without gaps
+            this._addBlock(start, end, op.ext, isRenderActive); 
         }
-
-        // --- PASS 1.5: Smart Perimeter (Interior) ---
-        if (showInterior) {
-            for (const op of this.maskOps) {
-                if (op.type !== 'addSmart') continue;
-                let opacity = 1.0;
-                if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-                ctx.globalAlpha = opacity;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (!isRenderActive(bx, by)) continue;
-                        const nN = isRenderActive(bx, by - 1);
-                        const nS = isRenderActive(bx, by + 1);
-                        const nW = isRenderActive(bx - 1, by);
-                        const nE = isRenderActive(bx + 1, by);
-                        const isConnected = nN || nS || nW || nE;
-                        
-                        // FIX: Only draw if NOT connected (Isolated).
-                        // Connected blocks (Interior) should be empty to prevent "Perimeter characters" inside.
-                        if (!isConnected) {
-                            this._addBlock({x:bx, y:by}, {x:bx, y:by}, false);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // --- ERASURE HELPER ---
-        const runErasures = (targetCtx) => {
-            const originalCtx = this.maskCtx;
-            this.maskCtx = targetCtx;
-            targetCtx.globalCompositeOperation = 'destination-out';
-            
-            // Pass 1.9: Block Erasure
-            for (const op of this.maskOps) {
-                if (op.type !== 'removeBlock') continue;
-                let opacity = 1.0;
-                if (fadeFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
-                targetCtx.globalAlpha = opacity;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                this._addBlock(start, end, false); 
-            }
-
-            // Pass 2: Face Erasure
-            for (const op of this.maskOps) {
-                if (op.type !== 'remove') continue;
-                let opacity = 1.0;
-                if (fadeFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
-                targetCtx.globalAlpha = opacity;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                         if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                         this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
-                    }
-                }
-            }
-            
-            // Pass 4 (Remove Line)
-             for (const op of this.maskOps) {
-                if (op.type !== 'removeLine') continue;
-                let opacity = 1.0;
-                if (fadeFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / removeDuration);
-                targetCtx.globalAlpha = opacity;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                        this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
-                    }
-                }
-            }
-            
-             // Pass 6: Corner Cleanup
-            const cornerMap = new Map(); 
-            const activeRemovals = this.maskOps.filter(op => {
-                if (op.type !== 'remove' && op.type !== 'removeLine') return false;
-                if (!op.startFrame) return false;
-                return (now >= op.startFrame);
-            });
-            for (const op of activeRemovals) {
-                if (!op.face) continue;
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                const f = op.face.toUpperCase();
-                const force = op.force;
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue; 
-                        if (!force) {
-                            if (f === 'N' && by === minY) continue;
-                            if (f === 'S' && by === maxY) continue;
-                            if (f === 'W' && bx === minX) continue;
-                            if (f === 'E' && bx === maxX) continue;
-                        }
-                        const idx = by * blocksX + bx;
-                        let mask = cornerMap.get(idx) || 0;
-                        if (f === 'N') mask |= 1;
-                        else if (f === 'S') mask |= 2;
-                        else if (f === 'E') mask |= 4;
-                        else if (f === 'W') mask |= 8;
-                        cornerMap.set(idx, mask);
-                    }
-                }
-            }
-            targetCtx.globalAlpha = 1.0; 
-            for (const [idx, mask] of cornerMap) {
-                const bx = idx % blocksX;
-                const by = Math.floor(idx / blocksX);
-                if ((mask & 1) && (mask & 8)) this._removeBlockCorner(bx, by, 'NW');
-                if ((mask & 1) && (mask & 4)) this._removeBlockCorner(bx, by, 'NE');
-                if ((mask & 2) && (mask & 8)) this._removeBlockCorner(bx, by, 'SW');
-                if ((mask & 2) && (mask & 4)) this._removeBlockCorner(bx, by, 'SE');
-            }
-
-            targetCtx.globalCompositeOperation = 'source-over';
-            this.maskCtx = originalCtx; // Restore
-        };
-
-        // Run Erasures on Interior
-        runErasures(ctx);
 
         // --- PASS 3: Perimeter (Border) ---
         if (pCtx) {
             const originalCtx = this.maskCtx;
-            this.maskCtx = pCtx; // Swap for helper
+            this.maskCtx = pCtx; 
             
             const boldLineWidthX = lineWidthX * 2.0; 
             const boldLineWidthY = lineWidthY * 2.0;
@@ -696,19 +533,17 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                     const idx = by * blocksX + bx;
                     const startFrame = this.renderGrid[idx];
                     
-                    // Check neighbors for True Outside status
                     const outN = isTrueOutside(bx, by - 1);
                     const outS = isTrueOutside(bx, by + 1);
                     const outW = isTrueOutside(bx - 1, by);
                     const outE = isTrueOutside(bx + 1, by);
 
-                    if (!outN && !outS && !outW && !outE) continue; // No external border
+                    if (!outN && !outS && !outW && !outE) continue; 
 
                     let list = batches.get(startFrame);
                     if (!list) { list = []; batches.set(startFrame, list); }
                     
                     const faces = [];
-                    // Retract logic based on Outside neighbors
                     if (outN) faces.push({dir: 'N', rS: outW, rE: outE});
                     if (outS) faces.push({dir: 'S', rS: outW, rE: outE});
                     if (outW) faces.push({dir: 'W', rS: outN, rE: outS});
@@ -738,7 +573,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             }
 
             // --- PASS 3.5: VOID CLEANUP ---
-            // Explicitly erase "True Outside" blocks to prevent any spillover artifacts
             pCtx.globalCompositeOperation = 'destination-out';
             pCtx.fillStyle = '#FFFFFF';
             pCtx.beginPath();
@@ -752,7 +586,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                         const y = l.screenOriginY + (by * l.cellPitchY * l.screenStepY);
                         const w = l.cellPitchX * l.screenStepX;
                         const h = l.cellPitchY * l.screenStepY;
-                        // Slightly inflate to ensure clean edge clipping
                         pCtx.rect(x - 0.1, y - 0.1, w + 0.2, h + 0.2); 
                     }
                 }
@@ -760,21 +593,18 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             pCtx.fill();
             pCtx.globalCompositeOperation = 'source-over';
             
-            this.maskCtx = originalCtx; // Restore
-            
-            // Run Erasures on Perimeter
-            runErasures(pCtx);
+            this.maskCtx = originalCtx; 
         }
 
-        // --- PASS 4: Add Lines (Interior) ---
-        if (showInterior) {
+        // --- PASS 4: Add Lines (Interior) - Draws to lCtx (Blue) ---
+        if (lCtx) {
+            // Restore animation-based line adding logic, but masked by distMap
+            const activeLines = new Map();
+            
+            // 1. Collect Lines from Animation Ops
             for (const op of this.maskOps) {
                 if (op.type !== 'addLine') continue;
-                let opacity = 1.0;
-                if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-                ctx.globalAlpha = opacity;
-
+                
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const end = { x: cx + op.x2, y: cy + op.y2 };
                 const minX = Math.min(start.x, end.x);
@@ -785,7 +615,13 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
                         if (isRenderActive(bx, by)) {
-                            // Check if this face is on the Perimeter (True Outside)
+                            const idx = by * blocksX + bx;
+                            
+                            // DISTANCE MASK CHECK: Only draw if within 4 blocks of perimeter
+                            // distMap values: 0=edge, 1, 2, 3, 4=inner limit.
+                            // So we show lines if dist <= 4.
+                            if (distMap[idx] > 4) continue;
+
                             let nx = bx, ny = by;
                             const f = op.face ? op.face.toUpperCase() : '';
                             if (f === 'N') ny--;
@@ -793,15 +629,53 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                             else if (f === 'W') nx--;
                             else if (f === 'E') nx++;
                             
-                            // If neighbor is True Outside, Pass 3 draws a Border here.
-                            // Skip Pass 4 (Interior Line) to avoid overlap (Purple/Pink artifacts).
-                            if (isTrueOutside(nx, ny)) continue;
+                            if (isTrueOutside(nx, ny)) continue; // Don't draw on perimeter
 
-                            this._addBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face);
+                            let cell = activeLines.get(idx);
+                            if (!cell) { cell = {}; activeLines.set(idx, cell); }
+                            cell[f] = op;
                         }
                     }
                 }
             }
+
+            // 2. Draw Collected Lines
+            const originalCtx = this.maskCtx;
+            this.maskCtx = lCtx;
+            lCtx.fillStyle = '#FFFFFF';
+
+            for (const [idx, cell] of activeLines) {
+                const bx = idx % blocksX;
+                const by = Math.floor(idx / blocksX);
+                
+                const drawLine = (face, rS, rE) => {
+                    const op = cell[face];
+                    if (!op) return;
+                    
+                    let opacity = 1.0;
+                    if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+                    else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+                    
+                    if (opacity <= 0.001) return;
+
+                    lCtx.globalAlpha = opacity;
+                    lCtx.beginPath();
+                    // Reuse the Perimeter Logic which handles Inner Stroke & Retraction
+                    this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
+                    lCtx.fill();
+                };
+
+                const hasN_Border = isTrueOutside(bx, by - 1);
+                const hasS_Border = isTrueOutside(bx, by + 1);
+                const hasN = !!cell['N'] || hasN_Border;
+                const hasS = !!cell['S'] || hasS_Border;
+
+                drawLine('N', false, false);
+                drawLine('S', false, false);
+                drawLine('W', hasN, hasS);
+                drawLine('E', hasN, hasS);
+            }
+            this.maskCtx = originalCtx;
         }
     }
 
@@ -820,40 +694,19 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const rS = faceObj.rS;
         const rE = faceObj.rE;
 
-        // Inner Stroke Offsets: Shift rects so they are fully inside the block
-        // This prevents the border mask from spilling into empty neighbors and revealing "ghost" characters (dots).
-
         if (face === 'N') {
             const cy = l.screenOriginY + (startCellY * l.screenStepY);
-            let x = l.screenOriginX + (startCellX * l.screenStepX); // Start at Left Edge (Inner)
-            // x was (center - hx). Inner is (center + hx)? No.
-            // ScreenX is (startCellX...). This IS the Left Edge.
-            // Previous logic: l.screenOriginX + ... - hx. (Centered on edge).
-            // Inner logic: Start at edge. No -hx.
-            // Wait. We need to handle the stroke width.
-            // N face is Horizontal. We draw it at the Top Edge.
-            // Y position: cy. We want it to span cy to cy + widthY.
-            // X position: Same as before (span of block).
-            
-            // Re-calc layout for Inner Mode
+            let drawX, drawY, drawW, drawH;
             const topY = cy; 
             const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
             const leftX = l.screenOriginX + (startCellX * l.screenStepX);
             const rightX = l.screenOriginX + (endCellX * l.screenStepX);
 
-            let drawX, drawY, drawW, drawH;
-
-            drawY = topY; // Top edge, draw downwards
+            drawY = topY; 
             drawH = widthY;
-            
-            // X spans full width, but Retraction modifies it
             drawX = leftX;
-            drawW = rightX - leftX; // Full block width
+            drawW = rightX - leftX; 
             
-            // Retraction Logic (Same as before, but relative to Inner positioning)
-            // If rS (West neighbor outside), we retracted from the corner.
-            // If Inner, we are already inside. Do we still need retraction?
-            // Yes, to avoid overlap with W face at the corner.
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
             
@@ -865,10 +718,8 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             const rightX = l.screenOriginX + (endCellX * l.screenStepX);
 
             let drawX, drawY, drawW, drawH;
-            
-            drawY = bottomY - widthY; // Bottom edge, draw upwards (Inner)
+            drawY = bottomY - widthY; 
             drawH = widthY;
-            
             drawX = leftX;
             drawW = rightX - leftX;
             
@@ -883,10 +734,8 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             const leftX = l.screenOriginX + (startCellX * l.screenStepX);
 
             let drawX, drawY, drawW, drawH;
-            
-            drawX = leftX; // Left edge, draw rightwards (Inner)
+            drawX = leftX; 
             drawW = widthX;
-            
             drawY = topY;
             drawH = bottomY - topY;
             
@@ -901,10 +750,8 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             const rightX = l.screenOriginX + (endCellX * l.screenStepX);
 
             let drawX, drawY, drawW, drawH;
-            
-            drawX = rightX - widthX; // Right edge, draw leftwards (Inner)
+            drawX = rightX - widthX; 
             drawW = widthX;
-            
             drawY = topY;
             drawH = bottomY - topY;
             
@@ -938,11 +785,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                     
                     const cellX = Math.floor(bx * l.cellPitchX);
                     const cellY = Math.floor(by * l.cellPitchY);
-                    // const cx = l.screenOriginX + (cellX * l.screenStepX); // Unused
-                    // const cy = l.screenOriginY + (cellY * l.screenStepY); // Unused
-                    
-                    // ctx.rect(cx - l.halfLineX, cy - l.halfLineY, l.lineWidthX, l.lineWidthY); // REDUNDANT DOT REMOVED
-                                        
                     const xPos = l.screenOriginX + (cellX * l.screenStepX);
                     const yPos = l.screenOriginY + (cellY * l.screenStepY);
                     
@@ -964,24 +806,26 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 cx = l.screenOriginX + (endX * l.screenStepX);
                 ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
             } else {
+                // FIXED: Draw SOLID rectangle for filled blocks (Pass 1 - Interior)
                 const rangeMinBx = blockStart.x;
                 const rangeMaxBx = blockEnd.x;
                 const rangeMinBy = blockStart.y;
                 const rangeMaxBy = blockEnd.y;
-                for (let bx = rangeMinBx; bx <= rangeMaxBx + 1; bx++) {
-                    const cellX = Math.floor(bx * l.cellPitchX);
-                    const cx = l.screenOriginX + (cellX * l.screenStepX);
-                    const yPos = l.screenOriginY + (startY * l.screenStepY);
-                    const h = (endY - startY) * l.screenStepY;
-                    ctx.rect(cx - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
-                }
-                for (let by = rangeMinBy; by <= rangeMaxBy + 1; by++) {
-                    const cellY = Math.floor(by * l.cellPitchY);
-                    const cy = l.screenOriginY + (cellY * l.screenStepY);
-                    const xPos = l.screenOriginX + (startX * l.screenStepX);
-                    const w = (endX - startX) * l.screenStepX;
-                    ctx.rect(xPos - l.halfLineX, cy - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
-                }
+                
+                // Calculate total bounds for the block(s)
+                const sCellX = Math.floor(rangeMinBx * l.cellPitchX);
+                const sCellY = Math.floor(rangeMinBy * l.cellPitchY);
+                const eCellX = Math.floor((rangeMaxBx + 1) * l.cellPitchX);
+                const eCellY = Math.floor((rangeMaxBy + 1) * l.cellPitchY);
+                
+                const xPos = l.screenOriginX + (sCellX * l.screenStepX);
+                const yPos = l.screenOriginY + (sCellY * l.screenStepY);
+                const w = (eCellX - sCellX) * l.screenStepX;
+                const h = (eCellY - sCellY) * l.screenStepY;
+                
+                // Draw single solid rect covering everything (with slight inflate for overlap)
+                // Use 1.0 inflate to guarantee no gaps
+                ctx.rect(xPos - 0.5, yPos - 0.5, w + 1.0, h + 1.0);
             }
         }
         ctx.fill();
@@ -1001,6 +845,12 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
 
         for (let by = minY; by <= maxY; by++) {
             for (let bx = minX; bx <= maxX; bx++) {
+                if (!force) {
+                    if (f === 'N' && by === minY) continue;
+                    if (f === 'S' && by === maxY) continue;
+                    if (f === 'W' && bx === minX) continue;
+                    if (f === 'E' && bx === maxX) continue;
+                }
                 const startCellX = Math.floor(bx * l.cellPitchX);
                 const startCellY = Math.floor(by * l.cellPitchY);
                 const endCellX = Math.floor((bx + 1) * l.cellPitchX);
@@ -1047,6 +897,14 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
             this.perimeterMaskCanvas.width = w;
             this.perimeterMaskCanvas.height = h;
         }
+        if (!this.lineMaskCanvas) {
+            this.lineMaskCanvas = document.createElement('canvas');
+            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
+        }
+        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
+            this.lineMaskCanvas.width = w;
+            this.lineMaskCanvas.height = h;
+        }
     }
 
     render(ctx, d) {
@@ -1055,8 +913,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const s = this.c.state;
         const glowStrength = s.quantizedAddBorderIllumination || 0;
         
-        // Colors from config
-        const showInterior = (s.quantizedAddShowInterior !== undefined) ? s.quantizedAddShowInterior : false;
         const borderColor = s.quantizedAddPerimeterColor || "#00FF00";
         const interiorColor = s.quantizedAddInnerColor || "#00FF00";
         
@@ -1064,18 +920,14 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height); 
 
-        if (this.debugMode && (!this.layout || this.maskCanvas.width !== width || this._maskDirty)) {
+        // Always update mask layout/drawing for current frame
+        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height || this.debugMode) {
              this._updateMask(width, height, s, d);
              this._maskDirty = false;
         }
 
         if (glowStrength > 0) {
-            if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-                this._updateMask(width, height, s, d);
-                this._maskDirty = false;
-            }
-
-            this._updateGridCache(width, height, s, d); // Draws White
+            this._updateGridCache(width, height, s, d);
             
             const scratchCtx = this.scratchCtx;
             
@@ -1107,10 +959,10 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 
                 // 4. Draw to Screen
                 ctx.save();
-                if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
-                    ctx.canvas.style.mixBlendMode = 'plus-lighter';
+                if (ctx.canvas.style.mixBlendMode !== 'normal') {
+                    ctx.canvas.style.mixBlendMode = 'normal';
                 }
-                ctx.globalCompositeOperation = compositeOp; // Use custom blend mode
+                ctx.globalCompositeOperation = compositeOp; 
                 ctx.globalAlpha = 1.0;
                 
                 // Apply colored glow
@@ -1120,18 +972,91 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
                 ctx.restore();
             };
 
-            // Render Interior Layer (Text, Additive for Glow)
-            renderLayer(this.maskCanvas, interiorColor, false, 'lighter');
-            
-            // Render Border Layer (Solid, Opaque Overwrite to hide artifacts)
+            // 2. Render Internal Lines Layer (Blue)
+            if (this.lineMaskCanvas) {
+                renderLayer(this.lineMaskCanvas, interiorColor, false, 'source-over');
+            }
+
+            // 3. Render Border Layer (Red)
             if (this.perimeterMaskCanvas) {
-                renderLayer(this.perimeterMaskCanvas, borderColor, true, 'source-over');
+                renderLayer(this.perimeterMaskCanvas, borderColor, false, 'source-over');
             }
         }
     }
 
-    renderDebug(ctx, d) {
-        // Delegate to main render to ensure Green visuals in Editor
-        this.render(ctx, d);
+    renderEditorPreview(ctx, derived, previewOp) {
+        // 1. Save State
+        const savedLogicGrid = new Uint8Array(this.logicGrid);
+        const savedMaskOpsLen = this.maskOps.length;
+        
+        // 2. Apply Preview Op
+        if (previewOp) {
+            this._executeStepOps([previewOp]);
+        }
+        
+        // 3. Update Derived Grids
+        if (typeof this._updateRenderGridLogic === 'function') {
+            this._updateRenderGridLogic();
+        }
+
+        // 4. Custom Editor Render (Skip Body Fill)
+        const s = this.c.state;
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        this._ensureCanvases(width, height);
+
+        // Always update mask for editor to show changes immediately
+        this._updateMask(width, height, s, derived);
+        
+        const borderColor = s.quantizedAddPerimeterColor || "#00FF00";
+        const interiorColor = s.quantizedAddInnerColor || "#00FF00";
+        
+        this._updateGridCache(width, height, s, derived);
+        const scratchCtx = this.scratchCtx;
+
+        const renderLayer = (maskCanvas, color) => {
+            if (!maskCanvas) return;
+            
+            scratchCtx.globalCompositeOperation = 'source-over';
+            scratchCtx.clearRect(0, 0, width, height);
+
+            // Draw Grid Structure
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            
+            // Colorize
+            scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.fillStyle = color;
+            scratchCtx.fillRect(0, 0, width, height);
+            
+            // Mask
+            scratchCtx.globalCompositeOperation = 'destination-in';
+            scratchCtx.drawImage(maskCanvas, 0, 0);
+            
+            // Draw to Screen
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over'; 
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            ctx.restore();
+        };
+
+        // Render Internal Lines Layer
+        if (this.lineMaskCanvas) {
+            renderLayer(this.lineMaskCanvas, interiorColor);
+        }
+
+        // Render Border Layer
+        if (this.perimeterMaskCanvas) {
+            renderLayer(this.perimeterMaskCanvas, borderColor);
+        }
+
+        // 5. Restore State
+        if (previewOp) {
+            this.maskOps.length = savedMaskOpsLen;
+            this.logicGrid.set(savedLogicGrid);
+            if (typeof this._updateRenderGridLogic === 'function') {
+                this._updateRenderGridLogic();
+            }
+        }
     }
 }
