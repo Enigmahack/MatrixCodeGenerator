@@ -1,117 +1,48 @@
 class QuantizedRetractEffect extends QuantizedSequenceEffect {
-    constructor(grid, config) {
-        super(grid, config);
+    constructor(g, c) {
+        super(g, c);
         this.name = "QuantizedRetract";
         this.active = false;
+        
         this.configPrefix = "quantizedRetract";
-        this.sequence = [[]]; // Editor support
-        
-        // Simulation State
-        this.blocks = [];      // {x, y}
-        this.lines = [];       // {x, y, w, h, alpha, persistence}
-        this.frontier = [];    // {x, y}
-        
-        // Bitmask Map: Bit 0 = Occupied, Bit 1 = Frontier, Bits 2-15 = BurstID
-        this.map = null;       // Uint16Array
-        this.mapCols = 0;
-        this.burstCounter = 0;
-        
-        this.blocksAdded = 0;
-        this.tendrils = [];    // [{x,y}, {x,y}...]
-        
-        // Timing
-        this.nextExpandTime = 0;
-        this.currentDelay = 0;
-        this.blockSize = 4;
-        this.timeoutId = null;
-        
-        // Fade State
-        this.isFading = false;
-        this.fadeAlpha = 1.0;
-        this.fadeInAlpha = 0.0;
-        
-        this.isExpanding = false; 
 
-        // Flash State
-        this.flashIntensity = null; 
-        this.activeFlashes = new Set();
-    }
+        this.timer = 0;
+        this.state = 'IDLE'; // IDLE, FADE_IN, SUSTAIN, FADE_OUT
+        this.alpha = 0.0;
+        
+        // Grid properties
+        this.offsetX = 0;
+        this.offsetY = 0;
 
-    getBlockSize() {
-        return { w: 4, h: 4 };
-    }
-
-    _getEffectiveState() {
-        const s = this.c.state;
-        const fadeFrames = s.quantizedRetractFadeFrames !== undefined ? s.quantizedRetractFadeFrames : 15;
-        const fadeInFrames = s.quantizedRetractFadeInFrames !== undefined ? s.quantizedRetractFadeInFrames : 5;
-        // If fadeFrames is 0 (Off), fade is instant (speed 1.0)
-        const lineSpeed = fadeFrames > 0 ? (1.0 / fadeFrames) : 1.0;
-
-        return {
-            enabled: s.quantizedRetractEnabled,
-            freq: s.quantizedRetractFrequencySeconds,
-            duration: s.quantizedRetractDurationSeconds || 2.0,
-            fadeFrames: fadeFrames,
-            fadeInFrames: fadeInFrames,
-            baseDelay: 1.0,     
-            minDelay: 0.5,      
-            blockSize: 4,
-            lineFadeSpeed: lineSpeed 
-        };
-    }
-    
-    stop() {
-        this.active = false;
-        this.isFading = false;
-        this.fadeAlpha = 1.0;
+        // Animation Sequence Data
+        this.sequence = [[]]; 
         
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-        }
+        this.expansionPhase = 0;
+        this.maskOps = [];
+        this.editorHighlight = false;
         
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.tendrils = [];
-        this.blocksAdded = 0;
-        if (this.map) this.map.fill(0);
-        this.activeFlashes.clear();
-        if (this.flashIntensity) this.flashIntensity.fill(0);
-        this.g.clearAllOverrides();
-    }
-    
-    resetExpansion() {
-        this.isExpanding = false;
-        
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-        }
-        
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.tendrils = [];
-        this.blocksAdded = 0;
-        if (this.map) this.map.fill(0);
+        // Flicker Fix: Swap Transition State
+        this.isSwapping = false;
+        this.swapTimer = 0;
     }
 
     trigger(force = false) {
+        // Fix: If restarting while active and not yet swapped, commit the current state first.
+        if (this.active && !this.hasSwapped) {
+            this._swapStates();
+        }
+
         // Interruption Logic: Force-commit and stop other Quantized effects
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedExpansion"];
+            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedClimb"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
                     if (typeof eff._swapStates === 'function') {
-                        // Pulse/Add style
                         if (!eff.hasSwapped) eff._swapStates();
                         eff.active = false;
                         eff.state = 'IDLE';
                     } else if (typeof eff._finishExpansion === 'function') {
-                        // Retract/Expansion style
                         eff._finishExpansion();
                     } else {
                         eff.active = false;
@@ -121,897 +52,893 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
         }
 
         if (!super.trigger(force)) return false;
-
-        if (this.isExpanding) this.resetExpansion();
         
-        this.isExpanding = true;
-        this.isFading = false;
-        this.fadeAlpha = 1.0;
-        this.startTime = Date.now();
-        
-        const s = this._getEffectiveState();
-        this.fadeInAlpha = (s.fadeInFrames > 0) ? 0.0 : 1.0;
+        this.state = 'FADE_IN';
+        this.timer = 0;
+        this.alpha = 0.0;
+        this.offsetX = 0.5; 
+        this.offsetY = 0.5;
 
-        // INIT SHADOW WORLD
         this._initShadowWorld();
+        this.hasSwapped = false;
+        this.isSwapping = false;
 
-        this.timeoutId = setTimeout(() => {
-            this._finishExpansion(); // Force finish
-        }, 60000); 
-        
-        // Resize map
-        this.mapPad = 60; 
-        this.mapCols = this.g.cols + this.mapPad * 2;
-        this.mapRows = this.g.rows + this.mapPad * 2;
-        const total = this.mapCols * this.mapRows;
-        
-        if (!this.map || this.map.length !== total) {
-            this.map = new Uint16Array(total);
-        } else {
-            this.map.fill(0);
+        // Ensure renderGrid is initialized
+        if (this.renderGrid) {
+            this.renderGrid.fill(-1);
         }
-
-        const totalGrid = this.g.cols * this.g.rows;
-        if (!this.flashIntensity || this.flashIntensity.length !== totalGrid) {
-            this.flashIntensity = new Float32Array(totalGrid);
-            this.activeFlashes.clear();
-        }
-
-        this.burstCounter = 0;
-
-        this.blocks = [];
-        this.lines = [];
-        this.frontier = [];
-        this.tendrils = [];
-        this.blocksAdded = 0;
-        this.localFrame = 0;
-        
-        // Editor Sequence State
-        this.sequencePhase = 0;
-        this.isSequencePlaying = (this.sequence && this.sequence.length > 0 && 
-                                 (this.sequence.length > 1 || this.sequence[0].length > 0));
-
-        if (this.isSequencePlaying) {
-            this.isExpanding = false; 
-        } else {
-            this.isExpanding = true;
-            // INITIALIZATION: Start from Edges (Default)
-            this._initEdges();
-        }
-        
-        this.currentDelay = s.baseDelay;
-        this.nextExpandTime = this.currentDelay;
-        
-        // Initialize RNG Buffer for fast deterministic dashes
-        this.rngBuffer = new Float32Array(1024);
-        for(let i=0; i<1024; i++) this.rngBuffer[i] = Math.random();
 
         return true;
     }
 
-    _dashedLine(path, x1, y1, x2, y2, seed, ch) {
-        // Deterministic start index based on seed
-        let rngIdx = Math.abs(Math.floor(seed)) % 1024;
+    _initShadowWorld() {
+        this._initShadowWorldBase(false);
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        const d = this.c.derived;
+
+        // --- Dynamic Density Injection ---
+        const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
+        const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
+        const avgLifeFrames = this.shadowGrid.rows * (d.cycleDuration || 1);
         
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        if (len <= 0) return;
+        let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
+        targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
+        targetStreamCount = Math.max(targetStreamCount, 5);
         
-        const ux = dx / len;
-        const uy = dy / len;
-        
-        let dist = 0;
-        const minLen = 2.0; // Minimum 2px
-        const maxLen = Math.max(minLen + 1, ch); 
-        
-        while (dist < len) {
-            // Pick random dash length
-            const r1 = this.rngBuffer[rngIdx];
-            rngIdx = (rngIdx + 1) & 1023; // Wrap
-            const dash = minLen + r1 * (maxLen - minLen);
+        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
+        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
+
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+
+        let spawned = 0;
+        let colIdx = 0;
+        const maxAttempts = targetStreamCount * 3; 
+        let attempts = 0;
+
+        while (spawned < targetStreamCount && attempts < maxAttempts) {
+            attempts++;
+            const col = columns[colIdx % columns.length];
+            colIdx++;
             
-            // Pick random gap length
-            const r2 = this.rngBuffer[rngIdx];
-            rngIdx = (rngIdx + 1) & 1023;
-            const gap = minLen + r2 * (maxLen - minLen);
+            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
+            const isEraser = Math.random() < eraserChance;
             
-            // Draw Dash
-            const dEnd = Math.min(dist + dash, len);
-            if (dEnd > dist) {
-                path.moveTo(x1 + ux * dist, y1 + uy * dist);
-                path.lineTo(x1 + ux * dEnd, y1 + uy * dEnd);
+            const stream = sm._initializeStream(col, isEraser, s);
+            stream.y = startY;
+            
+            if (startY < stream.visibleLen) {
+                stream.age = startY;
+                sm.addActiveStream(stream);
+                spawned++;
             }
+        }
+    
+        const warmupFrames = 400;
+        this.shadowSimFrame = warmupFrames;
+        
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
+        }
+    }
+
+    update() {
+        const s = this.c.state;
+        const fps = 60;
+
+        if (!this.active) return;
+
+        this.animFrame++;
+
+        // 1. Animation Cycle (Grid Expansion) - Logic Update
+        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+        const delayMult = (s.quantizedRetractSpeed !== undefined) ? s.quantizedRetractSpeed : 1;
+        const effectiveInterval = baseDuration * (delayMult / 4.0);
+
+        this.cycleTimer++;
+
+        if (this.cycleTimer >= effectiveInterval) {
+            this.cycleTimer = 0;
+            this.cyclesCompleted++;
             
-            dist += dash + gap;
+            if (!this.debugMode || this.manualStep) {
+                this._processAnimationStep();
+                this.manualStep = false;
+            }
+        }
+
+        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
+        this._updateRenderGridLogic();
+
+        // 2. Update Shadow Simulation & Apply Overrides
+        if (!this.hasSwapped && !this.isSwapping) {
+            this._updateShadowSim();
+        } else if (this.isSwapping) {
+            // Keep applying overrides during swap transition buffer
+            // This prevents the "flash of old content" while worker syncs
+            this._updateShadowSim();
+            
+            this.swapTimer--;
+            if (this.swapTimer <= 0) {
+                // Transition Complete
+                this.g.clearAllOverrides();
+                this.isSwapping = false;
+                this.hasSwapped = true;
+                this.active = false;
+                this.state = 'IDLE';
+                
+                // Cleanup
+                this.shadowGrid = null;
+                this.shadowSim = null;
+                
+                window.removeEventListener('keydown', this._boundDebugHandler);
+            }
+        }
+
+        // 3. Lifecycle State Machine
+        const fadeInFrames = Math.max(1, (s.quantizedRetractFadeInFrames !== undefined) ? s.quantizedRetractFadeInFrames : 60);
+        const fadeOutFrames = Math.max(1, (s.quantizedRetractFadeFrames !== undefined) ? s.quantizedRetractFadeFrames : 60);
+        const durationFrames = (s.quantizedRetractDurationSeconds || 2) * fps;
+        
+        const setAlpha = (val) => { this.alpha = Math.max(0, Math.min(1, val)); };
+
+        if (this.state === 'FADE_IN') {
+            this.timer++;
+            setAlpha(this.timer / fadeInFrames);
+            if (this.timer >= fadeInFrames) {
+                this.state = 'SUSTAIN';
+                this.timer = 0;
+                this.alpha = 1.0;
+            }
+        } else if (this.state === 'SUSTAIN') {
+            this.timer++;
+            if (!this.debugMode && this.timer >= durationFrames) {
+                this.state = 'FADE_OUT';
+                this.timer = 0;
+                if (!this.hasSwapped && !this.isSwapping) {
+                    this._swapStates();
+                }
+            }
+        } else if (this.state === 'FADE_OUT') {
+            // If swapping, we handle termination in swap logic.
+            // If just fading out (e.g. cancelled), handle standard fade.
+            if (!this.isSwapping) {
+                this.timer++;
+                setAlpha(1.0 - (this.timer / fadeOutFrames));
+                if (this.timer >= fadeOutFrames) {
+                    this.active = false;
+                    this.state = 'IDLE';
+                    this.alpha = 0.0;
+                    window.removeEventListener('keydown', this._boundDebugHandler);
+                    this.g.clearAllOverrides();
+                    this.shadowGrid = null;
+                    this.shadowSim = null;
+                }
+            }
+        }
+
+        // 4. Animation Transition Management (Dirtiness)
+        const addDuration = Math.max(1, s.quantizedRetractFadeInFrames || 0);
+        const removeDuration = Math.max(1, s.quantizedRetractFadeFrames || 0);
+
+        if (this.maskOps) {
+            for (const op of this.maskOps) {
+                const age = this.animFrame - op.startFrame;
+                const duration = (op.type === 'remove') ? removeDuration : addDuration;
+                if (age < duration) {
+                    this._maskDirty = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    _updateRenderGridLogic() {
+        // Calculates the logical state of the expansion grid (what is active/inactive)
+        
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+        
+        const blocksX = Math.ceil(this.g.cols / cellPitchX);
+        const blocksY = Math.ceil(this.g.rows / cellPitchY);
+        const totalBlocks = blocksX * blocksY;
+
+        // Initialize or Resize Logic Grid
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
+            this.renderGrid = new Int32Array(totalBlocks);
+            this.renderGrid.fill(-1);
+        } else {
+            // Reset for reconstruction
+            this.renderGrid.fill(-1);
+        }
+
+        if (!this.maskOps || this.maskOps.length === 0) return;
+
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        for (const op of this.maskOps) {
+            if (op.startFrame && this.animFrame < op.startFrame) continue;
+
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
+                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
+                        }
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
+                            this.renderGrid[by * blocksX + bx] = -1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Cache dimensions for _updateShadowSim
+        this._lastBlocksX = blocksX;
+        this._lastBlocksY = blocksY;
+        this._lastPitchX = cellPitchX;
+        this._lastPitchY = cellPitchY;
+        
+        // Mark distance map as dirty whenever logic grid updates
+        this._distMapDirty = true;
+    }
+
+
+    
+
+
+
+
+    _processAnimationStep() {
+        if (this.expansionPhase < this.sequence.length) {
+            const step = this.sequence[this.expansionPhase];
+            if (step) this._executeStepOps(step);
+            this.expansionPhase++;
+            this._maskDirty = true;
+        }
+    }
+
+    applyToGrid(grid) {
+        // No grid overrides - we render directly to overlayCanvas
+    }
+
+    _updateMask(w, h, s, d) {
+        const ctx = this.maskCtx;
+        const pCtx = this.perimeterMaskCtx;
+        const lCtx = this.lineMaskCtx;
+        const grid = this.g;
+        
+        ctx.clearRect(0, 0, w, h);
+        if (pCtx) pCtx.clearRect(0, 0, w, h);
+        if (lCtx) lCtx.clearRect(0, 0, w, h);
+        
+        const screenStepX = d.cellWidth * s.stretchX;
+        const screenStepY = d.cellHeight * s.stretchY;
+        const thickness = (s.quantizedRetractPerimeterThickness !== undefined) ? s.quantizedRetractPerimeterThickness : 1.0;
+        const lineWidthX = screenStepX * 0.25 * thickness;
+        const lineWidthY = screenStepY * 0.25 * thickness;
+        const halfLineX = lineWidthX / 2;
+        const halfLineY = lineWidthY / 2;
+        const gridPixW = grid.cols * d.cellWidth; 
+        const gridPixH = grid.rows * d.cellHeight;
+        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+
+        this.layout = {
+            screenStepX, screenStepY,
+            lineWidthX, lineWidthY,
+            halfLineX, halfLineY,
+            screenOriginX, screenOriginY,
+            gridPixW, gridPixH,
+            cellPitchX, cellPitchY
+        };
+
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+
+        if (!this.maskOps || this.maskOps.length === 0) return;
+
+        const now = this.animFrame;
+        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+        const fadeFrames = this.getConfig('FadeFrames') || 0;
+        const addDuration = Math.max(1, fadeInFrames);
+        const removeDuration = Math.max(1, fadeFrames);
+
+        // Distance Map for Hollow Masking (Lines within 4 blocks of perimeter)
+        const distMap = this._computeDistanceField(blocksX, blocksY);
+        
+        const outsideMap = this._computeTrueOutside(blocksX, blocksY);
+        const isTrueOutside = (nx, ny) => {
+            if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
+            return outsideMap[ny * blocksX + nx] === 1;
+        };
+        
+        const isRenderActive = (bx, by) => {
+            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
+            const idx = by * blocksX + bx;
+            if (!this.renderGrid || this.renderGrid[idx] === -1) return false;
+            return true;
+        };
+        
+        const isLocationCoveredByLaterAdd = (bx, by, time) => {
+             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
+             if (!this.renderGrid) return false;
+             const activeStart = this.renderGrid[by * blocksX + bx];
+             if (activeStart !== -1 && activeStart > time) return true;
+             return false;
+        };
+
+        // --- PASS 1: Base Grid (Interior) ---
+        // Draws Solid Blocks to ctx (maskCanvas) for Black Fill
+        for (const op of this.maskOps) {
+            if (op.type !== 'add') continue;
+            let opacity = 1.0;
+            if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+            ctx.globalAlpha = opacity;
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            // Increased inflate to +1.0 to ensure solid overlap without gaps
+            this._addBlock(start, end, op.ext, isRenderActive); 
+        }
+
+        // --- PASS 3: Perimeter (Border) ---
+        if (pCtx) {
+            const originalCtx = this.maskCtx;
+            this.maskCtx = pCtx; 
+            
+            const boldLineWidthX = lineWidthX * 2.0; 
+            const boldLineWidthY = lineWidthY * 2.0;
+            
+            const batches = new Map();
+
+            for (let by = 0; by < blocksY; by++) {
+                for (let bx = 0; bx < blocksX; bx++) {
+                    if (!isRenderActive(bx, by)) continue; 
+                    const idx = by * blocksX + bx;
+                    const startFrame = this.renderGrid[idx];
+                    
+                    const outN = isTrueOutside(bx, by - 1);
+                    const outS = isTrueOutside(bx, by + 1);
+                    const outW = isTrueOutside(bx - 1, by);
+                    const outE = isTrueOutside(bx + 1, by);
+
+                    if (!outN && !outS && !outW && !outE) continue; 
+
+                    let list = batches.get(startFrame);
+                    if (!list) { list = []; batches.set(startFrame, list); }
+                    
+                    const faces = [];
+                    if (outN) faces.push({dir: 'N', rS: outW, rE: outE});
+                    if (outS) faces.push({dir: 'S', rS: outW, rE: outE});
+                    if (outW) faces.push({dir: 'W', rS: outN, rE: outS});
+                    if (outE) faces.push({dir: 'E', rS: outN, rE: outS});
+                    
+                    list.push({bx, by, faces});
+                }
+            }
+
+            for (const [startFrame, items] of batches) {
+                let opacity = 1.0;
+                if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+                else if (startFrame !== -1) opacity = Math.min(1.0, (now - startFrame) / addDuration);
+                
+                if (opacity <= 0.001) continue;
+
+                pCtx.globalAlpha = opacity;
+                pCtx.fillStyle = '#FFFFFF';
+                pCtx.beginPath();
+                
+                for (const item of items) {
+                    for (const face of item.faces) {
+                        this._addPerimeterFacePath(item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
+                    }
+                }
+                pCtx.fill();
+            }
+
+            // --- PASS 3.5: VOID CLEANUP ---
+            pCtx.globalCompositeOperation = 'destination-out';
+            pCtx.fillStyle = '#FFFFFF';
+            pCtx.beginPath();
+            
+            const l = this.layout;
+
+            for (let by = 0; by < blocksY; by++) {
+                for (let bx = 0; bx < blocksX; bx++) {
+                    if (isTrueOutside(bx, by)) {
+                        const x = l.screenOriginX + (bx * l.cellPitchX * l.screenStepX);
+                        const y = l.screenOriginY + (by * l.cellPitchY * l.screenStepY);
+                        const w = l.cellPitchX * l.screenStepX;
+                        const h = l.cellPitchY * l.screenStepY;
+                        pCtx.rect(x - 0.1, y - 0.1, w + 0.2, h + 0.2); 
+                    }
+                }
+            }
+            pCtx.fill();
+            pCtx.globalCompositeOperation = 'source-over';
+            
+            this.maskCtx = originalCtx; 
+        }
+
+        // --- PASS 4: Add Lines (Interior) - Draws to lCtx (Blue) ---
+        if (lCtx) {
+            // Restore animation-based line adding logic, but masked by distMap
+            const activeLines = new Map();
+            
+            // 1. Collect Lines from Animation Ops
+            for (const op of this.maskOps) {
+                if (op.type !== 'addLine') continue;
+                
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        if (isRenderActive(bx, by)) {
+                            const idx = by * blocksX + bx;
+                            
+                            // DISTANCE MASK CHECK: Only draw if within 4 blocks of perimeter
+                            // distMap values: 0=edge, 1, 2, 3, 4=inner limit.
+                            // So we show lines if dist <= 4.
+                            if (distMap[idx] > 4) continue;
+
+                            let nx = bx, ny = by;
+                            const f = op.face ? op.face.toUpperCase() : '';
+                            if (f === 'N') ny--;
+                            else if (f === 'S') ny++;
+                            else if (f === 'W') nx--;
+                            else if (f === 'E') nx++;
+                            
+                            if (isTrueOutside(nx, ny)) continue; // Don't draw on perimeter
+
+                            let cell = activeLines.get(idx);
+                            if (!cell) { cell = {}; activeLines.set(idx, cell); }
+                            cell[f] = op;
+                        }
+                    }
+                }
+            }
+
+            // 2. Draw Collected Lines
+            const originalCtx = this.maskCtx;
+            this.maskCtx = lCtx;
+            lCtx.fillStyle = '#FFFFFF';
+
+            for (const [idx, cell] of activeLines) {
+                const bx = idx % blocksX;
+                const by = Math.floor(idx / blocksX);
+                
+                const drawLine = (face, rS, rE) => {
+                    const op = cell[face];
+                    if (!op) return;
+                    
+                    let opacity = 1.0;
+                    if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+                    else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+                    
+                    if (opacity <= 0.001) return;
+
+                    lCtx.globalAlpha = opacity;
+                    lCtx.beginPath();
+                    // Reuse the Perimeter Logic which handles Inner Stroke & Retraction
+                    this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
+                    lCtx.fill();
+                };
+
+                const hasN_Border = isTrueOutside(bx, by - 1);
+                const hasS_Border = isTrueOutside(bx, by + 1);
+                const hasN = !!cell['N'] || hasN_Border;
+                const hasS = !!cell['S'] || hasS_Border;
+
+                drawLine('N', false, false);
+                drawLine('S', false, false);
+                drawLine('W', hasN, hasS);
+                drawLine('E', hasN, hasS);
+            }
+            this.maskCtx = originalCtx;
+        }
+    }
+
+    _addPerimeterFacePath(bx, by, faceObj, widthX, widthY) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const startCellX = Math.floor(bx * l.cellPitchX);
+        const startCellY = Math.floor(by * l.cellPitchY);
+        const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+        const endCellY = Math.floor((by + 1) * l.cellPitchY);
+
+        const hx = widthX / 2;
+        const hy = widthY / 2;
+        
+        const face = faceObj.dir;
+        const rS = faceObj.rS;
+        const rE = faceObj.rE;
+
+        let drawX, drawY, drawW, drawH;
+
+        if (face === 'N') {
+            const cy = l.screenOriginY + (startCellY * l.screenStepY);
+            let drawX, drawY, drawW, drawH;
+            const topY = cy; 
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            drawY = topY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX; 
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'S') {
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawY = bottomY - widthY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX;
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'W') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = leftX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'E') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = rightX - widthX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
         }
     }
 
     _initEdges() {
-        const bs = 4;
         const cols = this.g.cols;
         const rows = this.g.rows;
         
-        // Add blocks along the perimeter, aligned to 4x4 grid
-        const startX = Math.floor((cols / 2) / 4) * 4;
-        const startY = Math.floor((rows / 2) / 4) * 4;
-        // Not center, but edges. We align to 4x4 relative to 0,0 usually.
-        
+        // Add blocks along the perimeter
         // Top & Bottom
         for (let x = -4; x < cols + 4; x += 4) {
-            this._addBlock(x, -4); // Just off-screen top
-            this._addBlock(x, rows); // Just off-screen bottom
+            this._generateBlock(x, -4); 
+            this._generateBlock(x, rows); 
         }
-        
-        // Left & Right (exclude corners already added)
+        // Left & Right
         for (let y = 0; y < rows; y += 4) {
-            this._addBlock(-4, y); // Left
-            this._addBlock(cols, y); // Right
-        }
-        
-        this.blocksAdded = this.blocks.length;
-    }
-
-    _initShadowWorld() {
-        // Reuse same logic as Pulse
-        this.shadowGrid = new CellGrid(this.c);
-        const d = this.c.derived;
-        const w = this.g.cols * d.cellWidth;
-        const h = this.g.rows * d.cellHeight;
-        this.shadowGrid.resize(w, h);
-        
-        // Pass false to disable worker initialization for shadow sim
-        this.shadowSim = new SimulationSystem(this.shadowGrid, this.c, false);
-        this.shadowSim.useWorker = false;
-        if (this.shadowSim.worker) {
-            this.shadowSim.worker.terminate();
-            this.shadowSim.worker = null;
-        }
-        
-        this.shadowSim.timeScale = 1.0;
-        const s = this.c.state;
-        const avgSpeed = Math.max(1, 21 - (s.streamSpeed || 10)); 
-        const framesNeeded = Math.ceil(this.g.rows * avgSpeed * 1.5);
-        const warmupFrames = Math.max(400, Math.min(3000, framesNeeded));
-
-        for (let i = 0; i < warmupFrames; i++) {
-            this.shadowSim.update(i);
-        }
-        this.localFrame = warmupFrames;
-    }
-
-    _updateShadowWorld() {
-        if (!this.shadowSim || !this.shadowGrid) return;
-        this.localFrame++;
-        this.shadowSim.update(this.localFrame);
-        
-        // Copy Overrides (Same as Pulse)
-        const g = this.g;
-        const sg = this.shadowGrid;
-        
-        g.overrideChars.set(sg.chars);
-        g.overrideColors.set(sg.colors);
-        g.overrideAlphas.set(sg.alphas);
-        g.overrideGlows.set(sg.glows);
-        g.overrideNextChars.set(sg.nextChars);
-    }
-
-    _finishExpansion() {
-        const result = this._commitShadowState();
-        
-        this.resetExpansion(); 
-        this.g.clearAllOverrides(); 
-        this._updateFlashes(); 
-        this.shadowGrid = null;
-        this.shadowSim = null;
-        
-        if (result === false) {
-             console.error("[QuantizedRetract] Swap failed");
-             this.stop();
+            this._generateBlock(-4, y); 
+            this._generateBlock(cols, y); 
         }
     }
 
-    _addBlock(x, y, burstId = 0) {
+    _generateBlock(x, y) {
         if (this._isOccupied(x, y)) return;
 
         this.blocks.push({x, y});
         
         const mx = x + this.mapPad;
         const my = y + this.mapPad;
-        
         if (mx >= 0 && my >= 0 && mx < this.mapCols && my < this.mapRows) {
-            const idx = my * this.mapCols + mx;
-            this.map[idx] = (this.map[idx] & ~2) | 1 | (burstId << 2);
-            
-            // Retract Reveal Scale:
-            // 1.0 at Edge, 0.0 at Center? 
-            // Pulse was 1.0 at center, 0.0 at edge.
-            // For Retract, we want intensity highest at the leading edge (inner edge).
-            // But visually, maintaining standard intensity is fine.
-            
-            // On-Screen Check
-            if (x >= -4 && y >= -4 && x < this.g.cols && y < this.g.rows) {
-                // Calculate distance from center
-                const centerX = this.g.cols / 2;
-                const centerY = this.g.rows / 2;
-                const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
-                
-                const bx = x + 2;
-                const by = y + 2;
-                const dx = bx - centerX;
-                const dy = by - centerY;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                // Scale increases as we get closer to center? Or stays high?
-                // Let's keep it similar to Pulse: Brighter near origin?
-                // Origin here is "Everywhere outside".
-                // Let's just use dist/maxDist (1.0 at edge, 0.0 at center)
-                let scale = (dist / maxDist);
-                scale = Math.pow(scale, 0.5); // Bias towards 1.0
-                
-                const bs = 4;
-                for(let by=0; by<bs; by++) {
-                    for(let bx=0; bx<bs; bx++) {
-                         const gx = x + bx;
-                         const gy = y + by;
-                         if (gx >= 0 && gy >= 0 && gx < this.g.cols && gy < this.g.rows) {
-                             const cellIdx = gy * this.g.cols + gx;
-                             this.g.overrideActive[cellIdx] = 3; 
-                             if (this.shadowGrid) {
-                                 this.g.overrideMix[cellIdx] = this.shadowGrid.mix[cellIdx];
-                             }
-                             this.flashIntensity[cellIdx] = 1.0 * scale;
-                             this.activeFlashes.add(cellIdx);
-                         }
-                    }
-                }
-            }
+            this.map[my * this.mapCols + mx] = 1; // Mark Occupied (1)
         }
+
+        this.maskOps.push({
+            type: 'add',
+            x1: Math.floor(x/4), y1: Math.floor(y/4), 
+            x2: Math.floor(x/4), y2: Math.floor(y/4),
+            ext: false,
+            startFrame: this.animFrame
+        });
 
         const bs = 4;
         const neighbors = [
-            {x: x, y: y - bs, side: 0}, 
-            {x: x + bs, y: y, side: 1}, 
-            {x: x, y: y + bs, side: 2}, 
-            {x: x - bs, y: y, side: 3}  
+            {x: x, y: y - bs}, {x: x + bs, y: y}, 
+            {x: x, y: y + bs}, {x: x - bs, y: y}
         ];
 
         for (const pn of neighbors) {
-            if (this._isOccupied(pn.x, pn.y)) {
-                let isSameBurst = false;
-                const nmx = pn.x + this.mapPad;
-                const nmy = pn.y + this.mapPad;
-                
-                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
-                     const nbVal = this.map[nmy * this.mapCols + nmx];
-                     const nbBurst = nbVal >> 2;
-                     if (burstId > 0 && nbBurst === burstId) isSameBurst = true;
-                }
-                
-                if (!isSameBurst) {
-                    let lx, ly, lw, lh;
-                    if (pn.side === 0) { lx = x; ly = y; lw = bs; lh = 0; }     
-                    else if (pn.side === 1) { lx = x + bs; ly = y; lw = 0; lh = bs; } 
-                    else if (pn.side === 2) { lx = x; ly = y + bs; lw = bs; lh = 0; } 
-                    else if (pn.side === 3) { lx = x; ly = y; lw = 0; lh = bs; }      
-                    
-                    const s = this._getEffectiveState();
-                    const persistence = s.fadeFrames > 0 ? (10 + Math.random() * 10) : 10;
-                    
-                    this.lines.push({
-                        x: lx, y: ly, w: lw, h: lh, 
-                        alpha: 1.0, 
-                        persistence: persistence, 
-                        isNew: true 
-                    });
-                }
-            } else {
-                const nmx = pn.x + this.mapPad;
-                const nmy = pn.y + this.mapPad;
-                
-                if (nmx >= 0 && nmy >= 0 && nmx < this.mapCols && nmy < this.mapRows) {
-                    const pIdx = nmy * this.mapCols + nmx;
-                    if ((this.map[pIdx] & 3) === 0) {
-                        this.frontier.push({x: pn.x, y: pn.y});
-                        this.map[pIdx] |= 2; 
-                    }
+            const pMx = pn.x + this.mapPad;
+            const pMy = pn.y + this.mapPad;
+            
+            // Check bounds
+            if (pMx >= 0 && pMy >= 0 && pMx < this.mapCols && pMy < this.mapRows) {
+                const val = this.map[pMy * this.mapCols + pMx];
+                // Only add if Empty (0). If Occupied (1) or already Frontier (2), skip.
+                if (val === 0) {
+                    this.frontier.push(pn);
+                    this.map[pMy * this.mapCols + pMx] = 2; // Mark Frontier (2)
                 }
             }
         }
     }
 
-    _isOccupied(x, y) {
-        const mx = x + this.mapPad;
-        const my = y + this.mapPad;
-        if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows) return false;
-        return (this.map[my * this.mapCols + mx] & 1) !== 0;
+    _computeTrueOutside(blocksX, blocksY) {
+        // For Retract: Simplistic definition of Outside.
+        // Any block that is NOT active (void) is considered "Outside" for border rendering purposes.
+        // This ensures internal holes or the center void always trigger border drawing on neighbors.
+        const status = new Uint8Array(blocksX * blocksY);
+        for (let i = 0; i < status.length; i++) {
+            if (this.renderGrid[i] === -1) status[i] = 1;
+        }
+        return status;
     }
 
-    _applyMask() {
-        const bs = 4;
-        const g = this.g;
+    _updateShadowSim() {
+        if (!this.shadowSim) return;
+        
+        // 1. Advance Simulation
+        this.shadowSim.update(++this.shadowSimFrame);
+        
+        // 2. Compute "True Outside" (Used for identifying the Void/Shadow area)
+        if (!this.renderGrid || !this._lastBlocksX) return;
+
+        const blocksX = this._lastBlocksX;
+        const blocksY = this._lastBlocksY;
+        const pitchX = this._lastPitchX;
+        const pitchY = this._lastPitchY;
+        
+        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
+        
+        // 3. Apply Overrides (INVERTED LOGIC for Retract)
+        // Void (Outside) = Shadow World
+        // Active (Inside) = Main World
         const sg = this.shadowGrid;
-        
-        for (const b of this.blocks) {
-            for(let by=0; by<bs; by++) {
-                const gy = b.y + by;
-                if (gy >= this.g.rows) continue;
-                const rowOffset = gy * this.g.cols;
-                const srcRowOffset = gy * sg.cols; // Use ShadowGrid Stride
-
-                for(let bx=0; bx<bs; bx++) {
-                     const gx = b.x + bx;
-                     if (gx < this.g.cols) {
-                         const idx = rowOffset + gx;
-                         g.overrideActive[idx] = 3; 
-                         if (sg && gx < sg.cols) {
-                             const srcIdx = srcRowOffset + gx;
-                             g.overrideMix[idx] = sg.mix[srcIdx];
-                         }
-                     }
-                }
-            }
-        }
-    }
-
-    _executeSequenceStep(step) {
-        if (!step) return;
-        for (const op of step) {
-            if (op.op === 'add' || op.op === 'addSmart') {
-                this._addBlock(op.args[0], op.args[1], this.burstCounter);
-            } else if (op.op === 'addRect') {
-                const [x1, y1, x2, y2] = op.args;
-                const minX = Math.min(x1, x2);
-                const maxX = Math.max(x1, x2);
-                const minY = Math.min(y1, y2);
-                const maxY = Math.max(y1, y2);
-                for(let y=minY; y<=maxY; y++) {
-                    for(let x=minX; x<=maxX; x++) {
-                        this._addBlock(x, y, this.burstCounter);
-                    }
-                }
-            } else if (op.op === 'removeBlock' || op.op === 'rem') {
-                 const [x, y] = op.args;
-                 const idx = this.blocks.findIndex(b => b.x === x && b.y === y);
-                 if (idx !== -1) {
-                     this.blocks.splice(idx, 1);
-                     const mx = x + this.mapPad;
-                     const my = y + this.mapPad;
-                     if (mx >= 0 && mx < this.mapCols && my >= 0 && my < this.mapRows) {
-                         this.map[my * this.mapCols + mx] &= ~1;
-                     }
-                 }
-            }
-        }
-    }
-
-    _rebuildFrontier() {
-        this.frontier = [];
-        const seen = new Set();
-        const step = Math.max(1, Math.ceil(this.blocks.length / 200)); 
-        for(let i=0; i<this.blocks.length; i+=step) {
-            const b = this.blocks[i];
-            const neighbors = [
-                {x: b.x, y: b.y - 4}, {x: b.x + 4, y: b.y},
-                {x: b.x, y: b.y + 4}, {x: b.x - 4, y: b.y}
-            ];
-            for (const n of neighbors) {
-                if (!this._isOccupied(n.x, n.y)) {
-                    const k = `${n.x},${n.y}`;
-                    if (!seen.has(k)) {
-                        this.frontier.push(n);
-                        seen.add(k);
-                    }
-                }
-            }
-        }
-    }
-
-    update() {
-        if (!this.active) return;
-        
-        if (this.debugMode) {
-            super.update();
-            return;
-        }
-        
-        // 0. Sequence Playback
-        if (this.isSequencePlaying) {
-            this.localFrame++;
-            const s = this._getEffectiveState();
-            
-            this._updateShadowWorld();
-            this._applyMask();
-            this._updateBorderIllumination(); 
-            
-            if (this.fadeInAlpha < 1.0) {
-                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
-                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
-            }
-            
-            this._updateLines(s);
-            this._updateFlashes();
-
-            const freq = Math.max(1, Math.floor(s.duration * 2)); 
-            if (this.localFrame % freq === 0) {
-                if (this.sequencePhase < this.sequence.length) {
-                    const step = this.sequence[this.sequencePhase];
-                    this._executeSequenceStep(step);
-                    this.sequencePhase++;
-                } else {
-                    this.isSequencePlaying = false;
-                    this.isExpanding = true;
-                    this._rebuildFrontier();
-                }
-            }
-        }
-        // 1. Expansion Logic
-        else if (this.isExpanding) {
-            this.localFrame++;
-            const s = this._getEffectiveState();
-            
-            this._updateShadowWorld();
-            this._applyMask();
-            this._updateBorderIllumination(); 
-            
-            if (this.fadeInAlpha < 1.0) {
-                this.fadeInAlpha += 1.0 / Math.max(1, s.fadeInFrames);
-                if (this.fadeInAlpha > 1.0) this.fadeInAlpha = 1.0;
-            }
-            
-            const elapsed = Date.now() - this.startTime;
-            const durationMs = s.duration * 1000; 
-            
-            if (elapsed > durationMs + 2000) {
-                this._finishExpansion();
-            }
-            // Check if full (Frontier Empty AND Center Covered)
-            // Or just check frame count?
-            // Heuristic: If frontier is empty, we are done (screen filled)
-            else if (this.localFrame % 10 === 0 && this.frontier.length === 0 && this.blocksAdded > 100) {
-                this._finishExpansion();
-            }
-            
-            if (this.isExpanding) {
-                // Growth Logic - Inwards
-                const progress = Math.min(1.0, elapsed / durationMs);
-                
-                // Target Blocks matches Expansion logic, but applied to filling the screen
-                const totalBlocks = (this.g.cols * this.g.rows) / 16; 
-                // We want to reach roughly totalBlocks by end of duration
-                const targetBlocks = Math.floor(totalBlocks * Math.pow(progress, 1.5)); // Slower start, fast finish? 
-                // Retract starts fast (large perimeter) and slows down (small center)?
-                // Actually perimeter is large, so we add many blocks per burst.
-                
-                // Let's target a linear fill rate relative to area
-                
-                let needed = targetBlocks - this.blocksAdded;
-                // Since we start with perimeter, blocksAdded is already non-zero.
-                
-                const tendrilFreq = Math.max(2, Math.floor(s.duration * 2));
-                if (needed > 0 && this.localFrame % tendrilFreq === 0) {
-                    this._updateTendrils(s);
-                }
-
-                if (needed > 0 || this.localFrame < 10) { // Always force start
-                     const burstCap = 800; // Higher cap for large perimeter
-                     let burst = Math.min(needed, burstCap);
-                     if (burst < 5) burst = 5; 
-                     this._updateExpansionBurst(burst);
-                }
-                
-                this._updateLines(s);
-            }
-        }
-        
-        this._updateFlashes();
-
-        if (!this.isExpanding && this.activeFlashes.size === 0) {
-            this.stop(); 
-        }
-    }
-    
-    _updateTendrils(s) {
-        // Limit attempts per frame
-        const attempts = 6; 
-        const maxSearch = 3; // Search up to 4 spots
-        const maxBlind = 3;  
-        
-        for (let i = 0; i < attempts; i++) {
-            if (this.frontier.length === 0) break;
-            
-            // Pick random frontier block
-            const idx = Math.floor(Math.random() * this.frontier.length);
-            const f = this.frontier[idx];
-            
-            // Pick ONE random direction to extend (Orthogonal/Edge only)
-            const dirs = [{x:0, y:-4}, {x:4, y:0}, {x:0, y:4}, {x:-4, y:0}];
-            const d = dirs[Math.floor(Math.random() * dirs.length)];
-            
-            // 1. Scan Phase (Look Ahead)
-            let limit = 0;
-            let foundTarget = false;
-            
-            for (let k = 0; k < maxSearch; k++) {
-                const tx = f.x + (d.x * k);
-                const ty = f.y + (d.y * k);
-                
-                // If blocked by existing pulse block, stop scanning
-                if (this._isOccupied(tx, ty)) break;
-                
-                limit++;
-                
-                // Check for Code (Target)
-                if (this._hasCode(tx, ty)) {
-                    foundTarget = true;
-                    break; // Lock on!
-                }
-            }
-            
-            // 2. Constraint Phase
-            // If we didn't lock onto code, constrain the extension
-            if (!foundTarget) {
-                limit = Math.min(limit, maxBlind);
-            }
-            
-            // 3. Build Phase
-            // If limit > 0, we can extend
-            if (limit > 0) {
-                for (let k = 0; k < limit; k++) {
-                    const tx = f.x + (d.x * k);
-                    const ty = f.y + (d.y * k);
-                    this._addBlock(tx, ty, this.burstCounter);
-                }
-            }
-        }
-    }
-
-    _hasCode(x, y) {
-        // Check center of the 4x4 block
-        const gx = x + 2;
-        const gy = y + 2;
-        if (gx < 0 || gy < 0 || gx >= this.g.cols || gy >= this.g.rows) return false;
-        
-        const idx = this.g.getIndex(gx, gy);
-        return (this.g.state && this.g.state[idx] === 1);
-    }
-
-    _updateBorderIllumination() {
-        const centerX = this.g.cols / 2;
-        const centerY = this.g.rows / 2;
-        const maxDist = Math.sqrt(centerX*centerX + centerY*centerY);
-        
-        for (const l of this.lines) {
-            if (!l.isNew) continue; 
-            
-            const dx = (l.x + (l.w > 0 ? l.w/2 : 0)) - centerX;
-            const dy = (l.y + (l.h > 0 ? l.h/2 : 0)) - centerY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            
-            // Retract: Brightest near center (End of effect)? 
-            // Or Brightest at edge (Start of effect)?
-            // Visual preference: Leading edge should be bright.
-            // As it moves inwards, distance decreases.
-            // So we want scale to be high regardless?
-            // Let's use 1.0 constant for now, maybe pulsate?
-            let scale = 1.0;
-
-            let isHorizontal = (l.w > 0);
-            
-            if (isHorizontal) {
-                const isTopOccupied = this._isOccupied(l.x, l.y - 4);
-                const isBottomOccupied = this._isOccupied(l.x, l.y);
-                if (isTopOccupied && !isBottomOccupied) this._illuminateSpan(l.x, l.y - 1, 4, 1, scale);
-                else if (isBottomOccupied && !isTopOccupied) this._illuminateSpan(l.x, l.y, 4, 1, scale);
-            } else {
-                const isLeftOccupied = this._isOccupied(l.x - 4, l.y);
-                const isRightOccupied = this._isOccupied(l.x, l.y);
-                if (isLeftOccupied && !isRightOccupied) this._illuminateSpan(l.x - 1, l.y, 1, 4, scale);
-                else if (isRightOccupied && !isLeftOccupied) this._illuminateSpan(l.x, l.y, 1, 4, scale);
-            }
-        }
-    }
-    
-    _illuminateSpan(x, y, w, h, scale = 1.0) {
-        if (!this.shadowGrid) return;
-        for(let py = y; py < y + h; py++) {
-            if (py < 0 || py >= this.g.rows) continue;
-            for(let px = x; px < x + w; px++) {
-                if (px < 0 || px >= this.g.cols) continue;
-                const idx = py * this.g.cols + px;
-                if (this.shadowGrid.chars[idx] !== 0) {
-                     this.flashIntensity[idx] = 1.0 * scale; 
-                     this.activeFlashes.add(idx);
-                }
-            }
-        }
-    }
-
-    _updateLines(s) {
-        for (let i = this.lines.length - 1; i >= 0; i--) {
-            if (this.lines[i].persistence > 0) {
-                this.lines[i].persistence--;
-            } else {
-                let speed;
-                if (this.lines[i].isNew) {
-                    speed = s.lineFadeSpeed; 
-                } else {
-                    const duration = 0.5;
-                    speed = (duration <= 0.01) ? 1.0 : (1.0 / (duration * 60));
-                }
-                
-                this.lines[i].alpha -= speed;
-                if (this.lines[i].alpha <= 0) this.lines.splice(i, 1);
-            }
-        }
-    }
-
-    _updateExpansionBurst(count) {
-        // Merge Lines
-        const duration = 0.5;
-        
-        for (let i = this.lines.length - 1; i >= 0; i--) {
-            const l = this.lines[i];
-            if (l.isNew) {
-                if (duration <= 0.01) {
-                    this.lines.splice(i, 1);
-                } else {
-                    l.isNew = false;
-                    l.persistence = 0; 
-                    l.alpha = 1.0;
-                }
-            }
-        }
-
-        let burstCount = count;
-        this.burstCounter = (this.burstCounter + 1) & 0x3FFF; 
-        if (this.burstCounter === 0) this.burstCounter = 1;
-
-        let processed = 0;
-        let attempts = 0;
-        const maxAttempts = burstCount * 8 + 50; 
-        
-        // Retract Logic: Grow Inwards from Frontier
-        // The frontier is the inner edge of the ring.
-        // We want to pick blocks that move CLOSER to center.
-
-        const cx = this.g.cols / 2;
-        const cy = this.g.rows / 2;
-
-        while (processed < burstCount && this.frontier.length > 0 && attempts < maxAttempts) {
-            attempts++;
-            
-            const K = 5; 
-            let bestIdx = -1;
-            let bestDist = 999999; 
-
-            // Scan K random frontier points, pick one closest to center
-            // (Since we want to fill INWARDS)
-            for (let k = 0; k < K; k++) {
-                const idx = Math.floor(Math.random() * this.frontier.length);
-                const f = this.frontier[idx];
-                
-                const mx = f.x + this.mapPad;
-                const my = f.y + this.mapPad;
-                
-                // Validate
-                if (mx < 0 || my < 0 || mx >= this.mapCols || my >= this.mapRows ||
-                    (this.map[my * this.mapCols + mx] & 1) !== 0) { // Occupied
-                     // Cleanup invalid
-                     const last = this.frontier.pop();
-                     if (idx < this.frontier.length) {
-                         this.frontier[idx] = last;
-                         // Fix pointer if we moved the best candidate
-                         if (bestIdx === this.frontier.length) {
-                             bestIdx = idx;
-                         }
-                     }
-                     k--; 
-                     if (this.frontier.length === 0) break;
-                     continue;
-                }
-
-                const dx = f.x - cx;
-                const dy = f.y - cy;
-                const dist = dx*dx + dy*dy;
-                
-                // We want smallest distance (closest to center)
-                // Add noise to prevent perfect circle
-                const score = dist + (Math.random() * 500);
-                
-                if (score < bestDist) {
-                    bestDist = score;
-                    bestIdx = idx;
-                }
-            }
-            
-            if (bestIdx === -1) continue;
-            
-            const winner = this.frontier[bestIdx];
-            
-            // Mark non-frontier
-            const wmx = winner.x + this.mapPad;
-            const wmy = winner.y + this.mapPad;
-            this.map[wmy * this.mapCols + wmx] &= ~2; 
-            
-            const last = this.frontier.pop();
-            if (bestIdx < this.frontier.length) this.frontier[bestIdx] = last;
-            
-            if (!this._isOccupied(winner.x, winner.y)) {
-                this._addBlock(winner.x, winner.y, this.burstCounter);
-                processed++;
-                
-                // Optional: Cluster fills (2x2, etc) to make it blocky
-                // Cluster logic from Expansion but keep it simple for now
-                if (Math.random() < 0.5) {
-                    // Try to add a neighbor closer to center
-                    const dx = winner.x - cx;
-                    const dy = winner.y - cy;
-                    let tx = winner.x, ty = winner.y;
-                    
-                    if (Math.abs(dx) > Math.abs(dy)) {
-                        tx += (dx > 0 ? -4 : 4); // Move towards X center
-                    } else {
-                        ty += (dy > 0 ? -4 : 4); // Move towards Y center
-                    }
-                    
-                    if (!this._isOccupied(tx, ty)) {
-                        this._addBlock(tx, ty, this.burstCounter);
-                        processed++;
-                    }
-                }
-            }
-        }
-    }
-
-    _updateFlashes() {
-        if (this.activeFlashes.size === 0) return;
         const g = this.g;
-        const decay = 1.0 / 30.0; 
-        const toRemove = [];
         
-        for (const idx of this.activeFlashes) {
-            let intensity = this.flashIntensity[idx];
-            if (intensity <= 0) {
-                toRemove.push(idx);
-                continue;
-            }
-            intensity -= decay;
-            this.flashIntensity[idx] = intensity;
-            
-            if (intensity > 0) {
-                if (g.overrideActive[idx] !== 3) {
-                     g.overrideActive[idx] = 1; 
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                const idx = by * blocksX + bx;
+                const isVoid = outsideMask[idx] === 1; // 1 = Void/Center
+                
+                const startCellX = Math.floor(bx * pitchX);
+                const startCellY = Math.floor(by * pitchY);
+                const endCellX = Math.floor((bx + 1) * pitchX);
+                const endCellY = Math.floor((by + 1) * pitchY);
+                
+                for (let cy = startCellY; cy < endCellY; cy++) {
+                    if (cy >= g.rows) continue;
+                    for (let cx = startCellX; cx < endCellX; cx++) {
+                        if (cx >= g.cols) continue;
+                        
+                        const destIdx = cy * g.cols + cx;
+                        if (cy >= sg.rows || cx >= sg.cols) continue;
+                        const srcIdx = cy * sg.cols + cx;
+                        
+                        if (!isVoid) {
+                            // ACTIVE (Edge) -> SHADOW WORLD
+                            if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                g.overrideActive[destIdx] = 3; 
+                                g.overrideChars[destIdx] = sg.chars[srcIdx];
+                                g.overrideColors[destIdx] = sg.colors[srcIdx];
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
+                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
+                                g.overrideMix[destIdx] = sg.mix[srcIdx];
+                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
+                            }
+                        } else {
+                            // VOID (Center) -> MAIN WORLD
+                            if (g.overrideActive[destIdx] === 3) {
+                                g.overrideActive[destIdx] = 0;
+                            }
+                        }
+                    }
                 }
-                const illumination = this.c.state.quantizedRetractBorderIllumination !== undefined ? this.c.state.quantizedRetractBorderIllumination : 4.0;
-                g.overrideGlows[idx] += illumination * intensity;
-                
-                const col = g.overrideColors[idx];
-                const r = col & 0xFF;
-                const gVal = (col >> 8) & 0xFF;
-                const b = (col >> 16) & 0xFF;
-                const a = (col >> 24) & 0xFF;
-                
-                const maxVal = Math.max(r, gVal, b, 1);
-                const targetScale = 255 / maxVal;
-                const scale = 1.0 + (targetScale - 1.0) * intensity;
-                
-                const rNew = Math.min(255, Math.floor(r * scale));
-                const gNew = Math.min(255, Math.floor(gVal * scale));
-                const bNew = Math.min(255, Math.floor(b * scale));
-                
-                g.overrideColors[idx] = (a << 24) | (bNew << 16) | (gNew << 8) | rNew;
-            } else {
-                toRemove.push(idx);
             }
-        }
-        
-        for (const idx of toRemove) {
-            this.activeFlashes.delete(idx);
-            this.flashIntensity[idx] = 0;
         }
     }
 
-    render(ctx, derived) {
-        if (this.debugMode) {
-            super.renderDebug(ctx, derived);
-            return;
-        }
+    _addBlock(blockStart, blockEnd, isExtending, visibilityCheck) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const startX = Math.floor(blockStart.x * l.cellPitchX);
+        const endX = Math.floor((blockEnd.x + 1) * l.cellPitchX);
+        const startY = Math.floor(blockStart.y * l.cellPitchY);
+        const endY = Math.floor((blockEnd.y + 1) * l.cellPitchY);
 
-        if (!this.active || !this.isExpanding) return;
-        const s = this.c.state;
-        const cw = derived.cellWidth * s.stretchX;
-        const ch = derived.cellHeight * s.stretchY;
-        const colorStr = '#FFFF6E'; // Gold
-        
-        const masterAlpha = this.fadeAlpha * this.fadeInAlpha;
-        
-        ctx.lineCap = 'butt';
-        ctx.lineWidth = Math.max(1, cw * 0.15); 
-        
-        ctx.strokeStyle = colorStr;
-        ctx.shadowBlur = 25; 
-        ctx.shadowColor = colorStr;
-        ctx.globalAlpha = masterAlpha;
-        
-        const hPath = new Path2D();
-        const vPath = new Path2D();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
 
-        for (const b of this.blocks) {
-            const nTop = this._isOccupied(b.x, b.y - 4);
-            const nRight = this._isOccupied(b.x + 4, b.y);
-            const nBottom = this._isOccupied(b.x, b.y + 4);
-            const nLeft = this._isOccupied(b.x - 4, b.y);
+        if (visibilityCheck) {
+            const rangeMinBx = blockStart.x;
+            const rangeMaxBx = blockEnd.x;
+            const rangeMinBy = blockStart.y;
+            const rangeMaxBy = blockEnd.y;
             
-            const bx = b.x * cw;
-            const by = b.y * ch;
-            const bw = 4 * cw;
-            const bh = 4 * ch;
-            
-            // Seed based on block coordinate
-            const seed = b.x * 13 + b.y * 29;
-
-            if (!nTop) { this._dashedLine(hPath, bx, by, bx + bw, by, seed, ch); }
-            if (!nRight) { this._dashedLine(vPath, bx + bw, by, bx + bw, by + bh, seed + 1, ch); }
-            if (!nBottom) { this._dashedLine(hPath, bx, by + bh, bx + bw, by + bh, seed + 2, ch); }
-            if (!nLeft) { this._dashedLine(vPath, bx, by, bx, by + bh, seed + 3, ch); }
-        }
-        
-        ctx.stroke(hPath);
-        ctx.stroke(vPath);
-
-        // Render Tendrils
-        if (this.tendrils.length > 0) {
-            ctx.globalAlpha = 0.5 * masterAlpha;
-            ctx.setLineDash([cw * 0.2, cw * 0.2]); 
-            ctx.beginPath();
-            for (const t of this.tendrils) {
-                for (const b of t.path) {
-                    const bx = b.x * cw;
-                    const by = b.y * ch;
-                    const bw = 4 * cw;
-                    const bh = 4 * ch;
-                    ctx.rect(bx, by, bw, bh);
+            for (let by = rangeMinBy; by <= rangeMaxBy; by++) {
+                for (let bx = rangeMinBx; bx <= rangeMaxBx; bx++) {
+                    if (!visibilityCheck(bx, by)) continue;
+                    
+                    const cellX = Math.floor(bx * l.cellPitchX);
+                    const cellY = Math.floor(by * l.cellPitchY);
+                    const xPos = l.screenOriginX + (cellX * l.screenStepX);
+                    const yPos = l.screenOriginY + (cellY * l.screenStepY);
+                    
+                    const w = l.screenStepX * l.cellPitchX;
+                    const h = l.screenStepY * l.cellPitchY;
+                    
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
                 }
             }
-            ctx.stroke();
-            ctx.globalAlpha = masterAlpha;
-        }
-
-        ctx.shadowBlur = 0; 
-        
-        ctx.strokeStyle = derived.streamColorStr; 
-        ctx.setLineDash([cw * 0.25, cw * 0.25, cw * 0.5, cw * 0.25]);
-        
-        for (const l of this.lines) {
-            let lineAlpha = l.alpha * masterAlpha;
-            if (l.isNew) {
-                ctx.strokeStyle = colorStr; 
-                ctx.shadowBlur = 25;
-                ctx.shadowColor = colorStr; 
-                if (Math.random() < 0.4) {
-                    lineAlpha *= (0.1 + Math.random() * 0.5);
-                }
+        } else {
+            if (isExtending) {
+                let cy = l.screenOriginY + (startY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                cy = l.screenOriginY + (endY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                let cx = l.screenOriginX + (startX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
+                cx = l.screenOriginX + (endX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
             } else {
-                const col = derived.streamColorStr;
-                ctx.strokeStyle = col; 
-                ctx.shadowColor = col; 
+                // FIXED: Draw SOLID rectangle for filled blocks (Pass 1 - Interior)
+                const rangeMinBx = blockStart.x;
+                const rangeMaxBx = blockEnd.x;
+                const rangeMinBy = blockStart.y;
+                const rangeMaxBy = blockEnd.y;
+                
+                // Calculate total bounds for the block(s)
+                const sCellX = Math.floor(rangeMinBx * l.cellPitchX);
+                const sCellY = Math.floor(rangeMinBy * l.cellPitchY);
+                const eCellX = Math.floor((rangeMaxBx + 1) * l.cellPitchX);
+                const eCellY = Math.floor((rangeMaxBy + 1) * l.cellPitchY);
+                
+                const xPos = l.screenOriginX + (sCellX * l.screenStepX);
+                const yPos = l.screenOriginY + (sCellY * l.screenStepY);
+                const w = (eCellX - sCellX) * l.screenStepX;
+                const h = (eCellY - sCellY) * l.screenStepY;
+                
+                // Draw single solid rect covering everything (with slight inflate for overlap)
+                // Use 1.0 inflate to guarantee no gaps
+                ctx.rect(xPos - 0.5, yPos - 0.5, w + 1.0, h + 1.0);
             }
-            
-            ctx.globalAlpha = lineAlpha;
-            ctx.beginPath();
-            
-            const lx = l.x * cw;
-            const ly = l.y * ch;
-            const lPxW = l.w * cw;
-            const lPxH = l.h * ch;
-            ctx.moveTo(lx, ly);
-            ctx.lineTo(lx + lPxW, ly + lPxH);
-            ctx.stroke();
         }
-        
-        ctx.setLineDash([]); 
-        ctx.globalAlpha = 1.0; 
-        ctx.shadowBlur = 0;
+        ctx.fill();
     }
+
+    _removeBlockFace(blockStart, blockEnd, face, force = false) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const f = face.toUpperCase();
+        const minX = Math.min(blockStart.x, blockEnd.x);
+        const maxX = Math.max(blockStart.x, blockEnd.x);
+        const minY = Math.min(blockStart.y, blockEnd.y);
+        const maxY = Math.max(blockStart.y, blockEnd.y);
+
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+
+        for (let by = minY; by <= maxY; by++) {
+            for (let bx = minX; bx <= maxX; bx++) {
+                if (!force) {
+                    if (f === 'N' && by === minY) continue;
+                    if (f === 'S' && by === maxY) continue;
+                    if (f === 'W' && bx === minX) continue;
+                    if (f === 'E' && bx === maxX) continue;
+                }
+                const startCellX = Math.floor(bx * l.cellPitchX);
+                const startCellY = Math.floor(by * l.cellPitchY);
+                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+                const safety = 0.5;
+                const safeX = l.halfLineX + safety; 
+                const safeY = l.halfLineY + safety; 
+                const inflate = 0.5; 
+
+                if (f === 'N') {
+                    const cy = l.screenOriginY + (startCellY * l.screenStepY);
+                    const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
+                    const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
+                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
+                } else if (f === 'S') {
+                    const cy = l.screenOriginY + (endCellY * l.screenStepY);
+                    const left = l.screenOriginX + (startCellX * l.screenStepX) + safeX;
+                    const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
+                    ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
+                } else if (f === 'W') {
+                    const cx = l.screenOriginX + (startCellX * l.screenStepX);
+                    const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
+                    const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
+                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
+                } else if (f === 'E') {
+                    const cx = l.screenOriginX + (endCellX * l.screenStepX);
+                    const top = l.screenOriginY + (startCellY * l.screenStepY) + safeY;
+                    const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
+                    ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
+                }
+            }
+        }
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    _ensureCanvases(w, h) {
+        super._ensureCanvases(w, h);
+        if (!this.perimeterMaskCanvas) {
+            this.perimeterMaskCanvas = document.createElement('canvas');
+            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
+        }
+        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
+            this.perimeterMaskCanvas.width = w;
+            this.perimeterMaskCanvas.height = h;
+        }
+        if (!this.lineMaskCanvas) {
+            this.lineMaskCanvas = document.createElement('canvas');
+            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
+        }
+        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
+            this.lineMaskCanvas.width = w;
+            this.lineMaskCanvas.height = h;
+        }
+    }
+
+
+
+
 }

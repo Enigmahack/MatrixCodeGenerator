@@ -104,7 +104,7 @@ class MatrixKernel {
             QuantizedPulseEffect,
             QuantizedAddEffect,
             QuantizedRetractEffect,
-            QuantizedExpansionEffect
+            QuantizedClimbEffect
         ];
         effects.forEach((EffectClass) => {
             if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
@@ -410,7 +410,7 @@ class MatrixKernel {
             { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
             { enabledKey: 'quantizedAddEnabled', frequencyKey: 'quantizedAddFrequencySeconds', effectName: 'QuantizedAdd' },
             { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
-            { enabledKey: 'quantizedExpansionEnabled', frequencyKey: 'quantizedExpansionFrequencySeconds', effectName: 'QuantizedExpansion' },
+            { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 

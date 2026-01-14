@@ -23732,7 +23732,7 @@ window.matrixPatterns = {
             16
         ]
     ],
-    "QuantizedExpansion": [
+    "QuantizedClimb": [
         [],
         [
             3,

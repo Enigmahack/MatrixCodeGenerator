@@ -11,7 +11,6 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this.alpha = 0.0;
         
         // Grid properties
-        this.gridPitchChars = 4;
         this.offsetX = 0;
         this.offsetY = 0;
 
@@ -35,7 +34,7 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
 
         // Interruption Logic: Force-commit and stop other Quantized effects
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedAdd", "QuantizedRetract", "QuantizedExpansion"];
+            const siblings = ["QuantizedAdd", "QuantizedRetract", "QuantizedClimb"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
@@ -304,119 +303,16 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         this._lastBlocksY = blocksY;
         this._lastPitchX = cellPitchX;
         this._lastPitchY = cellPitchY;
+        
+        // Mark distance map as dirty whenever logic grid updates
+        this._distMapDirty = true;
     }
 
-    _updateShadowSim() {
-        if (!this.shadowSim) return;
-        
-        // 1. Advance Simulation
-        this.shadowSim.update(++this.shadowSimFrame);
-        
-        // 2. Compute "True Outside" Mask
-        if (!this.renderGrid || !this._lastBlocksX) return;
 
-        const blocksX = this._lastBlocksX;
-        const blocksY = this._lastBlocksY;
-        const pitchX = this._lastPitchX;
-        const pitchY = this._lastPitchY;
-        
-        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
-        
-        // 3. Apply Overrides
-        const sg = this.shadowGrid;
-        const g = this.g;
-        
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const idx = by * blocksX + bx;
-                const isOutside = outsideMask[idx] === 1;
-                
-                const startCellX = Math.floor(bx * pitchX);
-                const startCellY = Math.floor(by * pitchY);
-                const endCellX = Math.floor((bx + 1) * pitchX);
-                const endCellY = Math.floor((by + 1) * pitchY);
-                
-                for (let cy = startCellY; cy < endCellY; cy++) {
-                    if (cy >= g.rows) continue;
-                    for (let cx = startCellX; cx < endCellX; cx++) {
-                        if (cx >= g.cols) continue;
-                        
-                        const destIdx = cy * g.cols + cx;
-                        
-                        // Safety check for shadow grid bounds
-                        if (cy >= sg.rows || cx >= sg.cols) continue;
-                        const srcIdx = cy * sg.cols + cx;
-                        
-                        if (!isOutside) {
-                            // INSIDE: Override with Shadow
-                            if (sg && sg.chars && srcIdx < sg.chars.length) {
-                                g.overrideActive[destIdx] = 3; 
-                                g.overrideChars[destIdx] = sg.chars[srcIdx];
-                                g.overrideColors[destIdx] = sg.colors[srcIdx];
-                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
-                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
-                                g.overrideMix[destIdx] = sg.mix[srcIdx];
-                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
-                            }
-                        } else {
-                            // OUTSIDE: Restore Main
-                            if (g.overrideActive[destIdx] === 3) {
-                                g.overrideActive[destIdx] = 0;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     
-    _computeTrueOutside(blocksX, blocksY) {
-        const status = new Uint8Array(blocksX * blocksY);
-        const queue = [];
 
-        const add = (x, y) => {
-            if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
-            const idx = y * blocksX + x;
-            if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
-                status[idx] = 1;
-                queue.push(idx);
-            }
-        };
 
-        for (let x = 0; x < blocksX; x++) { add(x, 0); add(x, blocksY - 1); }
-        for (let y = 0; y < blocksY; y++) { add(0, y); add(blocksX - 1, y); }
 
-        let head = 0;
-        while (head < queue.length) {
-            const idx = queue[head++];
-            const cx = idx % blocksX;
-            const cy = Math.floor(idx / blocksX);
-            add(cx - 1, cy);
-            add(cx + 1, cy);
-            add(cx, cy - 1);
-            add(cx, cy + 1);
-        }
-        return status;
-    }
-
-    _swapStates() {
-        if (this.hasSwapped || this.isSwapping) return;
-        
-        const result = this._commitShadowState();
-        
-        if (result === 'ASYNC') {
-            this.isSwapping = true;
-            this.swapTimer = 5; 
-        } else if (result === 'SYNC') {
-            this.g.clearAllOverrides();
-            this.hasSwapped = true;
-            this.active = false;
-        } else {
-            // Failed
-            this.g.clearAllOverrides();
-            this.active = false;
-        }
-    }
 
     _processAnimationStep() {
         if (this.expansionPhase < this.sequence.length) {
@@ -907,156 +803,7 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
         }
     }
 
-    render(ctx, d) {
-        if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
-        const s = this.c.state;
-        const glowStrength = s.quantizedPulseBorderIllumination || 0;
-        
-        const borderColor = s.quantizedPulsePerimeterColor || "#FFD700";
-        const interiorColor = s.quantizedPulseInnerColor || "#FFD700";
-        
-        const width = ctx.canvas.width;
-        const height = ctx.canvas.height;
-        this._ensureCanvases(width, height); 
 
-        // Always update mask layout/drawing for current frame
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height || this.debugMode) {
-             this._updateMask(width, height, s, d);
-             this._maskDirty = false;
-        }
 
-        if (glowStrength > 0) {
-            this._updateGridCache(width, height, s, d);
-            
-            const scratchCtx = this.scratchCtx;
-            
-            const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter') => {
-                if (!maskCanvas) return;
-                
-                scratchCtx.globalCompositeOperation = 'source-over';
-                scratchCtx.clearRect(0, 0, width, height);
-
-                if (solid) {
-                    scratchCtx.globalAlpha = this.alpha;
-                    scratchCtx.fillStyle = color;
-                    scratchCtx.fillRect(0, 0, width, height);
-                } else {
-                    // 1. Draw Grid Structure (White)
-                    scratchCtx.globalAlpha = this.alpha;
-                    scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-                    
-                    // 2. Colorize (Source-In)
-                    scratchCtx.globalCompositeOperation = 'source-in';
-                    scratchCtx.fillStyle = color;
-                    scratchCtx.fillRect(0, 0, width, height);
-                }
-                
-                // 3. Mask (Destination-In)
-                scratchCtx.globalCompositeOperation = 'destination-in';
-                scratchCtx.globalAlpha = 1.0;
-                scratchCtx.drawImage(maskCanvas, 0, 0);
-                
-                // 4. Draw to Screen
-                ctx.save();
-                if (ctx.canvas.style.mixBlendMode !== 'normal') {
-                    ctx.canvas.style.mixBlendMode = 'normal';
-                }
-                ctx.globalCompositeOperation = compositeOp; 
-                ctx.globalAlpha = 1.0;
-                
-                // Apply colored glow
-                ctx.shadowColor = color;
-                ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
-                ctx.drawImage(this.scratchCanvas, 0, 0);
-                ctx.restore();
-            };
-
-            // 2. Render Internal Lines Layer (Blue)
-            if (this.lineMaskCanvas) {
-                renderLayer(this.lineMaskCanvas, interiorColor, false, 'source-over');
-            }
-
-            // 3. Render Border Layer (Red)
-            if (this.perimeterMaskCanvas) {
-                renderLayer(this.perimeterMaskCanvas, borderColor, false, 'source-over');
-            }
-        }
-    }
-
-    renderEditorPreview(ctx, derived, previewOp) {
-        // 1. Save State
-        const savedLogicGrid = new Uint8Array(this.logicGrid);
-        const savedMaskOpsLen = this.maskOps.length;
-        
-        // 2. Apply Preview Op
-        if (previewOp) {
-            this._executeStepOps([previewOp]);
-        }
-        
-        // 3. Update Derived Grids
-        if (typeof this._updateRenderGridLogic === 'function') {
-            this._updateRenderGridLogic();
-        }
-
-        // 4. Custom Editor Render (Skip Body Fill)
-        const s = this.c.state;
-        const width = ctx.canvas.width;
-        const height = ctx.canvas.height;
-        this._ensureCanvases(width, height);
-
-        // Always update mask for editor to show changes immediately
-        this._updateMask(width, height, s, derived);
-        
-        const borderColor = s.quantizedPulsePerimeterColor || "#FFD700";
-        const interiorColor = s.quantizedPulseInnerColor || "#FFD700";
-        
-        this._updateGridCache(width, height, s, derived);
-        const scratchCtx = this.scratchCtx;
-
-        const renderLayer = (maskCanvas, color) => {
-            if (!maskCanvas) return;
-            
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-
-            // Draw Grid Structure
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            
-            // Colorize
-            scratchCtx.globalCompositeOperation = 'source-in';
-            scratchCtx.fillStyle = color;
-            scratchCtx.fillRect(0, 0, width, height);
-            
-            // Mask
-            scratchCtx.globalCompositeOperation = 'destination-in';
-            scratchCtx.drawImage(maskCanvas, 0, 0);
-            
-            // Draw to Screen
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-over'; 
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
-        };
-
-        // Render Internal Lines Layer
-        if (this.lineMaskCanvas) {
-            renderLayer(this.lineMaskCanvas, interiorColor);
-        }
-
-        // Render Border Layer
-        if (this.perimeterMaskCanvas) {
-            renderLayer(this.perimeterMaskCanvas, borderColor);
-        }
-
-        // 5. Restore State
-        if (previewOp) {
-            this.maskOps.length = savedMaskOpsLen;
-            this.logicGrid.set(savedLogicGrid);
-            if (typeof this._updateRenderGridLogic === 'function') {
-                this._updateRenderGridLogic();
-            }
-        }
-    }
 }

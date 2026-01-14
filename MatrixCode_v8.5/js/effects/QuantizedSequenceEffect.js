@@ -51,10 +51,18 @@ class QuantizedSequenceEffect extends AbstractEffect {
     }
 
     getBlockSize() {
-        // Default to config if available, otherwise 4
-        // Subclasses can override
-        const w = this.c.state.quantizedBlockWidthCells || 4;
-        const h = this.c.state.quantizedBlockHeightCells || 4;
+        // Try specific config first (e.g. quantizedClimbBlockWidthCells)
+        let w = this.c.state[this.configPrefix + 'BlockWidthCells'];
+        let h = this.c.state[this.configPrefix + 'BlockHeightCells'];
+
+        // Fallback to legacy/global 'quantized' keys (used by Pulse originally)
+        if (w === undefined) w = this.c.state.quantizedBlockWidthCells;
+        if (h === undefined) h = this.c.state.quantizedBlockHeightCells;
+
+        // Final Default
+        w = w || 4;
+        h = h || 4;
+        
         return { w, h };
     }
 
@@ -1329,6 +1337,495 @@ class QuantizedSequenceEffect extends AbstractEffect {
             if (typeof this._updateRenderGridLogic === 'function') {
                 this._updateRenderGridLogic();
             }
+        }
+    }
+
+    stop() {
+        this.active = false;
+        this.state = 'IDLE';
+        this.alpha = 0.0;
+        this.expansionPhase = 0;
+        
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        
+        // Clean up event listeners if any
+        window.removeEventListener('keydown', this._boundDebugHandler);
+        
+        // Clear grid overrides
+        if (this.g) this.g.clearAllOverrides();
+        
+        // Clear specific state arrays if they exist in subclasses
+        if (this.blocks) this.blocks = [];
+        if (this.lines) this.lines = [];
+        if (this.frontier) this.frontier = [];
+        if (this.tendrils) this.tendrils = [];
+        if (this.map) this.map.fill(0);
+        if (this.activeFlashes) this.activeFlashes.clear();
+        if (this.flashIntensity) this.flashIntensity.fill(0);
+        
+        // Clean up shadow simulation
+        this.shadowGrid = null;
+        this.shadowSim = null;
+    }
+
+    _updateShadowSim() {
+        if (!this.shadowSim) return;
+        
+        // 1. Advance Simulation
+        this.shadowSim.update(++this.shadowSimFrame);
+        
+        // 2. Compute "True Outside" Mask
+        // Requires subclasses to maintain this.renderGrid and this._lastBlocksX/Y
+        if (!this.renderGrid || !this._lastBlocksX) return;
+
+        const blocksX = this._lastBlocksX;
+        const blocksY = this._lastBlocksY;
+        const pitchX = this._lastPitchX;
+        const pitchY = this._lastPitchY;
+        
+        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
+        
+        // 3. Apply Overrides
+        const sg = this.shadowGrid;
+        const g = this.g;
+        
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                const idx = by * blocksX + bx;
+                const isOutside = outsideMask[idx] === 1;
+                
+                const startCellX = Math.floor(bx * pitchX);
+                const startCellY = Math.floor(by * pitchY);
+                const endCellX = Math.floor((bx + 1) * pitchX);
+                const endCellY = Math.floor((by + 1) * pitchY);
+                
+                for (let cy = startCellY; cy < endCellY; cy++) {
+                    if (cy >= g.rows) continue;
+                    for (let cx = startCellX; cx < endCellX; cx++) {
+                        if (cx >= g.cols) continue;
+                        
+                        const destIdx = cy * g.cols + cx;
+                        
+                        // Safety check for shadow grid bounds
+                        if (cy >= sg.rows || cx >= sg.cols) continue;
+                        const srcIdx = cy * sg.cols + cx;
+                        
+                        if (!isOutside) {
+                            // INSIDE: Override with Shadow
+                            if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                g.overrideActive[destIdx] = 3; 
+                                g.overrideChars[destIdx] = sg.chars[srcIdx];
+                                g.overrideColors[destIdx] = sg.colors[srcIdx];
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
+                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
+                                g.overrideMix[destIdx] = sg.mix[srcIdx];
+                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
+                            }
+                        } else {
+                            // OUTSIDE: Restore Main
+                            if (g.overrideActive[destIdx] === 3) {
+                                g.overrideActive[destIdx] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    _computeTrueOutside(blocksX, blocksY) {
+        const status = new Uint8Array(blocksX * blocksY);
+        const queue = [];
+
+        const add = (x, y) => {
+            if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
+            const idx = y * blocksX + x;
+            if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
+                status[idx] = 1;
+                queue.push(idx);
+            }
+        };
+
+        for (let x = 0; x < blocksX; x++) { add(x, 0); add(x, blocksY - 1); }
+        for (let y = 0; y < blocksY; y++) { add(0, y); add(blocksX - 1, y); }
+
+        let head = 0;
+        while (head < queue.length) {
+            const idx = queue[head++];
+            const cx = idx % blocksX;
+            const cy = Math.floor(idx / blocksX);
+            add(cx - 1, cy);
+            add(cx + 1, cy);
+            add(cx, cy - 1);
+            add(cx, cy + 1);
+        }
+        return status;
+    }
+
+    _computeDistanceField(blocksX, blocksY) {
+        // Check if cached map is valid
+        if (this._distMap && this._distMapWidth === blocksX && this._distMapHeight === blocksY && !this._distMapDirty) {
+            return this._distMap;
+        }
+
+        const size = blocksX * blocksY;
+        const dist = new Uint16Array(size);
+        const maxDist = 999;
+        dist.fill(maxDist);
+
+        const queue = [];
+        const visitedVoid = new Uint8Array(size); 
+
+        const addSeed = (bx, by) => {
+            const idx = by * blocksX + bx;
+            if (this.renderGrid[idx] === -1) {
+                if (visitedVoid[idx] === 0) {
+                    visitedVoid[idx] = 1;
+                    dist[idx] = 0; 
+                    queue.push(idx);
+                }
+            }
+        };
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                addSeed(x, y);
+            }
+        }
+
+        let head = 0;
+        while(head < queue.length) {
+            const idx = queue[head++];
+            const cx = idx % blocksX;
+            const cy = Math.floor(idx / blocksX);
+
+            const neighbors = [
+                { x: cx, y: cy - 1 },
+                { x: cx, y: cy + 1 },
+                { x: cx - 1, y: cy },
+                { x: cx + 1, y: cy }
+            ];
+
+            for (const n of neighbors) {
+                if (n.x >= 0 && n.x < blocksX && n.y >= 0 && n.y < blocksY) {
+                    const nIdx = n.y * blocksX + n.x;
+                    if (this.renderGrid[nIdx] === -1 && visitedVoid[nIdx] === 0) {
+                        visitedVoid[nIdx] = 1;
+                        dist[nIdx] = 0;
+                        queue.push(nIdx);
+                    }
+                }
+            }
+        }
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                const idx = y * blocksX + x;
+                if (this.renderGrid[idx] === -1) continue; 
+
+                let isEdge = false;
+                const nIdxs = [];
+                if (x > 0) nIdxs.push(idx - 1);
+                if (x < blocksX - 1) nIdxs.push(idx + 1);
+                if (y > 0) nIdxs.push(idx - blocksX);
+                if (y < blocksY - 1) nIdxs.push(idx + blocksX);
+                
+                for (const ni of nIdxs) {
+                    if (dist[ni] === 0) { 
+                        isEdge = true;
+                        break;
+                    }
+                }
+                if (isEdge) dist[idx] = 1;
+            }
+        }
+
+        for (let y = 0; y < blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                const i = y * blocksX + x;
+                if (this.renderGrid[i] === -1) continue; 
+                if (dist[i] === 1) continue; 
+
+                let minVal = maxDist;
+                if (x > 0 && this.renderGrid[i - 1] !== -1) minVal = Math.min(minVal, dist[i - 1]);
+                if (y > 0 && this.renderGrid[i - blocksX] !== -1) minVal = Math.min(minVal, dist[i - blocksX]);
+
+                if (minVal < maxDist) dist[i] = minVal + 1;
+            }
+        }
+
+        for (let y = blocksY - 1; y >= 0; y--) {
+            for (let x = blocksX - 1; x >= 0; x--) {
+                const i = y * blocksX + x;
+                if (this.renderGrid[i] === -1) continue;
+                if (dist[i] === 1) continue;
+
+                let minVal = dist[i];
+                if (x < blocksX - 1 && this.renderGrid[i + 1] !== -1) minVal = Math.min(minVal, dist[i + 1] + 1);
+                if (y < blocksY - 1 && this.renderGrid[i + blocksX] !== -1) minVal = Math.min(minVal, dist[i + blocksX] + 1);
+
+                dist[i] = minVal;
+            }
+        }
+        
+        // Cache result
+        this._distMap = dist;
+        this._distMapWidth = blocksX;
+        this._distMapHeight = blocksY;
+        this._distMapDirty = false;
+        
+        return dist;
+    }
+
+    _swapStates() {
+        if (this.hasSwapped || this.isSwapping) return;
+        
+        const result = this._commitShadowState();
+        
+        if (result === 'ASYNC') {
+            this.isSwapping = true;
+            this.swapTimer = 5; 
+        } else if (result === 'SYNC') {
+            this.g.clearAllOverrides();
+            this.hasSwapped = true;
+            this.active = false;
+        } else {
+            // Failed
+            this.g.clearAllOverrides();
+            this.active = false;
+        }
+    }
+
+    _ensureCanvases(w, h) {
+        if (!this.maskCanvas) {
+            this.maskCanvas = document.createElement('canvas');
+            this.maskCtx = this.maskCanvas.getContext('2d');
+            this._maskDirty = true;
+        }
+        if (!this.scratchCanvas) {
+            this.scratchCanvas = document.createElement('canvas');
+            this.scratchCtx = this.scratchCanvas.getContext('2d');
+        }
+        if (!this.gridCacheCanvas) {
+            this.gridCacheCanvas = document.createElement('canvas');
+            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
+        }
+        if (!this.perimeterMaskCanvas) {
+            this.perimeterMaskCanvas = document.createElement('canvas');
+            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
+        }
+        if (!this.lineMaskCanvas) {
+            this.lineMaskCanvas = document.createElement('canvas');
+            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
+        }
+
+        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
+            this.maskCanvas.width = w;
+            this.maskCanvas.height = h;
+            this._maskDirty = true;
+        }
+        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
+            this.scratchCanvas.width = w;
+            this.scratchCanvas.height = h;
+        }
+        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
+            this.gridCacheCanvas.width = w;
+            this.gridCacheCanvas.height = h;
+            this.lastGridSeed = -1; 
+        }
+        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
+            this.perimeterMaskCanvas.width = w;
+            this.perimeterMaskCanvas.height = h;
+        }
+        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
+            this.lineMaskCanvas.width = w;
+            this.lineMaskCanvas.height = h;
+        }
+        
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+        const blocksX = Math.ceil(this.g.cols / cellPitchX);
+        const blocksY = Math.ceil(this.g.rows / cellPitchY);
+        const requiredSize = blocksX * blocksY;
+        
+        if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
+             this.renderGrid = new Int32Array(requiredSize);
+        }
+    }
+
+    render(ctx, d) {
+        if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
+
+        const s = this.c.state;
+        const glowStrength = this.getConfig('BorderIllumination') || 0;
+        
+        const borderColor = this.getConfig('PerimeterColor') || "#FFD700";
+        const interiorColor = this.getConfig('InnerColor') || "#FFD700";
+        
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        this._ensureCanvases(width, height); 
+
+        // Always update mask layout/drawing for current frame
+        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height || this.debugMode) {
+             this._updateMask(width, height, s, d);
+             this._maskDirty = false;
+        }
+
+        if (glowStrength > 0) {
+            this._updateGridCache(width, height, s, d);
+            
+            const scratchCtx = this.scratchCtx;
+            
+            const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter') => {
+                if (!maskCanvas) return;
+                
+                scratchCtx.globalCompositeOperation = 'source-over';
+                scratchCtx.clearRect(0, 0, width, height);
+
+                if (solid) {
+                    scratchCtx.globalAlpha = this.alpha;
+                    scratchCtx.fillStyle = color;
+                    scratchCtx.fillRect(0, 0, width, height);
+                } else {
+                    // 1. Draw Grid Structure (White)
+                    scratchCtx.globalAlpha = this.alpha;
+                    scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+                    
+                    // 2. Colorize (Source-In)
+                    scratchCtx.globalCompositeOperation = 'source-in';
+                    scratchCtx.fillStyle = color;
+                    scratchCtx.fillRect(0, 0, width, height);
+                }
+                
+                // 3. Mask (Destination-In)
+                scratchCtx.globalCompositeOperation = 'destination-in';
+                scratchCtx.globalAlpha = 1.0;
+                scratchCtx.drawImage(maskCanvas, 0, 0);
+                
+                // 4. Draw to Screen
+                ctx.save();
+                if (ctx.canvas.style.mixBlendMode !== 'normal') {
+                    ctx.canvas.style.mixBlendMode = 'normal';
+                }
+                ctx.globalCompositeOperation = compositeOp; 
+                ctx.globalAlpha = 1.0;
+                
+                // Apply colored glow
+                ctx.shadowColor = color;
+                ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
+                ctx.drawImage(this.scratchCanvas, 0, 0);
+                ctx.restore();
+            };
+
+            // 2. Render Internal Lines Layer (Blue)
+            if (this.lineMaskCanvas) {
+                renderLayer(this.lineMaskCanvas, interiorColor, false, 'source-over');
+            }
+
+            // 3. Render Border Layer (Red)
+            if (this.perimeterMaskCanvas) {
+                renderLayer(this.perimeterMaskCanvas, borderColor, false, 'source-over');
+            }
+        }
+    }
+
+    renderEditorPreview(ctx, derived, previewOp) {
+        // Check for cached preview state
+        const opHash = previewOp ? JSON.stringify(previewOp) : "";
+        const stateHash = `${this.maskOps.length}_${this.expansionPhase}_${opHash}`;
+        
+        // 1. Update Logic (Only if changed)
+        if (stateHash !== this._lastPreviewStateHash) {
+            // Save State
+            const savedLogicGrid = new Uint8Array(this.logicGrid);
+            const savedMaskOpsLen = this.maskOps.length;
+            
+            // Apply Preview Op
+            if (previewOp) {
+                this._executeStepOps([previewOp]);
+            }
+            
+            // Update Derived Grids
+            if (typeof this._updateRenderGridLogic === 'function') {
+                this._updateRenderGridLogic();
+            }
+            
+            this._maskDirty = true; // Logic changed, so mask is dirty
+            
+            this._lastPreviewSavedLogic = savedLogicGrid;
+            this._lastPreviewSavedOpsLen = savedMaskOpsLen;
+            this._lastPreviewStateHash = stateHash;
+            this._previewActive = true;
+        }
+
+        // 4. Custom Editor Render (Skip Body Fill)
+        const s = this.c.state;
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        this._ensureCanvases(width, height);
+
+        // Always update mask for editor to show changes immediately
+        if (this._maskDirty) {
+             this._updateMask(width, height, s, derived);
+             this._maskDirty = false;
+        }
+        
+        const borderColor = this.getConfig('PerimeterColor') || "#FFD700";
+        const interiorColor = this.getConfig('InnerColor') || "#FFD700";
+        
+        this._updateGridCache(width, height, s, derived);
+        const scratchCtx = this.scratchCtx;
+
+        const renderLayer = (maskCanvas, color) => {
+            if (!maskCanvas) return;
+            
+            scratchCtx.globalCompositeOperation = 'source-over';
+            scratchCtx.clearRect(0, 0, width, height);
+
+            // Draw Grid Structure
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            
+            // Colorize
+            scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.fillStyle = color;
+            scratchCtx.fillRect(0, 0, width, height);
+            
+            // Mask
+            scratchCtx.globalCompositeOperation = 'destination-in';
+            scratchCtx.drawImage(maskCanvas, 0, 0);
+            
+            // Draw to Screen
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over'; 
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            ctx.restore();
+        };
+
+        // Render Internal Lines Layer
+        if (this.lineMaskCanvas) {
+            renderLayer(this.lineMaskCanvas, interiorColor);
+        }
+
+        // Render Border Layer
+        if (this.perimeterMaskCanvas) {
+            renderLayer(this.perimeterMaskCanvas, borderColor);
+        }
+
+        // 5. Restore State (If we calculated a new preview this frame)
+        if (this._previewActive) {
+            this.maskOps.length = this._lastPreviewSavedOpsLen;
+            this.logicGrid.set(this._lastPreviewSavedLogic);
+            
+            if (typeof this._updateRenderGridLogic === 'function') {
+                this._updateRenderGridLogic();
+            }
+            this._previewActive = false;
         }
     }
 }

@@ -26,21 +26,20 @@ class QuantizedEffectEditor {
         this.selectionRect = null;
         this.clipboard = null;
         this.redoStack = [];
+        
+        // Optimization: Dirty Flags
+        this.isDirty = true;
+        this.lastHoverHash = "";
     }
 
     _decodeSequence(sequence) {
         if (!sequence || sequence.length === 0) return [[]];
-        
-        // Check if first step is compressed (array of numbers)
-        // If it's empty array or array of objects/strings, it's likely not compressed or empty
-        // But we must handle mixed cases if any.
         
         const OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 4: 'addLine', 5: 'remLine', 6: 'addSmart', 7: 'removeBlock' };
         
         const decodedSeq = [];
         for (const step of sequence) {
             const decodedStep = [];
-            // Check if step is compressed array
             if (Array.isArray(step) && step.length > 0 && typeof step[0] === 'number') {
                 let i = 0;
                 while (i < step.length) {
@@ -57,36 +56,18 @@ class QuantizedEffectEditor {
                         const x = step[i++];
                         const y = step[i++];
                         const mask = step[i++];
-                        // Convert mask back to separate ops for editor? 
-                        // Actually, editor supports 'N', 'S', etc.
-                        // Ideally we break it down if mask has multiple bits?
-                        // Or we support mask in editor tools?
-                        // The editor tools operate on single faces.
-                        // So we should break it down into single face ops for the editor.
                         if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'] });
                         if (mask & 2) decodedStep.push({ op: opName, args: [x, y, 'S'] });
                         if (mask & 4) decodedStep.push({ op: opName, args: [x, y, 'E'] });
                         if (mask & 8) decodedStep.push({ op: opName, args: [x, y, 'W'] });
                         if (mask === 0 && opCode === 2) {
-                             // Special case for 'rem' with mask 0 (hollow) -> handled as logic block remove in editor?
-                             // No, in QuantizedSequenceEffect mask 0 rem checks neighbors.
-                             // But for editor visualization, let's just keep it as is or map to removeBlock?
-                             // Ops 2 with mask 0 is effectively removeBlock if surrounded, or removeLines if not.
-                             // Let's decode as 'removeBlock' for simplicity if mask is 0?
-                             // No, 'rem' with mask 0 is context sensitive. 
-                             // Let's preserve it as 'rem' with explicit 0 mask if needed?
-                             // The editor tools use 'removeBlock' (op 7). 
-                             // If the compressed data has op 2 mask 0, it means 'rem(x,y)' logic.
-                             // Let's decode as { op: 'rem', args: [x, y, null] } 
                              decodedStep.push({ op: 'rem', args: [x, y] });
                         }
-                        continue; // Skip the default push
+                        continue; 
                     }
                     decodedStep.push({ op: opName, args: args });
                 }
             } else {
-                // Already verbose (or empty)
-                // Ensure format consistency (object vs array)
                 for (const opObj of step) {
                     if (Array.isArray(opObj)) {
                         decodedStep.push({ op: opObj[0], args: opObj.slice(1) });
@@ -114,7 +95,7 @@ class QuantizedEffectEditor {
         }
 
         // Disable all quantized effects to ensure a clean slate for the new one
-        const qEffects = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
         if (this.registry) {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
@@ -138,7 +119,7 @@ class QuantizedEffectEditor {
                 this.effect.sequence = window.matrixPatterns[this.effect.name];
             }
 
-            // DECODE ON LOAD (After trigger/robust load ensures pattern is present)
+            // DECODE ON LOAD
             this.effect.sequence = this._decodeSequence(this.effect.sequence);
 
             this.effect.debugMode = true;
@@ -147,15 +128,15 @@ class QuantizedEffectEditor {
                 this.effect.expansionPhase = this.effect.sequence.length - 1;
             }
             this.effect.refreshStep();
-            this._updateUI(); // Refresh UI labels immediately
+            this._updateUI(); 
+            this.isDirty = true;
         }
     }
 
     toggle(isActive) {
         this.active = isActive;
         if (this.active) {
-            // Disable all quantized effects to prevent interference during editing
-            const qEffects = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
             if (this.registry) {
                 qEffects.forEach(name => {
                     const eff = this.registry.get(name);
@@ -174,25 +155,22 @@ class QuantizedEffectEditor {
             this._createCanvas();
             this._attachListeners();
             
-            // Force effect to be active and paused for editing
             this.effect.trigger(true); 
             
-            // Robust loading: Ensure sequence is loaded from global Patterns if trigger didn't (or instance was cold)
             if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
                 this.effect.sequence = window.matrixPatterns[this.effect.name];
             }
 
-            // DECODE ON OPEN (After trigger/robust load ensures pattern is present)
             this.effect.sequence = this._decodeSequence(this.effect.sequence);
             
             this.effect.debugMode = true;
             this.effect.manualStep = true; 
-            // Ensure we are at a valid step
             if (this.effect.expansionPhase >= this.effect.sequence.length) {
                 this.effect.expansionPhase = this.effect.sequence.length - 1;
             }
             this.effect.refreshStep();
-            this._updateUI(); // Update UI immediately to show correct Step: 0 / X
+            this._updateUI(); 
+            this.isDirty = true;
             this._renderLoop();
         } else {
             this._removeUI();
@@ -200,8 +178,8 @@ class QuantizedEffectEditor {
             this._detachListeners();
             if (this.effect) {
                 this.effect.active = false; 
-                this.effect.debugMode = false; // Reset debug mode
-                this.effect.manualStep = false; // Reset manual stepping
+                this.effect.debugMode = false; 
+                this.effect.manualStep = false; 
                 this.effect.editorPreviewOp = null; 
                 if (this.effect.g) this.effect.g.clearAllOverrides();
             }
@@ -219,8 +197,8 @@ class QuantizedEffectEditor {
         this.canvas.style.left = '0';
         this.canvas.style.width = '100%';
         this.canvas.style.height = '100%';
-        this.canvas.style.zIndex = '9000'; // Below UI, above Matrix
-        this.canvas.style.pointerEvents = 'none'; // Let events pass to window listeners
+        this.canvas.style.zIndex = '9000'; 
+        this.canvas.style.pointerEvents = 'none'; 
         document.body.appendChild(this.canvas);
         this.ctx = this.canvas.getContext('2d');
     }
@@ -242,19 +220,23 @@ class QuantizedEffectEditor {
     _render() {
         if (!this.canvas || !this.ctx) return;
         
+        // Throttling: Only render if dirty or preview op exists (animations?)
+        // If the effect is static in editor mode, we don't need to redraw unless input happens.
+        if (!this.isDirty && !this.effect.editorPreviewOp) return;
+
         const width = window.innerWidth;
         const height = window.innerHeight;
         
         if (this.canvas.width !== width || this.canvas.height !== height) {
             this.canvas.width = width;
             this.canvas.height = height;
+            this.isDirty = true; // Resize forces redraw
         }
 
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
         // 1. Render Actual Effect Preview (Base Layer)
-        // This ensures identical output to the animation
         if (this.effect && typeof this.effect.renderEditorPreview === 'function') {
             this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
         }
@@ -262,7 +244,6 @@ class QuantizedEffectEditor {
         if (!this.effect.layout) return; 
         
         const l = this.effect.layout;
-        // Dynamically calculate grid metrics to ensure they match current layout/grid
         const grid = this.effect.g;
         const blocksX = Math.ceil(grid.cols / l.cellPitchX);
         const blocksY = Math.ceil(grid.rows / l.cellPitchY);
@@ -303,57 +284,54 @@ class QuantizedEffectEditor {
             ctx.restore();
         }
 
-        if (!this.highlightChanges) return;
+        // 3. Render Holes (Optimized Flood Fill)
+        if (this.highlightChanges) {
+            const logicGrid = this.effect.logicGrid;
+            const lgW = this.effect.logicGridW;
+            const lgH = this.effect.logicGridH;
+            
+            // Only re-calculate flood fill if step logic changed
+            if (this.effect._maskDirty || !this._cachedExternalMask || this._cachedMaskW !== lgW) {
+                const isExternal = new Uint8Array(lgW * lgH); 
+                const queue = [];
 
-        // 3. Render Holes (Flood Fill - Debug Overlay)
-        const logicGrid = this.effect.logicGrid;
-        const lgW = this.effect.logicGridW;
-        const lgH = this.effect.logicGridH;
-        
-        ctx.save();
-        ctx.fillStyle = 'rgba(128, 0, 128, 0.5)'; // Purple for holes
-        
-        // Identify External Empty Space via BFS
-        const isExternal = new Uint8Array(lgW * lgH); // 0=Unknown, 1=External
-        const queue = [];
+                for (let x = 0; x < lgW; x++) { queue.push(x); queue.push((lgH - 1) * lgW + x); }
+                for (let y = 1; y < lgH - 1; y++) { queue.push(y * lgW); queue.push(y * lgW + (lgW - 1)); }
 
-        // Seed edges
-        for (let x = 0; x < lgW; x++) {
-            queue.push(x); // Top edge
-            queue.push((lgH - 1) * lgW + x); // Bottom edge
-        }
-        for (let y = 1; y < lgH - 1; y++) {
-            queue.push(y * lgW); // Left edge
-            queue.push(y * lgW + (lgW - 1)); // Right edge
-        }
+                let head = 0;
+                while(head < queue.length) {
+                    const idx = queue[head++];
+                    if (isExternal[idx] || logicGrid[idx] === 1) continue;
+                    isExternal[idx] = 1; 
+                    const x = idx % lgW;
+                    const y = Math.floor(idx / lgW);
+                    if (x > 0) queue.push(idx - 1);
+                    if (x < lgW - 1) queue.push(idx + 1);
+                    if (y > 0) queue.push(idx - lgW);
+                    if (y < lgH - 1) queue.push(idx + lgW);
+                }
+                this._cachedExternalMask = isExternal;
+                this._cachedMaskW = lgW;
+            }
 
-        let head = 0;
-        while(head < queue.length) {
-            const idx = queue[head++];
-            if (isExternal[idx] || logicGrid[idx] === 1) continue;
-            isExternal[idx] = 1; 
-            const x = idx % lgW;
-            const y = Math.floor(idx / lgW);
-            if (x > 0) queue.push(idx - 1);
-            if (x < lgW - 1) queue.push(idx + 1);
-            if (y > 0) queue.push(idx - lgW);
-            if (y < lgH - 1) queue.push(idx + lgW);
-        }
-
-        // Render Internal Empty Space (Holes)
-        for (let y = 0; y < lgH; y++) {
-            for (let x = 0; x < lgW; x++) {
-                const idx = y * lgW + x;
-                if (logicGrid[idx] === 0 && isExternal[idx] === 0) {
-                    const rectX = startX + (x * l.cellPitchX * l.screenStepX);
-                    const rectY = startY + (y * l.cellPitchY * l.screenStepY);
-                    const rectW = l.cellPitchX * l.screenStepX;
-                    const rectH = l.cellPitchY * l.screenStepY;
-                    ctx.fillRect(rectX, rectY, rectW, rectH);
+            ctx.save();
+            ctx.fillStyle = 'rgba(128, 0, 128, 0.5)'; 
+            const ext = this._cachedExternalMask;
+            
+            for (let y = 0; y < lgH; y++) {
+                for (let x = 0; x < lgW; x++) {
+                    const idx = y * lgW + x;
+                    if (logicGrid[idx] === 0 && ext[idx] === 0) {
+                        const rectX = startX + (x * l.cellPitchX * l.screenStepX);
+                        const rectY = startY + (y * l.cellPitchY * l.screenStepY);
+                        const rectW = l.cellPitchX * l.screenStepX;
+                        const rectH = l.cellPitchY * l.screenStepY;
+                        ctx.fillRect(rectX, rectY, rectW, rectH);
+                    }
                 }
             }
+            ctx.restore();
         }
-        ctx.restore();
 
         // 4. Render Active Selection
         if (this.selectionRect) {
@@ -393,6 +371,9 @@ class QuantizedEffectEditor {
             }
             ctx.restore();
         }
+        
+        // Reset dirty flag after render
+        this.isDirty = false;
     }
 
     _createUI() {
@@ -454,7 +435,7 @@ class QuantizedEffectEditor {
             effectSelect.style.color = '#0f0';
             effectSelect.style.border = '1px solid #0f0';
             
-            const effects = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
             effects.forEach(effName => {
                 if (this.registry.get(effName)) {
                     const opt = document.createElement('option');
@@ -467,6 +448,47 @@ class QuantizedEffectEditor {
             effectSelect.onchange = (e) => this._switchEffect(e.target.value);
             container.appendChild(effectSelect);
         }
+
+        // Block Size Controls
+        const sizeControls = document.createElement('div');
+        sizeControls.style.marginBottom = '10px';
+        sizeControls.style.display = 'flex';
+        sizeControls.style.alignItems = 'center';
+        sizeControls.style.justifyContent = 'space-between';
+        
+        const lblSize = document.createElement('span');
+        lblSize.textContent = 'Block Size:';
+        
+        const inpW = document.createElement('input');
+        inpW.type = 'number';
+        inpW.min = '1';
+        inpW.max = '50';
+        inpW.style.width = '40px';
+        inpW.style.background = '#333';
+        inpW.style.color = '#fff';
+        inpW.style.border = '1px solid #555';
+        
+        const lblX = document.createElement('span');
+        lblX.textContent = 'x';
+        
+        const inpH = document.createElement('input');
+        inpH.type = 'number';
+        inpH.min = '1';
+        inpH.max = '50';
+        inpH.style.width = '40px';
+        inpH.style.background = '#333';
+        inpH.style.color = '#fff';
+        inpH.style.border = '1px solid #555';
+        
+        const btnSetSize = this._createBtn('Set', () => {
+            this._changeBlockSize(parseInt(inpW.value), parseInt(inpH.value));
+        });
+        
+        sizeControls.append(lblSize, inpW, lblX, inpH, btnSetSize);
+        container.appendChild(sizeControls);
+        
+        this.inpBlockW = inpW;
+        this.inpBlockH = inpH;
 
         const stepControls = document.createElement('div');
         stepControls.style.marginBottom = '10px';
@@ -540,7 +562,7 @@ class QuantizedEffectEditor {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = this.highlightChanges;
-        checkbox.onchange = (e) => { this.highlightChanges = e.target.checked; };
+        checkbox.onchange = (e) => { this.highlightChanges = e.target.checked; this.isDirty = true; };
         colorToggle.append(checkbox, document.createTextNode(' Highlight Changes'));
         container.appendChild(colorToggle);
 
@@ -550,7 +572,7 @@ class QuantizedEffectEditor {
         const gridCheck = document.createElement('input');
         gridCheck.type = 'checkbox';
         gridCheck.checked = this.showGrid;
-        gridCheck.onchange = (e) => { this.showGrid = e.target.checked; };
+        gridCheck.onchange = (e) => { this.showGrid = e.target.checked; this.isDirty = true; };
         gridToggle.append(gridCheck, document.createTextNode(' Show Grid'));
         container.appendChild(gridToggle);
         
@@ -616,15 +638,39 @@ class QuantizedEffectEditor {
 
     _selectTool(tool) {
         this.currentTool = tool;
-        this.selectionRect = null; // Clear selection on tool change
-        if (tool !== 'paste') this.clipboard = null; // Maybe keep clipboard? No, let's keep it.
+        this.selectionRect = null; 
+        if (tool !== 'paste') this.clipboard = null; 
         this._updateUI();
     }
 
     _selectFace(face) { this.currentFace = face; this._updateUI(); }
 
+    _changeBlockSize(w, h) {
+        if (!this.effect) return;
+        if (isNaN(w) || w < 1) w = 4;
+        if (isNaN(h) || h < 1) h = 4;
+        
+        const prefix = this.effect.configPrefix;
+        this.effect.c.state[prefix + 'BlockWidthCells'] = w;
+        this.effect.c.state[prefix + 'BlockHeightCells'] = h;
+        
+        // Re-init logic grid with new size
+        const currentStep = this.effect.expansionPhase;
+        this.effect._initLogicGrid(); 
+        this.effect.jumpToStep(currentStep); 
+        
+        this.isDirty = true;
+    }
+
     _updateUI() {
         if (!this.dom) return;
+        
+        if (this.effect && this.inpBlockW && this.inpBlockH) {
+            const bs = this.effect.getBlockSize();
+            this.inpBlockW.value = bs.w;
+            this.inpBlockH.value = bs.h;
+        }
+
         this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length - 1}`;
         for (const t in this.tools) {
             this.tools[t].style.background = (t === this.currentTool) ? '#00aa00' : '#333';
@@ -646,6 +692,7 @@ class QuantizedEffectEditor {
         this.effect.expansionPhase = newStep;
         this.effect.jumpToStep(newStep); 
         this._updateUI();
+        this.isDirty = true;
     }
 
     _addStep() {
@@ -669,35 +716,24 @@ class QuantizedEffectEditor {
     }
 
     _savePattern() {
-        const effectsToSave = ['QuantizedPulse', 'QuantizedExpansion', 'QuantizedRetract', 'QuantizedAdd'];
+        const effectsToSave = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
         const fullPatterns = window.matrixPatterns || {};
 
         effectsToSave.forEach(effName => {
             const eff = this.registry.get(effName);
-            // If the effect exists in registry, use its current sequence (which might be edited)
-            // If not in registry, we leave fullPatterns[effName] alone (if it exists from file load)
             if (!eff) return;
 
             let sequenceToSave = eff.sequence;
-
-            // Check if instance sequence is empty/default but global has data
-            // This happens if the effect hasn't been triggered/loaded yet
             const isInstanceEmpty = (!sequenceToSave || sequenceToSave.length === 0 || (sequenceToSave.length === 1 && sequenceToSave[0].length === 0));
             const globalData = (window.matrixPatterns && window.matrixPatterns[effName]);
             const hasGlobalData = globalData && globalData.length > 0;
 
             if (isInstanceEmpty && hasGlobalData) {
-                // Instance is "cold", use global data (already encoded)
-                // Do NOT overwrite fullPatterns[effName] with empty array.
-                // fullPatterns already contains globalData since it references window.matrixPatterns.
                 return;
             }
 
             if (!sequenceToSave) return;
 
-            // Auto-detect if needs encoding
-            // Decoded sequences have objects {op: ...} in their steps.
-            // Encoded sequences have numbers [1, x, y...] in their steps.
             let isDecoded = false;
             for (const step of sequenceToSave) {
                 if (step && step.length > 0) {
@@ -715,10 +751,8 @@ class QuantizedEffectEditor {
             fullPatterns[effName] = sequenceToSave;
         });
         
-        // Try Electron IPC first
         if (typeof window.require !== 'undefined') {
             try {
-                // Obfuscated to bypass build script filter
                 const { ipcRenderer } = window.require('elec' + 'tron');
                 ipcRenderer.send('save-patterns', fullPatterns);
                 alert('Patterns saved to disk successfully!');
@@ -728,8 +762,7 @@ class QuantizedEffectEditor {
             }
         }
         
-        // Generate JS content matching the file structure we created
-        const jsonContent = JSON.stringify(fullPatterns, null, 4); // Keep formatted JSON inside the JS file
+        const jsonContent = JSON.stringify(fullPatterns, null, 4); 
         const jsContent = `window.matrixPatterns = ${jsonContent};`;
         
         const blob = new Blob([jsContent], {type: 'application/javascript'});
@@ -751,10 +784,6 @@ class QuantizedEffectEditor {
             for (const opObj of step) {
                 let opName, args;
                 if (Array.isArray(opObj)) {
-                    // Already packed? Or intermediate array format?
-                    // Assuming we are editing objects internally, but could be mixed.
-                    // If it's a number, it's already packed logic, so just push it through?
-                    // Ideally the editor converts everything to objects on load/edit.
                     if (typeof opObj[0] === 'number') {
                         stepData.push(...opObj);
                         continue;
@@ -797,6 +826,7 @@ class QuantizedEffectEditor {
             const op = step.pop(); 
             this.redoStack.push(op);
             this.effect.refreshStep(); 
+            this.isDirty = true;
         }
     }
 
@@ -806,6 +836,7 @@ class QuantizedEffectEditor {
             const op = this.redoStack.pop();
             step.push(op);
             this.effect.refreshStep();
+            this.isDirty = true;
         }
     }
 
@@ -820,8 +851,6 @@ class QuantizedEffectEditor {
         const r = this.selectionRect;
         const data = [];
         
-        console.log(`Copying Selection: Rect=${JSON.stringify(r)}, GridW=${w}, GridH=${this.effect.logicGridH}, CX=${cx}, CY=${cy}`);
-
         for (let y = r.y; y <= r.y + r.h; y++) {
             for (let x = r.x; x <= r.x + r.w; x++) {
                 const idx = (y+cy) * w + (x+cx);
@@ -855,7 +884,10 @@ class QuantizedEffectEditor {
                 }
             }
         }
-        if (count > 0) this.effect.refreshStep();
+        if (count > 0) {
+            this.effect.refreshStep();
+            this.isDirty = true;
+        }
     }
 
     _cutSelection() {
@@ -877,6 +909,7 @@ class QuantizedEffectEditor {
             step.push({ op: 'add', args: [targetX + pt.x, targetY + pt.y] });
         }
         this.effect.refreshStep();
+        this.isDirty = true;
     }
 
     _onKeyDown(e) {
@@ -902,6 +935,9 @@ class QuantizedEffectEditor {
         if (!this.active) return;
         const hit = this.effect.hitTest(e.clientX, e.clientY);
         
+        // Optimize: Check if hover changed
+        const hoverHash = hit ? `${hit.x},${hit.y}` : "null";
+        
         if (this.currentTool === 'addRect' || this.currentTool === 'select') {
             if (this.dragStart && hit) {
                 // Update Preview op for drawing
@@ -909,15 +945,25 @@ class QuantizedEffectEditor {
                     op: 'addRect',
                     args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y]
                 };
+                this.isDirty = true; // Dragging requires redraw
             } else {
-                this.effect.editorPreviewOp = null;
+                if (this.effect.editorPreviewOp) {
+                    this.effect.editorPreviewOp = null;
+                    this.isDirty = true;
+                }
             }
         }
         
-        if (hit) {
-            this.hoverBlock = hit;
-        } else {
-            this.hoverBlock = null;
+        if (hoverHash !== this.lastHoverHash) {
+            this.lastHoverHash = hoverHash;
+            if (hit) {
+                this.hoverBlock = hit;
+            } else {
+                this.hoverBlock = null;
+            }
+            // If dragging, we already set dirty. If not dragging, we might need dirty for cursor highlight?
+            // Editor doesn't draw cursor highlight unless pasting.
+            if (this.currentTool === 'paste') this.isDirty = true;
         }
     }
 
@@ -977,6 +1023,7 @@ class QuantizedEffectEditor {
                 if (existingIdx !== -1) { step.splice(existingIdx, 1); } 
                 else { step.push({ op: opName, args: args }); }
                 this.effect.refreshStep();
+                this.isDirty = true;
             }
         }
     }
@@ -992,6 +1039,7 @@ class QuantizedEffectEditor {
                     const step = this.effect.sequence[this.effect.expansionPhase];
                     step.push({ op: 'addRect', args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y] });
                     this.effect.refreshStep();
+                    this.isDirty = true;
                 } else if (this.currentTool === 'select') {
                     // Define Selection Rect
                     const x1 = Math.min(this.dragStart.x, hit.x);
@@ -999,10 +1047,12 @@ class QuantizedEffectEditor {
                     const x2 = Math.max(this.dragStart.x, hit.x);
                     const y2 = Math.max(this.dragStart.y, hit.y);
                     this.selectionRect = { x: x1, y: y1, w: x2-x1, h: y2-y1 };
+                    this.isDirty = true;
                 }
             }
             this.dragStart = null;
             this.effect.editorPreviewOp = null;
+            this.isDirty = true; // Ensure preview cleared
         }
     }
 }
