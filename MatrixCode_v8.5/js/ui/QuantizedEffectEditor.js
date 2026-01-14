@@ -95,7 +95,7 @@ class QuantizedEffectEditor {
         }
 
         // Disable all quantized effects to ensure a clean slate for the new one
-        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
+        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
         if (this.registry) {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
@@ -136,7 +136,7 @@ class QuantizedEffectEditor {
     toggle(isActive) {
         this.active = isActive;
         if (this.active) {
-            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
+            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
             if (this.registry) {
                 qEffects.forEach(name => {
                     const eff = this.registry.get(name);
@@ -435,7 +435,7 @@ class QuantizedEffectEditor {
             effectSelect.style.color = '#0f0';
             effectSelect.style.border = '1px solid #0f0';
             
-            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
+            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
             effects.forEach(effName => {
                 if (this.registry.get(effName)) {
                     const opt = document.createElement('option');
@@ -716,7 +716,7 @@ class QuantizedEffectEditor {
     }
 
     _savePattern() {
-        const effectsToSave = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd'];
+        const effectsToSave = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
         const fullPatterns = window.matrixPatterns || {};
 
         effectsToSave.forEach(effName => {

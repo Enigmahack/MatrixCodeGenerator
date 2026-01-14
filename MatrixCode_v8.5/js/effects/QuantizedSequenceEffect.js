@@ -118,6 +118,15 @@ class QuantizedSequenceEffect extends AbstractEffect {
         return true;
     }
 
+    _processAnimationStep() {
+        if (this.expansionPhase < this.sequence.length) {
+            const step = this.sequence[this.expansionPhase];
+            if (step) this._executeStepOps(step);
+            this.expansionPhase++;
+            this._maskDirty = true;
+        }
+    }
+
     hitTest(x, y) {
         if (!this.layout) return null;
         const l = this.layout;
