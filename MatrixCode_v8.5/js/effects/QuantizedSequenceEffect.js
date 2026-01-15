@@ -962,6 +962,9 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const lineOps = this.maskOps.filter(op => op.type === 'addLine' || op.type === 'removeLine');
         lineOps.sort((a, b) => (a.startFrame - b.startFrame));
 
+        // Compute distance map for masking
+        const distMap = this._computeDistanceField(blocksX, blocksY);
+
         for (const op of lineOps) {
             let opacity = 1.0;
             const duration = (op.type === 'addLine') ? addDuration : removeDuration;
@@ -976,18 +979,80 @@ class QuantizedSequenceEffect extends AbstractEffect {
 
             if (op.type === 'addLine') {
                 ctx.globalCompositeOperation = 'source-over';
-                this._addBlockFace(start, end, op.face);
-            } else {
-                ctx.globalCompositeOperation = 'destination-out';
+                
+                // Masked Add: Only draw if within distance 4
+                const f = op.face ? op.face.toUpperCase() : '';
+                const hx = l.lineWidthX / 2;
+                const hy = l.lineWidthY / 2;
+                
                 const minX = Math.min(start.x, end.x);
                 const maxX = Math.max(start.x, end.x);
                 const minY = Math.min(start.y, end.y);
                 const maxY = Math.max(start.y, end.y);
                 
+                ctx.beginPath();
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
-                        this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
+                        // Check distance
+                        // Convert absolute bx,by back to grid index relative to 0,0
+                        const gridBx = bx - (l.screenOriginX / (l.cellPitchX * l.screenStepX)); // This is hard to reverse map
+                        // Easier: we computed distMap based on 0..blocksX.
+                        // bx, by here are absolute screen coords? No, 'start' is calculated as:
+                        // const start = { x: cx + op.x1, y: cy + op.y1 };
+                        // cx is floor(blocksX/2). So start.x IS the grid index (0 to blocksX).
+                        
+                        if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) continue;
+                        const idx = by * blocksX + bx;
+                        
+                        // Mask Logic: If distance > 4, skip drawing this cell's line segment
+                        if (distMap[idx] > 4) continue;
+
+                        const startCellX = Math.floor(bx * l.cellPitchX);
+                        const startCellY = Math.floor(by * l.cellPitchY);
+                        const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                        const endCellY = Math.floor((by + 1) * l.cellPitchY);
+
+                        if (f === 'N') {
+                            const cy = l.screenOriginY + (startCellY * l.screenStepY);
+                            const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                            const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                            ctx.rect(x, cy - hy, w, l.lineWidthY);
+                        } else if (f === 'S') {
+                            const cy = l.screenOriginY + (endCellY * l.screenStepY);
+                            const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                            const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                            ctx.rect(x, cy - hy, w, l.lineWidthY);
+                        } else if (f === 'W') {
+                            const cx = l.screenOriginX + (startCellX * l.screenStepX);
+                            const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                            const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                            ctx.rect(cx - hx, y, l.lineWidthX, h);
+                        } else if (f === 'E') {
+                            const cx = l.screenOriginX + (endCellX * l.screenStepX);
+                            const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                            const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                            ctx.rect(cx - hx, y, l.lineWidthX, h);
+                        }
+                    }
+                }
+                ctx.fill();
+                
+            } else {
+                ctx.globalCompositeOperation = 'destination-out';
+                // Use dedicated line remover for exact geometry match (no safety margins)
+                if (op.type === 'removeLine') {
+                    this._removeLineFace(start, end, op.face);
+                } else {
+                    const minX = Math.min(start.x, end.x);
+                    const maxX = Math.max(start.x, end.x);
+                    const minY = Math.min(start.y, end.y);
+                    const maxY = Math.max(start.y, end.y);
+                    
+                    for (let by = minY; by <= maxY; by++) {
+                        for (let bx = minX; bx <= maxX; bx++) {
+                            if (isLocationCoveredByLaterAdd(bx, by, op.startFrame)) continue;
+                            this._removeBlockFace({x:bx, y:by}, {x:bx, y:by}, op.face, op.force);
+                        }
                     }
                 }
             }
@@ -1126,6 +1191,54 @@ class QuantizedSequenceEffect extends AbstractEffect {
         }
         ctx.fill();
         ctx.globalAlpha = 1.0;
+    }
+
+    _removeLineFace(blockStart, blockEnd, face) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const f = face.toUpperCase();
+        const minX = Math.min(blockStart.x, blockEnd.x);
+        const maxX = Math.max(blockStart.x, blockEnd.x);
+        const minY = Math.min(blockStart.y, blockEnd.y);
+        const maxY = Math.max(blockStart.y, blockEnd.y);
+
+        ctx.beginPath();
+
+        for (let by = minY; by <= maxY; by++) {
+            for (let bx = minX; bx <= maxX; bx++) {
+                const startCellX = Math.floor(bx * l.cellPitchX);
+                const startCellY = Math.floor(by * l.cellPitchY);
+                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
+                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+                const hx = l.lineWidthX / 2;
+                const hy = l.lineWidthY / 2;
+                // Use slight inflate (0.1) to handle anti-aliasing overlap, but NO large safety margin
+                const k = 0.1; 
+
+                if (f === 'N') {
+                    const cy = l.screenOriginY + (startCellY * l.screenStepY);
+                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                    ctx.rect(x - k, cy - hy - k, w + 2*k, l.lineWidthY + 2*k);
+                } else if (f === 'S') {
+                    const cy = l.screenOriginY + (endCellY * l.screenStepY);
+                    const x = l.screenOriginX + (startCellX * l.screenStepX) - hx;
+                    const w = ((endCellX - startCellX) * l.screenStepX) + l.lineWidthX;
+                    ctx.rect(x - k, cy - hy - k, w + 2*k, l.lineWidthY + 2*k);
+                } else if (f === 'W') {
+                    const cx = l.screenOriginX + (startCellX * l.screenStepX);
+                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                    ctx.rect(cx - hx - k, y - k, l.lineWidthX + 2*k, h + 2*k);
+                } else if (f === 'E') {
+                    const cx = l.screenOriginX + (endCellX * l.screenStepX);
+                    const y = l.screenOriginY + (startCellY * l.screenStepY) - hy;
+                    const h = ((endCellY - startCellY) * l.screenStepY) + l.lineWidthY;
+                    ctx.rect(cx - hx - k, y - k, l.lineWidthX + 2*k, h + 2*k);
+                }
+            }
+        }
+        ctx.fill();
     }
 
     _drawPerimeterFace(bx, by, face, widthX, widthY) {
