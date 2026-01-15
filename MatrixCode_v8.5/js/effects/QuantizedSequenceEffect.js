@@ -780,6 +780,7 @@ class QuantizedSequenceEffect extends AbstractEffect {
             gridPixW, gridPixH,
             cellPitchX, cellPitchY
         };
+        const l = this.layout;
 
         const blocksX = Math.ceil(grid.cols / cellPitchX);
         const blocksY = Math.ceil(grid.rows / cellPitchY);

@@ -18,11 +18,23 @@ class QuantizedSequenceGenerator {
         this.sequence = [];
         this.scheduledOps = new Map(); // Reset scheduled ops
 
-        // Seed the center
-        const centerIdx = this._idx(this.cx, this.cy);
-        this.grid[centerIdx] = 1;
-        // Initial step: Add center
-        this.sequence.push([['add', 0, 0]]);
+        // Seed: Default to center, but allow override
+        const seedX = (params.seedX !== undefined) ? params.seedX : this.cx;
+        const seedY = (params.seedY !== undefined) ? params.seedY : this.cy;
+
+        // Seed the grid
+        const centerIdx = this._idx(seedX, seedY);
+        if (centerIdx !== -1) {
+            this.grid[centerIdx] = 1;
+            // Initial step: Add seed relative to geometric center
+            this.sequence.push([['add', seedX - this.cx, seedY - this.cy]]);
+        } else {
+            console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
+            // Fallback
+            const fallbackIdx = this._idx(this.cx, this.cy);
+            this.grid[fallbackIdx] = 1;
+            this.sequence.push([['add', 0, 0]]);
+        }
 
         const config = {
             blocksPerStep: 2,           // Start count (min)
@@ -62,7 +74,7 @@ class QuantizedSequenceGenerator {
                 this.scheduledOps.delete(s); // Clean up
             }
             
-            const isFull = (filledCells / totalCells > 0.99);
+            const isFull = (filledCells >= totalCells);
             
             // Loop Termination: 
             // Continue if not full OR if we still have scheduled ops pending.
@@ -105,9 +117,7 @@ class QuantizedSequenceGenerator {
                 const occupancyProgress = filledCells / totalCells;
                 
                 // Sinusoidal Growth: Start slow, speed up, slow down
-                // Math.sin(0..PI) -> 0..1..0
                 const curve = Math.sin(occupancyProgress * Math.PI); 
-                // Ensure a minimum base speed so it doesn't stall at 0 or 100%
                 const dynamicCount = config.blocksPerStep + (config.maxBlocksPerStep - config.blocksPerStep) * curve;
                 const currentBlocksPerStep = Math.max(1, Math.floor(dynamicCount));
                 
@@ -126,16 +136,21 @@ class QuantizedSequenceGenerator {
             if (stepOps.length > 0) {
                 this.sequence.push(stepOps);
             } else {
-                // If not full but stalled, try one more desperate expansion
+                // If not full but stalled, force expansion to ensure completion
                 if (!isFull) {
-                    const added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration);
+                    let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration);
+                    
+                    // If weighted expansion fails, force a 1x1 placement (guaranteed progress)
+                    if (added === 0) {
+                        added = this._forceExpansion(stepOps);
+                    }
+
                     if (added > 0) {
                         filledCells += added;
                         this.sequence.push(stepOps);
                     } else {
-                        // Truly stuck
+                        // Truly stuck (frontier empty? should not happen if !isFull)
                         if (this.scheduledOps.size === 0) break;
-                        // Else continue to flush scheduled ops
                         this.sequence.push([]); 
                     }
                 } else {
@@ -146,6 +161,20 @@ class QuantizedSequenceGenerator {
         }
 
         return this.sequence;
+    }
+
+    _forceExpansion(stepOps) {
+        // Fallback: Pick ANY frontier block uniformly and fill it with 1x1
+        // This bypasses the axis weighting and shape sizing that might cause stalls at the corners.
+        const frontier = this._getFrontier();
+        if (frontier.length === 0) return 0;
+        
+        const idx = Math.floor(Math.random() * frontier.length);
+        const origin = frontier[idx];
+        
+        this.grid[this._idx(origin.x, origin.y)] = 1;
+        stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
+        return 1;
     }
 
     _idx(x, y) {
