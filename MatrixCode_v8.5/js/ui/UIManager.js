@@ -1461,8 +1461,7 @@ class UIManager {
         if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
         if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
-        if(action === 'quantizedGenerate') { if(this.effects.trigger('QuantizedGenerate')) this.notifications.show('Quantized Generate Triggered', 'success'); else this.notifications.show('Quantized Generate active...', 'info'); }
-        if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
+                    if(action === 'quantizedGenerate') { if(this.effects.trigger('QuantizedGenerate')) this.notifications.show('Quantized Generate Triggered', 'success'); else this.notifications.show('Quantized Generate already active...', 'info'); }        if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'reverse_time') { if(this.effects.trigger('ReverseTime')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
     }

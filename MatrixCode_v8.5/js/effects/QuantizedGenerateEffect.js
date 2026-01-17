@@ -24,6 +24,8 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         // Flicker Fix: Swap Transition State
         this.isSwapping = false;
         this.swapTimer = 0;
+        
+        this._renderGridDirty = true;
     }
 
     _initLogicGrid() {
@@ -50,8 +52,10 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
-        // Fix: If restarting while active and not yet swapped, commit the current state first.
-        if (this.active && !this.hasSwapped) {
+        if (this.active && !force) return false;
+        
+        // Force-restart logic: If active and forced, commit state before restarting
+        if (this.active && force && !this.hasSwapped) {
             this._swapStates();
         }
 
@@ -94,6 +98,7 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         this._initShadowWorld();
         this.hasSwapped = false;
         this.isSwapping = false;
+        this._renderGridDirty = true;
 
         // Ensure renderGrid is initialized
         if (this.renderGrid) {
@@ -150,11 +155,95 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
             }
         }
     
-        const warmupFrames = 400;
+        // Optimization: Reduce warmup frames to prevent UI freeze on trigger
+        const warmupFrames = 60; 
         this.shadowSimFrame = warmupFrames;
         
         for (let i = 0; i < warmupFrames; i++) {
             this.shadowSim.update(i);
+        }
+    }
+
+    _updateShadowSim() {
+        if (!this.shadowSim) return;
+        
+        // 1. Advance Simulation
+        this.shadowSim.update(++this.shadowSimFrame);
+        
+        // 2. Compute "True Outside" Mask
+        // Requires subclasses to maintain this.renderGrid and this.logicGridW/H
+        if (!this.renderGrid || !this.logicGridW) return;
+
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        
+        // Use SCALED Grid dimensions
+        const pitchX = this._lastPitchX;
+        const pitchY = this._lastPitchY;
+        
+        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
+        
+        // 3. Apply Overrides with OFFSET
+        const sg = this.shadowGrid;
+        const g = this.g;
+        
+        // Calculate Offset (Scaled Center vs Screen Center)
+        // ScreenBlocksX = ceil(g.cols / pitchX)
+        const screenBlocksX = Math.ceil(g.cols / pitchX);
+        const screenBlocksY = Math.ceil(g.rows / pitchY);
+        
+        const offX = Math.floor((blocksX - screenBlocksX) / 2);
+        const offY = Math.floor((blocksY - screenBlocksY) / 2);
+        
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                const idx = by * blocksX + bx;
+                const isOutside = outsideMask[idx] === 1;
+                
+                // Map Scaled Block (bx, by) to Screen Block (destBx, destBy)
+                const destBx = bx - offX;
+                const destBy = by - offY;
+                
+                // Skip if off-screen
+                if (destBx < 0 || destBx >= screenBlocksX || destBy < 0 || destBy >= screenBlocksY) continue;
+                
+                const startCellX = Math.floor(destBx * pitchX);
+                const startCellY = Math.floor(destBy * pitchY);
+                const endCellX = Math.floor((destBx + 1) * pitchX);
+                const endCellY = Math.floor((destBy + 1) * pitchY);
+                
+                for (let cy = startCellY; cy < endCellY; cy++) {
+                    if (cy >= g.rows || cy < 0) continue;
+                    for (let cx = startCellX; cx < endCellX; cx++) {
+                        if (cx >= g.cols || cx < 0) continue;
+                        
+                        const destIdx = cy * g.cols + cx;
+                        
+                        // Map to Shadow Grid (which matches Screen dimensions)
+                        // If Shadow Grid is also Screen Size, we use same coords
+                        if (cy >= sg.rows || cx >= sg.cols) continue;
+                        const srcIdx = cy * sg.cols + cx;
+                        
+                        if (!isOutside) {
+                            // INSIDE: Override with Shadow
+                            if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                g.overrideActive[destIdx] = 3; 
+                                g.overrideChars[destIdx] = sg.chars[srcIdx];
+                                g.overrideColors[destIdx] = sg.colors[srcIdx];
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
+                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
+                                g.overrideMix[destIdx] = sg.mix[srcIdx];
+                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
+                            }
+                        } else {
+                            // OUTSIDE: Restore Main
+                            if (g.overrideActive[destIdx] === 3) {
+                                g.overrideActive[destIdx] = 0;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -183,8 +272,11 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
             }
         }
 
-        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
-        this._updateRenderGridLogic();
+        // Optimization: Update Render Grid Logic only when necessary
+        if (this._renderGridDirty) {
+            this._updateRenderGridLogic();
+            this._renderGridDirty = false;
+        }
 
         // 2. Update Shadow Simulation & Apply Overrides
         if (!this.hasSwapped && !this.isSwapping) {
@@ -200,21 +292,20 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
                 this.g.clearAllOverrides();
                 this.isSwapping = false;
                 this.hasSwapped = true;
-                this.active = false;
-                this.state = 'IDLE';
                 
-                // Cleanup
+                // Do not set active = false here. 
+                // We rely on the FADE_OUT state (which we are likely in) to handle termination.
+                
+                // Cleanup Shadow World
                 this.shadowGrid = null;
                 this.shadowSim = null;
-                
-                window.removeEventListener('keydown', this._boundDebugHandler);
             }
         }
 
         // 3. Lifecycle State Machine
-        const fadeInFrames = Math.max(1, s.quantizedGenerateFadeInFrames);
-        const fadeOutFrames = Math.max(1, s.quantizedGenerateFadeFrames);
-        const durationFrames = s.quantizedGenerateDurationSeconds * fps;
+        const fadeInFrames = Math.max(1, s.quantizedGenerateFadeInFrames || 0);
+        const fadeOutFrames = Math.max(1, s.quantizedGenerateFadeFrames || 0);
+        const durationFrames = (s.quantizedGenerateDurationSeconds || 0) * fps;
         
         const setAlpha = (val) => { this.alpha = Math.max(0, Math.min(1, val)); };
 
@@ -273,13 +364,14 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
 
     _updateRenderGridLogic() {
         // Calculates the logical state of the expansion grid (what is active/inactive)
-        
+        if (!this.logicGridW || !this.logicGridH) return;
+
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
         const cellPitchY = Math.max(1, bs.h);
-        
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
+
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
         const totalBlocks = blocksX * blocksY;
 
         // Initialize or Resize Logic Grid
@@ -354,6 +446,7 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
             if (step) this._executeStepOps(step);
             this.expansionPhase++;
             this._maskDirty = true;
+            this._renderGridDirty = true;
         }
     }
 
@@ -409,29 +502,38 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         const addDuration = Math.max(1, fadeInFrames);
         const removeDuration = Math.max(1, fadeFrames);
 
-        // Distance Map for Hollow Masking (Lines within 4 blocks of perimeter)
-        const distMap = this._computeDistanceField(blocksX, blocksY);
+        // --- SCALED GRID LOGIC ---
+        const scaledW = this.logicGridW || blocksX;
+        const scaledH = this.logicGridH || blocksY;
+        const offX = Math.floor((scaledW - blocksX) / 2);
+        const offY = Math.floor((scaledH - blocksY) / 2);
+
+        // Compute maps on the SCALED grid
+        const distMap = this._computeDistanceField(scaledW, scaledH);
+        const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         
-        const outsideMap = this._computeTrueOutside(blocksX, blocksY);
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
-            return outsideMap[ny * blocksX + nx] === 1;
+            const idx = (ny + offY) * scaledW + (nx + offX);
+            return outsideMap[idx] === 1;
         };
         
         const isRenderActive = (bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-            const idx = by * blocksX + bx;
-            if (!this.renderGrid || this.renderGrid[idx] === -1) return false;
+            const idx = (by + offY) * scaledW + (bx + offX);
+            if (!this.renderGrid || idx < 0 || idx >= this.renderGrid.length || this.renderGrid[idx] === -1) return false;
             return true;
         };
         
         const isLocationCoveredByLaterAdd = (bx, by, time) => {
              if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
+             const idx = (by + offY) * scaledW + (bx + offX);
              if (!this.renderGrid) return false;
-             const activeStart = this.renderGrid[by * blocksX + bx];
+             const activeStart = this.renderGrid[idx];
              if (activeStart !== -1 && activeStart > time) return true;
              return false;
         };
+
 
         // --- PASS 1: Base Grid (Interior) ---
         // Draws Solid Blocks to ctx (maskCanvas) for Black Fill
@@ -528,84 +630,318 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
 
         // --- PASS 4: Add Lines (Interior) - Draws to lCtx (Blue) ---
         if (lCtx) {
-            // Restore animation-based line adding logic, but masked by distMap
-            const activeLines = new Map();
-            
-            // 1. Collect Lines from Animation Ops
-            for (const op of this.maskOps) {
-                if (op.type !== 'addLine') continue;
+            try {
+                // Restore animation-based line adding logic
+                const activeLines = new Map();
                 
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (isRenderActive(bx, by)) {
-                            const idx = by * blocksX + bx;
-                            
-                            // DISTANCE MASK CHECK: Only draw if within 4 blocks of perimeter
-                            // distMap values: 0=edge, 1, 2, 3, 4=inner limit.
-                            // So we show lines if dist <= 4.
-                            if (distMap[idx] > 4) continue;
+                // 1. Collect Lines from Animation Ops (Process strictly in order)
+                for (const op of this.maskOps) {
+                    const start = { x: cx + op.x1, y: cy + op.y1 };
+                    const end = { x: cx + op.x2, y: cy + op.y2 };
+                    const minX = Math.min(start.x, end.x);
+                    const maxX = Math.max(start.x, end.x);
+                    const minY = Math.min(start.y, end.y);
+                    const maxY = Math.max(start.y, end.y);
 
-                            let nx = bx, ny = by;
-                            const f = op.face ? op.face.toUpperCase() : '';
-                            if (f === 'N') ny--;
-                            else if (f === 'S') ny++;
-                            else if (f === 'W') nx--;
-                            else if (f === 'E') nx++;
-                            
-                            if (isTrueOutside(nx, ny)) continue; // Don't draw on perimeter
+                    if (op.type === 'addLine') {
+                        for (let by = minY; by <= maxY; by++) {
+                            for (let bx = minX; bx <= maxX; bx++) {
+                                // Distance Check (Scaled)
+                                const distIdx = (by + offY) * scaledW + (bx + offX);
+                                if (distIdx >= 0 && distIdx < distMap.length && distMap[distIdx] > 4) continue;
 
-                            let cell = activeLines.get(idx);
-                            if (!cell) { cell = {}; activeLines.set(idx, cell); }
-                            cell[f] = op;
+                                const idx = by * blocksX + bx;
+                                let nx = bx, ny = by;
+                                const f = op.face ? op.face.toUpperCase() : '';
+                                if (f === 'N') ny--;
+                                else if (f === 'S') ny++;
+                                else if (f === 'W') nx--;
+                                else if (f === 'E') nx++;
+                                
+                                // REMOVED: isTrueOutside check. 
+                                // We WANT to draw on the perimeter so the line acts as a "remnant" underneath.
+                                // if (isTrueOutside(nx, ny)) continue; 
+
+                                let cell = activeLines.get(idx);
+                                if (!cell) { cell = {}; activeLines.set(idx, cell); }
+                                cell[f] = op;
+                            }
+                        }
+                    } else if (op.type === 'removeLine') {
+                        for (let by = minY; by <= maxY; by++) {
+                            for (let bx = minX; bx <= maxX; bx++) {
+                                const idx = by * blocksX + bx;
+                                const f = op.face ? op.face.toUpperCase() : '';
+                                const cell = activeLines.get(idx);
+                                if (cell) {
+                                    delete cell[f];
+                                    if (Object.keys(cell).length === 0) activeLines.delete(idx);
+                                }
+                            }
+                        }
+                    } else if (op.type === 'removeBlock' || op.type === 'remove') {
+                        for (let by = minY; by <= maxY; by++) {
+                            for (let bx = minX; bx <= maxX; bx++) {
+                                const idx = by * blocksX + bx;
+                                activeLines.delete(idx);
+                            }
                         }
                     }
                 }
-            }
 
-            // 2. Draw Collected Lines
-            const originalCtx = this.maskCtx;
-            this.maskCtx = lCtx;
-            lCtx.fillStyle = '#FFFFFF';
+                // 1b. Connectivity Filter (Tier 0/1 Logic)
+                // ----------------------------------------------------------------
+                // Data Structures for Segments
+                const hSegs = new Map(); // y -> [{x1, x2, id, tier}]
+                const vSegs = new Map(); // x -> [{y1, y2, id, tier}]
+                const lineToSeg = new Map(); // "idx_face" -> segmentObj
 
-            for (const [idx, cell] of activeLines) {
-                const bx = idx % blocksX;
-                const by = Math.floor(idx / blocksX);
-                
-                const drawLine = (face, rS, rE) => {
-                    const op = cell[face];
-                    if (!op) return;
-                    
-                    let opacity = 1.0;
-                    if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-                    else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-                    
-                    if (opacity <= 0.001) return;
-
-                    lCtx.globalAlpha = opacity;
-                    lCtx.beginPath();
-                    // Reuse the Perimeter Logic which handles Inner Stroke & Retraction
-                    this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
-                    lCtx.fill();
+                const getSegList = (map, key) => {
+                    let list = map.get(key);
+                    if (!list) { list = []; map.set(key, list); }
+                    return list;
                 };
 
-                const hasN_Border = isTrueOutside(bx, by - 1);
-                const hasS_Border = isTrueOutside(bx, by + 1);
-                const hasN = !!cell['N'] || hasN_Border;
-                const hasS = !!cell['S'] || hasS_Border;
+                // Step A: Parse Raw Lines into Unit Segments
+                for (const [idx, cell] of activeLines) {
+                    const bx = idx % blocksX;
+                    const by = Math.floor(idx / blocksX);
+                    
+                    // N: H at y, x..x+1
+                    if (cell['N']) {
+                        const list = getSegList(hSegs, by);
+                        const seg = { x1: bx, x2: bx + 1, id: `H_${by}_${bx}`, tier: -1, type: 'H', key: by };
+                        list.push(seg);
+                        lineToSeg.set(`${idx}_N`, seg);
+                    }
+                    // S: H at y+1, x..x+1
+                    if (cell['S']) {
+                        const list = getSegList(hSegs, by + 1);
+                        const seg = { x1: bx, x2: bx + 1, id: `H_${by+1}_${bx}`, tier: -1, type: 'H', key: by + 1 };
+                        list.push(seg);
+                        lineToSeg.set(`${idx}_S`, seg);
+                    }
+                    // W: V at x, y..y+1
+                    if (cell['W']) {
+                        const list = getSegList(vSegs, bx);
+                        const seg = { y1: by, y2: by + 1, id: `V_${bx}_${by}`, tier: -1, type: 'V', key: bx };
+                        list.push(seg);
+                        lineToSeg.set(`${idx}_W`, seg);
+                    }
+                    // E: V at x+1, y..y+1
+                    if (cell['E']) {
+                        const list = getSegList(vSegs, bx + 1);
+                        const seg = { y1: by, y2: by + 1, id: `V_${bx+1}_${by}`, tier: -1, type: 'V', key: bx + 1 };
+                        list.push(seg);
+                        lineToSeg.set(`${idx}_E`, seg);
+                    }
+                }
 
-                drawLine('N', false, false);
-                drawLine('S', false, false);
-                drawLine('W', hasN, hasS);
-                drawLine('E', hasN, hasS);
+                // Step B: Merge Contiguous Segments
+                const allSegments = [];
+                
+                const mergeList = (list, isH) => {
+                    if (list.length === 0) return;
+                    // Sort by coordinate (x1 for H, y1 for V)
+                    list.sort((a, b) => isH ? (a.x1 - b.x1) : (a.y1 - b.y1));
+                    
+                    const merged = [];
+                    let curr = list[0];
+                    
+                    // Remap initial lookup to the merged master
+                    const constituentKeys = [curr]; 
+
+                    for (let i = 1; i < list.length; i++) {
+                        const next = list[i];
+                        // Check continuity: next.start == curr.end
+                        const isContiguous = isH ? (next.x1 === curr.x2) : (next.y1 === curr.y2);
+                        
+                        if (isContiguous) {
+                            // Merge
+                            if (isH) curr.x2 = next.x2;
+                            else curr.y2 = next.y2;
+                            constituentKeys.push(next);
+                        } else {
+                            // Finalize current
+                            merged.push(curr);
+                            allSegments.push(curr);
+                            curr.constituents = constituentKeys.slice();
+                            
+                            // Start new
+                            curr = next;
+                            constituentKeys.length = 0;
+                            constituentKeys.push(curr);
+                        }
+                    }
+                    merged.push(curr);
+                    allSegments.push(curr);
+                    curr.constituents = constituentKeys.slice();
+                    
+                    return merged;
+                };
+
+                for (const [y, list] of hSegs) hSegs.set(y, mergeList(list, true));
+                for (const [x, list] of vSegs) vSegs.set(x, mergeList(list, false));
+
+                // Remap lookups to merged objects
+                for (const seg of allSegments) {
+                    if (seg.constituents) {
+                        for (const part of seg.constituents) {
+                            part.master = seg; // Link part to master
+                        }
+                    }
+                }
+                
+                // Helper to get master segment
+                const getMaster = (seg) => seg.master || seg;
+
+                // Step C: Mark Tier 0 (Perimeter Touching)
+                for (const seg of allSegments) {
+                    let isTier0 = false;
+                    if (seg.type === 'H') {
+                        const y = seg.key; // Vertex Y. Cell Y is y (below) or y-1 (above).
+                        for (let x = seg.x1; x < seg.x2; x++) {
+                            // Check cells (x, y-1) and (x, y)
+                            const outAbove = isTrueOutside(x, y - 1);
+                            const outBelow = isTrueOutside(x, y);
+                            // If one is out and one is in, it's a border.
+                            if (outAbove !== outBelow) { isTier0 = true; break; }
+                        }
+                    } else { // V
+                        const x = seg.key; // Vertex X.
+                        for (let y = seg.y1; y < seg.y2; y++) {
+                            // Check cells (x-1, y) and (x, y)
+                            const outLeft = isTrueOutside(x - 1, y);
+                            const outRight = isTrueOutside(x, y);
+                            if (outLeft !== outRight) { isTier0 = true; break; }
+                        }
+                    }
+                    if (isTier0) seg.tier = 0;
+                }
+
+                // Step D: Propagate Tier 1 (Connectivity)
+                const tier0Segs = allSegments.filter(s => s.tier === 0);
+                
+                for (const t0 of tier0Segs) {
+                    // Find all intersecting/touching segments
+                    if (t0.type === 'H') {
+                        for (let x = t0.x1; x <= t0.x2; x++) { // Include endpoints
+                            const vList = vSegs.get(x);
+                            if (vList) {
+                                for (const vSeg of vList) {
+                                    if (vSeg.tier === -1) {
+                                        // Check overlap
+                                        if (t0.key >= vSeg.y1 && t0.key <= vSeg.y2) {
+                                            vSeg.tier = 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // t0 is V. Check against all H segments.
+                        for (let y = t0.y1; y <= t0.y2; y++) {
+                            const hList = hSegs.get(y);
+                            if (hList) {
+                                for (const hSeg of hList) {
+                                    if (hSeg.tier === -1) {
+                                        if (t0.key >= hSeg.x1 && t0.key <= hSeg.x2) {
+                                            hSeg.tier = 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Step E: Filter ActiveLines
+                const keysToRemove = [];
+                for (const [idx, cell] of activeLines) {
+                    const faces = Object.keys(cell);
+                    let hasValidFace = false;
+                    
+                    for (const f of faces) {
+                        const rawSeg = lineToSeg.get(`${idx}_${f}`);
+                        if (!rawSeg) continue;
+                        const master = getMaster(rawSeg);
+                        
+                        if (master.tier === 0 || master.tier === 1) {
+                            hasValidFace = true;
+                        } else {
+                            // Remove invalid face
+                            delete cell[f];
+                        }
+                    }
+                    
+                    if (Object.keys(cell).length === 0) {
+                        keysToRemove.push(idx);
+                    }
+                }
+                for (const k of keysToRemove) activeLines.delete(k);
+
+                // 2. Draw Collected Lines
+                const originalCtx = this.maskCtx;
+                this.maskCtx = lCtx;
+                lCtx.fillStyle = '#FFFFFF';
+
+                for (const [idx, cell] of activeLines) {
+                    const bx = idx % blocksX;
+                    const by = Math.floor(idx / blocksX);
+                    
+                    const gridCx = blocksX / 2;
+                    const gridCy = blocksY / 2;
+                    
+                    const drawLine = (face, rS, rE) => {
+                        const op = cell[face];
+                        if (!op) return;
+                        
+                        // Determine if face is facing the center
+                        let isFacingCenter = false;
+                        if (face === 'N') isFacingCenter = (by > gridCy);
+                        else if (face === 'S') isFacingCenter = (by < gridCy);
+                        else if (face === 'W') isFacingCenter = (bx > gridCx);
+                        else if (face === 'E') isFacingCenter = (bx < gridCx);
+                        
+                        // LIFETIME CHECK: Layered Deletion
+                        // Center-facing walls fade at normal duration.
+                        // Away-facing walls persist longer (3x) to create a shell effect, 
+                        // but eventually fade to keep the center clear.
+                        if (op.startPhase !== undefined) {
+                            const innerLineDuration = (this.c.state.quantizedGenerateInnerLineDuration !== undefined) ? this.c.state.quantizedGenerateInnerLineDuration : 5;
+                            const age = this.expansionPhase - op.startPhase;
+                            
+                            const limit = isFacingCenter ? innerLineDuration : (innerLineDuration * 3);
+                            if (age > limit) return;
+                        }
+                        
+                        let opacity = 1.0;
+                        if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+                        else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+                        
+                        if (opacity <= 0.001) return;
+
+                        lCtx.globalAlpha = opacity;
+                        lCtx.beginPath();
+                        // Reuse the Perimeter Logic which handles Inner Stroke & Retraction
+                        this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
+                        lCtx.fill();
+                    };
+
+                    const hasN_Border = isTrueOutside(bx, by - 1);
+                    const hasS_Border = isTrueOutside(bx, by + 1);
+                    const hasN = !!cell['N'] || hasN_Border;
+                    const hasS = !!cell['S'] || hasS_Border;
+
+                    drawLine('N', false, false);
+                    drawLine('S', false, false);
+                    drawLine('W', hasN, hasS);
+                    drawLine('E', hasN, hasS);
+                }
+                this.maskCtx = originalCtx;
+            } catch(e) {
+                console.error("[QuantizedGenerate] Line Pass Failed:", e);
             }
-            this.maskCtx = originalCtx;
         }
     }
 
@@ -817,23 +1153,82 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 
+    _swapStates() {
+        if (this.hasSwapped || this.isSwapping) return;
+        
+        const result = this._commitShadowState();
+        
+        if (result === 'ASYNC') {
+            this.isSwapping = true;
+            this.swapTimer = 5; 
+        } else if (result === 'SYNC') {
+            this.g.clearAllOverrides();
+            this.hasSwapped = true;
+            // Do not set active = false here; let FADE_OUT handle it.
+        } else {
+            // Failed
+            this.g.clearAllOverrides();
+            this.active = false;
+        }
+    }
+
     _ensureCanvases(w, h) {
-        super._ensureCanvases(w, h);
+        if (!this.maskCanvas) {
+            this.maskCanvas = document.createElement('canvas');
+            this.maskCtx = this.maskCanvas.getContext('2d');
+            this._maskDirty = true;
+        }
+        if (!this.scratchCanvas) {
+            this.scratchCanvas = document.createElement('canvas');
+            this.scratchCtx = this.scratchCanvas.getContext('2d');
+        }
+        if (!this.gridCacheCanvas) {
+            this.gridCacheCanvas = document.createElement('canvas');
+            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
+        }
         if (!this.perimeterMaskCanvas) {
             this.perimeterMaskCanvas = document.createElement('canvas');
             this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
-        }
-        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
-            this.perimeterMaskCanvas.width = w;
-            this.perimeterMaskCanvas.height = h;
         }
         if (!this.lineMaskCanvas) {
             this.lineMaskCanvas = document.createElement('canvas');
             this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
         }
+
+        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
+            this.maskCanvas.width = w;
+            this.maskCanvas.height = h;
+            this._maskDirty = true;
+        }
+        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
+            this.scratchCanvas.width = w;
+            this.scratchCanvas.height = h;
+        }
+        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
+            this.gridCacheCanvas.width = w;
+            this.gridCacheCanvas.height = h;
+            this.lastGridSeed = -1; 
+        }
+        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
+            this.perimeterMaskCanvas.width = w;
+            this.perimeterMaskCanvas.height = h;
+        }
         if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
             this.lineMaskCanvas.width = w;
             this.lineMaskCanvas.height = h;
+        }
+        
+        // RenderGrid Sizing (SCALED)
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        
+        if (blocksX && blocksY) {
+            const requiredSize = blocksX * blocksY;
+            if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
+                 this.renderGrid = new Int32Array(requiredSize);
+                 this.renderGrid.fill(-1);
+                 this._renderGridDirty = true;
+            }
         }
     }
 

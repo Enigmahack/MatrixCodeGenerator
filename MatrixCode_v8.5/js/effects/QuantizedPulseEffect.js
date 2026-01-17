@@ -27,6 +27,8 @@ class QuantizedPulseEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
+        if (this.active && !force) return false;
+
         // Fix: If restarting while active and not yet swapped, commit the current state first.
         if (this.active && !this.hasSwapped) {
             this._swapStates();

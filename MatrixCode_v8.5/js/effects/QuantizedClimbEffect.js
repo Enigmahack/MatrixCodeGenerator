@@ -21,6 +21,8 @@ class QuantizedClimbEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
+        if (this.active && !force) return false;
+
         if (this.active && !this.hasSwapped) {
             this._swapStates();
         }

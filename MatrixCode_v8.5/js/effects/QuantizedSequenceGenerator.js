@@ -18,27 +18,9 @@ class QuantizedSequenceGenerator {
         this.sequence = [];
         this.scheduledOps = new Map(); // Reset scheduled ops
 
-        // Seed: Default to center, but allow override
-        const seedX = (params.seedX !== undefined) ? params.seedX : this.cx;
-        const seedY = (params.seedY !== undefined) ? params.seedY : this.cy;
-
-        // Seed the grid
-        const centerIdx = this._idx(seedX, seedY);
-        if (centerIdx !== -1) {
-            this.grid[centerIdx] = 1;
-            // Initial step: Add seed relative to geometric center
-            this.sequence.push([['add', seedX - this.cx, seedY - this.cy]]);
-        } else {
-            console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
-            // Fallback
-            const fallbackIdx = this._idx(this.cx, this.cy);
-            this.grid[fallbackIdx] = 1;
-            this.sequence.push([['add', 0, 0]]);
-        }
-
         const config = {
             blocksPerStep: 2,           // Start count (min)
-            maxBlocksPerStep: 12,       // Peak count (mid-expansion)
+            maxBlocksPerStep: 10,       // Peak count (mid-expansion) - STRICT LIMIT
             redistributeChance: 0.3,    // Chance to convert lines to rects
             thickenChance: 0.4,         // Chance to thicken existing thin lines
             erosionRate: 0.2,           // Default erosion rate if not passed
@@ -61,11 +43,65 @@ class QuantizedSequenceGenerator {
             ...params
         };
 
+        // Seed: Default to center, but allow override
+        const seedX = (params.seedX !== undefined) ? params.seedX : this.cx;
+        const seedY = (params.seedY !== undefined) ? params.seedY : this.cy;
+
+        // Seed the grid
+        const centerIdx = this._idx(seedX, seedY);
+        if (centerIdx !== -1) {
+            this.grid[centerIdx] = 1;
+            // Initial step: Add seed relative to geometric center
+            const seedStepOps = [['add', seedX - this.cx, seedY - this.cy]];
+            // Add lines for the seed block so it matches the rest
+            this._addPerimeterLines(0, seedX, seedY, 1, 1, config.innerLineDuration, seedStepOps);
+            this.sequence.push(seedStepOps);
+        } else {
+            console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
+            // Fallback
+            const fallbackIdx = this._idx(this.cx, this.cy);
+            this.grid[fallbackIdx] = 1;
+            const seedStepOps = [['add', 0, 0]];
+            this._addPerimeterLines(0, this.cx, this.cy, 1, 1, config.innerLineDuration, seedStepOps);
+            this.sequence.push(seedStepOps);
+        }
+
         const totalCells = width * height;
         let filledCells = 1;
+        let crossComplete = false;
+        
+        // Hoist buffer allocation to reduce GC pressure
+        const stepOccupancy = new Uint8Array(totalCells);
 
         for (let s = 1; s < maxSteps; s++) {
             const stepOps = [];
+            
+            // Reset step occupancy
+            stepOccupancy.fill(0);
+            
+            // Check Cross Completion (if not yet complete)
+            if (!crossComplete) {
+                // Check if the cross arms have effectively reached the screen edges
+                // We scan a small window (5px wide) around the center axes at the boundaries
+                const checkRegion = (x, y, w, h) => {
+                    for(let i=0; i<w; i++) {
+                        for(let j=0; j<h; j++) {
+                            const idx = this._idx(x+i, y+j);
+                            if (idx !== -1 && this.grid[idx] === 1) return true;
+                        }
+                    }
+                    return false;
+                };
+                
+                const topReached = checkRegion(this.cx - 2, 0, 5, 2);
+                const botReached = checkRegion(this.cx - 2, this.height - 2, 5, 2);
+                const leftReached = checkRegion(0, this.cy - 2, 2, 5);
+                const rightReached = checkRegion(this.width - 2, this.cy - 2, 2, 5);
+                
+                if (topReached && botReached && leftReached && rightReached) {
+                    crossComplete = true;
+                }
+            }
             
             // Apply scheduled operations for this step
             if (this.scheduledOps.has(s)) {
@@ -86,25 +122,35 @@ class QuantizedSequenceGenerator {
             if (!isFull) {
                 // 1. Redistribution (Mutation of existing structure)
                 if (Math.random() < config.redistributeChance) {
-                    this._attemptRedistribution(stepOps);
+                    this._attemptRedistribution(stepOps, stepOccupancy);
                 }
 
                 // 2. Thickening (Reinforcing existing structure)
                 if (Math.random() < config.thickenChance) {
-                    const added = this._attemptThickening(stepOps);
+                    const added = this._attemptThickening(stepOps, stepOccupancy);
                     filledCells += added;
                 }
                 
                 // 2.2 Line Thickening (Specific parallel spawning for long thin blocks)
                 if (Math.random() < 0.15) { 
-                    const added = this._attemptLineThickening(stepOps);
+                    const added = this._attemptLineThickening(stepOps, stepOccupancy);
                     filledCells += added;
                 }
 
                 // 2.3 Tendril Generation (Perpendicular shots from cardinal arms)
-                if (Math.random() < 0.20) { // 20% chance
-                    const added = this._attemptTendril(s, stepOps, config.innerLineDuration); 
+                // Boost probability significantly if the main cross is complete to fill quadrants
+                const tendrilProb = crossComplete ? 0.65 : 0.20;
+                if (Math.random() < tendrilProb) { 
+                    const added = this._attemptTendril(s, stepOps, config.innerLineDuration, stepOccupancy); 
                     filledCells += added;
+                }
+
+                // 2.4 Multi-Block Move (Perimeter Expansion Copy)
+                // Boost probability during fill phase to help progress general expansion
+                const moveProb = crossComplete ? 0.70 : 0.35;
+                if (Math.random() < moveProb) {
+                     const added = this._attemptMultiBlockMove(s, stepOps, config.innerLineDuration, stepOccupancy);
+                     filledCells += added;
                 }
 
                 // 2.5 Erosion (Deleting blocks from frontier)
@@ -116,16 +162,19 @@ class QuantizedSequenceGenerator {
                 // 3. Expansion (Water Filling)
                 const occupancyProgress = filledCells / totalCells;
                 
-                // Sinusoidal Growth: Start slow, speed up, slow down
-                const curve = Math.sin(occupancyProgress * Math.PI); 
-                const dynamicCount = config.blocksPerStep + (config.maxBlocksPerStep - config.blocksPerStep) * curve;
-                const currentBlocksPerStep = Math.max(1, Math.floor(dynamicCount));
+                // Linear Growth Ramp: Start at 1, +1 per step, max 10
+                let currentBlocksPerStep = Math.min(10, Math.max(1, s));
+                
+                // Constraint: Until cross is complete, limit growth to maintain consistent cross formation
+                if (!crossComplete) {
+                    currentBlocksPerStep = Math.min(4, Math.max(2, currentBlocksPerStep));
+                }
                 
                 let massAdded = 0;
                 let attempts = 0;
                 while (massAdded < currentBlocksPerStep && attempts < 20) {
                     attempts++;
-                    const added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration); 
+                    const added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
                     if (added > 0) {
                         massAdded++; 
                         filledCells += added;
@@ -138,11 +187,18 @@ class QuantizedSequenceGenerator {
             } else {
                 // If not full but stalled, force expansion to ensure completion
                 if (!isFull) {
-                    let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration);
+                    // Force expansion needs a temp stepOccupancy if one wasn't created (rare case logic flow)
+                    // But we are inside the !isFull block so we have it. Wait, scoping issue?
+                    // stepOccupancy was declared inside the if(!isFull) block above.
+                    // We need to declare it outside or create a new one here.
+                    // Let's create a new one here, minimal cost.
+                    const fallbackOccupancy = new Uint8Array(totalCells).fill(0);
+
+                    let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, fallbackOccupancy, crossComplete);
                     
                     // If weighted expansion fails, force a 1x1 placement (guaranteed progress)
                     if (added === 0) {
-                        added = this._forceExpansion(stepOps);
+                        added = this._forceExpansion(stepOps, fallbackOccupancy);
                     }
 
                     if (added > 0) {
@@ -163,18 +219,69 @@ class QuantizedSequenceGenerator {
         return this.sequence;
     }
 
-    _forceExpansion(stepOps) {
+    _forceExpansion(stepOps, stepOccupancy) {
         // Fallback: Pick ANY frontier block uniformly and fill it with 1x1
         // This bypasses the axis weighting and shape sizing that might cause stalls at the corners.
         const frontier = this._getFrontier();
         if (frontier.length === 0) return 0;
         
+        // Shuffle or pick random
         const idx = Math.floor(Math.random() * frontier.length);
         const origin = frontier[idx];
+        const gridIdx = this._idx(origin.x, origin.y);
+
+        // Check step occupancy
+        if (stepOccupancy && stepOccupancy[gridIdx] === 1) return 0;
         
-        this.grid[this._idx(origin.x, origin.y)] = 1;
+        this.grid[gridIdx] = 1;
+        if (stepOccupancy) stepOccupancy[gridIdx] = 1;
+
         stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
         return 1;
+    }
+
+    _computeOutsideMap() {
+        const w = this.width;
+        const h = this.height;
+        const map = new Uint8Array(w * h); // 0 = Inside/Filled, 1 = True Outside
+        const queue = [];
+
+        // Seed edges
+        for (let x = 0; x < w; x++) {
+            const i1 = this._idx(x, 0);
+            if (i1 !== -1 && this.grid[i1] === 0) { map[i1] = 1; queue.push(i1); }
+            const i2 = this._idx(x, h - 1);
+            if (i2 !== -1 && this.grid[i2] === 0) { map[i2] = 1; queue.push(i2); }
+        }
+        for (let y = 1; y < h - 1; y++) {
+            const i1 = this._idx(0, y);
+            if (i1 !== -1 && this.grid[i1] === 0) { map[i1] = 1; queue.push(i1); }
+            const i2 = this._idx(w - 1, y);
+            if (i2 !== -1 && this.grid[i2] === 0) { map[i2] = 1; queue.push(i2); }
+        }
+
+        let head = 0;
+        while (head < queue.length) {
+            const idx = queue[head++];
+            const cx = idx % w;
+            const cy = Math.floor(idx / w);
+
+            const neighbors = [
+                {x: cx, y: cy - 1}, {x: cx, y: cy + 1},
+                {x: cx - 1, y: cy}, {x: cx + 1, y: cy}
+            ];
+
+            for (const n of neighbors) {
+                if (n.x >= 0 && n.x < w && n.y >= 0 && n.y < h) {
+                    const nIdx = n.y * w + n.x;
+                    if (this.grid[nIdx] === 0 && map[nIdx] === 0) {
+                        map[nIdx] = 1;
+                        queue.push(nIdx);
+                    }
+                }
+            }
+        }
+        return map;
     }
 
     _idx(x, y) {
@@ -182,48 +289,56 @@ class QuantizedSequenceGenerator {
         return y * this.width + x;
     }
 
-    _addPerimeterLines(s, x, y, w, h, duration) {
+    _clearAreaLines(x, y, w, h, stepOps) {
+        for (let by = 0; by < h; by++) {
+            for (let bx = 0; bx < w; bx++) {
+                const dx = x + bx - this.cx;
+                const dy = y + by - this.cy;
+                stepOps.push(['remLine', dx, dy, 'N']);
+                stepOps.push(['remLine', dx, dy, 'S']);
+                stepOps.push(['remLine', dx, dy, 'E']);
+                stepOps.push(['remLine', dx, dy, 'W']);
+            }
+        }
+    }
+
+    _addPerimeterLines(s, x, y, w, h, duration, stepOps) {
         if (duration <= 0) return;
 
-        const allFaces = ['N', 'S', 'E', 'W'];
-        for (let i = allFaces.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [allFaces[i], allFaces[j]] = [allFaces[j], allFaces[i]];
-        }
+        // Force ALL faces to ensure internal lines are always drawn at boundaries
+        const selectedFaces = ['N', 'S', 'E', 'W'];
         
-        const count = Math.floor(Math.random() * 4) + 1; 
-        const selectedFaces = allFaces.slice(0, count);
-        
-        const delay = Math.floor(Math.random() * 2) + 3; // 3 or 4 steps delay
+        // Ensure lines appear immediately (co-located with block)
+        const delay = 0; 
         
         const startStep = s + delay;
-        const endStep = startStep + duration;
+        // const endStep = startStep + duration; // Lifetime now handled by renderer
         
         const schedule = (step, op) => {
-            if (!this.scheduledOps.has(step)) this.scheduledOps.set(step, []);
-            this.scheduledOps.get(step).push(op);
+            if (delay === 0 && stepOps) {
+                stepOps.push(op);
+            } else {
+                if (!this.scheduledOps.has(step)) this.scheduledOps.set(step, []);
+                this.scheduledOps.get(step).push(op);
+            }
         };
 
         for (const f of selectedFaces) {
             if (f === 'N') {
                 for (let bx = 0; bx < w; bx++) {
                     schedule(startStep, ['addLine', (x + bx) - this.cx, y - this.cy, 'N']);
-                    schedule(endStep, ['remLine', (x + bx) - this.cx, y - this.cy, 'N']);
                 }
             } else if (f === 'S') {
                 for (let bx = 0; bx < w; bx++) {
                     schedule(startStep, ['addLine', (x + bx) - this.cx, (y + h - 1) - this.cy, 'S']);
-                    schedule(endStep, ['remLine', (x + bx) - this.cx, (y + h - 1) - this.cy, 'S']);
                 }
             } else if (f === 'W') {
                 for (let by = 0; by < h; by++) {
                     schedule(startStep, ['addLine', x - this.cx, (y + by) - this.cy, 'W']);
-                    schedule(endStep, ['remLine', x - this.cx, (y + by) - this.cy, 'W']);
                 }
             } else if (f === 'E') {
                 for (let by = 0; by < h; by++) {
                     schedule(startStep, ['addLine', (x + w - 1) - this.cx, (y + by) - this.cy, 'E']);
-                    schedule(endStep, ['remLine', (x + w - 1) - this.cx, (y + by) - this.cy, 'E']);
                 }
             }
         }
@@ -405,6 +520,8 @@ class QuantizedSequenceGenerator {
             }
         }
         if (valid) {
+            this._clearAreaLines(nx, ny, nw, nh, stepOps); // Clear existing lines before placing
+
             for(let by=0; by<nh; by++) {
                 for(let bx=0; bx<nw; bx++) { this.grid[this._idx(nx+bx, ny+by)] = 1; }
             }
@@ -414,12 +531,14 @@ class QuantizedSequenceGenerator {
         return 0;
     }
 
-    _attemptTendril(s, stepOps, innerDuration) {
+    _attemptTendril(s, stepOps, innerDuration, stepOccupancy) {
         const len = Math.random() < 0.5 ? 6 : 7;
         const arm = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
         let anchorX, anchorY, dx, dy;
         
-        const dist = Math.floor(Math.random() * (Math.min(this.width, this.height) / 2));
+        // Calculate max distance based on the chosen arm's axis
+        const maxDist = (arm === 'N' || arm === 'S') ? (this.height / 2) : (this.width / 2);
+        const dist = Math.floor(Math.random() * maxDist);
         
         if (arm === 'N') { anchorX = this.cx; anchorY = this.cy - dist; dx = 1; dy = 0; } 
         else if (arm === 'S') { anchorX = this.cx; anchorY = this.cy + dist; dx = 1; dy = 0; }
@@ -432,6 +551,9 @@ class QuantizedSequenceGenerator {
         
         let totalAdded = 0;
         
+        // Compute outside map once for this step
+        const outsideMap = this._computeOutsideMap();
+
         for (const side of sides) {
             let tx, ty, tw, th;
             if (dx !== 0) { 
@@ -448,11 +570,26 @@ class QuantizedSequenceGenerator {
             
             if (tx < 0 || ty < 0 || tx + tw > this.width || ty + th > this.height) continue;
             
+            // Check Exposure
+            let isExposed = false;
+            for(let by=0; by<th; by++) {
+                for(let bx=0; bx<tw; bx++) {
+                    const idx = this._idx(tx+bx, ty+by);
+                    if (outsideMap[idx] === 1) {
+                        isExposed = true;
+                        break;
+                    }
+                }
+                if (isExposed) break;
+            }
+
             let valid = true;
             let overwriteCount = 0;
             if (this.grid[this._idx(anchorX, anchorY)] === 0) valid = false;
 
             if (valid) {
+                this._clearAreaLines(tx, ty, tw, th, stepOps); // Clear existing lines before placing
+
                 for(let by=0; by<th; by++) {
                     for(let bx=0; bx<tw; bx++) { 
                         if (this.grid[this._idx(tx+bx, ty+by)] === 1) overwriteCount++;
@@ -462,7 +599,17 @@ class QuantizedSequenceGenerator {
                 stepOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + tw - 1) - this.cx, (ty + th - 1) - this.cy]);
                 
                 if (overwriteCount > 0) {
-                    this._addPerimeterLines(s, tx, ty, tw, th, innerDuration);
+                    // Only draw lines if we are overwriting AND exposed (changing perimeter/filling hole from outside?)
+                    // Actually, if we are overwriting, we are on filled cells. isExposed will be false unless we touch outside.
+                    // If we overwrite a filled block, isExposed is false.
+                    // If we overwrite a filled block AND extend into empty space?
+                    // Tendrils are rectangles. If any part touches empty space, isExposed is true.
+                    
+                    // Original behavior: lines only if overwriteCount > 0.
+                    // New requirement: no lines if internal.
+                    if (isExposed) {
+                        this._addPerimeterLines(s, tx, ty, tw, th, innerDuration, stepOps);
+                    }
                 }
                 
                 totalAdded += (tw * th) - overwriteCount;
@@ -471,7 +618,185 @@ class QuantizedSequenceGenerator {
         return totalAdded;
     }
 
-    _attemptRedistribution(stepOps) {
+    _attemptMultiBlockMove(s, stepOps, innerDuration, stepOccupancy) {
+        const exposed = this._getExposedBlocks();
+        if (exposed.length === 0) return 0;
+        
+        // Pick random exposed block
+        const origin = exposed[Math.floor(Math.random() * exposed.length)];
+        
+        const dx = origin.x - this.cx;
+        const dy = origin.y - this.cy;
+        
+        // Determine Axis and Direction
+        let moveX = 0, moveY = 0;
+        if (Math.abs(dx) < Math.abs(dy)) {
+            moveY = (dy < 0) ? -1 : 1; 
+        } else {
+            moveX = (dx < 0) ? -1 : 1;
+        }
+        if (moveX === 0 && moveY === 0) return 0; 
+        
+        // Multi-step animation parameters
+        const steps = 3; 
+        
+        // Define shape to copy (Chunk) - 3-4 blocks
+        const shapes = [
+            {w:3, h:1}, {w:1, h:3},
+            {w:4, h:1}, {w:1, h:4},
+            {w:2, h:2} 
+        ];
+        
+        // Filter shapes valid at origin
+        const validShapes = [];
+        for(const sh of shapes) {
+            let matches = true;
+            if (origin.x + sh.w > this.width || origin.y + sh.h > this.height) matches = false;
+            else {
+                for(let by=0; by<sh.h; by++) {
+                    for(let bx=0; bx<sh.w; bx++) {
+                        if (this.grid[this._idx(origin.x+bx, origin.y+by)] === 0) { matches = false; break; }
+                    }
+                }
+            }
+            if (matches) validShapes.push(sh);
+        }
+        
+        if (validShapes.length === 0) return 0;
+        const shape = validShapes[Math.floor(Math.random() * validShapes.length)];
+
+        // Targets: Original + 3 Mirrors
+        const candidates = [
+            { rx: dx, ry: dy, rmx: moveX, rmy: moveY },
+            { rx: -dx, ry: dy, rmx: -moveX, rmy: moveY },
+            { rx: dx, ry: -dy, rmx: moveX, rmy: -moveY },
+            { rx: -dx, ry: -dy, rmx: -moveX, rmy: -moveY }
+        ];
+        
+        const uniqueCandidates = [];
+        const seen = new Set();
+        for (const c of candidates) {
+            const ax = this.cx + c.rx;
+            const ay = this.cy + c.ry;
+            const key = `${ax},${ay}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            
+            // Validate Source Existence
+            let sourceValid = true;
+            if (ax < 0 || ay < 0 || ax + shape.w > this.width || ay + shape.h > this.height) sourceValid = false;
+            else {
+                for(let by=0; by<shape.h; by++) {
+                    for(let bx=0; bx<shape.w; bx++) {
+                        if (this.grid[this._idx(ax+bx, ay+by)] === 0) { sourceValid = false; break; }
+                    }
+                }
+            }
+            if (sourceValid) uniqueCandidates.push(c);
+        }
+
+        // Validate the entire 3-step path for all candidates
+        let validSteps = 0;
+        for (let k = 1; k <= steps; k++) {
+            let allValid = true;
+            for (const c of uniqueCandidates) {
+                const ax = this.cx + c.rx;
+                const ay = this.cy + c.ry;
+                const tx = ax + (c.rmx * k);
+                const ty = ay + (c.rmy * k);
+                
+                if (tx < 0 || ty < 0 || tx + shape.w > this.width || ty + shape.h > this.height) {
+                    allValid = false; break; 
+                }
+                
+                // Collision with current step's NEW blocks (only relevant for k=1)
+                if (k === 1) {
+                    for(let by=0; by<shape.h; by++) {
+                        for(let bx=0; bx<shape.w; bx++) {
+                            const idx = this._idx(tx+bx, ty+by);
+                            if (stepOccupancy[idx] === 1) { allValid = false; break; }
+                        }
+                        if (!allValid) break;
+                    }
+                }
+                if (!allValid) break;
+            }
+            
+            if (allValid) validSteps = k;
+            else break;
+        }
+        
+        if (validSteps === 0) return 0;
+        
+        let totalAdded = 0;
+        
+        // Execute Valid Steps
+        for (let k = 1; k <= validSteps; k++) {
+            const targetStep = s + (k - 1);
+            
+            // Recompute outside map to ensure correct exposure for each step of the animation
+            const outsideMap = this._computeOutsideMap(); 
+            
+            for (const c of uniqueCandidates) {
+                const ax = this.cx + c.rx;
+                const ay = this.cy + c.ry;
+                const tx = ax + (c.rmx * k);
+                const ty = ay + (c.rmy * k);
+                
+                // Determine Ops Array (Current or Future)
+                let currentOps = null;
+                if (k === 1) {
+                    currentOps = stepOps;
+                } else {
+                    if (!this.scheduledOps.has(targetStep)) this.scheduledOps.set(targetStep, []);
+                    currentOps = this.scheduledOps.get(targetStep);
+                }
+                
+                // Check Exposure (Lines)
+                let isExposed = false;
+                for(let by=0; by<shape.h; by++) {
+                    for(let bx=0; bx<shape.w; bx++) {
+                        const idx = this._idx(tx+bx, ty+by);
+                        if (outsideMap[idx] === 1) {
+                            isExposed = true;
+                            break;
+                        }
+                    }
+                    if (isExposed) break;
+                }
+
+                // Clear Old Lines
+                this._clearAreaLines(tx, ty, shape.w, shape.h, currentOps);
+                
+                // Add Blocks & Update Grid Immediately
+                let addedHere = 0;
+                for(let by=0; by<shape.h; by++) {
+                    for(let bx=0; bx<shape.w; bx++) {
+                        const idx = this._idx(tx+bx, ty+by);
+                        if (this.grid[idx] === 0) addedHere++;
+                        this.grid[idx] = 1;
+                        if (k === 1) stepOccupancy[idx] = 1; // Mark collision for current frame
+                    }
+                }
+                totalAdded += addedHere;
+                
+                // Add Ops
+                if (shape.w === 1 && shape.h === 1) {
+                     currentOps.push(['add', tx - this.cx, ty - this.cy]);
+                } else {
+                     currentOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + shape.w - 1) - this.cx, (ty + shape.h - 1) - this.cy]);
+                }
+                
+                if (isExposed) {
+                     this._addPerimeterLines(targetStep, tx, ty, shape.w, shape.h, innerDuration, currentOps);
+                }
+            }
+        }
+        
+        return totalAdded;
+    }
+
+    _attemptRedistribution(stepOps, stepOccupancy) {
         const startX = Math.floor(Math.random() * this.width);
         const startY = Math.floor(Math.random() * this.height);
         for (let i = 0; i < this.width * this.height; i++) { 
@@ -480,38 +805,66 @@ class QuantizedSequenceGenerator {
             const y = Math.floor(rawIdx / this.width);
             if (this.grid[rawIdx] === 0) continue;
             if (this._checkLine(x, y, 6, 1)) {
-                for(let k=0; k<6; k++) {
-                    this.grid[this._idx(x+k, y)] = 0;
-                    stepOps.push(['removeBlock', (x+k)-this.cx, y-this.cy, (x+k)-this.cx, y-this.cy]);
-                }
+                // Check if target area for new rect is free in stepOccupancy
                 const nx = x + 1;
                 const ny = Math.max(0, y - 1); 
+                let valid = true;
                 if (nx + 3 <= this.width && ny + 2 <= this.height) {
+                     for(let by=0; by<2; by++) {
+                        for(let bx=0; bx<3; bx++) {
+                            const idx = this._idx(nx+bx, ny+by);
+                            if (stepOccupancy[idx] === 1) { valid = false; break; }
+                        }
+                        if (!valid) break;
+                    }
+                } else { valid = false; }
+
+                if (valid) {
+                    for(let k=0; k<6; k++) {
+                        this.grid[this._idx(x+k, y)] = 0;
+                        stepOps.push(['removeBlock', (x+k)-this.cx, y-this.cy, (x+k)-this.cx, y-this.cy]);
+                    }
                     for(let by=0; by<2; by++) {
                         for(let bx=0; bx<3; bx++) {
-                            this.grid[this._idx(nx+bx, ny+by)] = 1;
+                            const idx = this._idx(nx+bx, ny+by);
+                            this.grid[idx] = 1;
+                            stepOccupancy[idx] = 1;
                         }
                     }
                     stepOps.push(['addRect', nx-this.cx, ny-this.cy, (nx+2)-this.cx, (ny+1)-this.cy]);
+                    return;
                 }
-                return; 
             }
             if (this._checkLine(x, y, 1, 6)) {
-                for(let k=0; k<6; k++) {
-                    this.grid[this._idx(x, y+k)] = 0;
-                    stepOps.push(['removeBlock', x-this.cx, (y+k)-this.cy, x-this.cx, (y+k)-this.cy]);
-                }
+                 // Check if target area for new rect is free in stepOccupancy
                 const nx = Math.max(0, x - 1);
                 const ny = y + 1;
+                let valid = true;
                 if (nx + 2 <= this.width && ny + 3 <= this.height) {
+                     for(let by=0; by<3; by++) {
+                        for(let bx=0; bx<2; bx++) {
+                            const idx = this._idx(nx+bx, ny+by);
+                            if (stepOccupancy[idx] === 1) { valid = false; break; }
+                        }
+                        if (!valid) break;
+                    }
+                } else { valid = false; }
+
+                if (valid) {
+                    for(let k=0; k<6; k++) {
+                        this.grid[this._idx(x, y+k)] = 0;
+                        stepOps.push(['removeBlock', x-this.cx, (y+k)-this.cy, x-this.cx, (y+k)-this.cy]);
+                    }
                     for(let by=0; by<3; by++) {
                         for(let bx=0; bx<2; bx++) {
-                            this.grid[this._idx(nx+bx, ny+by)] = 1;
+                             const idx = this._idx(nx+bx, ny+by);
+                            this.grid[idx] = 1;
+                            stepOccupancy[idx] = 1;
                         }
                     }
                     stepOps.push(['addRect', nx-this.cx, ny-this.cy, (nx+1)-this.cx, (ny+2)-this.cy]);
+                    return;
                 }
-                return;
             }
         }
     }
@@ -526,17 +879,68 @@ class QuantizedSequenceGenerator {
         return true;
     }
 
-    _attemptExpansion(s, stepOps, weights, innerDuration) {
+    _attemptExpansion(s, stepOps, weights, innerDuration, stepOccupancy, crossComplete) {
         const frontier = this._getFrontier();
         if (frontier.length === 0) return 0;
         let bestIdx = -1;
+        
+        // Calculate current extents for balancing during Phase 1
+        let extN = 0, extS = 0, extW = 0, extE = 0;
+        if (!crossComplete) {
+            for (let i = 0; i < this.grid.length; i++) {
+                if (this.grid[i] === 1) {
+                    const rx = (i % this.width) - this.cx;
+                    const ry = Math.floor(i / this.width) - this.cy;
+                    if (ry < 0) extN = Math.max(extN, -ry);
+                    else if (ry > 0) extS = Math.max(extS, ry);
+                    if (rx < 0) extW = Math.max(extW, -rx);
+                    else if (rx > 0) extE = Math.max(extE, rx);
+                }
+            }
+        }
+
         const frontierWeights = new Float32Array(frontier.length);
         let totalWeight = 0;
+        
         for (let i = 0; i < frontier.length; i++) {
             const pt = frontier[i];
-            const dx = Math.abs(pt.x - this.cx);
-            const dy = Math.abs(pt.y - this.cy);
-            const weight = Math.pow(100 / (Math.min(dx, dy) + 1), 3);
+            const rx = pt.x - this.cx;
+            const ry = pt.y - this.cy;
+            const arx = Math.abs(rx);
+            const ary = Math.abs(ry);
+            
+            // 1. Determine Axis Bias (Aspect Ratio) - This is the "Meta" consideration
+            // Use arx and ary to determine which arm this block belongs to
+            const isVertical = (ary > arx);
+            const axisBias = isVertical ? this.height : this.width;
+            
+            // 2. Base Weighting Logic (Density vs Distance)
+            let baseWeight;
+            if (crossComplete) {
+                // Phase 2: Expansive bias
+                baseWeight = Math.pow(Math.sqrt(arx*arx + ary*ary) + 1, 1.5);
+            } else {
+                // Phase 1: Density bias
+                baseWeight = Math.pow(100 / (Math.min(arx, ary) + 1), 3);
+            }
+            
+            // 3. Opposite-Arm Balancing (Isolated Pair Synchronization)
+            let balanceWeight = 1.0;
+            if (!crossComplete) {
+                // Only throttle if one arm is leading its OPPOSITE by more than 3 blocks
+                if (isVertical) {
+                    // North/South Pair
+                    if (ry < 0 && extN > extS + 3) balanceWeight = 0.3;
+                    else if (ry > 0 && extS > extN + 3) balanceWeight = 0.3;
+                } else if (arx > ary) {
+                    // East/West Pair
+                    if (rx < 0 && extW > extE + 3) balanceWeight = 0.3;
+                    else if (rx > 0 && extE > extW + 3) balanceWeight = 0.3;
+                }
+            }
+            
+            const weight = baseWeight * axisBias * balanceWeight;
+            
             frontierWeights[i] = weight;
             totalWeight += weight;
         }
@@ -563,7 +967,31 @@ class QuantizedSequenceGenerator {
         }
         if (w !== h && Math.random() < 0.5) { [w, h] = [h, w]; }
         
+        // Calculate Outside Map to determine exposure
+        const outsideMap = this._computeOutsideMap();
+
         if (origin.x + w <= this.width && origin.y + h <= this.height) {
+            // Check Step Occupancy
+            for(let by=0; by<h; by++) {
+                for(let bx=0; bx<w; bx++) {
+                    const idx = this._idx(origin.x+bx, origin.y+by);
+                    if (stepOccupancy[idx] === 1) return 0; // Abort if overlaps new
+                }
+            }
+
+            // Check if target area touches the True Outside
+            let isExposed = false;
+            for(let by=0; by<h; by++) {
+                for(let bx=0; bx<w; bx++) {
+                    const idx = this._idx(origin.x+bx, origin.y+by);
+                    if (outsideMap[idx] === 1) {
+                        isExposed = true;
+                        break;
+                    }
+                }
+                if (isExposed) break;
+            }
+
             let actualAdded = 0;
             let overwriteCount = 0;
             for(let by=0; by<h; by++) {
@@ -574,8 +1002,12 @@ class QuantizedSequenceGenerator {
                         this.grid[idx] = 1;
                         actualAdded++;
                     }
+                    stepOccupancy[idx] = 1;
                 }
             }
+
+            this._clearAreaLines(origin.x, origin.y, w, h, stepOps); // Clear existing lines before placing
+
             if (w === 1 && h === 1) {
                 stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
             } else {
@@ -587,9 +1019,9 @@ class QuantizedSequenceGenerator {
                 ]);
             }
             
-            // Draw lines if overwrite occurred
-            if (overwriteCount > 0 && (w > 1 || h > 1)) {
-                this._addPerimeterLines(s, origin.x, origin.y, w, h, innerDuration);
+            // Only draw lines if the block extends the perimeter (touches outside)
+            if (isExposed) {
+                this._addPerimeterLines(s, origin.x, origin.y, w, h, innerDuration, stepOps);
             }
             
             return actualAdded;
@@ -597,7 +1029,12 @@ class QuantizedSequenceGenerator {
         
         const idx = this._idx(origin.x, origin.y);
         if (this.grid[idx] === 0) {
+            if (stepOccupancy[idx] === 1) return 0;
+            
             this.grid[idx] = 1;
+            stepOccupancy[idx] = 1;
+            
+            this._clearAreaLines(origin.x, origin.y, 1, 1, stepOps); // Clear existing lines before placing
             stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
             return 1;
         }
