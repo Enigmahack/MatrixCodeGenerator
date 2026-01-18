@@ -843,4 +843,4 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 
-    _processAnimationStep() {
+}
