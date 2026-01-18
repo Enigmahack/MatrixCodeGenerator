@@ -158,11 +158,11 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
 
         // 2. Update Shadow Simulation & Apply Overrides
         if (!this.hasSwapped && !this.isSwapping) {
-            this._updateShadowSim();
+            super._updateShadowSim();
         } else if (this.isSwapping) {
             // Keep applying overrides during swap transition buffer
             // This prevents the "flash of old content" while worker syncs
-            this._updateShadowSim();
+            super._updateShadowSim();
             
             this.swapTimer--;
             if (this.swapTimer <= 0) {
@@ -239,81 +239,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         }
     }
 
-    _updateRenderGridLogic() {
-        // Calculates the logical state of the expansion grid (what is active/inactive)
-        
-        const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
-        
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
-        const totalBlocks = blocksX * blocksY;
-
-        // Initialize or Resize Logic Grid
-        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
-            this.renderGrid = new Int32Array(totalBlocks);
-            this.renderGrid.fill(-1);
-        } else {
-            // Reset for reconstruction
-            this.renderGrid.fill(-1);
-        }
-
-        if (!this.maskOps || this.maskOps.length === 0) return;
-
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-        
-        for (const op of this.maskOps) {
-            if (op.startFrame && this.animFrame < op.startFrame) continue;
-
-            if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                        }
-                    }
-                }
-            } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = -1;
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Cache dimensions for _updateShadowSim
-        this._lastBlocksX = blocksX;
-        this._lastBlocksY = blocksY;
-        this._lastPitchX = cellPitchX;
-        this._lastPitchY = cellPitchY;
-        
-        // Mark distance map as dirty whenever logic grid updates
-        this._distMapDirty = true;
-    }
-
-
-    
-
-
     _computeTrueOutside(blocksX, blocksY) {
         const status = new Uint8Array(blocksX * blocksY);
         const queue = [];
@@ -342,37 +267,6 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         }
         return status;
     }
-
-    _computeTrueOutside(blocksX, blocksY) {
-        const status = new Uint8Array(blocksX * blocksY);
-        const queue = [];
-
-        const add = (x, y) => {
-            if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
-            const idx = y * blocksX + x;
-            if (status[idx] === 0 && this.renderGrid[idx] === -1) { 
-                status[idx] = 1;
-                queue.push(idx);
-            }
-        };
-
-        for (let x = 0; x < blocksX; x++) { add(x, 0); add(x, blocksY - 1); }
-        for (let y = 0; y < blocksY; y++) { add(0, y); add(blocksX - 1, y); }
-
-        let head = 0;
-        while (head < queue.length) {
-            const idx = queue[head++];
-            const cx = idx % blocksX;
-            const cy = Math.floor(idx / blocksX);
-            add(cx - 1, cy);
-            add(cx + 1, cy);
-            add(cx, cy - 1);
-            add(cx, cy + 1);
-        }
-        return status;
-    }
-
-
 
     _processAnimationStep() {
         if (this.expansionPhase < this.sequence.length) {
@@ -843,25 +737,7 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 
-    _ensureCanvases(w, h) {
-        super._ensureCanvases(w, h);
-        if (!this.perimeterMaskCanvas) {
-            this.perimeterMaskCanvas = document.createElement('canvas');
-            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
-        }
-        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
-            this.perimeterMaskCanvas.width = w;
-            this.perimeterMaskCanvas.height = h;
-        }
-        if (!this.lineMaskCanvas) {
-            this.lineMaskCanvas = document.createElement('canvas');
-            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
-        }
-        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
-            this.lineMaskCanvas.width = w;
-            this.lineMaskCanvas.height = h;
-        }
-    }
+
 
 
 

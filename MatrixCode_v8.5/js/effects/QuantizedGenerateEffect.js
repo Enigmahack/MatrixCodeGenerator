@@ -26,29 +26,9 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         this.swapTimer = 0;
         
         this._renderGridDirty = true;
-    }
-
-    _initLogicGrid() {
-        const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
         
-        // Increase logic grid by 120% (1.2x size) to ensure expansion continues off-screen
-        const scale = 1.2;
-        const blocksX = Math.ceil((this.g.cols * scale) / cellPitchX);
-        const blocksY = Math.ceil((this.g.rows * scale) / cellPitchY);
-        
-        if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
-            this.logicGrid = new Uint8Array(blocksX * blocksY);
-        } else {
-            this.logicGrid.fill(0);
-        }
-        this.logicGridW = blocksX;
-        this.logicGridH = blocksY;
-
-        if (!this.renderGrid || this.renderGrid.length !== blocksX * blocksY) {
-            this.renderGrid = new Int32Array(blocksX * blocksY);
-        }
+        // Logic Grid Scaling
+        this.logicScale = 1.2;
     }
 
     trigger(force = false) {
@@ -161,89 +141,6 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
         
         for (let i = 0; i < warmupFrames; i++) {
             this.shadowSim.update(i);
-        }
-    }
-
-    _updateShadowSim() {
-        if (!this.shadowSim) return;
-        
-        // 1. Advance Simulation
-        this.shadowSim.update(++this.shadowSimFrame);
-        
-        // 2. Compute "True Outside" Mask
-        // Requires subclasses to maintain this.renderGrid and this.logicGridW/H
-        if (!this.renderGrid || !this.logicGridW) return;
-
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
-        
-        // Use SCALED Grid dimensions
-        const pitchX = this._lastPitchX;
-        const pitchY = this._lastPitchY;
-        
-        const outsideMask = this._computeTrueOutside(blocksX, blocksY);
-        
-        // 3. Apply Overrides with OFFSET
-        const sg = this.shadowGrid;
-        const g = this.g;
-        
-        // Calculate Offset (Scaled Center vs Screen Center)
-        // ScreenBlocksX = ceil(g.cols / pitchX)
-        const screenBlocksX = Math.ceil(g.cols / pitchX);
-        const screenBlocksY = Math.ceil(g.rows / pitchY);
-        
-        const offX = Math.floor((blocksX - screenBlocksX) / 2);
-        const offY = Math.floor((blocksY - screenBlocksY) / 2);
-        
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const idx = by * blocksX + bx;
-                const isOutside = outsideMask[idx] === 1;
-                
-                // Map Scaled Block (bx, by) to Screen Block (destBx, destBy)
-                const destBx = bx - offX;
-                const destBy = by - offY;
-                
-                // Skip if off-screen
-                if (destBx < 0 || destBx >= screenBlocksX || destBy < 0 || destBy >= screenBlocksY) continue;
-                
-                const startCellX = Math.floor(destBx * pitchX);
-                const startCellY = Math.floor(destBy * pitchY);
-                const endCellX = Math.floor((destBx + 1) * pitchX);
-                const endCellY = Math.floor((destBy + 1) * pitchY);
-                
-                for (let cy = startCellY; cy < endCellY; cy++) {
-                    if (cy >= g.rows || cy < 0) continue;
-                    for (let cx = startCellX; cx < endCellX; cx++) {
-                        if (cx >= g.cols || cx < 0) continue;
-                        
-                        const destIdx = cy * g.cols + cx;
-                        
-                        // Map to Shadow Grid (which matches Screen dimensions)
-                        // If Shadow Grid is also Screen Size, we use same coords
-                        if (cy >= sg.rows || cx >= sg.cols) continue;
-                        const srcIdx = cy * sg.cols + cx;
-                        
-                        if (!isOutside) {
-                            // INSIDE: Override with Shadow
-                            if (sg && sg.chars && srcIdx < sg.chars.length) {
-                                g.overrideActive[destIdx] = 3; 
-                                g.overrideChars[destIdx] = sg.chars[srcIdx];
-                                g.overrideColors[destIdx] = sg.colors[srcIdx];
-                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
-                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
-                                g.overrideMix[destIdx] = sg.mix[srcIdx];
-                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
-                            }
-                        } else {
-                            // OUTSIDE: Restore Main
-                            if (g.overrideActive[destIdx] === 3) {
-                                g.overrideActive[destIdx] = 0;
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -361,84 +258,6 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
             }
         }
     }
-
-    _updateRenderGridLogic() {
-        // Calculates the logical state of the expansion grid (what is active/inactive)
-        if (!this.logicGridW || !this.logicGridH) return;
-
-        const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
-
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
-        const totalBlocks = blocksX * blocksY;
-
-        // Initialize or Resize Logic Grid
-        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
-            this.renderGrid = new Int32Array(totalBlocks);
-            this.renderGrid.fill(-1);
-        } else {
-            // Reset for reconstruction
-            this.renderGrid.fill(-1);
-        }
-
-        if (!this.maskOps || this.maskOps.length === 0) return;
-
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-        
-        for (const op of this.maskOps) {
-            if (op.startFrame && this.animFrame < op.startFrame) continue;
-
-            if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                        }
-                    }
-                }
-            } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                         if (bx >= 0 && bx < blocksX && by >= 0 && by < blocksY) {
-                            this.renderGrid[by * blocksX + bx] = -1;
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Cache dimensions for _updateShadowSim
-        this._lastBlocksX = blocksX;
-        this._lastBlocksY = blocksY;
-        this._lastPitchX = cellPitchX;
-        this._lastPitchY = cellPitchY;
-        
-        // Mark distance map as dirty whenever logic grid updates
-        this._distMapDirty = true;
-    }
-
-
-    
-
-
-
 
     _processAnimationStep() {
         if (this.expansionPhase < this.sequence.length) {

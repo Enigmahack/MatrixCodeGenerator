@@ -22,28 +22,8 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         
         // Logic Grid expansion for safety (like GenerateEffect)
         this.logicScale = 1.3; 
-    }
-
-    _initLogicGrid() {
-        const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
         
-        // Increase logic grid size to ensure expansion continues off-screen
-        const blocksX = Math.ceil((this.g.cols * this.logicScale) / cellPitchX);
-        const blocksY = Math.ceil((this.g.rows * this.logicScale) / cellPitchY);
-        
-        if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
-            this.logicGrid = new Uint8Array(blocksX * blocksY);
-        } else {
-            this.logicGrid.fill(0);
-        }
-        this.logicGridW = blocksX;
-        this.logicGridH = blocksY;
-
-        if (!this.renderGrid || this.renderGrid.length !== blocksX * blocksY) {
-            this.renderGrid = new Int32Array(blocksX * blocksY);
-        }
+        this.useShadowWorld = true;
     }
 
     trigger(force = false) {
@@ -77,6 +57,10 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
 
         // 1. Initialize Grid Dimensions First
         this._initLogicGrid();
+        
+        if (this.useShadowWorld) {
+            this._initShadowWorld();
+        }
 
         // 2. Capture Current State
         this._captureSnapshot();
@@ -330,8 +314,26 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
                 this.manualStep = false;
             }
         }
-
+        
+        // Optimize: Update render logic
         this._updateRenderGridLogic();
+        
+        // 1.5 Shadow Simulation
+        if (this.useShadowWorld) {
+            if (!this.hasSwapped && !this.isSwapping) {
+                this._updateShadowSim();
+            } else if (this.isSwapping) {
+                this._updateShadowSim();
+                this.swapTimer--;
+                if (this.swapTimer <= 0) {
+                    this.g.clearAllOverrides();
+                    this.isSwapping = false;
+                    this.hasSwapped = true;
+                    this.shadowGrid = null;
+                    this.shadowSim = null;
+                }
+            }
+        }
 
         // 2. Zoom & Fade Logic
         const totalSteps = this.sequence.length;
@@ -381,6 +383,10 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             if (this.holdTimer >= holdFrames) {
                 this.state = 'FADE_OUT';
                 this.fadeTimer = 0; 
+                
+                if (this.useShadowWorld && !this.hasSwapped && !this.isSwapping) {
+                    this._swapStates();
+                }
             }
         } else if (this.state === 'FADE_OUT') {
             this.timer++;
@@ -407,70 +413,6 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             }
         }
         if (progress >= 0.5) this._maskDirty = true; 
-    }
-
-    _updateRenderGridLogic() {
-        // Identical to GenerateEffect logic to populate renderGrid for masking
-        const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
-        
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
-        const totalBlocks = blocksX * blocksY;
-
-        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
-            this.renderGrid = new Int32Array(totalBlocks);
-            this.renderGrid.fill(-1);
-        } else {
-            this.renderGrid.fill(-1);
-        }
-
-        if (!this.maskOps || this.maskOps.length === 0) return;
-
-        // Use standard centered mapping for logic grid
-        // The generator's output is relative to logic grid center
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-        
-        for (const op of this.maskOps) {
-            if (op.startFrame && this.animFrame < op.startFrame) continue;
-
-            if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                // Bounds check
-                const minX = Math.max(0, Math.min(start.x, end.x));
-                const maxX = Math.min(blocksX - 1, Math.max(start.x, end.x));
-                const minY = Math.max(0, Math.min(start.y, end.y));
-                const maxY = Math.min(blocksY - 1, Math.max(start.y, end.y));
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
-                    }
-                }
-            } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.max(0, Math.min(start.x, end.x));
-                const maxX = Math.min(blocksX - 1, Math.max(start.x, end.x));
-                const minY = Math.max(0, Math.min(start.y, end.y));
-                const maxY = Math.min(blocksY - 1, Math.max(start.y, end.y));
-                
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        this.renderGrid[by * blocksX + bx] = -1;
-                    }
-                }
-            }
-        }
-        
-        this._lastBlocksX = blocksX;
-        this._lastBlocksY = blocksY;
-        this._lastPitchX = cellPitchX;
-        this._lastPitchY = cellPitchY;
-        this._distMapDirty = true;
     }
 
     _updateMask(w, h, s, d) {

@@ -31,6 +31,14 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this._maskDirty = true;
         this.lastGridSeed = -1;
         this.layout = null;
+        
+        // Logic Grid Scaling (Defaults to 1.0, subclasses can override)
+        this.logicScale = 1.0;
+        
+        // Shadow World Swap State
+        this.hasSwapped = false;
+        this.isSwapping = false;
+        this.swapTimer = 0;
     }
 
     _handleDebugInput(e) {
@@ -70,8 +78,10 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
         const cellPitchY = Math.max(1, bs.h);
-        const blocksX = Math.ceil(this.g.cols / cellPitchX);
-        const blocksY = Math.ceil(this.g.rows / cellPitchY);
+        
+        // Use logicScale for expanded grid (e.g. for Zoom/Generate off-screen expansion)
+        const blocksX = Math.ceil((this.g.cols * this.logicScale) / cellPitchX);
+        const blocksY = Math.ceil((this.g.rows * this.logicScale) / cellPitchY);
         
         if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
             this.logicGrid = new Uint8Array(blocksX * blocksY);
@@ -107,6 +117,10 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this.maskOps = [];
         this.animFrame = 0;
         this._maskDirty = true;
+        
+        this.hasSwapped = false;
+        this.isSwapping = false;
+        this.swapTimer = 0;
         
         this._initLogicGrid();
 
@@ -389,6 +403,21 @@ class QuantizedSequenceEffect extends AbstractEffect {
         
         if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
              this.renderGrid = new Int32Array(requiredSize);
+        }
+    }
+
+    _initShadowWorld() {
+        this._initShadowWorldBase(false);
+        const sm = this.shadowSim.streamManager;
+        
+        // Optimization: Reduce warmup frames to prevent UI freeze on trigger
+        const warmupFrames = 60; 
+        this.shadowSimFrame = warmupFrames;
+        
+        // Simple warmup without heavy injection (Standard "Copy" Behavior)
+        // Subclasses like GenerateEffect can override this to inject specific streams
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
         }
     }
 
@@ -1494,6 +1523,75 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this.shadowSim = null;
     }
 
+    _updateRenderGridLogic() {
+        // Calculates the logical state of the expansion grid (what is active/inactive)
+        if (!this.logicGridW || !this.logicGridH) return;
+
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        const totalBlocks = blocksX * blocksY;
+
+        // Initialize or Resize Logic Grid
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
+            this.renderGrid = new Int32Array(totalBlocks);
+            this.renderGrid.fill(-1);
+        } else {
+            // Reset for reconstruction
+            this.renderGrid.fill(-1);
+        }
+
+        if (!this.maskOps || this.maskOps.length === 0) return;
+
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        for (const op of this.maskOps) {
+            if (op.startFrame && this.animFrame < op.startFrame) continue;
+
+            if (op.type === 'add' || op.type === 'addSmart') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                // Bounds check
+                const minX = Math.max(0, Math.min(start.x, end.x));
+                const maxX = Math.min(blocksX - 1, Math.max(start.x, end.x));
+                const minY = Math.max(0, Math.min(start.y, end.y));
+                const maxY = Math.min(blocksY - 1, Math.max(start.y, end.y));
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
+                    }
+                }
+            } else if (op.type === 'removeBlock') {
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.max(0, Math.min(start.x, end.x));
+                const maxX = Math.min(blocksX - 1, Math.max(start.x, end.x));
+                const minY = Math.max(0, Math.min(start.y, end.y));
+                const maxY = Math.min(blocksY - 1, Math.max(start.y, end.y));
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        this.renderGrid[by * blocksX + bx] = -1;
+                    }
+                }
+            }
+        }
+        
+        // Cache dimensions for _updateShadowSim
+        this._lastBlocksX = blocksX;
+        this._lastBlocksY = blocksY;
+        this._lastPitchX = cellPitchX;
+        this._lastPitchY = cellPitchY;
+        
+        // Mark distance map as dirty whenever logic grid updates
+        this._distMapDirty = true;
+    }
+
     _updateShadowSim() {
         if (!this.shadowSim) return;
         
@@ -1501,7 +1599,8 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this.shadowSim.update(++this.shadowSimFrame);
         
         // 2. Compute "True Outside" Mask
-        // Requires subclasses to maintain this.renderGrid and this._lastBlocksX/Y
+        // Requires subclasses to maintain this.renderGrid and this.logicGridW/H
+        // _updateRenderGridLogic must be called before this to set _lastBlocksX etc.
         if (!this.renderGrid || !this._lastBlocksX) return;
 
         const blocksX = this._lastBlocksX;
@@ -1511,28 +1610,43 @@ class QuantizedSequenceEffect extends AbstractEffect {
         
         const outsideMask = this._computeTrueOutside(blocksX, blocksY);
         
-        // 3. Apply Overrides
+        // 3. Apply Overrides with OFFSET (Centered Logic)
         const sg = this.shadowGrid;
         const g = this.g;
+        
+        // Calculate Offset (Scaled Center vs Screen Center)
+        // ScreenBlocksX = ceil(g.cols / pitchX)
+        const screenBlocksX = Math.ceil(g.cols / pitchX);
+        const screenBlocksY = Math.ceil(g.rows / pitchY);
+        
+        const offX = Math.floor((blocksX - screenBlocksX) / 2);
+        const offY = Math.floor((blocksY - screenBlocksY) / 2);
         
         for (let by = 0; by < blocksY; by++) {
             for (let bx = 0; bx < blocksX; bx++) {
                 const idx = by * blocksX + bx;
                 const isOutside = outsideMask[idx] === 1;
                 
-                const startCellX = Math.floor(bx * pitchX);
-                const startCellY = Math.floor(by * pitchY);
-                const endCellX = Math.floor((bx + 1) * pitchX);
-                const endCellY = Math.floor((by + 1) * pitchY);
+                // Map Scaled Block (bx, by) to Screen Block (destBx, destBy)
+                const destBx = bx - offX;
+                const destBy = by - offY;
+                
+                // Skip if off-screen
+                if (destBx < 0 || destBx >= screenBlocksX || destBy < 0 || destBy >= screenBlocksY) continue;
+                
+                const startCellX = Math.floor(destBx * pitchX);
+                const startCellY = Math.floor(destBy * pitchY);
+                const endCellX = Math.floor((destBx + 1) * pitchX);
+                const endCellY = Math.floor((destBy + 1) * pitchY);
                 
                 for (let cy = startCellY; cy < endCellY; cy++) {
-                    if (cy >= g.rows) continue;
+                    if (cy >= g.rows || cy < 0) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
-                        if (cx >= g.cols) continue;
+                        if (cx >= g.cols || cx < 0) continue;
                         
                         const destIdx = cy * g.cols + cx;
                         
-                        // Safety check for shadow grid bounds
+                        // Map to Shadow Grid (which matches Screen dimensions)
                         if (cy >= sg.rows || cx >= sg.cols) continue;
                         const srcIdx = cy * sg.cols + cx;
                         
@@ -1714,7 +1828,7 @@ class QuantizedSequenceEffect extends AbstractEffect {
         } else if (result === 'SYNC') {
             this.g.clearAllOverrides();
             this.hasSwapped = true;
-            this.active = false;
+            // Allow subclass to handle termination (e.g. Fade Out)
         } else {
             // Failed
             this.g.clearAllOverrides();
