@@ -490,6 +490,66 @@ class QuantizedEffectEditor {
         this.inpBlockW = inpW;
         this.inpBlockH = inpH;
 
+        // Speed Control
+        const speedControls = document.createElement('div');
+        speedControls.style.marginBottom = '10px';
+        speedControls.style.display = 'flex';
+        speedControls.style.alignItems = 'center';
+        
+        const lblSpeed = document.createElement('span');
+        lblSpeed.textContent = 'Speed:';
+        lblSpeed.style.marginRight = '10px';
+        
+        const inpSpeed = document.createElement('input');
+        inpSpeed.type = 'number';
+        inpSpeed.min = '0.1';
+        inpSpeed.step = '0.1';
+        inpSpeed.style.width = '50px';
+        inpSpeed.style.background = '#333';
+        inpSpeed.style.color = '#fff';
+        inpSpeed.style.border = '1px solid #555';
+        inpSpeed.style.marginRight = '10px';
+        
+        const btnSetSpeed = this._createBtn('Set', () => {
+            if (this.effect) {
+                const val = parseFloat(inpSpeed.value);
+                this.effect.c.state[this.effect.configPrefix + 'Speed'] = isNaN(val) ? 1.0 : val;
+                alert(`Speed set to ${val}`);
+            }
+        });
+        
+        speedControls.append(lblSpeed, inpSpeed, btnSetSpeed);
+
+        // Duration Control
+        const lblDur = document.createElement('span');
+        lblDur.textContent = 'Duration (s):';
+        lblDur.style.marginLeft = '15px';
+        lblDur.style.marginRight = '10px';
+        
+        const inpDur = document.createElement('input');
+        inpDur.type = 'number';
+        inpDur.min = '0.5';
+        inpDur.step = '0.5';
+        inpDur.style.width = '50px';
+        inpDur.style.background = '#333';
+        inpDur.style.color = '#fff';
+        inpDur.style.border = '1px solid #555';
+        inpDur.style.marginRight = '10px';
+        
+        const btnSetDur = this._createBtn('Set', () => {
+            if (this.effect) {
+                const val = parseFloat(inpDur.value);
+                this.effect.c.state[this.effect.configPrefix + 'DurationSeconds'] = isNaN(val) ? 5.0 : val;
+                alert(`Duration set to ${val}s`);
+            }
+        });
+        
+        speedControls.append(lblDur, inpDur, btnSetDur);
+        this.inpDuration = inpDur;
+
+        container.appendChild(speedControls);
+        this.inpSpeed = inpSpeed;
+
         const stepControls = document.createElement('div');
         stepControls.style.marginBottom = '10px';
         const btnPrev = this._createBtn('<', () => this._changeStep(-1));
@@ -669,6 +729,16 @@ class QuantizedEffectEditor {
             const bs = this.effect.getBlockSize();
             this.inpBlockW.value = bs.w;
             this.inpBlockH.value = bs.h;
+            
+            if (this.inpSpeed) {
+                const spd = this.effect.c.state[this.effect.configPrefix + 'Speed'];
+                this.inpSpeed.value = (spd !== undefined) ? spd : 1.0;
+            }
+            
+            if (this.inpDuration) {
+                const dur = this.effect.c.state[this.effect.configPrefix + 'DurationSeconds'];
+                this.inpDuration.value = (dur !== undefined) ? dur : 5.0;
+            }
         }
 
         this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length - 1}`;

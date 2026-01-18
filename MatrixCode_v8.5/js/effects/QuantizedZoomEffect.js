@@ -21,9 +21,9 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         this.hasCaptured = false;
         
         // Logic Grid expansion for safety (like GenerateEffect)
-        this.logicScale = 1.3; 
+        this.logicScale = 3.0; 
         
-        this.useShadowWorld = true;
+        this.useShadowWorld = false;
     }
 
     trigger(force = false) {
@@ -43,8 +43,9 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
 
         if (!super.trigger(force)) return false;
 
-        this.state = 'FADE_IN';
-        this.timer = 0;
+        // Start in WAITING state to allow screenshot capture to stabilize
+        this.state = 'WAITING';
+        this.timer = 60; // 1 Second Delay
         this.alpha = 0.0;
         this.hasCaptured = false;
         this.zoomScale = 1.0;
@@ -64,15 +65,35 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         if (typeof QuantizedSequenceGenerator !== 'undefined') {
             const generator = new QuantizedSequenceGenerator();
             
-            const seedX = Math.floor(this.logicGridW / 2);
-            const seedY = this.logicGridH - 1; 
+            // Use erosion/innerLine logic to match GenerateEffect style
+            // Allow Zoom-specific config, fallback to standard Generate defaults (0.2, 1)
+            const erosionRate = (this.c.state.quantizedZoomErosionRate !== undefined) ? this.c.state.quantizedZoomErosionRate : 0.2;
+            const innerLineDuration = (this.c.state.quantizedZoomInnerLineDuration !== undefined) ? this.c.state.quantizedZoomInnerLineDuration : 1;
             
-            this.sequence = generator.generate(this.logicGridW, this.logicGridH, 20000, { 
+            // Calculate seed position relative to the screen within the scaled grid
+            // logicGridH is 3.0x screen height. We want to start at the bottom of the screen portion.
+            const bs = this.getBlockSize();
+            const cellPitchY = Math.max(1, bs.h);
+            const blocksY = Math.ceil(this.g.rows / cellPitchY); // Screen height in blocks
+            const scaledH = this.logicGridH;
+            const offY = Math.floor((scaledH - blocksY) / 2); // Top offset
+            
+            const seedX = Math.floor(this.logicGridW / 2);
+            // Start at the bottom of the visible screen area (offY + blocksY)
+            const seedY = Math.min(this.logicGridH - 1, offY + blocksY); 
+            
+            // Check for pre-loaded animation sequence (from super.trigger loading matrixPatterns)
+            let initialSequence = null;
+            if (this.sequence && this.sequence.length > 1) {
+                initialSequence = this.sequence;
+            }
+
+            this.sequence = generator.generate(this.logicGridW, this.logicGridH, 50000, { 
                 seedX, 
                 seedY,
-                erosionRate: 0.0,
-                blocksPerStep: 2, // Slower start
-                maxBlocksPerStep: 8 // Slower peak
+                erosionRate, 
+                innerLineDuration,
+                initialSequence
             });
             console.log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
         } else {
@@ -294,10 +315,22 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         const fps = 60;
         this.animFrame++;
 
+        // 0. WAITING State (Delay Start)
+        if (this.state === 'WAITING') {
+            this.timer--;
+            if (this.timer <= 0) {
+                this.state = 'FADE_IN';
+                this.timer = 0;
+                this.alpha = 0.0;
+            }
+            return; // Skip update while waiting
+        }
+
         // 1. Animation Cycle
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const expansionRate = (s.quantizedZoomExpansionRate !== undefined) ? s.quantizedZoomExpansionRate : 1.0;
-        const effectiveInterval = baseDuration * (expansionRate / 8.0);
+        // Use quantizedZoomSpeed: Higher value = Faster updates (Lower interval)
+        const speed = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 1.0;
+        const effectiveInterval = Math.max(1, baseDuration / Math.max(0.1, speed)); 
 
         this.cycleTimer++;
         if (this.cycleTimer >= effectiveInterval) {
@@ -354,35 +387,29 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         // 3. Lifecycle & Alpha
         const fadeInFrames = Math.max(1, (s.quantizedZoomFadeInFrames !== undefined) ? s.quantizedZoomFadeInFrames : 60);
         const fadeOutFrames = Math.max(1, (s.quantizedZoomFadeFrames !== undefined) ? s.quantizedZoomFadeFrames : 60);
+        const durationFrames = ((s.quantizedZoomDurationSeconds !== undefined) ? s.quantizedZoomDurationSeconds : 5.0) * fps;
         
         if (this.state === 'FADE_IN') {
             this.timer++;
             this.alpha = Math.min(1.0, this.timer / fadeInFrames);
             if (this.timer >= fadeInFrames) {
                 this.state = 'SUSTAIN';
+                this.timer = 0; // Reset timer for sustain duration
                 this.alpha = 1.0;
             }
         } else if (this.state === 'SUSTAIN') {
-            this.timer++; // Continue timer for zoom delay check
+            this.timer++;
             this.alpha = 1.0;
 
-            if (progress >= 1.0) {
-                this.state = 'HOLD';
-                this.holdTimer = 0;
+            // Run strictly for duration, independent of sequence progress
+            if (this.timer >= durationFrames) {
+                this.state = 'FADE_OUT';
+                this.fadeTimer = 0;
             }
         } else if (this.state === 'HOLD') {
-            this.timer++; // Keep global timer running for zoom calculation
-            this.holdTimer++;
-            const holdFrames = ((s.quantizedZoomHoldSeconds !== undefined) ? s.quantizedZoomHoldSeconds : 2.0) * 60;
-            
-            if (this.holdTimer >= holdFrames) {
-                this.state = 'FADE_OUT';
-                this.fadeTimer = 0; 
-                
-                if (this.useShadowWorld && !this.hasSwapped && !this.isSwapping) {
-                    this._swapStates();
-                }
-            }
+            // Deprecated state, but kept for logic safety if manually set
+            this.state = 'FADE_OUT';
+            this.fadeTimer = 0;
         } else if (this.state === 'FADE_OUT') {
             this.timer++;
             this.fadeTimer++;
@@ -445,8 +472,8 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             cellPitchX, cellPitchY
         };
 
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
+        const blocksX = Math.ceil(grid.cols / cellPitchX);
+        const blocksY = Math.ceil(grid.rows / cellPitchY);
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
 
@@ -456,18 +483,27 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         const fadeInFrames = this.getConfig('FadeInFrames') || 0;
         const addDuration = Math.max(1, fadeInFrames);
 
+        // --- SCALED GRID LOGIC ---
+        const scaledW = this.logicGridW || blocksX;
+        const scaledH = this.logicGridH || blocksY;
+        const offX = Math.floor((scaledW - blocksX) / 2);
+        const offY = Math.floor((scaledH - blocksY) / 2);
+
         // Distance Map for Hollow Masking
-        const distMap = this._computeDistanceField(blocksX, blocksY);
+        const distMap = this._computeDistanceField(scaledW, scaledH);
         
-        const outsideMap = this._computeTrueOutside(blocksX, blocksY);
+        const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
-            return outsideMap[ny * blocksX + nx] === 1;
+            const idx = (ny + offY) * scaledW + (nx + offX);
+            return outsideMap[idx] === 1;
         };
         
         const isRenderActive = (bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-            return this.renderGrid[by * blocksX + bx] !== -1;
+            const idx = (by + offY) * scaledW + (bx + offX);
+            if (!this.renderGrid || idx < 0 || idx >= this.renderGrid.length || this.renderGrid[idx] === -1) return false;
+            return true;
         };
 
         // --- PASS 1: Base Grid (Interior) ---
@@ -497,7 +533,10 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             for (let by = 0; by < blocksY; by++) {
                 for (let bx = 0; bx < blocksX; bx++) {
                     if (!isRenderActive(bx, by)) continue; 
-                    const idx = by * blocksX + bx;
+                    
+                    const idx = (by + offY) * scaledW + (bx + offX);
+                    if (idx < 0 || idx >= this.renderGrid.length) continue;
+
                     const startFrame = this.renderGrid[idx];
                     
                     const outN = isTrueOutside(bx, by - 1);
@@ -541,6 +580,92 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
 
             this.maskCtx = originalCtx; 
         }
+
+        // --- PASS 4: Add Lines (Interior) - Draws to lCtx (Blue) ---
+        if (lCtx) {
+            const originalCtx = this.maskCtx;
+            this.maskCtx = lCtx;
+            lCtx.fillStyle = '#FFFFFF';
+
+            // Collect Active Lines
+            const activeLines = new Map();
+            
+            for (const op of this.maskOps) {
+                if (op.type !== 'addLine') continue;
+                
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        // Check Screen Bounds
+                        if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) continue;
+
+                        const distIdx = (by + offY) * scaledW + (bx + offX);
+                        // Distance Mask: Only show lines deep inside
+                        if (distIdx >= 0 && distIdx < distMap.length && distMap[distIdx] > 4) continue;
+
+                        const idx = by * blocksX + bx;
+                        let nx = bx, ny = by;
+                        const f = op.face ? op.face.toUpperCase() : '';
+                        if (f === 'N') ny--;
+                        else if (f === 'S') ny++;
+                        else if (f === 'W') nx--;
+                        else if (f === 'E') nx++;
+                        
+                        // Do not draw on perimeter
+                        if (isTrueOutside(nx, ny)) continue; 
+
+                        let cell = activeLines.get(idx);
+                        if (!cell) { cell = {}; activeLines.set(idx, cell); }
+                        cell[f] = op;
+                    }
+                }
+            }
+
+            // Draw Lines
+            for (const [idx, cell] of activeLines) {
+                const bx = idx % blocksX;
+                const by = Math.floor(idx / blocksX);
+                
+                const drawLine = (face, rS, rE) => {
+                    const op = cell[face];
+                    if (!op) return;
+                    
+                    // LIFETIME CHECK: Strict 3-Step Limit (same as Generate)
+                    if (op.startPhase !== undefined) {
+                        const age = this.expansionPhase - op.startPhase;
+                        if (age > 3) return;
+                    }
+                    
+                    let opacity = 1.0;
+                    if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
+                    else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+                    
+                    if (opacity <= 0.001) return;
+
+                    lCtx.globalAlpha = opacity;
+                    lCtx.beginPath();
+                    this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
+                    lCtx.fill();
+                };
+
+                const hasN_Border = isTrueOutside(bx, by - 1);
+                const hasS_Border = isTrueOutside(bx, by + 1);
+                const hasN = !!cell['N'] || hasN_Border;
+                const hasS = !!cell['S'] || hasS_Border;
+
+                drawLine('N', false, false);
+                drawLine('S', false, false);
+                drawLine('W', hasN, hasS);
+                drawLine('E', hasN, hasS);
+            }
+            this.maskCtx = originalCtx;
+        }
     }
 
     render(ctx, d) {
@@ -552,6 +677,7 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height); 
 
+        // Update masks
         if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
              this._updateMask(width, height, s, d);
              this._maskDirty = false;
@@ -561,7 +687,6 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         
         // --- Layer 1: Interior (Zoom Window) ---
         // 1A. Draw Solid Background (Black/BG Color) masked by Window
-        // This ensures we hide the "Old World" behind the window, even though snapshot is transparent
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
         
@@ -593,44 +718,143 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             
             scratchCtx.save();
             scratchCtx.imageSmoothingEnabled = (scale !== 1.0);
-            scratchCtx.globalAlpha = 1.0; // Draw full opacity, alpha applied at end
+            scratchCtx.globalAlpha = 1.0; 
             scratchCtx.drawImage(sourceCanvas, drawX, drawY, drawW, drawH);
             scratchCtx.restore();
             
-            // Apply Tint (If specified)
             if (tintColor) {
                 scratchCtx.globalCompositeOperation = 'source-in';
                 scratchCtx.fillStyle = tintColor;
                 scratchCtx.fillRect(0, 0, width, height);
             }
 
-            // Apply Mask
             scratchCtx.globalCompositeOperation = 'destination-in';
             scratchCtx.drawImage(mask, 0, 0);
             
-            // Draw to Main
             ctx.save();
             ctx.globalCompositeOperation = 'source-over'; 
             ctx.globalAlpha = this.alpha;
-            
-            // If tinting (border), maybe boost brightness/glow?
-            if (tintColor) {
-                ctx.globalCompositeOperation = 'screen'; // Make it pop
-            }
-            
+            if (tintColor) ctx.globalCompositeOperation = 'screen';
             ctx.drawImage(this.scratchCanvas, 0, 0);
             ctx.restore();
         };
 
-        // Draw Interior Characters (No tint, normal colors)
+        // Draw Interior Characters
         drawZoomLayer(this.maskCanvas, this.zoomScale, null, this.snapshotCanvas);
         
-        // --- Layer 2: Perimeter (Border) ---
-        // 8x Zoom, Tinted with Perimeter Color, using Transparent Char Snapshot
-        const perimeterZoom = 8.0;
-        if (this.perimeterMaskCanvas && this.charSnapshotCanvas) {
-            const pColor = this.getConfig('PerimeterColor') || '#FFD700';
-            drawZoomLayer(this.perimeterMaskCanvas, perimeterZoom, pColor, this.charSnapshotCanvas);
+        // --- Layer 2: Overlay (Border + Lines) ---
+        const pColor = this.getConfig('PerimeterColor') || '#FFD700';
+        const iColor = this.getConfig('InnerColor') || '#00FF00';
+
+        // Ensure Grid Cache (Dense Characters) is updated
+        this._updateGridCache(width, height, s, d);
+
+        // Helper to draw a masked layer with dense code texture
+        const drawCodeLayer = (maskCanvas, color) => {
+            if (!maskCanvas) return;
+            scratchCtx.globalCompositeOperation = 'source-over';
+            scratchCtx.clearRect(0, 0, width, height);
+            
+            // 1. Draw Dense Code Grid
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            
+            // 2. Tint
+            scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.fillStyle = color;
+            scratchCtx.fillRect(0, 0, width, height);
+            
+            // 3. Mask
+            scratchCtx.globalCompositeOperation = 'destination-in';
+            scratchCtx.drawImage(maskCanvas, 0, 0);
+
+            // 4. Composite to Screen
+            ctx.save();
+            ctx.globalAlpha = this.alpha;
+            
+            // Glow
+            ctx.globalCompositeOperation = 'screen';
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 10; 
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            
+            // Solid
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.shadowBlur = 0;
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            
+            ctx.restore();
+        };
+
+        // Draw Interior Lines (Green/Cyan)
+        if (this.lineMaskCanvas) {
+             drawCodeLayer(this.lineMaskCanvas, iColor);
+        }
+
+        // Draw Perimeter (Gold)
+        if (this.perimeterMaskCanvas) {
+             drawCodeLayer(this.perimeterMaskCanvas, pColor);
+        }
+    }
+    
+    _ensureCanvases(w, h) {
+        if (!this.maskCanvas) {
+            this.maskCanvas = document.createElement('canvas');
+            this.maskCtx = this.maskCanvas.getContext('2d');
+            this._maskDirty = true;
+        }
+        if (!this.scratchCanvas) {
+            this.scratchCanvas = document.createElement('canvas');
+            this.scratchCtx = this.scratchCanvas.getContext('2d');
+        }
+        if (!this.gridCacheCanvas) {
+            this.gridCacheCanvas = document.createElement('canvas');
+            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
+        }
+        if (!this.perimeterMaskCanvas) {
+            this.perimeterMaskCanvas = document.createElement('canvas');
+            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
+        }
+        if (!this.lineMaskCanvas) {
+            this.lineMaskCanvas = document.createElement('canvas');
+            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
+        }
+
+        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
+            this.maskCanvas.width = w;
+            this.maskCanvas.height = h;
+            this._maskDirty = true;
+        }
+        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
+            this.scratchCanvas.width = w;
+            this.scratchCanvas.height = h;
+        }
+        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
+            this.gridCacheCanvas.width = w;
+            this.gridCacheCanvas.height = h;
+            this.lastGridSeed = -1; 
+        }
+        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
+            this.perimeterMaskCanvas.width = w;
+            this.perimeterMaskCanvas.height = h;
+        }
+        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
+            this.lineMaskCanvas.width = w;
+            this.lineMaskCanvas.height = h;
+        }
+        
+        // RenderGrid Sizing (SCALED)
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        
+        if (blocksX && blocksY) {
+            const requiredSize = blocksX * blocksY;
+            if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
+                 this.renderGrid = new Int32Array(requiredSize);
+                 this.renderGrid.fill(-1);
+                 // We must mark logic dirty so it repopulates if resized
+                 // But typically renderGrid is populated by _updateRenderGridLogic
+            }
         }
     }
 

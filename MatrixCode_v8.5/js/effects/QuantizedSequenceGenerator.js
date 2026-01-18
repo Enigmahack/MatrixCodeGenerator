@@ -47,33 +47,108 @@ class QuantizedSequenceGenerator {
         const seedX = (params.seedX !== undefined) ? params.seedX : this.cx;
         const seedY = (params.seedY !== undefined) ? params.seedY : this.cy;
 
-        // Seed the grid
-        const centerIdx = this._idx(seedX, seedY);
-        if (centerIdx !== -1) {
-            this.grid[centerIdx] = 1;
-            // Initial step: Add seed relative to geometric center
-            const seedStepOps = [['add', seedX - this.cx, seedY - this.cy]];
-            // Add lines for the seed block so it matches the rest
-            this._addPerimeterLines(0, seedX, seedY, 1, 1, config.innerLineDuration, seedStepOps);
-            this.sequence.push(seedStepOps);
+        const totalCells = width * height;
+        let filledCells = 0;
+        let startStep = 1;
+
+        // 1. Handle Initial Sequence (if provided)
+        if (params.initialSequence && Array.isArray(params.initialSequence) && params.initialSequence.length > 0) {
+            // Copy existing sequence
+            this.sequence = [...params.initialSequence];
+            startStep = this.sequence.length;
+
+            // Replay state to populate grid
+            for (const step of this.sequence) {
+                if (!step) continue;
+                
+                // Handle Compressed Steps (Number Array) - Simple skip or basic bounding box? 
+                // We assume Raw Ops for now as Generator produces Raw Ops.
+                // If we encounter compressed, we might need to skip or implement decoder. 
+                // For safety, only process Arrays of Arrays (Raw Ops).
+                
+                for (const opData of step) {
+                    if (!Array.isArray(opData)) continue;
+                    const op = opData[0];
+                    
+                    if (op === 'add') {
+                        const dx = opData[1];
+                        const dy = opData[2];
+                        const idx = this._idx(this.cx + dx, this.cy + dy);
+                        if (idx !== -1 && this.grid[idx] === 0) {
+                            this.grid[idx] = 1;
+                            filledCells++;
+                        }
+                    } else if (op === 'addRect') {
+                        const x1 = this.cx + opData[1];
+                        const y1 = this.cy + opData[2];
+                        const x2 = this.cx + opData[3];
+                        const y2 = this.cy + opData[4];
+                        const minX = Math.min(x1, x2);
+                        const maxX = Math.max(x1, x2);
+                        const minY = Math.min(y1, y2);
+                        const maxY = Math.max(y1, y2);
+                        
+                        for(let y=minY; y<=maxY; y++) {
+                            for(let x=minX; x<=maxX; x++) {
+                                const idx = this._idx(x, y);
+                                if (idx !== -1 && this.grid[idx] === 0) {
+                                    this.grid[idx] = 1;
+                                    filledCells++;
+                                }
+                            }
+                        }
+                    } else if (op === 'removeBlock') {
+                        const x1 = this.cx + opData[1];
+                        const y1 = this.cy + opData[2];
+                        const x2 = this.cx + opData[3];
+                        const y2 = this.cy + opData[4];
+                        const minX = Math.min(x1, x2);
+                        const maxX = Math.max(x1, x2);
+                        const minY = Math.min(y1, y2);
+                        const maxY = Math.max(y1, y2);
+                        
+                        for(let y=minY; y<=maxY; y++) {
+                            for(let x=minX; x<=maxX; x++) {
+                                const idx = this._idx(x, y);
+                                if (idx !== -1 && this.grid[idx] === 1) {
+                                    this.grid[idx] = 0;
+                                    filledCells--;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // console.log(`[Generator] Resuming from step ${startStep}, filled: ${filledCells}`);
         } else {
-            console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
-            // Fallback
-            const fallbackIdx = this._idx(this.cx, this.cy);
-            this.grid[fallbackIdx] = 1;
-            const seedStepOps = [['add', 0, 0]];
-            this._addPerimeterLines(0, this.cx, this.cy, 1, 1, config.innerLineDuration, seedStepOps);
-            this.sequence.push(seedStepOps);
+            // 2. Default Seeding
+            const centerIdx = this._idx(seedX, seedY);
+            if (centerIdx !== -1) {
+                this.grid[centerIdx] = 1;
+                filledCells = 1;
+                // Initial step: Add seed relative to geometric center
+                const seedStepOps = [['add', seedX - this.cx, seedY - this.cy]];
+                // Add lines for the seed block so it matches the rest
+                this._addPerimeterLines(0, seedX, seedY, 1, 1, config.innerLineDuration, seedStepOps);
+                this.sequence.push(seedStepOps);
+            } else {
+                console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
+                // Fallback
+                const fallbackIdx = this._idx(this.cx, this.cy);
+                this.grid[fallbackIdx] = 1;
+                filledCells = 1;
+                const seedStepOps = [['add', 0, 0]];
+                this._addPerimeterLines(0, this.cx, this.cy, 1, 1, config.innerLineDuration, seedStepOps);
+                this.sequence.push(seedStepOps);
+            }
         }
 
-        const totalCells = width * height;
-        let filledCells = 1;
         let crossComplete = false;
         
         // Hoist buffer allocation to reduce GC pressure
         const stepOccupancy = new Uint8Array(totalCells);
 
-        for (let s = 1; s < maxSteps; s++) {
+        for (let s = startStep; s < maxSteps; s++) {
             const stepOps = [];
             
             // Reset step occupancy
