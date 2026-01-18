@@ -32,28 +32,17 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
-        if (this.active && !force) return false;
-        
-        // Force-restart logic: If active and forced, commit state before restarting
-        if (this.active && force && !this.hasSwapped) {
-            this._swapStates();
-        }
+        // 1. Strict Active Check: Do not allow restart if already running.
+        if (this.active) return false;
 
-        // Interruption Logic: Force-commit and stop other Quantized effects
+        // 2. Mutually Exclusive Lock: Do not start if ANY other Quantized effect is running.
         if (window.matrix && window.matrix.effectRegistry) {
             const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedClimb", "QuantizedZoom"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
-                    if (typeof eff._swapStates === 'function') {
-                        if (!eff.hasSwapped) eff._swapStates();
-                        eff.active = false;
-                        eff.state = 'IDLE';
-                    } else if (typeof eff._finishExpansion === 'function') {
-                        eff._finishExpansion();
-                    } else {
-                        eff.active = false;
-                    }
+                    // console.log(`[QuantizedGenerate] Trigger ignored: ${name} is active.`);
+                    return false;
                 }
             }
         }
@@ -376,18 +365,51 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
             const boldLineWidthX = lineWidthX * 2.0; 
             const boldLineWidthY = lineWidthY * 2.0;
             
+            // Merge Delay Logic
+            const mergeDelayEnabled = s.quantizedGenerateMergeDelay;
+            const baseDuration = Math.max(1, d.cycleDuration);
+            const delayMult = (s.quantizedGenerateSpeed !== undefined) ? s.quantizedGenerateSpeed : 1;
+            const stepDuration = baseDuration * (delayMult / 4.0);
+            const mergeHorizon = mergeDelayEnabled ? (stepDuration * 3.0) : 0;
+
             const batches = new Map();
 
             for (let by = 0; by < blocksY; by++) {
                 for (let bx = 0; bx < blocksX; bx++) {
                     if (!isRenderActive(bx, by)) continue; 
-                    const idx = by * blocksX + bx;
-                    const startFrame = this.renderGrid[idx];
+
+                    // Optimization & Style Preference:
+                    // Only draw borders for blocks that are actually touching the global perimeter (Void).
+                    // This prevents internal "new" blocks (e.g. from thickening) from drawing distracting borders inside the mass.
+                    const touchesVoid = isTrueOutside(bx, by - 1) || 
+                                      isTrueOutside(bx, by + 1) || 
+                                      isTrueOutside(bx - 1, by) || 
+                                      isTrueOutside(bx + 1, by);
                     
-                    const outN = isTrueOutside(bx, by - 1);
-                    const outS = isTrueOutside(bx, by + 1);
-                    const outW = isTrueOutside(bx - 1, by);
-                    const outE = isTrueOutside(bx + 1, by);
+                    if (!touchesVoid) continue;
+                    
+                    // Fix: Use correct scaled index
+                    const idx = (by + offY) * scaledW + (bx + offX);
+                    if (idx < 0 || idx >= this.renderGrid.length) continue;
+                    
+                    const startFrame = this.renderGrid[idx];
+                    const isUnmerged = (now - startFrame) < mergeHorizon;
+                    
+                    const checkFace = (nx, ny) => {
+                        if (!isRenderActive(nx, ny)) return true; // Void is always outside
+                        if (!isUnmerged) return false; // If I am old, only Void is outside
+                        
+                        // If I am new, check neighbor start frame
+                        const nIdx = (ny + offY) * scaledW + (nx + offX);
+                        const nStart = this.renderGrid[nIdx];
+                        // If neighbor is older (or just different batch), treat as outside
+                        return (nStart !== startFrame);
+                    };
+                    
+                    const outN = checkFace(bx, by - 1);
+                    const outS = checkFace(bx, by + 1);
+                    const outW = checkFace(bx - 1, by);
+                    const outE = checkFace(bx + 1, by);
 
                     if (!outN && !outS && !outW && !outE) continue; 
 
@@ -722,16 +744,12 @@ class QuantizedGenerateEffect extends QuantizedSequenceEffect {
                         else if (face === 'W') isFacingCenter = (bx > gridCx);
                         else if (face === 'E') isFacingCenter = (bx < gridCx);
                         
-                        // LIFETIME CHECK: Layered Deletion
-                        // Center-facing walls fade at normal duration.
-                        // Away-facing walls persist longer (3x) to create a shell effect, 
-                        // but eventually fade to keep the center clear.
+                        // LIFETIME CHECK: Strict 3-Step Limit
+                        // Ensure no internal lines persist longer than 3 steps.
+                        // This prevents clutter inside the expanding mass.
                         if (op.startPhase !== undefined) {
-                            const innerLineDuration = (this.c.state.quantizedGenerateInnerLineDuration !== undefined) ? this.c.state.quantizedGenerateInnerLineDuration : 5;
                             const age = this.expansionPhase - op.startPhase;
-                            
-                            const limit = isFacingCenter ? innerLineDuration : (innerLineDuration * 3);
-                            if (age > limit) return;
+                            if (age > 3) return;
                         }
                         
                         let opacity = 1.0;

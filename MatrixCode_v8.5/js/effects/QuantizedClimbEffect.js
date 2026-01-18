@@ -21,25 +21,16 @@ class QuantizedClimbEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
-        if (this.active && !force) return false;
+        // 1. Strict Active Check
+        if (this.active) return false;
 
-        if (this.active && !this.hasSwapped) {
-            this._swapStates();
-        }
-
-        // Interruption Logic
+        // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract"];
+            const siblings = ["QuantizedGenerate", "QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedZoom"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
-                    if (typeof eff._swapStates === 'function') {
-                        if (!eff.hasSwapped) eff._swapStates();
-                        eff.active = false;
-                        eff.state = 'IDLE';
-                    } else {
-                        eff.active = false;
-                    }
+                    return false;
                 }
             }
         }

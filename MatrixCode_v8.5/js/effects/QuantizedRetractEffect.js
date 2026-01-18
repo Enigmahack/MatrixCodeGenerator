@@ -27,28 +27,16 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
     }
 
     trigger(force = false) {
-        if (this.active && !force) return false;
+        // 1. Strict Active Check
+        if (this.active) return false;
 
-        // Fix: If restarting while active and not yet swapped, commit the current state first.
-        if (this.active && !this.hasSwapped) {
-            this._swapStates();
-        }
-
-        // Interruption Logic: Force-commit and stop other Quantized effects
+        // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedClimb"];
+            const siblings = ["QuantizedGenerate", "QuantizedPulse", "QuantizedAdd", "QuantizedClimb", "QuantizedZoom"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
-                    if (typeof eff._swapStates === 'function') {
-                        if (!eff.hasSwapped) eff._swapStates();
-                        eff.active = false;
-                        eff.state = 'IDLE';
-                    } else if (typeof eff._finishExpansion === 'function') {
-                        eff._finishExpansion();
-                    } else {
-                        eff.active = false;
-                    }
+                    return false;
                 }
             }
         }

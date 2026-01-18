@@ -155,7 +155,7 @@ class QuantizedSequenceGenerator {
 
                 // 2.5 Erosion (Deleting blocks from frontier)
                 if (Math.random() < config.erosionRate) { 
-                     const eroded = this._attemptErosion(stepOps);
+                     const eroded = this._attemptErosion(stepOps, filledCells);
                      filledCells -= eroded;
                 }
 
@@ -170,11 +170,34 @@ class QuantizedSequenceGenerator {
                     currentBlocksPerStep = Math.min(4, Math.max(2, currentBlocksPerStep));
                 }
                 
+                // DYNAMIC BLOCK SIZING: Vary weights based on step 's'
+                // Stage 1: Initial Growth (1x1 Only) - Steps 1-5
+                // Stage 2: Early Expansion (Small Blocks) - Steps 6-15
+                // Stage 3: Late Expansion (Full Variety) - Steps 16+
+                let dynamicWeights = config.shapeWeights; 
+                
+                if (s <= 5) {
+                    dynamicWeights = { rect1x1: 1.0 };
+                } else if (s <= 15) {
+                    dynamicWeights = {
+                        rect1x1: 0.2,
+                        rect2x1: 0.3, 
+                        rect1x2: 0.3, // Assuming logic handles inversion or add explicitly here if not in default keys?
+                        // Default keys only had rect2x1. Logic handles swap w/h.
+                        // Actually, let's stick to keys known to be valid or rely on the swap logic.
+                        // The default config keys are: rect1x1, rect2x1, rect3x1...
+                        // The loop does: if (w !== h && Math.random() < 0.5) { [w, h] = [h, w]; }
+                        // So 'rect2x1' covers '1x2'.
+                        rect2x1: 0.4, 
+                        rect2x2: 0.4
+                    };
+                }
+
                 let massAdded = 0;
                 let attempts = 0;
                 while (massAdded < currentBlocksPerStep && attempts < 20) {
                     attempts++;
-                    const added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
+                    const added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
                     if (added > 0) {
                         massAdded++; 
                         filledCells += added;
@@ -394,59 +417,102 @@ class QuantizedSequenceGenerator {
         return exposed;
     }
 
-    _attemptErosion(stepOps) {
-        const exposed = this._getExposedBlocks();
-        if (exposed.length === 0) return 0;
+    _attemptErosion(stepOps, currentMass) {
+        // Guard: Do not erode if mass is too low (protect the seed)
+        // This prevents the generator from deleting the initial seed block and terminating early.
+        if (currentMass <= 10) return 0;
 
-        const idx = Math.floor(Math.random() * exposed.length);
-        const origin = exposed[idx];
-
-        const shapes = ['1x1', '1x2', '2x1'];
-        const shape = shapes[Math.floor(Math.random() * shapes.length)];
-        let w = 1, h = 1;
-        if (shape === '1x2') h = 2;
-        if (shape === '2x1') w = 2;
-
-        let valid = true;
-        if (origin.x + w > this.width || origin.y + h > this.height) valid = false;
-        else {
-            for(let by=0; by<h; by++) {
-                for(let bx=0; bx<w; bx++) {
-                    if (this.grid[this._idx(origin.x+bx, origin.y+by)] === 0) {
-                        valid = false;
-                        break;
+        // 1. Compute Outside Map to identify True Perimeter
+        // We only want to erode blocks that touch the "True Outside", ensuring we peel from the outside in.
+        // This prevents "internal" erosion (drilling holes inside the main blob).
+        const outsideMap = this._computeOutsideMap();
+        
+        const perimeterCandidates = [];
+        for(let y=0; y<this.height; y++) {
+            for(let x=0; x<this.width; x++) {
+                const idx = this._idx(x, y);
+                if (this.grid[idx] === 1) {
+                    // Check if any neighbor is True Outside
+                    const neighbors = [{x:x, y:y-1}, {x:x, y:y+1}, {x:x-1, y:y}, {x:x+1, y:y}];
+                    let isExposed = false;
+                    for(const n of neighbors) {
+                        const nIdx = this._idx(n.x, n.y);
+                        // If neighbor is out of bounds, it's outside. 
+                        // If neighbor is in bounds and outsideMap is 1, it's outside.
+                        if (nIdx === -1 || outsideMap[nIdx] === 1) {
+                            isExposed = true;
+                            break;
+                        }
                     }
+                    if (isExposed) perimeterCandidates.push({x, y});
                 }
             }
         }
+        
+        if (perimeterCandidates.length === 0) return 0;
 
-        if (valid) {
-             for(let by=0; by<h; by++) {
-                for(let bx=0; bx<w; bx++) {
-                    this.grid[this._idx(origin.x+bx, origin.y+by)] = 0;
+        // Shuffle candidates to avoid bias
+        for (let i = perimeterCandidates.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [perimeterCandidates[i], perimeterCandidates[j]] = [perimeterCandidates[j], perimeterCandidates[i]];
+        }
+
+        // 2. Shape Matching: Prefer deleting larger "written blocks" (2x2) over single pixels
+        // We iterate candidates and try to fit the largest shape first.
+        const shapes = [
+            {w:2, h:2}, // Priority 1: 2x2 Block
+            {w:2, h:1}, // Priority 2: 2x1 Horizontal
+            {w:1, h:2}, // Priority 2: 1x2 Vertical
+            {w:1, h:1}  // Fallback: Single block (only if nothing else fits)
+        ];
+
+        for (const origin of perimeterCandidates) {
+            for (const shape of shapes) {
+                // To delete a shape at 'origin', 'origin' must be part of it.
+                // But simply placing the shape at 'origin' (top-left) covers it.
+                // We should check if the shape fits entirely within FILLED cells.
+                
+                let fits = true;
+                if (origin.x + shape.w > this.width || origin.y + shape.h > this.height) {
+                    fits = false;
+                } else {
+                    for(let by=0; by<shape.h; by++) {
+                        for(let bx=0; bx<shape.w; bx++) {
+                            const idx = this._idx(origin.x+bx, origin.y+by);
+                            if (this.grid[idx] === 0) {
+                                fits = false;
+                                break;
+                            }
+                        }
+                        if (!fits) break;
+                    }
+                }
+
+                if (fits) {
+                    // Execute Deletion
+                    for(let by=0; by<shape.h; by++) {
+                        for(let bx=0; bx<shape.w; bx++) {
+                            this.grid[this._idx(origin.x+bx, origin.y+by)] = 0;
+                        }
+                    }
+                    
+                    if (shape.w === 1 && shape.h === 1) {
+                         stepOps.push(['removeBlock', origin.x - this.cx, origin.y - this.cy, origin.x - this.cx, origin.y - this.cy]);
+                    } else {
+                         stepOps.push(['removeBlock', 
+                            origin.x - this.cx, 
+                            origin.y - this.cy, 
+                            (origin.x + shape.w - 1) - this.cx, 
+                            (origin.y + shape.h - 1) - this.cy
+                        ]);
+                    }
+                    
+                    // Clean line removal: Ensure no ghost lines remain
+                    this._clearAreaLines(origin.x, origin.y, shape.w, shape.h, stepOps);
+
+                    return shape.w * shape.h;
                 }
             }
-            stepOps.push(['removeBlock', 
-                origin.x - this.cx, 
-                origin.y - this.cy, 
-                (origin.x + w - 1) - this.cx, 
-                (origin.y + h - 1) - this.cy
-            ]);
-            
-            if (Math.random() < 0.5) {
-                for (let bx=0; bx<w; bx++) stepOps.push(['remLine', (origin.x + bx) - this.cx, origin.y - this.cy, 'N']);
-            }
-            if (Math.random() < 0.5) {
-                for (let bx=0; bx<w; bx++) stepOps.push(['remLine', (origin.x + bx) - this.cx, (origin.y + h - 1) - this.cy, 'S']);
-            }
-            if (Math.random() < 0.5) {
-                for (let by=0; by<h; by++) stepOps.push(['remLine', origin.x - this.cx, (origin.y + by) - this.cy, 'W']);
-            }
-            if (Math.random() < 0.5) {
-                for (let by=0; by<h; by++) stepOps.push(['remLine', (origin.x + w - 1) - this.cx, (origin.y + by) - this.cy, 'E']);
-            }
-
-            return w * h;
         }
         return 0;
     }
@@ -936,6 +1002,15 @@ class QuantizedSequenceGenerator {
                     // East/West Pair
                     if (rx < 0 && extW > extE + 3) balanceWeight = 0.3;
                     else if (rx > 0 && extE > extW + 3) balanceWeight = 0.3;
+                }
+            }
+            
+            // 4. Phase 0: Cardinal Constraint (Steps 1-6)
+            // Restrict expansion strictly to the central cross axes.
+            // We use a tolerance of 1 to allow for even-width center lines (2px wide).
+            if (s <= 6) {
+                if (Math.abs(rx) > 1 && Math.abs(ry) > 1) {
+                    balanceWeight = 0; // Disable diagonal growth
                 }
             }
             

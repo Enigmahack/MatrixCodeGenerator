@@ -297,6 +297,7 @@ void main() {
             "quantizedGenerateErosionRate": 0.2,
             "quantizedGenerateInnerLineDuration": 1,
             "quantizedGenerateGreenFadeSeconds": 0.1,
+            "quantizedGenerateMergeDelay": true,
             dejaVuEnabled: true,
             "dejaVuFrequencySeconds": 350,
             "dejaVuDurationSeconds": 5,
