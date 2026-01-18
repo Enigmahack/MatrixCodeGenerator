@@ -227,14 +227,7 @@ class QuantizedRetractEffect extends QuantizedSequenceEffect {
         }
     }
 
-    _ensureCanvases(w, h) {
-        if (this.expansionPhase < this.sequence.length) {
-            const step = this.sequence[this.expansionPhase];
-            if (step) this._executeStepOps(step);
-            this.expansionPhase++;
-            this._maskDirty = true;
-        }
-    }
+
 
     applyToGrid(grid) {
         // No grid overrides - we render directly to overlayCanvas

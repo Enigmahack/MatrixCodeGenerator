@@ -572,7 +572,7 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
                 
                 for (const item of items) {
                     for (const face of item.faces) {
-                        this._addPerimeterFacePath(item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
+                        this._addPerimeterFacePath(pCtx, item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
                     }
                 }
                 pCtx.fill();
@@ -650,7 +650,7 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
 
                     lCtx.globalAlpha = opacity;
                     lCtx.beginPath();
-                    this._addPerimeterFacePath(bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
+                    this._addPerimeterFacePath(lCtx, bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
                     lCtx.fill();
                 };
 
