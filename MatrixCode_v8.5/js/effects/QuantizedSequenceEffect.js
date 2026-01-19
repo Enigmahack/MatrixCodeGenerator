@@ -1414,30 +1414,52 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const activeLines = new Map();
         
         for (const op of this.maskOps) {
-            if (op.type !== 'addLine') continue;
-            
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             const minX = Math.min(start.x, end.x);
             const maxX = Math.max(start.x, end.x);
             const minY = Math.min(start.y, end.y);
             const maxY = Math.max(start.y, end.y);
-            
-            for (let by = minY; by <= maxY; by++) {
-                for (let bx = minX; bx <= maxX; bx++) {
-                    if (isRenderActive(bx, by)) {
+
+            if (op.type === 'addLine') {
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        // Skip lines on blocks that are too deep inside (Distance Field optimization)
+                        const distIdx = by * blocksX + bx;
+                        if (distMap[distIdx] > 4) continue;
+
+                        if (isRenderActive(bx, by)) {
+                            const idx = by * blocksX + bx;
+                            let nx = bx, ny = by;
+                            const f = op.face ? op.face.toUpperCase() : '';
+                            if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
+                            
+                            // Don't draw internal lines on the true outside boundary (perimeter handles that)
+                            if (isTrueOutside(nx, ny)) continue;
+
+                            let cell = activeLines.get(idx);
+                            if (!cell) { cell = {}; activeLines.set(idx, cell); }
+                            cell[f] = op;
+                        }
+                    }
+                }
+            } else if (op.type === 'removeLine') {
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
                         const idx = by * blocksX + bx;
-                        if (distMap[idx] > 4) continue;
-
-                        let nx = bx, ny = by;
                         const f = op.face ? op.face.toUpperCase() : '';
-                        if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-                        
-                        if (isTrueOutside(nx, ny)) continue;
-
-                        let cell = activeLines.get(idx);
-                        if (!cell) { cell = {}; activeLines.set(idx, cell); }
-                        cell[f] = op;
+                        const cell = activeLines.get(idx);
+                        if (cell) {
+                            delete cell[f];
+                            if (Object.keys(cell).length === 0) activeLines.delete(idx);
+                        }
+                    }
+                }
+            } else if (op.type === 'removeBlock' || op.type === 'remove') {
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        const idx = by * blocksX + bx;
+                        activeLines.delete(idx);
                     }
                 }
             }
