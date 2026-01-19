@@ -9,7 +9,7 @@ class QuantizedSequenceGenerator {
         this.scheduledOps = new Map();
     }
 
-    generate(width, height, maxSteps = 2000, params = {}) {
+    generate(width, height, maxSteps = 500, params = {}) {
         this.width = width;
         this.height = height;
         this.cx = Math.floor(width / 2);
@@ -20,9 +20,9 @@ class QuantizedSequenceGenerator {
 
         const config = {
             blocksPerStep: 2,           // Start count (min)
-            maxBlocksPerStep: 10,       // Peak count (mid-expansion) - STRICT LIMIT
+            maxBlocksPerStep: 6,       // Peak count (mid-expansion) - STRICT LIMIT
             redistributeChance: 0.3,    // Chance to convert lines to rects
-            thickenChance: 0.4,         // Chance to thicken existing thin lines
+            thickenChance: 0.2,         // Chance to thicken existing thin lines
             erosionRate: 0.2,           // Default erosion rate if not passed
             innerLineDuration: 1,       // Default duration
             
@@ -116,6 +116,29 @@ class QuantizedSequenceGenerator {
                                 }
                             }
                         }
+                        /* Note: Line removal should be handled by explicit 'remLine' ops in the sequence.
+                    }   else if (op === 'remLine') {
+                        const x1 = this.cx + opData[1];
+                        const y1 = this.cy + opData[2];
+                        const x2 = this.cx + opData[3];
+                        const y2 = this.cy + opData[4];
+                        const minX = Math.min(x1, x2);
+                        const maxX = Math.max(x1, x2);
+                        const minY = Math.min(y1, y2);
+                        const maxY = Math.max(y1, y2);
+                        
+                        for(let y=minY; y<=maxY; y++) {
+                            for(let x=minX; x<=maxX; x++) {
+                                const idx = this._idx(x, y);
+                                if (idx !== -1 && this.grid[idx] === 1) {
+                                    this.grid[idx] = 0;
+
+
+                                    
+                                    filledCells--;
+                                }
+                            }
+                        }*/
                     }
                 }
             }
@@ -214,7 +237,7 @@ class QuantizedSequenceGenerator {
 
                 // 2.3 Tendril Generation (Perpendicular shots from cardinal arms)
                 // Boost probability significantly if the main cross is complete to fill quadrants
-                const tendrilProb = crossComplete ? 0.65 : 0.20;
+                const tendrilProb = crossComplete ? 0.60 : 0.20;
                 if (Math.random() < tendrilProb) { 
                     const added = this._attemptTendril(s, stepOps, config.innerLineDuration, stepOccupancy); 
                     filledCells += added;
@@ -235,10 +258,10 @@ class QuantizedSequenceGenerator {
                 }
 
                 // 3. Expansion (Water Filling)
-                const occupancyProgress = filledCells / totalCells;
+                // const occupancyProgress = filledCells / totalCells;
                 
                 // Linear Growth Ramp: Start at 1, +1 per step, max 10
-                let currentBlocksPerStep = Math.min(10, Math.max(1, s));
+                let currentBlocksPerStep = Math.min(7, Math.max(1, s));
                 
                 // Constraint: Until cross is complete, limit growth to maintain consistent cross formation
                 if (!crossComplete) {
@@ -251,18 +274,13 @@ class QuantizedSequenceGenerator {
                 // Stage 3: Late Expansion (Full Variety) - Steps 16+
                 let dynamicWeights = config.shapeWeights; 
                 
-                if (s <= 5) {
+                if (s <= 4) {
                     dynamicWeights = { rect1x1: 1.0 };
-                } else if (s <= 15) {
+                } else if (s <= 12) {
                     dynamicWeights = {
                         rect1x1: 0.2,
                         rect2x1: 0.3, 
-                        rect1x2: 0.3, // Assuming logic handles inversion or add explicitly here if not in default keys?
-                        // Default keys only had rect2x1. Logic handles swap w/h.
-                        // Actually, let's stick to keys known to be valid or rely on the swap logic.
-                        // The default config keys are: rect1x1, rect2x1, rect3x1...
-                        // The loop does: if (w !== h && Math.random() < 0.5) { [w, h] = [h, w]; }
-                        // So 'rect2x1' covers '1x2'.
+                        rect1x2: 0.3, 
                         rect2x1: 0.4, 
                         rect2x2: 0.4
                     };
@@ -286,10 +304,6 @@ class QuantizedSequenceGenerator {
                 // If not full but stalled, force expansion to ensure completion
                 if (!isFull) {
                     // Force expansion needs a temp stepOccupancy if one wasn't created (rare case logic flow)
-                    // But we are inside the !isFull block so we have it. Wait, scoping issue?
-                    // stepOccupancy was declared inside the if(!isFull) block above.
-                    // We need to declare it outside or create a new one here.
-                    // Let's create a new one here, minimal cost.
                     const fallbackOccupancy = new Uint8Array(totalCells).fill(0);
 
                     let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, fallbackOccupancy, crossComplete);
@@ -535,6 +549,8 @@ class QuantizedSequenceGenerator {
         // 2. Shape Matching: Prefer deleting larger "written blocks" (2x2) over single pixels
         // We iterate candidates and try to fit the largest shape first.
         const shapes = [
+            {w:3, h:1},
+            {w:1, h:3},
             {w:2, h:2}, // Priority 1: 2x2 Block
             {w:2, h:1}, // Priority 2: 2x1 Horizontal
             {w:1, h:2}, // Priority 2: 1x2 Vertical
@@ -740,14 +756,6 @@ class QuantizedSequenceGenerator {
                 stepOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + tw - 1) - this.cx, (ty + th - 1) - this.cy]);
                 
                 if (overwriteCount > 0) {
-                    // Only draw lines if we are overwriting AND exposed (changing perimeter/filling hole from outside?)
-                    // Actually, if we are overwriting, we are on filled cells. isExposed will be false unless we touch outside.
-                    // If we overwrite a filled block, isExposed is false.
-                    // If we overwrite a filled block AND extend into empty space?
-                    // Tendrils are rectangles. If any part touches empty space, isExposed is true.
-                    
-                    // Original behavior: lines only if overwriteCount > 0.
-                    // New requirement: no lines if internal.
                     if (isExposed) {
                         this._addPerimeterLines(s, tx, ty, tw, th, innerDuration, stepOps);
                     }
