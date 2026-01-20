@@ -365,6 +365,12 @@ class MatrixKernel {
                          text += ` | Erasers: ${erasers}`;
                          text += ` | Rotators: ${rotators}`;
                          text += ` | Shimmers: ${shimmers}`;
+                         
+                         // Debug: QuantizedGenerateV2 Internal Lines
+                         const qGenV2 = this.effectRegistry.get('QuantizedGenerateV2');
+                         if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
+                             text += ` | IntLines: ${qGenV2.debugInternalCount}`;
+                         }
                      }
                 }
                 this.fpsDisplayElement.textContent = text;

@@ -1,227 +1,461 @@
 class QuantizedSequenceGeneratorV2 {
     constructor() {
         this.sequence = [];
-        this.grid = null;
         this.width = 0;
         this.height = 0;
-        this.cx = 0;
-        this.cy = 0;
+        // Track blocks per layer: { layerId: [ {x, y, w, h, locked} ] }
+        this.layers = { 0: [], 1: [] };
+        this.occupancy = new Set();
+        this.interiorLinesMap = new Map();
+        this.shoveCounter = 0; 
     }
 
     generate(width, height, maxSteps = 500, params = {}) {
         this.width = width;
         this.height = height;
-        this.cx = Math.floor(width / 2);
-        this.cy = Math.floor(height / 2);
-        this.grid = new Uint8Array(width * height).fill(0);
         this.sequence = [];
+        this.layers = { 0: [], 1: [] }; 
+        this.occupancy.clear();
+        this.interiorLinesMap.clear();
+        this.shoveCounter = 0;
 
         const config = {
             minBlockSize: 2,
             maxBlockSize: 6,
-            blocksPerStep: 3,
             innerLineDuration: 1,
+            blockWidth: 1,
+            blockHeight: 1,
             ...params
         };
 
-        let filledCells = 0;
-        const totalCells = width * height;
-        
-        // 1. Seed Center
-        const seedW = 4;
-        const seedH = 4;
-        const seedX = this.cx - Math.floor(seedW / 2);
-        const seedY = this.cy - Math.floor(seedH / 2);
-        
-        const seedOps = [];
-        this._addBlock(seedX, seedY, seedW, seedH, seedOps, config.innerLineDuration);
-        this.sequence.push(seedOps);
-        filledCells += seedW * seedH;
+        const unitW = config.blockWidth;
+        const unitH = config.blockHeight;
 
-        // 2. Main Loop
-        for (let s = 1; s < maxSteps; s++) {
-            if (filledCells >= totalCells) break;
+        // Updated Shapes
+        const shapes = [
+            {w: 2, h: 3}, {w: 3, h: 2},
+            {w: 2, h: 2},
+            {w: 2, h: 1}, {w: 1, h: 2},
+            {w: 1, h: 1},
+            {w: 1, h: 3}, {w: 3, h: 1},
+            {w: 1, h: 4}, {w: 4, h: 1},
+            {w: 1, h: 5}, {w: 5, h: 1}
+        ];
+
+        const markOccupied = (b) => {
+            for(let iy=0; iy<b.h; iy++) {
+                for(let ix=0; ix<b.w; ix++) {
+                    this.occupancy.add(`${b.x+ix},${b.y+iy}`);
+                }
+            }
+        };
+
+        // --- STEP 1: INITIAL SEED ---
+        {
+            const w = unitW; 
+            const h = unitH;
+            const x = -Math.floor(w / 2);
+            const y = -Math.floor(h / 2);
+            const seedLayer = 0;
 
             const stepOps = [];
-            let addedInStep = 0;
-            let attempts = 0;
-            const maxAttempts = 50;
+            const x2 = x + w - 1;
+            const y2 = y + h - 1;
+            stepOps.push(['addRect', x, y, x2, y2, seedLayer]);
+            
+            const newBlock = { x, y, w, h, locked: true };
+            this.layers[seedLayer].push(newBlock); 
+            markOccupied(newBlock);
+            
+            this._addPerimeterLines(x, y, w, h, config.innerLineDuration, stepOps, seedLayer);
+            this.sequence.push(stepOps);
+        }
 
-            while (addedInStep < config.blocksPerStep && attempts < maxAttempts) {
-                attempts++;
-                
-                // Find Frontier candidates (Empty cells touching Filled cells)
-                // Optimization: We could maintain this list, but for now scan is okay for these grid sizes (usually < 100x100)
-                const candidates = this._getGrowthCandidates();
-                
-                if (candidates.length === 0) break; // Should be full or isolated
+        // --- MAIN LOOP ---
+        let logicStep = 2; 
 
-                // Pick random candidate
-                const candidate = candidates[Math.floor(Math.random() * candidates.length)];
-                
-                // Determine direction from neighbor
-                // (Candidate is empty. It has a filled neighbor.)
-                // We want to grow "away" from the filled mass or "along" it.
-                // Simple approach: Try random sizes at this position.
-                
-                const w = Math.floor(Math.random() * (config.maxBlockSize - config.minBlockSize + 1)) + config.minBlockSize;
-                const h = Math.floor(Math.random() * (config.maxBlockSize - config.minBlockSize + 1)) + config.minBlockSize;
-                
-                // Try to align the block such that 'candidate' is inside it, 
-                // and the block is valid (empty).
-                // To prioritize "attachment", we should ensure the new block shares an edge with existing mass.
-                // Since 'candidate' touches existing mass, placing a block at 'candidate' (overlapping it) guarantees contact.
-                
-                // We test different offsets for the block relative to the candidate
-                // e.g. Candidate could be Top-Left, Bottom-Right, etc. of the new block.
-                
-                const validPlacements = [];
-                
-                for (let oy = 0; oy < h; oy++) {
-                    for (let ox = 0; ox < w; ox++) {
-                        // Top-left of new block would be (candidate.x - ox, candidate.y - oy)
-                        const bx = candidate.x - ox;
-                        const by = candidate.y - oy;
-                        
-                        if (this._isValidPlacement(bx, by, w, h)) {
-                            validPlacements.push({x: bx, y: by});
-                        }
+        while (logicStep <= maxSteps) {
+            const stepOpsCombined = [];
+            
+            const isOdd = (logicStep % 2 !== 0);
+            const targetLayer = isOdd ? 0 : 1;
+            
+            const dirtyL0 = [];
+            const dirtyL1 = [];
+            
+            // A. MERGE
+            if (targetLayer === 0) {
+                 if (this.layers[1].length > 0) {
+                    stepOpsCombined.push(['mergeLayers', 1, 0]);
+                    for (const b of this.layers[1]) {
+                        b.locked = true; 
+                        this.layers[0].push(b);
+                        dirtyL0.push(b);
                     }
+                    this.layers[1] = [];
                 }
-                
-                if (validPlacements.length > 0) {
-                    // Pick one
-                    const placement = validPlacements[Math.floor(Math.random() * validPlacements.length)];
-                    
-                    this._addBlock(placement.x, placement.y, w, h, stepOps, config.innerLineDuration);
-                    addedInStep++;
-                    filledCells += (w * h);
+            }
+            
+            // B. ADD BLOCKS
+            // "Max of 6 blocks at the same time after the first two main phases"
+            // Phases: 1 (Seed), 2 (First additions). So from Step 3 onwards.
+            const maxBlocksThisStep = (logicStep >= 3) ? 6 : 3;
+            const blocksToPlace = (logicStep === 2) ? 1 : (Math.floor(Math.random() * maxBlocksThisStep) + 1);
+            
+            if (targetLayer === 1) {
+                if (this.shoveCounter > 0) {
+                    this.shoveCounter--;
+                } else {
+                    if (Math.random() < 0.2) this.shoveCounter = 1; 
                 }
             }
 
-            if (stepOps.length > 0) {
-                this.sequence.push(stepOps);
-            } else {
-                // If stuck, try to force a single pixel fill at a random candidate to unstuck
-                const candidates = this._getGrowthCandidates();
-                if (candidates.length > 0) {
-                    const c = candidates[Math.floor(Math.random() * candidates.length)];
-                    const forceOps = [];
-                    this._addBlock(c.x, c.y, 1, 1, forceOps, config.innerLineDuration);
-                    this.sequence.push(forceOps);
-                    filledCells++;
+            for (let i = 0; i < blocksToPlace; i++) {
+                let newBlocks = [];
+                
+                if (targetLayer === 1 && this.shoveCounter > 0) {
+                    const res = this._addBlockWithExtrusion(shapes, unitW, unitH, config, stepOpsCombined);
+                    if (res) newBlocks = res;
                 } else {
-                    if (filledCells < totalCells) {
-                        // Scan for ANY empty spot (island)
-                         const islands = [];
-                         for(let i=0; i<totalCells; i++) {
-                             if (this.grid[i] === 0) islands.push(i);
-                         }
-                         if (islands.length > 0) {
-                             const idx = islands[Math.floor(Math.random() * islands.length)];
-                             const ix = idx % this.width;
-                             const iy = Math.floor(idx / this.width);
-                             const islandOps = [];
-                             this._addBlock(ix, iy, 1, 1, islandOps, config.innerLineDuration);
-                             this.sequence.push(islandOps);
-                             filledCells++;
-                         } else {
-                             break; // Truly full
-                         }
-                    } else {
+                    const b = this._addRandomBlock(shapes, unitW, unitH, targetLayer, config, stepOpsCombined, true);
+                    if (b) newBlocks = [b];
+                }
+
+                for (const b of newBlocks) {
+                    markOccupied(b);
+                    if (b.locked || targetLayer === 0) dirtyL0.push(b);
+                    else dirtyL1.push(b);
+                }
+            }
+            
+            // C. IDENTIFY NEW INTERIOR LINES
+            if (dirtyL0.length > 0) {
+                const hitLines = [];
+                this._findInteriorLines(dirtyL0, 0, hitLines);
+                for (const hit of hitLines) this._registerInteriorLine(hit);
+            }
+            if (dirtyL1.length > 0) {
+                const hitLines = [];
+                this._findInteriorLines(dirtyL1, 1, hitLines);
+                for (const hit of hitLines) this._registerInteriorLine(hit);
+            }
+            
+            // D. PROCESS LIFETIMES & DESPAWN
+            for (const [key, life] of this.interiorLinesMap.entries()) {
+                const newLife = life - 1;
+                if (newLife <= 0) {
+                    const parts = key.split(',');
+                    const x = parseInt(parts[0]);
+                    const y = parseInt(parts[1]);
+                    const face = parts[2];
+                    const layer = parseInt(parts[3]);
+                    stepOpsCombined.push(['removeLine', x, y, face, layer]);
+                    this.interiorLinesMap.delete(key);
+                } else {
+                    this.interiorLinesMap.set(key, newLife);
+                }
+            }
+            
+            stepOpsCombined.push(['debugInternalCount', this.interiorLinesMap.size]);
+            this.sequence.push(stepOpsCombined);
+            logicStep++;
+            
+            if (this.layers[0].length > 2000) break;
+        }
+        
+        return this.sequence;
+    }
+    
+    _registerInteriorLine(hit) {
+        const key = `${hit.x},${hit.y},${hit.face},${hit.layer}`;
+        if (this.interiorLinesMap.has(key)) {
+            this.interiorLinesMap.set(key, this.interiorLinesMap.get(key) + 1);
+        } else {
+            this.interiorLinesMap.set(key, 2);
+        }
+    }
+    
+    _addBlockWithExtrusion(shapes, unitW, unitH, config, ops) {
+        const shapeDef = shapes[Math.floor(Math.random() * shapes.length)];
+        const w = shapeDef.w * unitW;
+        const h = shapeDef.h * unitH;
+        
+        const anchorBlocks = this.layers[0].concat(this.layers[1]); 
+        if (anchorBlocks.length === 0) return null;
+        
+        const anchor = anchorBlocks[Math.floor(Math.random() * anchorBlocks.length)];
+        const dirs = ['N', 'S', 'E', 'W'];
+        const dir = dirs[Math.floor(Math.random() * dirs.length)];
+        
+        let nx = anchor.x, ny = anchor.y;
+        let shiftDir = dir; 
+        let shiftAmount = 0;
+        let rMin = 0, rMax = 0;
+        let threshold = 0;
+
+        if (dir === 'N') {
+            shiftAmount = Math.max(1, h - 1);
+            nx = anchor.x; 
+            ny = anchor.y - shiftAmount;
+            threshold = ny + h - 1; 
+            rMin = nx; rMax = nx + w - 1; 
+        } else if (dir === 'S') {
+            shiftAmount = Math.max(1, h - 1);
+            nx = anchor.x; 
+            ny = anchor.y + anchor.h - (h - shiftAmount);
+            threshold = ny; 
+            rMin = nx; rMax = nx + w - 1;
+        } else if (dir === 'W') {
+            shiftAmount = Math.max(1, w - 1);
+            nx = anchor.x - shiftAmount; 
+            ny = anchor.y;
+            threshold = nx + w - 1;
+            rMin = ny; rMax = ny + h - 1;
+        } else if (dir === 'E') {
+            shiftAmount = Math.max(1, w - 1);
+            nx = anchor.x + anchor.w - (w - shiftAmount);
+            ny = anchor.y;
+            threshold = nx;
+            rMin = ny; rMax = ny + h - 1;
+        }
+        
+        const allBlocks = this.layers[0].concat(this.layers[1]);
+        const clones = [];
+        const extremes = new Map(); 
+        
+        for (const b of allBlocks) {
+            if (shiftDir === 'N' || shiftDir === 'S') {
+                const bMinX = b.x, bMaxX = b.x + b.w - 1;
+                const iStart = Math.max(rMin, bMinX);
+                const iEnd = Math.min(rMax, bMaxX);
+                if (iStart <= iEnd) {
+                    for (let cx = iStart; cx <= iEnd; cx++) {
+                        const existing = extremes.get(cx);
+                        if (shiftDir === 'N') {
+                            if (!existing || b.y < existing.y) extremes.set(cx, b);
+                        } else { 
+                            if (!existing || b.y > existing.y) extremes.set(cx, b);
+                        }
+                    }
+                }
+            } else {
+                const bMinY = b.y, bMaxY = b.y + b.h - 1;
+                const iStart = Math.max(rMin, bMinY);
+                const iEnd = Math.min(rMax, bMaxY);
+                if (iStart <= iEnd) {
+                    for (let cy = iStart; cy <= iEnd; cy++) {
+                        const existing = extremes.get(cy);
+                        if (shiftDir === 'W') {
+                            if (!existing || b.x < existing.x) extremes.set(cy, b);
+                        } else { 
+                            if (!existing || b.x > existing.x) extremes.set(cy, b);
+                        }
+                    }
+                }
+            }
+        }
+        
+        const uniqueBlocks = new Set(extremes.values());
+        for (const b of uniqueBlocks) {
+            const clone = { ...b };
+            clone.locked = false;
+            
+            if (shiftDir === 'N') clone.y -= shiftAmount;
+            else if (shiftDir === 'S') clone.y += shiftAmount;
+            else if (shiftDir === 'W') clone.x -= shiftAmount;
+            else if (shiftDir === 'E') clone.x += shiftAmount;
+            
+            clones.push(clone);
+        }
+        
+        for (const c of clones) {
+            this.layers[1].push(c);
+            ops.push(['addRect', c.x, c.y, c.x + c.w - 1, c.y + c.h - 1, 1]);
+            this._addPerimeterLines(c.x, c.y, c.w, c.h, config.innerLineDuration, ops, 1);
+        }
+        
+        ops.push(['addRect', nx, ny, nx + w - 1, ny + h - 1, 1]);
+        const newBlock = { x: nx, y: ny, w, h, locked: false };
+        this.layers[1].push(newBlock);
+        this._addPerimeterLines(nx, ny, w, h, config.innerLineDuration, ops, 1);
+        
+        this.occupancy.clear();
+        for (const b of this.layers[0].concat(this.layers[1])) {
+            for(let iy=0; iy<b.h; iy++) {
+                for(let ix=0; ix<b.w; ix++) {
+                    this.occupancy.add(`${b.x+ix},${b.y+iy}`);
+                }
+            }
+        }
+        
+        const added = [...clones, newBlock];
+        return added;
+    }
+    
+    _addRandomBlock(shapes, unitW, unitH, targetLayer, config, ops, requireOverlap = true) {
+        const shapeDef = shapes[Math.floor(Math.random() * shapes.length)];
+        const w = shapeDef.w * unitW;
+        const h = shapeDef.h * unitH;
+        
+        const anchorBlocks = this.layers[0].concat(this.layers[1]); 
+        if (anchorBlocks.length === 0) return null;
+        
+        const checkCoverage = (bx, by, bw, bh) => {
+            let occupiedCount = 0;
+            const totalCells = bw * bh;
+            for(let iy=0; iy<bh; iy++) {
+                for(let ix=0; ix<bw; ix++) {
+                    if (this.occupancy.has(`${bx+ix},${by+iy}`)) occupiedCount++;
+                }
+            }
+            return { inside: occupiedCount, outside: totalCells - occupiedCount };
+        };
+        
+        const isEnclosed = (bx, by, bw, bh) => {
+            for (let x = bx - 1; x <= bx + bw; x++) {
+                if (!this.occupancy.has(`${x},${by-1}`)) return false; 
+                if (!this.occupancy.has(`${x},${by+bh}`)) return false; 
+            }
+            for (let y = by; y < by + bh; y++) {
+                if (!this.occupancy.has(`${bx-1},${y}`)) return false; 
+                if (!this.occupancy.has(`${bx+bw},${y}`)) return false; 
+            }
+            return true;
+        };
+
+        // NEW: Cardinal Bias
+        // Try Cardinal axes first (N, S, E, W relative to Center of Mass)
+        // Then random.
+        
+        // Calculate COM
+        let comX = 0, comY = 0;
+        let count = 0;
+        for(const b of anchorBlocks) {
+            comX += b.x + b.w/2;
+            comY += b.y + b.h/2;
+            count++;
+        }
+        comX /= count; comY /= count;
+
+        let bestCand = null;
+        
+        // Phase 1: Try Cardinal Axes
+        // We scan for anchors that are close to the axes
+        for(let attempt = 0; attempt < 30; attempt++) {
+            const anchor = anchorBlocks[Math.floor(Math.random() * anchorBlocks.length)];
+            
+            // Check if anchor is near an axis
+            const ax = anchor.x + anchor.w/2;
+            const ay = anchor.y + anchor.h/2;
+            const onAxisX = Math.abs(ax - comX) < 4; // Vertical Axis
+            const onAxisY = Math.abs(ay - comY) < 4; // Horizontal Axis
+            
+            if (!onAxisX && !onAxisY) continue; // Skip off-axis
+            
+            // Try placement
+            const dirs = ['N', 'S', 'E', 'W'];
+            const dir = dirs[Math.floor(Math.random() * dirs.length)];
+            
+            let nx = anchor.x, ny = anchor.y;
+            // Similar overlap logic as before
+            const minX = anchor.x - w + 1;
+            const maxX = anchor.x + anchor.w - 1;
+            const minY = anchor.y - h + 1;
+            const maxY = anchor.y + anchor.h - 1;
+            
+            nx = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
+            ny = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
+            
+            const coverage = checkCoverage(nx, ny, w, h);
+            if (coverage.inside > 0 && coverage.outside > 0) {
+                if (!isEnclosed(nx, ny, w, h)) {
+                    bestCand = { x: nx, y: ny };
+                    break;
+                }
+            }
+        }
+        
+        // Phase 2: Fallback (Anywhere)
+        if (!bestCand) {
+            for (let i = 0; i < 50; i++) {
+                const anchor = anchorBlocks[Math.floor(Math.random() * anchorBlocks.length)];
+                const minX = anchor.x - w + 1;
+                const maxX = anchor.x + anchor.w - 1;
+                const minY = anchor.y - h + 1;
+                const maxY = anchor.y + anchor.h - 1;
+                
+                const nx = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
+                const ny = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
+                
+                const coverage = checkCoverage(nx, ny, w, h);
+                if (coverage.inside > 0 && coverage.outside > 0) {
+                    if (!isEnclosed(nx, ny, w, h)) {
+                        bestCand = { x: nx, y: ny };
                         break;
                     }
                 }
             }
         }
         
-        return this.sequence;
+        if (bestCand) {
+            const { x, y } = bestCand;
+            ops.push(['addRect', x, y, x + w - 1, y + h - 1, targetLayer]);
+            const newBlock = { x, y, w, h, locked: (targetLayer === 0) };
+            this.layers[targetLayer].push(newBlock);
+            this._addPerimeterLines(x, y, w, h, config.innerLineDuration, ops, targetLayer);
+            return newBlock;
+        }
+        return null;
     }
 
-    _idx(x, y) {
-        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return -1;
-        return y * this.width + x;
-    }
-
-    _getGrowthCandidates() {
-        const candidates = [];
-        // Scan grid for empty cells that have at least 1 filled neighbor
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
-                if (this.grid[y * this.width + x] === 0) {
-                    // Check neighbors
-                    const n = [
-                        this._idx(x, y-1),
-                        this._idx(x, y+1),
-                        this._idx(x-1, y),
-                        this._idx(x+1, y)
-                    ];
-                    let hasNeighbor = false;
-                    for (const idx of n) {
-                        if (idx !== -1 && this.grid[idx] === 1) {
-                            hasNeighbor = true;
-                            break;
-                        }
-                    }
-                    if (hasNeighbor) {
-                        candidates.push({x, y});
-                    }
-                }
+    _findInteriorLines(newBlocks, layer, hits) {
+        const allBlocks = this.layers[layer];
+        for (const b1 of newBlocks) {
+            for (const b2 of allBlocks) {
+                if (b1 === b2) continue; 
+                this._checkAdjacency(b1, b2, layer, hits);
             }
         }
-        return candidates;
     }
 
-    _isValidPlacement(x, y, w, h) {
-        if (x < 0 || y < 0 || x + w > this.width || y + h > this.height) return false;
+    _checkAdjacency(b1, b2, layer, hits) {
+        const ix1 = Math.max(b1.x, b2.x);
+        const ix2 = Math.min(b1.x + b1.w, b2.x + b2.w);
+        const iy1 = Math.max(b1.y, b2.y);
+        const iy2 = Math.min(b1.y + b1.h, b2.y + b2.h);
         
-        for (let by = 0; by < h; by++) {
-            for (let bx = 0; bx < w; bx++) {
-                if (this.grid[this._idx(x + bx, y + by)] === 1) return false;
+        const w = ix2 - ix1;
+        const h = iy2 - iy1;
+        
+        if (w > 0 && h > 0) {
+            for (let x = ix1; x < ix2; x++) {
+                if (b1.y > b2.y && b1.y < b2.y + b2.h) hits.push({x, y: b1.y, face: 'N', layer});
+                if ((b1.y + b1.h - 1) > b2.y && (b1.y + b1.h - 1) < b2.y + b2.h - 1) hits.push({x, y: b1.y + b1.h - 1, face: 'S', layer});
+                
+                if (b2.y > b1.y && b2.y < b1.y + b1.h) hits.push({x, y: b2.y, face: 'N', layer});
+                if ((b2.y + b2.h - 1) > b1.y && (b2.y + b2.h - 1) < b1.y + b1.h - 1) hits.push({x, y: b2.y + b2.h - 1, face: 'S', layer});
+            }
+            for (let y = iy1; y < iy2; y++) {
+                if (b1.x > b2.x && b1.x < b2.x + b2.w) hits.push({x: b1.x, y, face: 'W', layer});
+                if ((b1.x + b1.w - 1) > b2.x && (b1.x + b1.w - 1) < b2.x + b2.w - 1) hits.push({x: b1.x + b1.w - 1, y, face: 'E', layer});
+                
+                if (b2.x > b1.x && b2.x < b1.x + b1.w) hits.push({x: b2.x, y, face: 'W', layer});
+                if ((b2.x + b2.w - 1) > b1.x && (b2.x + b2.w - 1) < b1.x + b1.w - 1) hits.push({x: b2.x + b2.w - 1, y, face: 'E', layer});
             }
         }
-        return true;
     }
 
-    _addBlock(x, y, w, h, ops, innerDuration) {
-        // Update Grid
-        for (let by = 0; by < h; by++) {
-            for (let bx = 0; bx < w; bx++) {
-                this.grid[this._idx(x + bx, y + by)] = 1;
-            }
-        }
-
-        // Add Ops
-        const relX = x - this.cx;
-        const relY = y - this.cy;
-
-        if (w === 1 && h === 1) {
-            ops.push(['add', relX, relY]);
-        } else {
-            ops.push(['addRect', relX, relY, relX + w - 1, relY + h - 1]);
-        }
-
-        // Add Inner Lines (Texture)
-        // We add lines to ALL faces of the new block to ensure it has a border
-        // The renderer handles merging, but we need to generate the "texture"
-        this._addPerimeterLines(x, y, w, h, innerDuration, ops);
-    }
-
-    _addPerimeterLines(x, y, w, h, duration, ops) {
-        // Add line ops for the perimeter of this block
+    _addPerimeterLines(x, y, w, h, duration, ops, layer) {
         const faces = ['N', 'S', 'E', 'W'];
-        const relX = x - this.cx;
-        const relY = y - this.cy;
-
         for (const f of faces) {
             if (f === 'N') {
-                for (let bx = 0; bx < w; bx++) ops.push(['addLine', relX + bx, relY, 'N']);
+                for (let bx = 0; bx < w; bx++) ops.push(['addLine', x + bx, y, 'N', layer]);
             } else if (f === 'S') {
-                for (let bx = 0; bx < w; bx++) ops.push(['addLine', relX + bx, relY + h - 1, 'S']);
+                for (let bx = 0; bx < w; bx++) ops.push(['addLine', x + bx, y + h - 1, 'S', layer]);
             } else if (f === 'W') {
-                for (let by = 0; by < h; by++) ops.push(['addLine', relX, relY + by, 'W']);
+                for (let by = 0; by < h; by++) ops.push(['addLine', x, y + by, 'W', layer]);
             } else if (f === 'E') {
-                for (let by = 0; by < h; by++) ops.push(['addLine', relX + w - 1, relY + by, 'E']);
+                for (let by = 0; by < h; by++) ops.push(['addLine', x + w - 1, y + by, 'E', layer]);
             }
         }
     }
