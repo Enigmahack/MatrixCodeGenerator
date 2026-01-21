@@ -10,6 +10,7 @@ class QuantizedSequenceGenerator {
     }
 
     generate(width, height, maxSteps = 500, params = {}) {
+        console.log("QuantizedSequenceGenerator: generate() called. Mode: ISOLATED CROSS");
         this.width = width;
         this.height = height;
         this.cx = Math.floor(width / 2);
@@ -179,25 +180,12 @@ class QuantizedSequenceGenerator {
             
             // Check Cross Completion (if not yet complete)
             if (!crossComplete) {
-                // Check if the cross arms have effectively reached the screen edges
-                // We scan a small window (5px wide) around the center axes at the boundaries
-                const checkRegion = (x, y, w, h) => {
-                    for(let i=0; i<w; i++) {
-                        for(let j=0; j<h; j++) {
-                            const idx = this._idx(x+i, y+j);
-                            if (idx !== -1 && this.grid[idx] === 1) return true;
-                        }
-                    }
-                    return false;
-                };
+                crossComplete = this._checkCrossCompletion();
                 
-                const topReached = checkRegion(this.cx - 2, 0, 5, 2);
-                const botReached = checkRegion(this.cx - 2, this.height - 2, 5, 2);
-                const leftReached = checkRegion(0, this.cy - 2, 2, 5);
-                const rightReached = checkRegion(this.width - 2, this.cy - 2, 2, 5);
-                
-                if (topReached && botReached && leftReached && rightReached) {
-                    crossComplete = true;
+                // If still not complete, run startCross logic (isolated behavior)
+                if (!crossComplete) {
+                    const added = this._startCross(s, stepOps, stepOccupancy, config.innerLineDuration);
+                    filledCells += added;
                 }
             }
             
@@ -219,43 +207,55 @@ class QuantizedSequenceGenerator {
             // Only run expansion logic if grid isn't full
             if (!isFull) {
                 // 1. Redistribution (Mutation of existing structure)
+                /*
                 if (Math.random() < config.redistributeChance) {
                     this._attemptRedistribution(stepOps, stepOccupancy);
                 }
+                */
 
                 // 2. Thickening (Reinforcing existing structure)
+                /*
                 if (Math.random() < config.thickenChance) {
                     const added = this._attemptThickening(stepOps, stepOccupancy);
                     filledCells += added;
                 }
+                */
                 
                 // 2.2 Line Thickening (Specific parallel spawning for long thin blocks)
+                /*
                 if (Math.random() < 0.15) { 
                     const added = this._attemptLineThickening(stepOps, stepOccupancy);
                     filledCells += added;
                 }
+                */
 
                 // 2.3 Tendril Generation (Perpendicular shots from cardinal arms)
                 // Boost probability significantly if the main cross is complete to fill quadrants
+                /*
                 const tendrilProb = crossComplete ? 0.60 : 0.20;
                 if (Math.random() < tendrilProb) { 
                     const added = this._attemptTendril(s, stepOps, config.innerLineDuration, stepOccupancy); 
                     filledCells += added;
                 }
+                */
 
                 // 2.4 Multi-Block Move (Perimeter Expansion Copy)
                 // Boost probability during fill phase to help progress general expansion
+                /*
                 const moveProb = crossComplete ? 0.70 : 0.35;
                 if (Math.random() < moveProb) {
                      const added = this._attemptMultiBlockMove(s, stepOps, config.innerLineDuration, stepOccupancy);
                      filledCells += added;
                 }
+                */
 
                 // 2.5 Erosion (Deleting blocks from frontier)
+                /*
                 if (Math.random() < config.erosionRate) { 
                      const eroded = this._attemptErosion(stepOps, filledCells);
                      filledCells -= eroded;
                 }
+                */
 
                 // 3. Expansion (Water Filling)
                 // const occupancyProgress = filledCells / totalCells;
@@ -288,6 +288,7 @@ class QuantizedSequenceGenerator {
 
                 let massAdded = 0;
                 let attempts = 0;
+                /*
                 while (massAdded < currentBlocksPerStep && attempts < 20) {
                     attempts++;
                     const added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
@@ -296,6 +297,7 @@ class QuantizedSequenceGenerator {
                         filledCells += added;
                     }
                 }
+                */
             }
 
             if (stepOps.length > 0) {
@@ -306,11 +308,13 @@ class QuantizedSequenceGenerator {
                     // Force expansion needs a temp stepOccupancy if one wasn't created (rare case logic flow)
                     const fallbackOccupancy = new Uint8Array(totalCells).fill(0);
 
+                    /*
+                    // Always add perimeter lines to ensure internal lines are generated
                     let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, fallbackOccupancy, crossComplete);
                     
                     // If weighted expansion fails, force a 1x1 placement (guaranteed progress)
                     if (added === 0) {
-                        added = this._forceExpansion(stepOps, fallbackOccupancy);
+                        added = this._forceExpansion(s, stepOps, fallbackOccupancy, config.innerLineDuration);
                     }
 
                     if (added > 0) {
@@ -321,6 +325,8 @@ class QuantizedSequenceGenerator {
                         if (this.scheduledOps.size === 0) break;
                         this.sequence.push([]); 
                     }
+                    */
+                    this.sequence.push([]); 
                 } else {
                     // Full, just pumping empty frames for scheduled ops
                     this.sequence.push([]);
@@ -331,7 +337,7 @@ class QuantizedSequenceGenerator {
         return this.sequence;
     }
 
-    _forceExpansion(stepOps, stepOccupancy) {
+    _forceExpansion(s, stepOps, stepOccupancy, innerDuration) {
         // Fallback: Pick ANY frontier block uniformly and fill it with 1x1
         // This bypasses the axis weighting and shape sizing that might cause stalls at the corners.
         const frontier = this._getFrontier();
@@ -349,6 +355,7 @@ class QuantizedSequenceGenerator {
         if (stepOccupancy) stepOccupancy[gridIdx] = 1;
 
         stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
+        this._addPerimeterLines(s, origin.x, origin.y, 1, 1, innerDuration, stepOps);
         return 1;
     }
 
@@ -755,11 +762,7 @@ class QuantizedSequenceGenerator {
                 }
                 stepOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + tw - 1) - this.cx, (ty + th - 1) - this.cy]);
                 
-                if (overwriteCount > 0) {
-                    if (isExposed) {
-                        this._addPerimeterLines(s, tx, ty, tw, th, innerDuration, stepOps);
-                    }
-                }
+                this._addPerimeterLines(s, tx, ty, tw, th, innerDuration, stepOps);
                 
                 totalAdded += (tw * th) - overwriteCount;
             }
@@ -936,9 +939,7 @@ class QuantizedSequenceGenerator {
                      currentOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + shape.w - 1) - this.cx, (ty + shape.h - 1) - this.cy]);
                 }
                 
-                if (isExposed) {
-                     this._addPerimeterLines(targetStep, tx, ty, shape.w, shape.h, innerDuration, currentOps);
-                }
+                this._addPerimeterLines(targetStep, tx, ty, shape.w, shape.h, innerDuration, currentOps);
             }
         }
         
@@ -1177,10 +1178,8 @@ class QuantizedSequenceGenerator {
                 ]);
             }
             
-            // Only draw lines if the block extends the perimeter (touches outside)
-            if (isExposed) {
-                this._addPerimeterLines(s, origin.x, origin.y, w, h, innerDuration, stepOps);
-            }
+            // Always add perimeter lines to ensure internal lines are generated
+            this._addPerimeterLines(s, origin.x, origin.y, w, h, innerDuration, stepOps);
             
             return actualAdded;
         }
@@ -1196,6 +1195,109 @@ class QuantizedSequenceGenerator {
             stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
             return 1;
         }
+        return 0;
+    _checkAxisComplete(axis) {
+        // Axis: 'X' or 'Y'
+        const w = this.width;
+        const h = this.height;
+        const range = 5; // Scan width/height around center
+        const depth = 2; // Depth from edge
+        
+        const checkRegion = (x, y, rw, rh) => {
+            for(let i=0; i<rw; i++) {
+                for(let j=0; j<rh; j++) {
+                    const idx = this._idx(x+i, y+j);
+                    if (idx !== -1 && this.grid[idx] === 1) return true;
+                }
+            }
+            return false;
+        };
+        
+        if (axis === 'Y') {
+            const top = checkRegion(this.cx - Math.floor(range/2), 0, range, depth);
+            const bottom = checkRegion(this.cx - Math.floor(range/2), h - depth, range, depth);
+            return (top && bottom);
+        } else if (axis === 'X') {
+            const left = checkRegion(0, this.cy - Math.floor(range/2), depth, range);
+            const right = checkRegion(w - depth, this.cy - Math.floor(range/2), depth, range);
+            return (left && right);
+        }
+        return false;
+    }
+
+    _checkCrossCompletion() {
+        return this._checkAxisComplete('X') && this._checkAxisComplete('Y');
+    }
+
+    _startCross(s, stepOps, stepOccupancy, innerDuration) {
+        const arms = ['N', 'S', 'E', 'W'];
+        const armLens = {};
+        
+        for (const arm of arms) {
+            let len = 0;
+            let dx = 0, dy = 0;
+            if (arm === 'N') dy = -1;
+            else if (arm === 'S') dy = 1;
+            else if (arm === 'E') dx = 1;
+            else if (arm === 'W') dx = -1;
+            
+            while (true) {
+                const tx = this.cx + (dx * (len + 1));
+                const ty = this.cy + (dy * (len + 1));
+                if (this._idx(tx, ty) === -1 || this.grid[this._idx(tx, ty)] === 0) break;
+                len++;
+            }
+            armLens[arm] = len;
+        }
+        
+        const maxN = this.cy;
+        const maxS = this.height - 1 - this.cy;
+        const maxE = this.width - 1 - this.cx;
+        const maxW = this.cx;
+        
+        const progress = {};
+        progress['N'] = maxN > 0 ? armLens['N'] / maxN : 1;
+        progress['S'] = maxS > 0 ? armLens['S'] / maxS : 1;
+        progress['E'] = maxE > 0 ? armLens['E'] / maxE : 1;
+        progress['W'] = maxW > 0 ? armLens['W'] / maxW : 1;
+        
+        let minP = 2.0;
+        for (const p of Object.values(progress)) if (p < minP) minP = p;
+        
+        const candidates = [];
+        const tolerance = 0.05; 
+        for (const arm of arms) {
+            if (progress[arm] <= minP + tolerance && progress[arm] < 1.0) {
+                candidates.push(arm);
+            }
+        }
+        
+        if (candidates.length === 0) return 0;
+        
+        const arm = candidates[Math.floor(Math.random() * candidates.length)];
+        
+        let dx = 0, dy = 0;
+        if (arm === 'N') dy = -1;
+        else if (arm === 'S') dy = 1;
+        else if (arm === 'E') dx = 1;
+        else if (arm === 'W') dx = -1;
+        
+        const len = armLens[arm];
+        const tx = this.cx + (dx * (len + 1));
+        const ty = this.cy + (dy * (len + 1));
+        
+        const idx = this._idx(tx, ty);
+        if (idx !== -1 && this.grid[idx] === 0 && stepOccupancy[idx] === 0) {
+            this.grid[idx] = 1;
+            stepOccupancy[idx] = 1;
+            
+            this._clearAreaLines(tx, ty, 1, 1, stepOps);
+            console.log(`[QGen] StartCross Adding at ${tx}, ${ty}. Step: ${s}`);
+            stepOps.push(['add', tx - this.cx, ty - this.cy]);
+            this._addPerimeterLines(s, tx, ty, 1, 1, innerDuration, stepOps);
+            return 1;
+        }
+        
         return 0;
     }
 }

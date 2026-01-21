@@ -142,9 +142,8 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         this.animFrame++;
 
         // 1. Animation Cycle (Grid Expansion) - Logic Update
-        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const delayMult = (s.quantizedGenerateSpeed !== undefined) ? s.quantizedGenerateSpeed : 1;
-        const effectiveInterval = baseDuration * (delayMult / 4.0);
+        // Speed setting represents frames per step (Consistent Timer)
+        const effectiveInterval = Math.max(1, (s.quantizedGenerateSpeed !== undefined) ? s.quantizedGenerateSpeed : 10);
 
         this.cycleTimer++;
 
@@ -345,12 +344,10 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
 
         // --- PASS 1: Base Grid (Interior) ---
         // Draws Solid Blocks to ctx (maskCanvas) for Black Fill
+        // Force Opacity 1.0 to ensure "falling code" is fully revealed immediately, per user request.
         for (const op of this.maskOps) {
             if (op.type !== 'add') continue;
-            let opacity = 1.0;
-            if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-            else if (op.startFrame) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
-            ctx.globalAlpha = opacity;
+            ctx.globalAlpha = 1.0;
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             // Increased inflate to +1.0 to ensure solid overlap without gaps
@@ -364,85 +361,104 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             
             const boldLineWidthX = lineWidthX * 2.0; 
             const boldLineWidthY = lineWidthY * 2.0;
+            const color = this.getConfig('PerimeterColor') || "#FFD700";
+            const fadeOutFrames = this.getConfig('FadeFrames') || 60;
             
-            // Merge Delay Logic
-            const mergeDelayEnabled = s.quantizedGenerateMergeDelay;
-            const baseDuration = Math.max(1, d.cycleDuration);
-            const delayMult = (s.quantizedGenerateSpeed !== undefined) ? s.quantizedGenerateSpeed : 1;
-            const stepDuration = baseDuration * (delayMult / 4.0);
-            const mergeHorizon = mergeDelayEnabled ? (stepDuration * 3.0) : 0;
+            pCtx.fillStyle = '#FFFFFF';
 
-            const batches = new Map();
-
+            // PART A: Standard Rendering + Internalizing Fade Out
             for (let by = 0; by < blocksY; by++) {
                 for (let bx = 0; bx < blocksX; bx++) {
                     if (!isRenderActive(bx, by)) continue; 
-
-                    // Optimization & Style Preference:
-                    // Only draw borders for blocks that are actually touching the global perimeter (Void).
-                    // This prevents internal "new" blocks (e.g. from thickening) from drawing distracting borders inside the mass.
-                    const touchesVoid = isTrueOutside(bx, by - 1) || 
-                                      isTrueOutside(bx, by + 1) || 
-                                      isTrueOutside(bx - 1, by) || 
-                                      isTrueOutside(bx + 1, by);
                     
-                    if (!touchesVoid) continue;
-                    
-                    // Fix: Use correct scaled index
                     const idx = (by + offY) * scaledW + (bx + offX);
                     if (idx < 0 || idx >= this.renderGrid.length) continue;
-                    
                     const startFrame = this.renderGrid[idx];
-                    const isUnmerged = (now - startFrame) < mergeHorizon;
                     
-                    const checkFace = (nx, ny) => {
-                        if (!isRenderActive(nx, ny)) return true; // Void is always outside
-                        if (!isUnmerged) return false; // If I am old, only Void is outside
+                    const faces = ['N', 'S', 'W', 'E'];
+                    for (const f of faces) {
+                        let nx = bx, ny = by;
+                        if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
                         
-                        // If I am new, check neighbor start frame
-                        const nIdx = (ny + offY) * scaledW + (nx + offX);
-                        const nStart = this.renderGrid[nIdx];
-                        // If neighbor is older (or just different batch), treat as outside
-                        return (nStart !== startFrame);
-                    };
-                    
-                    const outN = checkFace(bx, by - 1);
-                    const outS = checkFace(bx, by + 1);
-                    const outW = checkFace(bx - 1, by);
-                    const outE = checkFace(bx + 1, by);
-
-                    if (!outN && !outS && !outW && !outE) continue; 
-
-                    let list = batches.get(startFrame);
-                    if (!list) { list = []; batches.set(startFrame, list); }
-                    
-                    const faces = [];
-                    if (outN) faces.push({dir: 'N', rS: outW, rE: outE});
-                    if (outS) faces.push({dir: 'S', rS: outW, rE: outE});
-                    if (outW) faces.push({dir: 'W', rS: outN, rE: outS});
-                    if (outE) faces.push({dir: 'E', rS: outN, rE: outS});
-                    
-                    list.push({bx, by, faces});
+                        const isVoid = isTrueOutside(nx, ny);
+                        
+                        let draw = isVoid;
+                        let opacity = 1.0;
+                        
+                        // Standard Fade In
+                        if (draw) {
+                            if (addDuration > 1 && startFrame !== -1 && !this.debugMode) {
+                                opacity = Math.min(1.0, (now - startFrame) / addDuration);
+                            }
+                        } 
+                        // Fade Out (Internalizing)
+                        else {
+                            if (isRenderActive(nx, ny)) {
+                                const nIdx = (ny + offY) * scaledW + (nx + offX);
+                                if (nIdx >= 0 && nIdx < this.renderGrid.length) {
+                                    const nStart = this.renderGrid[nIdx];
+                                    if (nStart > startFrame) {
+                                        const age = now - nStart;
+                                        if (age < fadeOutFrames) {
+                                            draw = true;
+                                            opacity = Math.max(0, 1.0 - (age / fadeOutFrames));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (draw && opacity > 0.001) {
+                            pCtx.globalAlpha = opacity;
+                            pCtx.beginPath();
+                            this._addPerimeterFacePath(bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
+                            pCtx.fill();
+                        }
+                    }
                 }
             }
 
-            for (const [startFrame, items] of batches) {
-                let opacity = 1.0;
-                if (fadeInFrames === 0 || this.debugMode) opacity = 1.0;
-                else if (startFrame !== -1) opacity = Math.min(1.0, (now - startFrame) / addDuration);
+            // PART B: Vanishing Fade Out (Removed Blocks)
+            if (this.maskOps) {
+                const logicCx = Math.floor(this.logicGridW / 2);
+                const logicCy = Math.floor(this.logicGridH / 2);
                 
-                if (opacity <= 0.001) continue;
+                for (const op of this.maskOps) {
+                    if (op.type !== 'removeBlock') continue;
+                    
+                    const age = now - op.startFrame;
+                    if (age >= fadeOutFrames) continue;
+                    
+                    const opacity = Math.max(0, 1.0 - (age / fadeOutFrames));
+                    if (opacity <= 0.001) continue;
 
-                pCtx.globalAlpha = opacity;
-                pCtx.fillStyle = '#FFFFFF';
-                pCtx.beginPath();
-                
-                for (const item of items) {
-                    for (const face of item.faces) {
-                        this._addPerimeterFacePath(item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
+                    const start = { x: logicCx + op.x1, y: logicCy + op.y1 };
+                    const end = { x: logicCx + op.x2, y: logicCy + op.y2 };
+                    const minX = Math.min(start.x, end.x);
+                    const maxX = Math.max(start.x, end.x);
+                    const minY = Math.min(start.y, end.y);
+                    const maxY = Math.max(start.y, end.y);
+
+                    for (let by = minY; by <= maxY; by++) {
+                        for (let bx = minX; bx <= maxX; bx++) {
+                            const faces = ['N', 'S', 'W', 'E'];
+                            for (const f of faces) {
+                                let nx = bx, ny = by;
+                                if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
+
+                                let isInternalToOp = (nx >= minX && nx <= maxX && ny >= minY && ny <= maxY);
+                                if (!isInternalToOp) {
+                                    if (isTrueOutside(nx, ny)) {
+                                        pCtx.globalAlpha = opacity;
+                                        pCtx.beginPath();
+                                        this._addPerimeterFacePath(bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
+                                        pCtx.fill();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                pCtx.fill();
             }
 
             // --- PASS 3.5: VOID CLEANUP ---
@@ -474,7 +490,9 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             try {
                 // Restore animation-based line adding logic
                 const activeLines = new Map();
-                
+                const cleanDist = (s.quantizedGenerateCleanInnerDistance !== undefined) ? s.quantizedGenerateCleanInnerDistance : 4;
+                const durationSteps = (s.quantizedGenerateInnerLineDuration !== undefined) ? s.quantizedGenerateInnerLineDuration : 1;
+
                 // 1. Collect Lines from Animation Ops (Process strictly in order)
                 for (const op of this.maskOps) {
                     const start = { x: cx + op.x1, y: cy + op.y1 };
@@ -489,7 +507,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                             for (let bx = minX; bx <= maxX; bx++) {
                                 // Distance Check (Scaled)
                                 const distIdx = (by + offY) * scaledW + (bx + offX);
-                                if (distIdx >= 0 && distIdx < distMap.length && distMap[distIdx] > 4) continue;
+                                if (distIdx >= 0 && distIdx < distMap.length && distMap[distIdx] > cleanDist) continue;
 
                                 const idx = by * blocksX + bx;
                                 let nx = bx, ny = by;
@@ -744,12 +762,11 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                         else if (face === 'W') isFacingCenter = (bx > gridCx);
                         else if (face === 'E') isFacingCenter = (bx < gridCx);
                         
-                        // LIFETIME CHECK: Strict 3-Step Limit
-                        // Ensure no internal lines persist longer than 3 steps.
-                        // This prevents clutter inside the expanding mass.
+                        // LIFETIME CHECK: Configurable Limit
+                        // Ensure no internal lines persist longer than config duration.
                         if (op.startPhase !== undefined) {
                             const age = this.expansionPhase - op.startPhase;
-                            if (age > 3) return;
+                            if (age > durationSteps) return;
                         }
                         
                         let opacity = 1.0;
