@@ -315,6 +315,7 @@ void main() {
             "quantizedGenerateV2InnerLineDuration": 1,
             "quantizedGenerateV2GreenFadeSeconds": 0.1,
             "quantizedGenerateV2MergeDelay": true,
+            "quantizedGenerateV2CleanInnerDistance": 4,
             dejaVuEnabled: true,
             "dejaVuFrequencySeconds": 350,
             "dejaVuDurationSeconds": 5,

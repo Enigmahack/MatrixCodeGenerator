@@ -1,4 +1,4 @@
-class QuantizedPulseEffect extends QuantizedSequenceEffect {
+class QuantizedPulseEffect extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedPulse";

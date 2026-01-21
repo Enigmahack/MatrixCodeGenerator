@@ -456,12 +456,14 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateInnerLineDuration', type: 'range', label: 'Inner Line Duration', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateEnabled', description: "How long internal lines stay visible after overwrite." },
             { cat: 'Effects', id: 'quantizedGenerateErosionRate', type: 'range', label: 'Erosion Rate', min: 0.0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', dep: 'quantizedGenerateEnabled', description: "Probability of blocks randomly disappearing from the edges during growth." },
 
+            { cat: 'Effects', id: 'quantizedGenerateMergeDelay', type: 'checkbox', label: 'Merge Delay', dep: 'quantizedGenerateEnabled', description: "Delays merging of internal lines until blocks settle." },
+
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Generate V2' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Generate V2', action: 'quantizedGenerateV2', class: 'btn-warn' },
             { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Generate V2' },
             { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 0.1, max: 5, step: 0.1, invert: true, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 5 cycles)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 0.1, max: 10, step: 0.1, invert: true, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 10 cycles)." },
             { cat: 'Effects', id: 'quantizedGenerateV2FadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2FadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2BlockWidthCells', type: 'range', label: 'Block Width', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Width of each block in character cells." },
@@ -471,6 +473,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2PerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2InnerColor', type: 'color', label: 'Inner Line Color', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2InnerLineDuration', type: 'range', label: 'Inner Line Duration', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateV2Enabled', description: "How long internal lines stay visible after overwrite." },
+            { cat: 'Effects', id: 'quantizedGenerateV2CleanInnerDistance', type: 'range', label: 'Inner Cleanup Dist', min: 2, max: 10, step: 1, unit: 'blocks', dep: 'quantizedGenerateV2Enabled', description: "Removes lines deeper than this distance from the edge." },
 
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
 

@@ -1,4 +1,4 @@
-class QuantizedClimbEffect extends QuantizedSequenceEffect {
+class QuantizedClimbEffect extends QuantizedBaseEffect {
     constructor(grid, config) {
         super(grid, config);
         this.name = "QuantizedClimb";

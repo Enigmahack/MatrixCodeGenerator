@@ -602,6 +602,7 @@ class QuantizedEffectEditor {
         addTool('removeLine', 'Rem Line');
         addTool('addRect', 'Add Rect');
         addTool('addSmart', 'Add Smart');
+        addTool('cleanInternal', 'Clean Internal');
         
         container.appendChild(toolControls);
 
@@ -982,6 +983,50 @@ class QuantizedEffectEditor {
         this.isDirty = true;
     }
 
+    _cleanInternalLines() {
+        if (!this.effect) return;
+        
+        // Ensure state is up to date
+        this.effect._updateRenderGridLogic();
+        const blocksX = this.effect.logicGridW;
+        const blocksY = this.effect.logicGridH;
+        
+        // Force distance map re-calculation
+        this.effect._distMapDirty = true;
+        const distMap = this.effect._computeDistanceField(blocksX, blocksY);
+        const grid = this.effect.renderGrid;
+        
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        const step = this.effect.sequence[this.effect.expansionPhase];
+        let count = 0;
+        
+        for (let i = 0; i < grid.length; i++) {
+            if (grid[i] !== -1 && distMap[i] > 4) {
+                const bx = i % blocksX;
+                const by = Math.floor(i / blocksX);
+                const rx = bx - cx; // Convert to relative coordinates
+                const ry = by - cy;
+                
+                // Add removal for all faces
+                step.push({ op: 'remLine', args: [rx, ry, 'N'] });
+                step.push({ op: 'remLine', args: [rx, ry, 'S'] });
+                step.push({ op: 'remLine', args: [rx, ry, 'E'] });
+                step.push({ op: 'remLine', args: [rx, ry, 'W'] });
+                count++;
+            }
+        }
+        
+        if (count > 0) {
+            this.effect.refreshStep();
+            this.isDirty = true;
+            alert(`Cleaned internal lines for ${count} blocks.`);
+        } else {
+            alert("No internal blocks > 4 distance found.");
+        }
+    }
+
     _onKeyDown(e) {
         if (!this.active) return;
         
@@ -1052,6 +1097,13 @@ class QuantizedEffectEditor {
         if (hit) {
             if (this.currentTool === 'paste') {
                 this._commitPaste(hit.x, hit.y);
+                return;
+            }
+
+            if (this.currentTool === 'cleanInternal') {
+                this._cleanInternalLines();
+                this.currentTool = 'select'; // Reset tool
+                this._updateUI();
                 return;
             }
 

@@ -1,4 +1,4 @@
-class QuantizedRetractEffect extends QuantizedSequenceEffect {
+class QuantizedRetractEffect extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedRetract";

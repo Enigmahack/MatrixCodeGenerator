@@ -1,4 +1,4 @@
-class QuantizedSequenceEffect extends AbstractEffect {
+class QuantizedBaseEffect extends AbstractEffect {
     constructor(g, c) {
         super(g, c);
         // Default Config Keys (Subclasses should override these or the getters)
@@ -87,6 +87,8 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const blocksX = Math.ceil((this.g.cols * this.logicScale) / cellPitchX);
         const blocksY = Math.ceil((this.g.rows * this.logicScale) / cellPitchY);
         
+        // console.log(`[QBase] InitLogicGrid. Cols: ${this.g.cols}, Pitch: ${cellPitchX}, Blocks: ${blocksX}x${blocksY}`);
+        
         if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
             this.logicGrid = new Uint8Array(blocksX * blocksY);
         } else {
@@ -119,6 +121,7 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this.cyclesCompleted = 0;
         this.expansionPhase = 0;
         this.maskOps = [];
+        this._lastProcessedOpIndex = 0;
         this.animFrame = 0;
         this._maskDirty = true;
         
@@ -445,10 +448,20 @@ class QuantizedSequenceEffect extends AbstractEffect {
     }
 
     _computeTrueOutside(blocksX, blocksY) {
+        // console.log(`[QBase] ComputeTrueOutside: ${blocksX}x${blocksY}. Dirty: ${this._outsideMapDirty}`);
+        if (this._outsideMap && this._outsideMapWidth === blocksX && this._outsideMapHeight === blocksY && !this._outsideMapDirty) {
+            return this._outsideMap;
+        }
+
         const size = blocksX * blocksY;
         this._ensureBfsQueueSize(size);
         
-        const status = new Uint8Array(size);
+        if (!this._outsideMap || this._outsideMap.length !== size) {
+            this._outsideMap = new Uint8Array(size);
+        }
+        const status = this._outsideMap;
+        status.fill(0); // Reset for new computation
+
         const queue = this._bfsQueue;
         let head = 0;
         let tail = 0;
@@ -479,6 +492,11 @@ class QuantizedSequenceEffect extends AbstractEffect {
             if (cx > 0) add(idx - 1);
             if (cx < blocksX - 1) add(idx + 1);
         }
+        
+        this._outsideMapWidth = blocksX;
+        this._outsideMapHeight = blocksY;
+        this._outsideMapDirty = false;
+
         return status;
     }
 
@@ -781,6 +799,9 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const blocksY = Math.ceil(grid.rows / cellPitchY);
         
         const drawChar = (x, y) => {
+            // DEBUG COUNT
+            this._debugCharCount = (this._debugCharCount || 0) + 1;
+
             if (x >= cols || y >= rows) return;
             const i = (y * cols) + x;
             let charCode = chars[i];
@@ -793,29 +814,54 @@ class QuantizedSequenceEffect extends AbstractEffect {
                 const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
                 
                 const char = charSet[Math.floor(hash * charSet.length)];
-                charCode = char.charCodeAt(0);
+                charCode = (char) ? char.charCodeAt(0) : 32;
             }
             const cx = screenOriginX + (x * screenStepX);
             const cy = screenOriginY + (y * screenStepY);
-            ctx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
-            ctx.fillText(String.fromCharCode(charCode), 0, 0);
+            
+            if (s.stretchX !== 1 || s.stretchY !== 1) {
+                ctx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
+                ctx.fillText(String.fromCharCode(charCode), 0, 0);
+            } else {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.fillText(String.fromCharCode(charCode), cx, cy);
+            }
         };
 
         for (let by = 0; by <= blocksY; by++) {
             const y = Math.floor(by * cellPitchY);
             if (y >= rows) continue; 
-            for (let x = 0; x < cols; x++) drawChar(x, y);
+            for (let x = 0; x < cols; x++) {
+                const curBx = Math.floor(x / cellPitchX);
+                const idxAbove = (by - 1) * blocksX + curBx;
+                const idxBelow = by * blocksX + curBx;
+                const activeAbove = (by > 0) && (this.renderGrid[idxAbove] !== -1);
+                const activeBelow = (by < blocksY) && (this.renderGrid[idxBelow] !== -1);
+                
+                if (activeAbove || activeBelow) drawChar(x, y);
+            }
         }
         for (let bx = 0; bx <= blocksX; bx++) {
             const x = Math.floor(bx * cellPitchX);
             if (x >= cols) continue;
-            for (let y = 0; y < rows; y++) drawChar(x, y);
+            for (let y = 0; y < rows; y++) {
+                const curBy = Math.floor(y / cellPitchY);
+                const idxLeft = curBy * blocksX + (bx - 1);
+                const idxRight = curBy * blocksX + bx;
+                const activeLeft = (bx > 0) && (this.renderGrid[idxLeft] !== -1);
+                const activeRight = (bx < blocksX) && (this.renderGrid[idxRight] !== -1);
+                
+                if (activeLeft || activeRight) drawChar(x, y);
+            }
         }
         
         ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
     _updateRenderGridLogic() {
+        // DEBUG: Trace Entry
+        // console.log("[QBase] _updateRenderGridLogic Entered. Ops:", this.maskOps ? this.maskOps.length : 0);
+
         if (!this.logicGridW || !this.logicGridH) return;
 
         const bs = this.getBlockSize();
@@ -826,22 +872,32 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const blocksY = this.logicGridH;
         const totalBlocks = blocksX * blocksY;
 
-        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks ||
+            !this.renderGridL1 || this.renderGridL1.length !== totalBlocks ||
+            !this.renderGridL2 || this.renderGridL2.length !== totalBlocks) {
+            
             this.renderGrid = new Int32Array(totalBlocks);
+            this.renderGridL1 = new Int32Array(totalBlocks);
+            this.renderGridL2 = new Int32Array(totalBlocks);
             this.renderGrid.fill(-1);
-        } else {
-            this.renderGrid.fill(-1);
+            this.renderGridL1.fill(-1);
+            this.renderGridL2.fill(-1);
+            this._lastProcessedOpIndex = 0;
         }
 
-        if (!this.maskOps || this.maskOps.length === 0) return;
+        if (!this.maskOps) return;
 
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
+        const startIndex = this._lastProcessedOpIndex || 0;
         
-        for (const op of this.maskOps) {
+        let processed = 0;
+        for (let i = startIndex; i < this.maskOps.length; i++) {
+            const op = this.maskOps[i];
             if (op.startFrame && this.animFrame < op.startFrame) continue;
 
             if (op.type === 'add' || op.type === 'addSmart') {
+                processed++;
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const end = { x: cx + op.x2, y: cy + op.y2 };
                 const minX = Math.max(0, Math.min(start.x, end.x));
@@ -851,7 +907,14 @@ class QuantizedSequenceEffect extends AbstractEffect {
                 
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        this.renderGrid[by * blocksX + bx] = op.startFrame || 0;
+                        const idx = by * blocksX + bx;
+                        
+                        if (op.layer === 1) this.renderGridL2[idx] = op.startFrame || 0;
+                        else this.renderGridL1[idx] = op.startFrame || 0;
+                        
+                        const l1 = this.renderGridL1[idx];
+                        const l2 = this.renderGridL2[idx];
+                        this.renderGrid[idx] = (l2 !== -1) ? l2 : l1;
                     }
                 }
             } else if (op.type === 'removeBlock') {
@@ -864,11 +927,18 @@ class QuantizedSequenceEffect extends AbstractEffect {
                 
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        this.renderGrid[by * blocksX + bx] = -1;
+                        const idx = by * blocksX + bx;
+                        this.renderGrid[idx] = -1;
+                        this.renderGridL1[idx] = -1;
+                        this.renderGridL2[idx] = -1;
                     }
                 }
             }
         }
+        
+        // if (processed > 0) console.log(`[QBase] Processed ${processed} Ops. LastIndex: ${this.maskOps.length}`);
+
+        this._lastProcessedOpIndex = this.maskOps.length;
         
         this._lastBlocksX = blocksX;
         this._lastBlocksY = blocksY;
@@ -876,6 +946,7 @@ class QuantizedSequenceEffect extends AbstractEffect {
         this._lastPitchY = cellPitchY;
         
         this._distMapDirty = true;
+        this._outsideMapDirty = true;
     }
 
     _updateShadowSim() {
@@ -950,6 +1021,9 @@ class QuantizedSequenceEffect extends AbstractEffect {
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
+        // DEBUG: Trace Render
+        // if (this.animFrame % 60 === 0) console.log(`[QBase] Rendering. Frame: ${this.animFrame}, Alpha: ${this.alpha}, Ops: ${this.maskOps.length}`);
+
         const s = this.c.state;
         const glowStrength = this.getConfig('BorderIllumination') || 0;
         
@@ -959,6 +1033,12 @@ class QuantizedSequenceEffect extends AbstractEffect {
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height); 
+
+        // DEBUG: Check Config and Canvas
+        // if (this.animFrame % 60 === 0) {
+        //    console.log(`[QBase] Canvas: ${width}x${height}, Mask: ${this.maskCanvas.width}x${this.maskCanvas.height}`);
+        //    console.log(`[QBase] Colors - Perimeter: ${borderColor}, Inner: ${interiorColor}`);
+        // }
 
         if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height || this.debugMode) {
              this._updateMask(width, height, s, d);
@@ -1298,84 +1378,54 @@ class QuantizedSequenceEffect extends AbstractEffect {
 
     _renderPerimeterPass(ctx, now, addDuration, blocksX, blocksY, isRenderActive, isTrueOutside) {
         const l = this.layout;
-        const boldLineWidthX = l.lineWidthX * 2.0; 
-        const boldLineWidthY = l.lineWidthY * 2.0;
-        
         const mergeDelayEnabled = this.c.state[this.configPrefix + 'MergeDelay'];
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const delayMult = (this.c.state[this.configPrefix + 'Speed'] !== undefined) ? this.c.state[this.configPrefix + 'Speed'] : 1;
         const stepDuration = baseDuration * (delayMult / 4.0);
         const mergeHorizon = mergeDelayEnabled ? (stepDuration * 3.0) : 0;
         
-        const batches = new Map();
-
+        // Configurable Properties
+        const color = this.getConfig('PerimeterColor') || "#FFD700";
+        // Alpha might be modulated by age
+        
         for (let by = 0; by < blocksY; by++) {
             for (let bx = 0; bx < blocksX; bx++) {
                 if (!isRenderActive(bx, by)) continue; 
                 
-                const touchesVoid = isTrueOutside(bx, by - 1) || 
-                                    isTrueOutside(bx, by + 1) || 
-                                    isTrueOutside(bx - 1, by) || 
-                                    isTrueOutside(bx + 1, by);
-                                    
-                if (!touchesVoid && !mergeDelayEnabled) continue;
-
                 const idx = by * blocksX + bx;
                 const startFrame = this.renderGrid[idx];
-                const isUnmerged = mergeDelayEnabled && ((now - startFrame) < mergeHorizon);
-
-                const checkFace = (nx, ny) => {
-                    if (!isRenderActive(nx, ny)) return true;
-                    if (!mergeDelayEnabled) return false;
-                    if (!isUnmerged) return false;
+                let opacity = 1.0;
+                // if (addDuration > 1 && startFrame !== -1 && !this.debugMode) {
+                //    opacity = Math.min(1.0, (now - startFrame) / addDuration);
+                // }
+                
+                const faces = ['N', 'S', 'W', 'E'];
+                for (const f of faces) {
+                    let nx = bx, ny = by;
+                    if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
                     
-                    const nIdx = ny * blocksX + nx;
-                    const nStart = this.renderGrid[nIdx];
-                    return (nStart !== startFrame);
-                };
-
-                const outN = checkFace(bx, by - 1);
-                const outS = checkFace(bx, by + 1);
-                const outW = checkFace(bx - 1, by);
-                const outE = checkFace(bx + 1, by);
-
-                if (!outN && !outS && !outW && !outE) continue; 
-
-                let list = batches.get(startFrame);
-                if (!list) { list = []; batches.set(startFrame, list); }
-                list.push({bx, by, faces: [
-                    outN ? {dir: 'N', rS: outW, rE: outE} : null,
-                    outS ? {dir: 'S', rS: outW, rE: outE} : null,
-                    outW ? {dir: 'W', rS: outN, rE: outS} : null,
-                    outE ? {dir: 'E', rS: outN, rE: outS} : null
-                ].filter(Boolean)});
-            }
-        }
-
-        ctx.fillStyle = '#FF0000';
-        
-        for (const [startFrame, items] of batches) {
-            let opacity = 1.0;
-            // Force Opacity 1.0 for debugging
-            // if (addDuration > 1 && startFrame !== -1 && !this.debugMode) {
-            //    opacity = Math.min(1.0, (now - startFrame) / addDuration);
-            // }
-            if (opacity <= 0.001) continue;
-
-            ctx.globalAlpha = opacity;
-            ctx.beginPath();
-            
-            // Debug Log once per frame
-            // if (this.animFrame % 60 === 0 && items.length > 0) {
-            //      console.log(`[Quantized] Drawing Border for ${items.length} blocks. Opacity: ${opacity}`);
-            // }
-
-            for (const item of items) {
-                for (const face of item.faces) {
-                    this._addPerimeterFacePath(ctx, item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
+                    const isVoid = isTrueOutside(nx, ny);
+                    
+                    // Logic: Draw Exterior Line if neighbor is Void (Absolute Border)
+                    // OR if Merge Delay is active and neighbor is newer/different (Transient Border)
+                    
+                    let draw = isVoid;
+                    if (!draw && mergeDelayEnabled) {
+                        if (isRenderActive(nx, ny)) {
+                            const nIdx = ny * blocksX + nx;
+                            const nStart = this.renderGrid[nIdx];
+                            // If neighbor is significantly newer, draw border to separate
+                            if ((now - startFrame) < mergeHorizon && nStart !== startFrame) {
+                                draw = true;
+                            }
+                        }
+                    }
+                    
+                    if (draw) {
+                        this._drawExteriorLine(ctx, bx, by, f, { color, opacity });
+                    }
                 }
             }
-            ctx.fill();
         }
     }
 
@@ -1407,92 +1457,116 @@ class QuantizedSequenceEffect extends AbstractEffect {
 
     _renderLinesPass(ctx, now, addDuration, blocksX, blocksY, isRenderActive, isTrueOutside, distMap) {
         const l = this.layout;
-        ctx.fillStyle = '#FFFFFF';
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
         
+        // Configurable Properties
+        const color = this.getConfig('InnerColor') || "#FFD700";
+        
+        // Use a simpler iteration over maskOps if possible, OR scan grid if we track lines there.
+        // Base class tracks lines in `maskOps`.
+        
         const activeLines = new Map();
         
+        // Gather active lines from Ops
         for (const op of this.maskOps) {
+            if (op.type !== 'addLine' && op.type !== 'removeLine') continue;
+            
+            // ... (Same bounding box logic as before) ...
             const start = { x: cx + op.x1, y: cy + op.y1 };
             const end = { x: cx + op.x2, y: cy + op.y2 };
             const minX = Math.min(start.x, end.x);
             const maxX = Math.max(start.x, end.x);
             const minY = Math.min(start.y, end.y);
             const maxY = Math.max(start.y, end.y);
-
-            if (op.type === 'addLine') {
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        // Skip lines on blocks that are too deep inside (Distance Field optimization)
-                        const distIdx = by * blocksX + bx;
-                        if (distMap[distIdx] > 4) continue;
-
+            
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                    const idx = by * blocksX + bx;
+                    if (!activeLines.has(idx)) activeLines.set(idx, {});
+                    const cell = activeLines.get(idx);
+                    
+                    const f = op.face ? op.face.toUpperCase() : '';
+                    if (op.type === 'addLine') {
+                        // Skip if deep inside?
+                        if (distMap && distMap[idx] > 4) continue; 
                         if (isRenderActive(bx, by)) {
-                            const idx = by * blocksX + bx;
-                            let nx = bx, ny = by;
-                            const f = op.face ? op.face.toUpperCase() : '';
-                            if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-                            
-                            // Don't draw internal lines on the true outside boundary (perimeter handles that)
-                            if (isTrueOutside(nx, ny)) continue;
-
-                            let cell = activeLines.get(idx);
-                            if (!cell) { cell = {}; activeLines.set(idx, cell); }
                             cell[f] = op;
                         }
-                    }
-                }
-            } else if (op.type === 'removeLine') {
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        const idx = by * blocksX + bx;
-                        const f = op.face ? op.face.toUpperCase() : '';
-                        const cell = activeLines.get(idx);
-                        if (cell) {
-                            delete cell[f];
-                            if (Object.keys(cell).length === 0) activeLines.delete(idx);
-                        }
-                    }
-                }
-            } else if (op.type === 'removeBlock' || op.type === 'remove') {
-                for (let by = minY; by <= maxY; by++) {
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        const idx = by * blocksX + bx;
-                        activeLines.delete(idx);
+                    } else {
+                        delete cell[f];
                     }
                 }
             }
         }
-
+        
+        // Draw
         for (const [idx, cell] of activeLines) {
             const bx = idx % blocksX;
             const by = (idx / blocksX) | 0;
             
-            const drawLine = (face, rS, rE) => {
-                const op = cell[face];
+            // Check if this block touches outside? If so, perimeter handles it?
+            // "Exterior Lines... separates outside from inside".
+            // Interior lines are for *inside* the shape.
+            
+            // Check each face
+            ['N', 'S', 'W', 'E'].forEach(f => {
+                const op = cell[f];
                 if (!op) return;
+                
+                // Don't draw interior line if it overlaps with exterior border
+                let nx = bx, ny = by;
+                if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
+                if (isTrueOutside(nx, ny)) return; 
+                
                 let opacity = 1.0;
-                if (addDuration > 1 && op.startFrame && !this.debugMode) {
-                    opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+                if (op.fading) {
+                     opacity = Math.max(0, 1.0 - (now - op.fadeStart) / addDuration);
+                } else if (addDuration > 1 && op.startFrame && !this.debugMode) {
+                     opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
                 }
-                if (opacity <= 0.001) return;
-                ctx.globalAlpha = opacity;
-                ctx.beginPath();
-                this._addPerimeterFacePath(ctx, bx, by, {dir: face, rS, rE}, l.lineWidthX, l.lineWidthY);
-                ctx.fill();
-            };
-
-            const hasN_Border = isTrueOutside(bx, by - 1);
-            const hasS_Border = isTrueOutside(bx, by + 1);
-            const hasN = !!cell['N'] || hasN_Border;
-            const hasS = !!cell['S'] || hasS_Border;
-
-            drawLine('N', false, false);
-            drawLine('S', false, false);
-            drawLine('W', hasN, hasS);
-            drawLine('E', hasN, hasS);
+                
+                if (opacity > 0.001) {
+                    this._drawInteriorLine(ctx, bx, by, f, { color, opacity });
+                }
+            });
         }
+    }
+
+    _drawExteriorLine(ctx, bx, by, face, options) {
+        const l = this.layout;
+        const color = options.color || "#FFFFFF";
+        const opacity = options.opacity !== undefined ? options.opacity : 1.0;
+        
+        ctx.globalAlpha = opacity;
+        
+        // Setup fill style if needed, though usually handled by layer tinting.
+        // If we are drawing to a mask, alpha is what matters.
+        
+        ctx.beginPath();
+        const lwX = l.lineWidthX * 2.0; 
+        const lwY = l.lineWidthY * 2.0;
+        
+        // Handle face as String or Object
+        const faceObj = (typeof face === 'string') ? {dir: face} : face;
+        
+        this._addPerimeterFacePath(ctx, bx, by, faceObj, lwX, lwY);
+        ctx.fill();
+    }
+
+    _drawInteriorLine(ctx, bx, by, face, options) {
+        const l = this.layout;
+        const opacity = options.opacity !== undefined ? options.opacity : 1.0;
+        
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        const lwX = l.lineWidthX;
+        const lwY = l.lineWidthY;
+        
+        const faceObj = (typeof face === 'string') ? {dir: face} : face;
+        
+        this._addPerimeterFacePath(ctx, bx, by, faceObj, lwX, lwY);
+        ctx.fill();
     }
 
     _renderCornerCleanup(ctx, now) {

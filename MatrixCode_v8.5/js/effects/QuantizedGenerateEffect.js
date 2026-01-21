@@ -1,4 +1,4 @@
-class QuantizedGenerateEffect extends QuantizedSequenceEffect {
+class QuantizedGenerateEffect extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedGenerate";

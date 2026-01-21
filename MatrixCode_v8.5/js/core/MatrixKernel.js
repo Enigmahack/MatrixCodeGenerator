@@ -107,7 +107,7 @@ class MatrixKernel {
             QuantizedClimbEffect,
             QuantizedZoomEffect,
             QuantizedGenerateEffect,
-            QuantizedGenerateEffectV2
+            QuantizedBlockGeneration
         ];
         effects.forEach((EffectClass) => {
             if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {

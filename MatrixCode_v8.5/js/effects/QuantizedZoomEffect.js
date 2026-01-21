@@ -1,4 +1,4 @@
-class QuantizedZoomEffect extends QuantizedSequenceEffect {
+class QuantizedZoomEffect extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedZoom";
@@ -525,8 +525,7 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
             const originalCtx = this.maskCtx;
             this.maskCtx = pCtx; 
             
-            const boldLineWidthX = lineWidthX * 2.0; 
-            const boldLineWidthY = lineWidthY * 2.0;
+            const color = this.getConfig('PerimeterColor') || "#FFD700";
             
             const batches = new Map();
 
@@ -566,18 +565,35 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
                 
                 if (opacity <= 0.001) continue;
 
-                pCtx.globalAlpha = opacity;
-                pCtx.fillStyle = '#FFFFFF';
-                pCtx.beginPath();
-                
+                // Use Base Class Helper
                 for (const item of items) {
                     for (const face of item.faces) {
-                        this._addPerimeterFacePath(pCtx, item.bx, item.by, face, boldLineWidthX, boldLineWidthY);
+                        this._drawExteriorLine(pCtx, item.bx, item.by, face, { color, opacity });
                     }
                 }
-                pCtx.fill();
             }
 
+            // --- PASS 3.5: VOID CLEANUP ---
+            pCtx.globalCompositeOperation = 'destination-out';
+            pCtx.fillStyle = '#FFFFFF';
+            pCtx.beginPath();
+            
+            const l = this.layout;
+
+            for (let by = 0; by < blocksY; by++) {
+                for (let bx = 0; bx < blocksX; bx++) {
+                    if (isTrueOutside(bx, by)) {
+                        const x = l.screenOriginX + (bx * l.cellPitchX * l.screenStepX);
+                        const y = l.screenOriginY + (by * l.cellPitchY * l.screenStepY);
+                        const w = l.cellPitchX * l.screenStepX;
+                        const h = l.cellPitchY * l.screenStepY;
+                        pCtx.rect(x - 0.1, y - 0.1, w + 0.2, h + 0.2); 
+                    }
+                }
+            }
+            pCtx.fill();
+            pCtx.globalCompositeOperation = 'source-over';
+            
             this.maskCtx = originalCtx; 
         }
 
@@ -585,7 +601,7 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
         if (lCtx) {
             const originalCtx = this.maskCtx;
             this.maskCtx = lCtx;
-            lCtx.fillStyle = '#FFFFFF';
+            const iColor = this.getConfig('InnerColor') || "#FFD700";
 
             // Collect Active Lines
             const activeLines = new Map();
@@ -648,10 +664,8 @@ class QuantizedZoomEffect extends QuantizedSequenceEffect {
                     
                     if (opacity <= 0.001) return;
 
-                    lCtx.globalAlpha = opacity;
-                    lCtx.beginPath();
-                    this._addPerimeterFacePath(lCtx, bx, by, {dir: face, rS, rE}, lineWidthX, lineWidthY);
-                    lCtx.fill();
+                    // Use Base Class Helper
+                    this._drawInteriorLine(lCtx, bx, by, {dir: face, rS, rE}, { color: iColor, opacity });
                 };
 
                 const hasN_Border = isTrueOutside(bx, by - 1);

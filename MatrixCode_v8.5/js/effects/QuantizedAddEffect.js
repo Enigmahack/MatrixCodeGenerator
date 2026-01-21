@@ -1,4 +1,4 @@
-class QuantizedAddEffect extends QuantizedSequenceEffect {
+class QuantizedAddEffect extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
         this.name = "QuantizedAdd";
@@ -228,8 +228,19 @@ class QuantizedAddEffect extends QuantizedSequenceEffect {
     }
 
     _computeTrueOutside(blocksX, blocksY) {
-        const status = new Uint8Array(blocksX * blocksY);
-        const queue = [];
+        const size = blocksX * blocksY;
+        this._ensureBfsQueueSize(size);
+        
+        if (!this._outsideStatusBuffer || this._outsideStatusBuffer.length < size) {
+            this._outsideStatusBuffer = new Uint8Array(size);
+        }
+        const status = this._outsideStatusBuffer;
+        status.fill(0); // Reset for new computation
+        
+        const queue = []; // Consider using _bfsQueue if possible, but AddEffect uses a custom queue logic here (simple push array). 
+        // For now, array allocation is small compared to Uint8Array buffer. 
+        // Base class uses `this._bfsQueue` (Int32Array) for the queue.
+        // Let's stick to the Array for now to be safe with the logic structure, but fix the big buffer.
 
         const add = (x, y) => {
             if (x < 0 || x >= blocksX || y < 0 || y >= blocksY) return;
