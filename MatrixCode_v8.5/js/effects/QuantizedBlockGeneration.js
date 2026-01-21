@@ -1,7 +1,7 @@
 class QuantizedBlockGeneration extends QuantizedBaseEffect {
     constructor(g, c) {
         super(g, c);
-        this.name = "QuantizedGenerateV2"; 
+        this.name = "QuantizedBlockGenerator"; 
         this.configPrefix = "quantizedGenerateV2";
         this.active = false;
         
@@ -18,15 +18,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.active = true;
         this.timer = 0;
         this.genTimer = 0;
+        this.animFrame = 0; // Fix: Initialize animFrame
         this.alpha = 1.0;
         this.state = 'GENERATING';
         
         this.maskOps = [];
         this.blockMap.clear();
         this.activeBlocks = [];
-        this._lastProcessedOpIndex = 0; // Reset base class incremental tracker
-        
+        this._lastProcessedOpIndex = 0; 
+
         this._initLogicGrid();
+        
         // Init Shadow World (Invisible background sim)
         this._initShadowWorldBase(false);
         this._populateShadowWorld(); // Custom dense population
@@ -34,11 +36,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (this.renderGrid) this.renderGrid.fill(-1);
         
         // Seed
-        this._addBlock(0, 0, 2, 2); 
+        this._spawnBlock(0, 0, 2, 2); 
         
         // Notify
         if (this.c.notifications) {
-            this.c.notifications.show("Quantized Block Generation Started", "info");
+            this.c.notifications.show("Quantized Block Generator Started", "info");
         }
         
         return true;
@@ -156,7 +158,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
         
         // 6. Add Block
-        this._addBlock(targetX, targetY, w, h);
+        this._spawnBlock(targetX, targetY, w, h);
     }
     
     _findCollisions(x, y, w, h) {
@@ -178,8 +180,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         const toPush = new Set(blocks);
         const stack = [...blocks];
+        let loopCount = 0;
         
         while(stack.length > 0) {
+            loopCount++;
+            if (loopCount > 50000) {
+                console.error("[QBlockGen] Infinite Loop detected in Shove! Aborting shove.");
+                break;
+            }
+
             const b = stack.pop();
             
             // Hypothetical new position
@@ -222,7 +231,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Base class renders from renderGrid.
     }
     
-    _addBlock(x, y, w, h) {
+    _spawnBlock(x, y, w, h) {
         const b = { x, y, w, h, startFrame: this.animFrame };
         this.activeBlocks.push(b);
         

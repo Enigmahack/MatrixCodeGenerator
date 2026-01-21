@@ -201,9 +201,13 @@ class MatrixKernel {
                         this.notifications.show(`${action} Triggered`, 'success');
                     }
                     else {
+                        // Compatibility for renamed effect
+                        let targetAction = action;
+                        if (action === 'QuantizedGenerateV2') targetAction = 'QuantizedBlockGenerator';
+
                         // Always force execution via keybind, overriding "Automatic Enabled" toggles
-                        if (this.effectRegistry.trigger(action, true)) {
-                            this.notifications.show(`${action} Triggered`, 'success');
+                        if (this.effectRegistry.trigger(targetAction, true)) {
+                            this.notifications.show(`${targetAction} Triggered`, 'success');
                         }
                     }
                     // Prevent default action only if we matched a binding
@@ -282,7 +286,7 @@ class MatrixKernel {
                 { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
                 { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
                 { enabledKey: 'quantizedGenerateEnabled', frequencyKey: 'quantizedGenerateFrequencySeconds', effectName: 'QuantizedGenerate' },
-                { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedGenerateV2' },
+                { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
 
@@ -366,8 +370,8 @@ class MatrixKernel {
                          text += ` | Rotators: ${rotators}`;
                          text += ` | Shimmers: ${shimmers}`;
                          
-                         // Debug: QuantizedGenerateV2 Internal Lines
-                         const qGenV2 = this.effectRegistry.get('QuantizedGenerateV2');
+                         // Debug: QuantizedBlockGenerator Internal Lines
+                         const qGenV2 = this.effectRegistry.get('QuantizedBlockGenerator');
                          if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
                              text += ` | IntLines: ${qGenV2.debugInternalCount}`;
                          }
@@ -425,7 +429,7 @@ class MatrixKernel {
             { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
             { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
             { enabledKey: 'quantizedGenerateEnabled', frequencyKey: 'quantizedGenerateFrequencySeconds', effectName: 'QuantizedGenerate' },
-            { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedGenerateV2' },
+            { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 

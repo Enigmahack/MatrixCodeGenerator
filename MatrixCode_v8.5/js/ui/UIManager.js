@@ -458,9 +458,9 @@ class UIManager {
 
             { cat: 'Effects', id: 'quantizedGenerateMergeDelay', type: 'checkbox', label: 'Merge Delay', dep: 'quantizedGenerateEnabled', description: "Delays merging of internal lines until blocks settle." },
 
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Generate V2' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Generate V2', action: 'quantizedGenerateV2', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Generate V2' },
+            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'quantizedGenerateV2', class: 'btn-warn' },
+            { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Block Generator' },
             { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 10, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 0.1, max: 10, step: 0.1, invert: true, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 10 cycles)." },
@@ -539,7 +539,7 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'QuantizedClimb', label: 'Quantized Climb' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedZoom', label: 'Quantized Zoom' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedGenerate', label: 'Quantized Generate' },
-            { cat: 'System', type: 'keybinder', id: 'QuantizedGenerateV2', label: 'Quantized Generate V2' },
+            { cat: 'System', type: 'keybinder', id: 'QuantizedBlockGenerator', label: 'Quantized Block Generator' },
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
             { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
@@ -1482,7 +1482,7 @@ class UIManager {
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
                 if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
                 if(action === 'quantizedGenerate') { if(this.effects.trigger('QuantizedGenerate')) this.notifications.show('Quantized Generate Triggered', 'success'); else this.notifications.show('Quantized Generate already active...', 'info'); }
-                if(action === 'quantizedGenerateV2') { if(this.effects.trigger('QuantizedGenerateV2')) this.notifications.show('Quantized Generate V2 Triggered', 'success'); else this.notifications.show('Quantized Generate V2 already active...', 'info'); }
+                if(action === 'quantizedGenerateV2') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
                 if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'reverse_time') { if(this.effects.trigger('ReverseTime')) this.notifications.show('Time Reversal Initiated', 'success'); else this.notifications.show('Temporal anomaly detected...', 'info'); }
