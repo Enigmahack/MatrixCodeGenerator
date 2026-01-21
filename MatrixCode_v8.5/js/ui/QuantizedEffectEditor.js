@@ -236,17 +236,27 @@ class QuantizedEffectEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
-        // 1. Render Actual Effect Preview (Base Layer)
+        // 1. Render Actual Effect Preview (Base Layer - "In-Game View")
         if (this.effect && typeof this.effect.renderEditorPreview === 'function') {
             this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
         }
 
-        if (!this.effect.layout) return; 
+        // Ensure layout exists for schematic rendering
+        if (!this.effect.layout) {
+            // Force a mask update to generate layout if missing
+            if (typeof this.effect._updateMask === 'function') {
+                this.effect._updateMask(width, height, this.effect.c.state, this.effect.c.derived);
+            }
+            if (!this.effect.layout) return; // Still missing? Bail.
+        }
         
         const l = this.effect.layout;
         const grid = this.effect.g;
-        const blocksX = Math.ceil(grid.cols / l.cellPitchX);
-        const blocksY = Math.ceil(grid.rows / l.cellPitchY);
+        
+        // Calculate Grid Metrics
+        // Note: effect.layout might use different scaling than simple blocks, but we trust it.
+        const blocksX = this.effect.logicGridW;
+        const blocksY = this.effect.logicGridH;
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
         
@@ -256,11 +266,12 @@ class QuantizedEffectEditor {
         // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
             ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'; 
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; 
             ctx.lineWidth = 1;
             ctx.beginPath();
 
             // Draw verticals
+            // We use the logic grid dimensions
             for (let bx = 0; bx <= blocksX; bx++) {
                 const x = startX + (bx * l.cellPitchX * l.screenStepX);
                 ctx.moveTo(x, 0);
@@ -278,58 +289,84 @@ class QuantizedEffectEditor {
             const centerX = startX + (cx * l.cellPitchX * l.screenStepX);
             const centerY = startY + (cy * l.cellPitchY * l.screenStepY);
             
-            ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
-            ctx.fillRect(centerX, centerY, l.cellPitchX * l.screenStepX, l.cellPitchY * l.screenStepY);
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            ctx.strokeRect(centerX, centerY, l.cellPitchX * l.screenStepX, l.cellPitchY * l.screenStepY);
 
             ctx.restore();
         }
 
-        // 3. Render Holes (Optimized Flood Fill)
+        // 3. Render Schematic Layer (Blocks & Ops)
+        // This replaces the old "Holes" fill and ensures we see exactly what the Effect sees.
         if (this.highlightChanges) {
-            const logicGrid = this.effect.logicGrid;
-            const lgW = this.effect.logicGridW;
-            const lgH = this.effect.logicGridH;
-            
-            // Only re-calculate flood fill if step logic changed
-            if (this.effect._maskDirty || !this._cachedExternalMask || this._cachedMaskW !== lgW) {
-                const isExternal = new Uint8Array(lgW * lgH); 
-                const queue = [];
-
-                for (let x = 0; x < lgW; x++) { queue.push(x); queue.push((lgH - 1) * lgW + x); }
-                for (let y = 1; y < lgH - 1; y++) { queue.push(y * lgW); queue.push(y * lgW + (lgW - 1)); }
-
-                let head = 0;
-                while(head < queue.length) {
-                    const idx = queue[head++];
-                    if (isExternal[idx] || logicGrid[idx] === 1) continue;
-                    isExternal[idx] = 1; 
-                    const x = idx % lgW;
-                    const y = Math.floor(idx / lgW);
-                    if (x > 0) queue.push(idx - 1);
-                    if (x < lgW - 1) queue.push(idx + 1);
-                    if (y > 0) queue.push(idx - lgW);
-                    if (y < lgH - 1) queue.push(idx + lgW);
-                }
-                this._cachedExternalMask = isExternal;
-                this._cachedMaskW = lgW;
-            }
-
             ctx.save();
-            ctx.fillStyle = 'rgba(128, 0, 128, 0.5)'; 
-            const ext = this._cachedExternalMask;
             
-            for (let y = 0; y < lgH; y++) {
-                for (let x = 0; x < lgW; x++) {
-                    const idx = y * lgW + x;
-                    if (logicGrid[idx] === 0 && ext[idx] === 0) {
-                        const rectX = startX + (x * l.cellPitchX * l.screenStepX);
-                        const rectY = startY + (y * l.cellPitchY * l.screenStepY);
-                        const rectW = l.cellPitchX * l.screenStepX;
-                        const rectH = l.cellPitchY * l.screenStepY;
-                        ctx.fillRect(rectX, rectY, rectW, rectH);
+            // A. Draw Active Blocks (from renderGrid)
+            // These are blocks that are currently "Alive" in the effect state
+            const rGrid = this.effect.renderGrid;
+            if (rGrid) {
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Faint Green Fill
+                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)'; // Green Outline
+                ctx.lineWidth = 1;
+
+                const bW = l.cellPitchX * l.screenStepX;
+                const bH = l.cellPitchY * l.screenStepY;
+
+                for (let i = 0; i < rGrid.length; i++) {
+                    if (rGrid[i] !== -1) {
+                        const bx = i % blocksX;
+                        const by = Math.floor(i / blocksX);
+                        const x = startX + (bx * bW);
+                        const y = startY + (by * bH);
+                        
+                        ctx.fillRect(x + 1, y + 1, bW - 2, bH - 2);
+                        // Optional: Don't stroke every block to reduce noise, or stroke lightly
                     }
                 }
             }
+
+            // B. Draw Operations (Lines, Removals)
+            // We iterate maskOps to see lines and explicit removals
+            const ops = this.effect.maskOps;
+            if (ops) {
+                const bW = l.cellPitchX * l.screenStepX;
+                const bH = l.cellPitchY * l.screenStepY;
+
+                for (const op of ops) {
+                    if (op.type === 'addLine') {
+                        // Draw Line
+                        const bx = cx + op.x1; 
+                        const by = cy + op.y1;
+                        const x = startX + (bx * bW);
+                        const y = startY + (by * bH);
+                        
+                        ctx.strokeStyle = '#FFD700'; // Gold
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        
+                        const face = op.face || 'N';
+                        if (face === 'N') { ctx.moveTo(x, y); ctx.lineTo(x + bW, y); }
+                        else if (face === 'S') { ctx.moveTo(x, y + bH); ctx.lineTo(x + bW, y + bH); }
+                        else if (face === 'E') { ctx.moveTo(x + bW, y); ctx.lineTo(x + bW, y + bH); }
+                        else if (face === 'W') { ctx.moveTo(x, y); ctx.lineTo(x, y + bH); }
+                        
+                        ctx.stroke();
+                    } else if (op.type === 'removeBlock') {
+                        // Draw explicit removal (Red X)
+                        const bx = cx + op.x1;
+                        const by = cy + op.y1;
+                        const x = startX + (bx * bW);
+                        const y = startY + (by * bH);
+
+                        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(x, y); ctx.lineTo(x + bW, y + bH);
+                        ctx.moveTo(x + bW, y); ctx.lineTo(x, y + bH);
+                        ctx.stroke();
+                    }
+                }
+            }
+
             ctx.restore();
         }
 
@@ -338,13 +375,11 @@ class QuantizedEffectEditor {
             ctx.save();
             const minX = this.selectionRect.x + cx;
             const minY = this.selectionRect.y + cy;
-            const w = this.selectionRect.w;
-            const h = this.selectionRect.h;
             
             const selX = startX + (minX * l.cellPitchX * l.screenStepX);
             const selY = startY + (minY * l.cellPitchY * l.screenStepY);
-            const selW = (w + 1) * l.cellPitchX * l.screenStepX;
-            const selH = (h + 1) * l.cellPitchY * l.screenStepY;
+            const selW = (this.selectionRect.w + 1) * l.cellPitchX * l.screenStepX;
+            const selH = (this.selectionRect.h + 1) * l.cellPitchY * l.screenStepY;
             
             ctx.strokeStyle = '#0088FF';
             ctx.lineWidth = 2;
@@ -355,7 +390,9 @@ class QuantizedEffectEditor {
             ctx.restore();
         }
 
-        // 5. Render Paste Preview
+        // 5. Render Tool Preview (Drag/Hover)
+        // If we have an editorPreviewOp, visual feedback is handled by renderEditorPreview.
+        // But for Paste, we draw manually.
         if (this.currentTool === 'paste' && this.clipboard && this.hoverBlock) {
             ctx.save();
             ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
@@ -601,8 +638,6 @@ class QuantizedEffectEditor {
         addTool('addLine', 'Add Line');
         addTool('removeLine', 'Rem Line');
         addTool('addRect', 'Add Rect');
-        addTool('addSmart', 'Add Smart');
-        addTool('cleanInternal', 'Clean Internal');
         
         container.appendChild(toolControls);
 
@@ -983,50 +1018,6 @@ class QuantizedEffectEditor {
         this.isDirty = true;
     }
 
-    _cleanInternalLines() {
-        if (!this.effect) return;
-        
-        // Ensure state is up to date
-        this.effect._updateRenderGridLogic();
-        const blocksX = this.effect.logicGridW;
-        const blocksY = this.effect.logicGridH;
-        
-        // Force distance map re-calculation
-        this.effect._distMapDirty = true;
-        const distMap = this.effect._computeDistanceField(blocksX, blocksY);
-        const grid = this.effect.renderGrid;
-        
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-        
-        const step = this.effect.sequence[this.effect.expansionPhase];
-        let count = 0;
-        
-        for (let i = 0; i < grid.length; i++) {
-            if (grid[i] !== -1 && distMap[i] > 4) {
-                const bx = i % blocksX;
-                const by = Math.floor(i / blocksX);
-                const rx = bx - cx; // Convert to relative coordinates
-                const ry = by - cy;
-                
-                // Add removal for all faces
-                step.push({ op: 'remLine', args: [rx, ry, 'N'] });
-                step.push({ op: 'remLine', args: [rx, ry, 'S'] });
-                step.push({ op: 'remLine', args: [rx, ry, 'E'] });
-                step.push({ op: 'remLine', args: [rx, ry, 'W'] });
-                count++;
-            }
-        }
-        
-        if (count > 0) {
-            this.effect.refreshStep();
-            this.isDirty = true;
-            alert(`Cleaned internal lines for ${count} blocks.`);
-        } else {
-            alert("No internal blocks > 4 distance found.");
-        }
-    }
-
     _onKeyDown(e) {
         if (!this.active) return;
         
@@ -1100,13 +1091,6 @@ class QuantizedEffectEditor {
                 return;
             }
 
-            if (this.currentTool === 'cleanInternal') {
-                this._cleanInternalLines();
-                this.currentTool = 'select'; // Reset tool
-                this._updateUI();
-                return;
-            }
-
             if (this.currentTool === 'addRect' || this.currentTool === 'select') {
                 this.dragStart = hit;
                 return; // Wait for mouse up
@@ -1121,7 +1105,6 @@ class QuantizedEffectEditor {
             let args = null;
 
             if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
-            else if (this.currentTool === 'addSmart') { opName = 'addSmart'; args = [dx, dy]; } 
             else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
             else if (this.currentTool === 'addLine') { opName = 'addLine'; args = [dx, dy, this.currentFace]; } 
             else if (this.currentTool === 'removeLine') { opName = 'remLine'; args = [dx, dy, this.currentFace]; }

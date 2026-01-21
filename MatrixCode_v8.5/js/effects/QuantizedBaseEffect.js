@@ -175,6 +175,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps = [];
         this._initLogicGrid();
         this.renderGrid.fill(-1);
+        if (this.renderGridL1) this.renderGridL1.fill(-1);
+        if (this.renderGridL2) this.renderGridL2.fill(-1);
+        this._lastProcessedOpIndex = 0;
         
         for (let i = 0; i <= stepIndex; i++) {
             const step = this.sequence[i];
@@ -759,8 +762,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
         
-        if (timeSeed === this.lastGridSeed) return; 
+        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return; 
         this.lastGridSeed = timeSeed;
+        this._gridCacheDirty = false;
         
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
@@ -786,8 +790,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const screenStepY = d.cellHeight * s.stretchY;
         const gridPixW = grid.cols * d.cellWidth; 
         const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        // Correction: Shift Origin Right (+0.5w) and Up (-0.5h) to align characters with border mask
+        const screenOriginX = ((d.cellWidth * 1.0 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
@@ -892,12 +897,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         const startIndex = this._lastProcessedOpIndex || 0;
         
         let processed = 0;
-        for (let i = startIndex; i < this.maskOps.length; i++) {
+        let i = startIndex;
+        for (; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
-            if (op.startFrame && this.animFrame < op.startFrame) continue;
+            if (op.startFrame && this.animFrame < op.startFrame) {
+                // Op is in the future. Stop processing and resume here next time.
+                break;
+            }
 
+            processed++;
             if (op.type === 'add' || op.type === 'addSmart') {
-                processed++;
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const end = { x: cx + op.x2, y: cy + op.y2 };
                 const minX = Math.max(0, Math.min(start.x, end.x));
@@ -938,15 +947,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         // if (processed > 0) console.log(`[QBase] Processed ${processed} Ops. LastIndex: ${this.maskOps.length}`);
 
-        this._lastProcessedOpIndex = this.maskOps.length;
+        this._lastProcessedOpIndex = i;
         
         this._lastBlocksX = blocksX;
         this._lastBlocksY = blocksY;
         this._lastPitchX = cellPitchX;
         this._lastPitchY = cellPitchY;
         
-        this._distMapDirty = true;
-        this._outsideMapDirty = true;
+        if (processed > 0) {
+            this._distMapDirty = true;
+            this._outsideMapDirty = true;
+            this._maskDirty = true;
+            this._gridCacheDirty = true;
+        }
     }
 
     _updateShadowSim() {
@@ -1020,6 +1033,9 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
+
+        // Ensure Grid Logic is up to date for this frame
+        this._updateRenderGridLogic();
 
         // DEBUG: Trace Render
         // if (this.animFrame % 60 === 0) console.log(`[QBase] Rendering. Frame: ${this.animFrame}, Alpha: ${this.alpha}, Ops: ${this.maskOps.length}`);
@@ -1215,6 +1231,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.maskOps.length = this._lastPreviewSavedOpsLen;
             this.logicGrid.set(this._lastPreviewSavedLogic);
             
+            // Full Reset of Render Grid to clear preview artifacts
+            this.renderGrid.fill(-1);
+            if (this.renderGridL1) this.renderGridL1.fill(-1);
+            if (this.renderGridL2) this.renderGridL2.fill(-1);
+            this._lastProcessedOpIndex = 0;
+
             if (typeof this._updateRenderGridLogic === 'function') {
                 this._updateRenderGridLogic();
             }
@@ -1291,8 +1313,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const halfLineY = lineWidthY / 2;
         const gridPixW = this.g.cols * d.cellWidth; 
         const gridPixH = this.g.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        // Correction: Shift Origin Right (+0.5w) and Up (-0.5h) as requested
+        const screenOriginX = ((d.cellWidth * 1.0 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
