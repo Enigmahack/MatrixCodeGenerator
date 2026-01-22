@@ -105,6 +105,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Shadow Sim Update (Always run to keep code rain moving)
         this._updateShadowSim();
 
+        // Perform cleanup of expired ops (e.g. inner lines)
+        const fadeOutFrames = this.getConfig('FadeFrames') || 0;
+        if (this.maskOps.length > 0) {
+             this.maskOps = this.maskOps.filter(op => {
+                 if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOutFrames) return false;
+                 return true;
+             });
+        }
+
         const durationFrames = (s.quantizedGenerateV2DurationSeconds || 5) * fps;
         
         if (this.state === 'GENERATING') {
@@ -189,10 +198,100 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     }
 
+    _attemptCyclicGrowth() {
+        if (!this.cycleState) {
+            this.cycleState = { step: 0, step1Block: null };
+            // Ensure we have a base if starting fresh
+            if (this.activeBlocks.length === 0) {
+                 this._spawnBlock(0, 0, 2, 2, 0);
+            }
+        }
+
+        const phase = this.cycleState.step % 3;
+        
+        // Helper: Find a spot that overlaps existing blocks but extends outwards
+        const spawnSmart = (layer, mustOverlap, mustProtrude) => {
+            const anchors = this.activeBlocks.filter(b => b.layer === 0); // Always grow from main mass (Layer 0)
+            if (anchors.length === 0) return null;
+
+            const attempts = 20;
+
+            for (let i = 0; i < attempts; i++) {
+                const anchor = anchors[Math.floor(Math.random() * anchors.length)];
+                
+                // Random Size
+                const w = Math.floor(Math.random() * 3) + 2; // 2-4
+                const h = Math.floor(Math.random() * 3) + 2;
+                
+                // Random Position near anchor
+                const ox = Math.floor(Math.random() * (anchor.w + w)) - w;
+                const oy = Math.floor(Math.random() * (anchor.h + h)) - h;
+                
+                const tx = anchor.x + ox;
+                const ty = anchor.y + oy;
+                
+                // Analyze Overlap with Layer 0 (Precedence Layer)
+                let intersectArea = 0;
+                for (const b of this.activeBlocks) {
+                    if (b.layer !== 0) continue; 
+                    const ix = Math.max(tx, b.x);
+                    const iy = Math.max(ty, b.y);
+                    const iw = Math.min(tx + w, b.x + b.w) - ix;
+                    const ih = Math.min(ty + h, b.y + b.h) - iy;
+                    if (iw > 0 && ih > 0) {
+                        intersectArea += (iw * ih);
+                    }
+                }
+                
+                const totalArea = w * h;
+                const protrudeArea = totalArea - intersectArea;
+
+                let valid = true;
+                if (mustOverlap && intersectArea === 0) valid = false;
+                if (mustProtrude && protrudeArea === 0) valid = false;
+                
+                if (valid) {
+                    this._spawnBlock(tx, ty, w, h, layer);
+                    return { x: tx, y: ty, w, h };
+                }
+            }
+            return null;
+        };
+
+        if (phase === 0) { 
+            // Step 1: Layer 0 spawns something.
+            const b = spawnSmart(0, true, true);
+            if (b) this.cycleState.step1Block = b;
+            
+        } else if (phase === 1) { 
+            // Step 2: Layer 1 spawns something.
+            spawnSmart(1, true, true);
+
+        } else if (phase === 2) { 
+            // Step 3: Layer 0 spawns ... attached to outside perimeter ... not entirely inside/outside.
+            spawnSmart(0, true, true);
+            
+            // "Interior lines start fading out that were placed in the very first step"
+            if (this.cycleState.step1Block) {
+                const b = this.cycleState.step1Block;
+                for (let iy = 0; iy < b.h; iy++) {
+                    for (let ix = 0; ix < b.w; ix++) {
+                        const lx = b.x + ix;
+                        const ly = b.y + iy;
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'N', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'S', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'W', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'E', force: true, startFrame: this.animFrame });
+                    }
+                }
+            }
+        }
+
+        this.cycleState.step++;
+    }
+
     _attemptGrowth() {
-        this._attemptLayerOverlap();
-        this._attemptSpineGrowth();
-        this._attemptCrawlerGrowth();
+        this._attemptCyclicGrowth();
     }
 
     _attemptSpineGrowth() {
@@ -275,27 +374,88 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             this._mergeLayers();
             this._spawnBlock(0, -1, 1, 3, 1); 
         } else {
-            this._mergeLayers();
-            // Dynamic Cloud Growth
-            // Pick a random existing block to grow from? 
-            // For now, random scatter near center
-            const range = Math.min(10, 4 + Math.floor(s.step / 5));
-            const layer = (s.step % 2);
+            // DYNAMIC CLOUD GROWTH
+            // Merge Layer 1 into Layer 0 every few steps to solidify the "cloud"
+            if (s.step % 4 === 0) {
+                this._mergeLayers();
+            }
+
+            // Pick an anchor block, preferring Layer 1 (active) blocks
+            const l1Blocks = this.activeBlocks.filter(b => b.layer === 1);
+            const anchor = (l1Blocks.length > 0 && Math.random() < 0.7) 
+                ? l1Blocks[Math.floor(Math.random() * l1Blocks.length)]
+                : this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+
+            if (!anchor) return;
+
+            const range = Math.min(15, 6 + Math.floor(s.step / 3));
+            let tx, ty, tw, th;
             
-            // Bias towards center for cloud effect
-            const r = Math.random();
-            let dist = (r * r) * range; // Quadratic bias to center
-            const angle = Math.random() * Math.PI * 2;
+            // Attempt to place a new block that partially overlaps or touches the anchor
+            const attempts = 5;
+            let success = false;
+            for (let i = 0; i < attempts; i++) {
+                tw = Math.floor(Math.random() * 3) + 1;
+                th = Math.floor(Math.random() * 3) + 1;
+                
+                // Random offset that likely results in overlap or adjacency
+                const ox = Math.floor(Math.random() * (anchor.w + tw + 1)) - tw;
+                const oy = Math.floor(Math.random() * (anchor.h + th + 1)) - th;
+                
+                tx = anchor.x + ox;
+                ty = anchor.y + oy;
+
+                // Boundary check
+                if (Math.abs(tx) <= range && Math.abs(ty) <= range) {
+                    success = true;
+                    break;
+                }
+            }
             
-            const x = Math.floor(Math.cos(angle) * dist);
-            const y = Math.floor(Math.sin(angle) * dist);
+            if (!success) {
+                // Fallback: random scatter near center
+                tx = Math.floor(Math.random() * range * 2) - range;
+                ty = Math.floor(Math.random() * range * 2) - range;
+                tw = Math.floor(Math.random() * 2) + 1;
+                th = Math.floor(Math.random() * 2) + 1;
+            }
+
+            // Spawn on Layer 1 to represent "active" growth
+            this._spawnBlock(tx, ty, tw, th, 1);
             
-            const w = Math.floor(Math.random() * 3) + 1;
-            const h = Math.floor(Math.random() * 3) + 1;
-            
-            this._spawnBlock(x, y, w, h, layer);
+            // Occasional small detail block on Layer 0 to fill gaps
+            if (Math.random() < 0.2) {
+                const dx = Math.floor(Math.random() * 5) - 2;
+                const dy = Math.floor(Math.random() * 5) - 2;
+                this._spawnBlock(tx + dx, ty + dy, 1, 1, 0);
+            }
         }
         s.step++;
+    }
+
+    _renderInteriorPass(ctx, now, addDuration) {
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+
+        for (const op of this.maskOps) {
+            if (op.type !== 'add') continue;
+            let opacity = 1.0;
+
+            if (addDuration > 1 && op.startFrame && !this.debugMode) {
+                opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
+            }
+            
+            // Layer 1 distinction: Subtle pulse
+            if (op.layer === 1) {
+                const pulse = 0.85 + 0.15 * Math.sin(now * 0.15);
+                opacity *= pulse;
+            }
+            
+            ctx.globalAlpha = opacity;
+            const start = { x: cx + op.x1, y: cy + op.y1 };
+            const end = { x: cx + op.x2, y: cy + op.y2 };
+            this._addBlock(start, end, op.ext, false);
+        }
     }
 
     _mergeLayers() {
@@ -401,6 +561,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             layer: layer
         });
         
+        // Calculate Line Duration
+        const durationSteps = this.c.state.quantizedGenerateV2InnerLineDuration || 1;
+        const speed = this.c.state.quantizedGenerateV2Speed || 1;
+        const framesPerStep = Math.max(1, 10 / speed);
+        const durationFrames = durationSteps * framesPerStep;
+
         // Add Interior Lines
         const addLine = (lx, ly, face) => {
             this.maskOps.push({ 
@@ -408,6 +574,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 x1: lx, y1: ly, x2: lx, y2: ly, 
                 face: face, 
                 startFrame: this.animFrame,
+                expireFrame: this.animFrame + durationFrames, 
                 startPhase: this.stepCount,
                 layer: layer 
             });

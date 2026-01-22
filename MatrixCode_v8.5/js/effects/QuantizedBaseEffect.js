@@ -1376,9 +1376,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this._renderInteriorPass(ctx, now, addDuration);
 
                 // Unified Shared Edge Rendering
-                if (pCtx) {
-                    this._renderEdges(pCtx, now, addDuration, blocksX, blocksY, offX, offY);
-                }
+                this._renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY);
             }
 
             _renderInteriorPass(ctx, now, addDuration) {
@@ -1399,11 +1397,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
 
-            _renderEdges(ctx, now, addDuration, blocksX, blocksY, offX, offY) {
+            _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
                 const l = this.layout;
                 const bw = l.cellPitchX;
                 const bh = l.cellPitchY;
-                const thickness = this.getConfig('PerimeterThickness') !== undefined ? this.getConfig('PerimeterThickness') : 1.0;
+                const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+                const fadeOutFrames = this.getConfig('FadeFrames') || 0;
                 const cx_off = Math.floor(this.logicGridW / 2);
                 const cy_off = Math.floor(this.logicGridH / 2);
 
@@ -1428,73 +1427,80 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
 
                 const getBlockEdgeState = (bx, by, face) => {
-                    if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return { active: false, time: -1, wantLine: null };
+                    if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return { active: false, time: -1, op: null };
                     const idx = by * blocksX + bx;
                     const t = this.renderGrid[idx];
                     const active = (t !== -1);
-                    let wantLine = null;
+                    let op = null;
 
                     if (active && opMap.has(idx)) {
                         const ops = opMap.get(idx);
-                        if (ops[face]) wantLine = (ops[face].type === 'addLine');
+                        if (ops[face]) op = ops[face];
                     }
-                    return { active, time: t, wantLine };
+                    return { active, time: t, op };
                 };
 
-                const groups = new Map(); // Time -> { V: [], H: [] }
+                const groups = new Map(); // Key -> { V: [], H: [], ctx, t, exp }
+
+                const processEdge = (b1, b2, bx, by, isVert) => {
+                    if (!b1.active && !b2.active) return;
+                    const winner = (b1.time >= b2.time) ? b1 : b2;
+                    let wantLine = (b1.active !== b2.active);
+                    if (winner.op) wantLine = (winner.op.type === 'addLine');
+
+                    if (wantLine) {
+                        const isInner = (b1.active && b2.active);
+                        const targetCtx = isInner ? lCtx : pCtx;
+                        if (!targetCtx) return;
+
+                        const t = winner.time;
+                        const exp = winner.op ? winner.op.expireFrame : null;
+                        const key = `${t}_${exp}_${isInner}`;
+
+                        if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t, exp });
+                        if (isVert) groups.get(key).V.push({ bx, by });
+                        else groups.get(key).H.push({ bx, by });
+                    }
+                };
 
                 // Vertical Edges
-
                 for (let by = 0; by < blocksY; by++) {
                     for (let bx = 0; bx <= blocksX; bx++) {
-                        const bL = getBlockEdgeState(bx - 1, by, 'E');
-                        const bR = getBlockEdgeState(bx, by, 'W');
-                        if (!bL.active && !bR.active) continue;
-                        const winner = (bL.time >= bR.time) ? bL : bR;
-                        let draw = (bL.active !== bR.active);
-                        if (winner.wantLine !== null) draw = winner.wantLine;
-
-                        if (draw) {
-                            if (!groups.has(winner.time)) groups.set(winner.time, { V: [], H: [] });
-                            groups.get(winner.time).V.push({ bx, by });
-                        }
+                        processEdge(getBlockEdgeState(bx - 1, by, 'E'), getBlockEdgeState(bx, by, 'W'), bx, by, true);
                     }
                 }
 
                 // Horizontal Edges
                 for (let by = 0; by <= blocksY; by++) {
                     for (let bx = 0; bx < blocksX; bx++) {
-                        const bT = getBlockEdgeState(bx, by - 1, 'S');
-                        const bB = getBlockEdgeState(bx, by, 'N');
-                        if (!bT.active && !bB.active) continue;
-                        const winner = (bT.time >= bB.time) ? bT : bB;
-                        let draw = (bT.active !== bB.active);
-
-                        if (winner.wantLine !== null) draw = winner.wantLine;
-
-                        if (draw) {
-                            if (!groups.has(winner.time)) groups.set(winner.time, { V: [], H: [] });
-                            groups.get(winner.time).H.push({ bx, by });
-                        }
+                        processEdge(getBlockEdgeState(bx, by - 1, 'S'), getBlockEdgeState(bx, by, 'N'), bx, by, false);
                     }
                 }
 
-                ctx.fillStyle = '#FFFFFF';
+                const lwX = l.lineWidthX * 2.0;
+                const lwY = l.lineWidthY * 2.0;
 
-                for (const [t, data] of groups) {
+                for (const group of groups.values()) {
                     let opacity = 1.0;
-
-                    if (addDuration > 1 && t > 0 && !this.debugMode) {
-                        opacity = Math.min(1.0, (now - t) / addDuration);
+                    if (!this.debugMode) {
+                        // Fade In
+                        if (fadeInFrames > 0 && group.t > 0) {
+                            opacity = Math.min(opacity, (now - group.t) / fadeInFrames);
+                        }
+                        // Fade Out
+                        if (group.exp && fadeOutFrames > 0) {
+                            opacity = Math.min(opacity, 1.0 - (now - group.exp) / fadeOutFrames);
+                        }
                     }
 
                     if (opacity <= 0.001) continue;
+                    
+                    const ctx = group.ctx;
+                    ctx.fillStyle = '#FFFFFF';
                     ctx.globalAlpha = opacity;
                     ctx.beginPath();
-                        const lwX = l.lineWidthX * 2.0;
-                        const lwY = l.lineWidthY * 2.0;
 
-                    for (const seg of data.V) {
+                    for (const seg of group.V) {
                         const cx = (seg.bx - offX) * bw;
                         const screenX = l.screenOriginX + (cx + 0.5) * l.screenStepX;
                         const screenY1 = l.screenOriginY + (seg.by * bh - offY + 0.5) * l.screenStepY;
@@ -1502,14 +1508,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                         ctx.rect(screenX - lwX/2, screenY1, lwX, screenY2 - screenY1);
                     }
 
-                    for (const seg of data.H) {
+                    for (const seg of group.H) {
                         const cy = (seg.by - offY) * bh;
                         const screenY = l.screenOriginY + (cy + 0.5) * l.screenStepY;
                         const screenX1 = l.screenOriginX + (seg.bx * bw - offX + 0.5) * l.screenStepX;
                         const screenX2 = l.screenOriginX + ((seg.bx + 1) * bw - offX + 0.5) * l.screenStepX;
                         ctx.rect(screenX1, screenY - lwY/2, screenX2 - screenX1, lwY);
                     }
-                      ctx.fill();    
+                    ctx.fill();    
                 }
             }
 
