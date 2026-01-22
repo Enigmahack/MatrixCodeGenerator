@@ -1012,6 +1012,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                         
                         if (!isOutside) {
                             if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                // Opaque Override (Masking)
+                                // We always override inside the shape to hide the main grid ("retain shadow state")
                                 g.overrideActive[destIdx] = 3; 
                                 g.overrideChars[destIdx] = sg.chars[srcIdx];
                                 g.overrideColors[destIdx] = sg.colors[srcIdx];
@@ -1019,6 +1021,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                                 g.overrideGlows[destIdx] = sg.glows[srcIdx];
                                 g.overrideMix[destIdx] = sg.mix[srcIdx];
                                 g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
+                                g.overrideFontIndices[destIdx] = sg.fontIndices[srcIdx];
                             }
                         } else {
                             if (g.overrideActive[destIdx] === 3) {

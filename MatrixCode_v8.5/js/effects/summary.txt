@@ -1,0 +1,249 @@
+Matrix Digital Rain - Effects System Technical Summary
+======================================================
+
+This document provides a comprehensive breakdown of the visual effects system in MatrixCode v8.5. 
+The system is managed by the EffectRegistry and is integrated into the UI via UIManager.
+
+--------------------------------------------------------------------------------
+CORE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+* EffectRegistry.js (The Orchestrator)
+  - API: register(effect), trigger(name), update(), render(ctx), get(name).
+  - UI Linkage: Central hub for all effect triggering (buttons and keybinds).
+  - Uniqueness: Manages two rendering paths: 'applyToGrid' (direct simulation 
+    modification) and 'getOverride' (legacy per-cell character/color swaps).
+
+* QuantizedBaseEffect.js (The Modern Framework)
+  - API: trigger(force), update(), _updateShadowSim(), _swapStates(), 
+    render(ctx), getConfig(key), getBlockSize().
+  - Shared Controls: quantizedBlockWidthCells, quantizedBlockHeightCells.
+  - Shadow World: Creates a full CellGrid/SimulationSystem pair in the background. 
+    Upon completion, it commits this "Shadow State" to the main simulation via 
+    SharedArrayBuffer (if multithreading is enabled) or direct buffer copies.
+  - Uniqueness: Implements a grid-aligned "Logic Grid" mask system. Uses BFS 
+    algorithms for distance fields and perimeter detection.
+
+--------------------------------------------------------------------------------
+INDIVIDUAL EFFECTS
+--------------------------------------------------------------------------------
+
+* BootEffect.js (BootSequence)
+  - API: trigger(), update().
+  - Controls: bootSequenceEnabled, runBothInOrder (Macros).
+  - UI Linkage: "Effects > Boot/Crash" accordion. Triggered via 'b' key.
+  - Unique Logic: Purely shader-driven (Pass 1). Implements a 3.5s sequence: 
+    Initial Dot -> V-Stretch -> H-Stretch -> 22 randomized "Scanner Scene" 
+    flashes. Patterns include split scans and color-leak gradients.
+
+* ClearPulseEffect.js (ClearPulse)
+  - API: trigger(), update(), applyToGrid(grid).
+  - Controls: clearPulseEnabled, clearPulseMovieAccurate, clearPulseFrequencySeconds, 
+    clearPulseDurationSeconds, clearPulseWidth, clearPulseCircular, clearPulseBlend.
+  - UI Linkage: "Effects > Trilogy > Clear Pulse" accordion. Triggered via 'w' key.
+  - Unique Logic: "Movie Accurate" mode runs at 30fps, uses a specific 
+    center-finding algorithm that locates the active tracer closest to the screen 
+    center, and spawns "Lag Chunks" (delayed expansion zones) to simulate digital 
+    tearing.
+
+* CrashEffect.js (CrashSequence)
+  - API: trigger(), update(), applyToGrid(grid), getMasks(), getReveals().
+  - Controls: crashEnabled, crashFrequencySeconds, crashDurationSeconds, 
+    crashSheetCount, crashSheetSpeed, crashSheetOpacity, crashEnableSmith, 
+    crashEnableSuperman, crashMovieFps.
+  - UI Linkage: "Effects > Boot/Crash" accordion. Triggered via 'x' key.
+  - Unique Logic: A cinematic macro-effect.
+    - Black Sheets: Orthogonal moving boxes that mask out the simulation.
+    - Superman Bolts: Procedural arcing lightning with triangle reveals.
+    - Crash Bars: Full-width glitching blocks that flash pure white.
+    - Smith: ASCII-art shadow mask revealed during flash phases.
+
+* DejaVuEffect.js (DejaVu)
+  - API: trigger(), update(), applyToGrid(grid).
+  - Controls: dejaVuEnabled, dejaVuFrequencySeconds, dejaVuDurationSeconds, 
+    dejaVuMinRectHeight, dejaVuMaxRectHeight, dejaVuIntensity, dejaVuRandomizeColors.
+  - UI Linkage: "Effects > Trilogy > Deja Vu" accordion. Triggered via 'r' key.
+  - Unique Logic: Combines a glitch shader (RGB shifting/jumping) with 
+    grid-level horizontal "double glitches" and character scrambling. 
+    Highlights "holes" in the stream using tracerColor.
+
+* GlowSystem.js
+  - API: addRadial(x, y, radius, intensity, color, duration, decayFn), 
+    addRect(x, y, w, h, intensity, color, duration, decayFn, falloff).
+  - Controls: Interacts with 'tracerGlow' and 'envGlows' simulation properties.
+  - UI Linkage: Internal utility used by other effects (e.g., DejaVu bars).
+  - Unique Logic: Uses Signed Distance Fields (SDF) to calculate soft-edged 
+    environmental glow boosts for the renderer without re-rendering individual 
+    cell glows.
+
+* MiniPulseEffect.js (MiniPulse / Pulse Storm)
+  - API: trigger(), update(), applyToGrid(grid).
+  - Controls: miniPulseEnabled, miniPulseFrequencySeconds, miniPulseDurationSeconds, 
+    miniPulseSpawnChance, miniPulseSpeed, miniPulseSize.
+  - UI Linkage: "Effects > Trilogy > Pulse Storm" accordion. Triggered via 'e' key.
+  - Unique Logic: Optimized for performance by processing dozens of simultaneous 
+    ripples. Tints cells by blending Tracer Color into existing Stream Color 
+    without stopping background rain.
+
+* PulseEffect.js (Pulse)
+  - API: trigger(), update(), applyToGrid(grid).
+  - Controls: pulseEnabled, pulseMovieAccurate, pulseFrequencySeconds, 
+    pulseDelaySeconds, pulseDurationSeconds, pulseWidth, pulseDimming, pulseBlend.
+  - UI Linkage: "Effects > Trilogy > Pulse" accordion. Triggered via 'p' key.
+  - Unique Logic: The original "Synchronized Reveal" effect. Features a 
+    pre-expansion "Wait" phase that dims the whole screen. "Movie Accurate" 
+    mode implements 16:10 aspect ratios and specific "Lagged Chunk" behavior 
+    matching the 1999 film's opening sequence.
+
+* QuantizedAddEffect.js (QuantizedAdd)
+  - API: trigger(), update(), _initShadowWorld().
+  - Controls: quantizedAddEnabled, quantizedAddFrequencySeconds, 
+    quantizedAddSpeed, quantizedAddPerimeterColor, quantizedAddInnerColor.
+  - UI Linkage: "Effects > Resurrections > Quantized Add" accordion. 'a' key.
+  - Unique Logic: Uses 'addSmart' operations. If a block is adjacent to an 
+    existing one, it hollows out shared walls. It uses a high-density injection 
+    strategy during shadow world warmup to ensure immediate visual density.
+
+* QuantizedBlockGeneration.js (QuantizedBlockGenerator)
+  - API: trigger(), update(), _spawnBlock(x, y, w, h, layer).
+  - Controls: quantizedGenerateV2Enabled, quantizedGenerateV2Speed, 
+    quantizedGenerateV2CleanInnerDistance.
+  - UI Linkage: "Effects > Resurrections > Quantized Block Generator" accordion.
+  - Unique Logic: Supports dual-layer rendering (L1/L2). Includes a "Crawler" 
+    algorithm that moves blocks in snake-like patterns and a "Shove" system 
+    for collision-based block movement.
+
+* QuantizedClimbEffect.js (QuantizedClimb)
+  - API: trigger(), update().
+  - Controls: quantizedClimbEnabled, quantizedClimbSpeed, quantizedClimbFadeInFrames.
+  - UI Linkage: "Effects > Resurrections > Quantized Climb" accordion.
+  - Unique Logic: Follows a specific sequence from QuantizedPatterns.js designed 
+    to look like building structures. Features a 75% column-fill injection 
+    in the Shadow World.
+
+* QuantizedGenerateEffect.js (QuantizedGenerate)
+  - API: trigger(), update().
+  - Controls: quantizedGenerateEnabled, quantizedGenerateErosionRate, 
+    quantizedGenerateInnerLineDuration, quantizedGenerateMergeDelay.
+  - UI Linkage: "Effects > Resurrections > Quantized Generate" accordion.
+  - Unique Logic: Uses the QuantizedSequenceGenerator to build a unique 
+    animation every time it is triggered. Features randomized expansion 
+    with "Erosion" (removing blocks from the edges while growing).
+
+* QuantizedPulseEffect.js (QuantizedPulse)
+  - API: trigger(), update().
+  - Controls: quantizedPulseEnabled, quantizedPulseSpeed, 
+    quantizedPulsePerimeterColor, quantizedPulseInnerColor.
+  - UI Linkage: "Effects > Resurrections > Quantized Pulse" accordion. 'q' key.
+  - Unique Logic: The quantized version of the standard Pulse. Features 
+    Bright Gold borders (#FFD700) and persistent internal wireframe lines 
+    that reveal the code rain.
+
+* QuantizedRetractEffect.js (QuantizedRetract)
+  - API: trigger(), update().
+  - Controls: quantizedRetractEnabled, quantizedRetractSpeed, 
+    quantizedRetractFadeFrames.
+  - UI Linkage: "Effects > Resurrections > Quantized Retract" accordion.
+  - Unique Logic: Inverts the standard quantized logic. Instead of revealing 
+    the Shadow World, it "eats away" the main simulation to reveal the 
+    background color, retracting towards the center or origin.
+
+* QuantizedZoomEffect.js (QuantizedZoom)
+  - API: trigger(), _captureSnapshot(), _drawStreamRun().
+  - Controls: quantizedZoomEnabled, quantizedZoomExpansionRate, 
+    quantizedZoomZoomRate, quantizedZoomDelay, quantizedZoomHoldSeconds.
+  - UI Linkage: "Effects > Resurrections > Quantized Zoom" accordion.
+  - Unique Logic: Captures a 3x resolution static snapshot of the current 
+    simulation. Applies a zoom transform (0.5x to 1.0x) to this snapshot 
+    while revealing it through a procedurally generated quantized grid.
+
+* ReverseEffect.js (ReverseTime)
+  - API: start(), update().
+  - Controls: keyBindings.ReverseTime ('u' key).
+  - UI Linkage: "Effects > Special Effects > Time Manipulation" section.
+  - Unique Logic: Manipulates 'sim.timeScale' directly. Phases: 
+    1. Slow Down (cubic easing) 
+    2. Full Stop 
+    3. High-speed Rewind (negative timeScale) 
+    4. Pulse Handoff (Resumes time and triggers standard Pulse).
+
+* SupermanEffect.js (Superman)
+  - API: trigger(), update(), getOverride(i).
+  - Controls: supermanEnabled, supermanFrequencySeconds, supermanDurationSeconds, 
+    supermanFadeSpeed, supermanGlow, supermanBoltThickness, supermanFlickerRate.
+  - UI Linkage: "Effects > Trilogy > Superman" accordion. Triggered via 't' key.
+  - Unique Logic: Procedural pathing with a "Center Pull" bias to keep bolts 
+    on-screen. Bolt speed is relative to columns (crosses in ~1s at speed 40). 
+    Afterimages are managed via a decaying alpha Map.
+
+--------------------------------------------------------------------------------
+SUPPORTING MODULES
+--------------------------------------------------------------------------------
+
+* QuantizedPatterns.js
+  - Purpose: Data file containing binary-encoded steps for "Quantized" animations.
+  - Format: [OpCode, x1, y1, x2, y2, mask] sequences. 
+  - Ops: add(1), rem(2), addRect(3), addLine(4), remLine(5), addSmart(6), remBlock(7).
+
+* QuantizedSequenceGenerator.js
+  - Purpose: Algorithm for procedural growth. 
+  - Unique Logic: Implements "Axis Bias" (aspect-ratio aware growth) and 
+    "Arm Balancing" (ensuring North/South and East/West arms grow at similar 
+    rates before filling quadrants).
+
+* QuantizedEffectEditor.js (UI Utility)
+  - API: toggle(enabled), update(), savePattern().
+  - Controls: System > Debug > QuantEditor checkbox.
+  - UI Linkage: Overlays a visual grid editor onto the simulation.
+  - Uniqueness: Allows frame-by-frame manual authoring of quantized sequences 
+    with real-time simulation preview.
+
+--------------------------------------------------------------------------------
+DEVELOPER & AI DECISION SUPPORT
+--------------------------------------------------------------------------------
+
+* State Synchronization (The "Shadow World" Pattern):
+  - Why: Direct modifications to the main simulation during an effect can cause 
+    visual "pop" or desync when the effect ends.
+  - Logic: Triggering an effect creates a Shadow World (SimulationSystem). The 
+    effect reveals this world. On completion, _commitShadowState() is called.
+  - Implementation: This uses a "State Swap". The shadow world's buffer is 
+    copied to the main world. If the Simulation is running in a Worker, a 
+    'replace_state' message is sent containing the serialized stream data.
+  - AI Warning: When creating new effects, always ensure the Shadow World is 
+    properly "warmed up" (e.g., 400 frames of hidden simulation) before reveal 
+    to ensure density.
+
+* Rendering Performance:
+  - Bottleneck 1: getOverride() is slow. It uses a Map and per-cell object 
+    creation. For high-performance effects, use applyToGrid() which operates 
+    directly on TypedArrays (Uint32Array, Float32Array).
+  - Bottleneck 2: Quantized effects use multiple offscreen canvases (maskCanvas, 
+    scratchCanvas, gridCacheCanvas). Ensure these are resized only when 
+    necessary via _ensureCanvases(w, h).
+  - Bottleneck 3: BFS algorithms (_computeDistanceField, _computeTrueOutside) 
+    are expensive. They are flagged as "dirty" and recomputed only when the 
+    maskOps list changes.
+
+* Concurrency & Workers:
+  - SharedArrayBuffer: The simulation grid uses SharedArrayBuffers when possible. 
+    This allows the Renderer (Main Thread) and Simulation (Worker Thread) to 
+    read/write the same memory.
+  - Atomicity: Effects like 'ReverseTime' modify 'timeScale'. Since this is 
+    stored in the ConfigurationManager (Reactive), the SimulationSystem 
+    automatically picks up the change on its next update loop.
+
+* Configuration Convention:
+  - Prefixing: Subclasses of QuantizedBaseEffect must set 'this.configPrefix' 
+    (e.g., "quantizedAdd"). The base class getConfig() helper automatically 
+    maps this to the state (e.g., state.quantizedAddEnabled).
+  - Reactivity: Components should never store a local copy of a config value 
+    unless they subscribe to changes. Use this.c.get('key') inside the update 
+    loop for real-time responsiveness.
+
+* Selection Logic for New Effects:
+  - 1. Is it a full-screen filter? -> Use a Shader (PostProcessor Pass 2).
+  - 2. Is it a transition/reveal? -> Inherit from QuantizedBaseEffect.
+  - 3. Is it a localized grid glitch? -> Use standard AbstractEffect with applyToGrid.
+  - 4. Is it a cinematic sequence? -> Use a Macro (e.g., CrashSequence) that 
+    orchestrates other effects and shaders.

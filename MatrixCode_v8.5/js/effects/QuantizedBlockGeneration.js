@@ -53,6 +53,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
         
         this.overlapState = { step: 0 };
+        this.spineState = {
+            N: { len: 0, finished: false },
+            S: { len: 0, finished: false },
+            E: { len: 0, finished: false },
+            W: { len: 0, finished: false }
+        };
         
         // Seed (L1)
         this._spawnBlock(0, 0, 1, 1, 0); 
@@ -85,6 +91,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         // Warmup
         for(let i=0; i<60; i++) this.shadowSim.update(i);
+        this.shadowSimFrame = 60;
     }
 
     update() {
@@ -363,7 +370,70 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _attemptGrowth() {
         this._attemptLayerOverlap();
-        // this._attemptCrawlerGrowth();
+        this._attemptSpineGrowth();
+        this._attemptCrawlerGrowth();
+    }
+
+    _attemptSpineGrowth() {
+        if (!this.spineState) return;
+        
+        // Slower update for spine (every 3rd growth step)
+        if (this.stepCount % 3 !== 0) return;
+        
+        const s = this.spineState;
+        const arms = ['N', 'S', 'E', 'W'];
+        
+        // Pick an arm that isn't finished
+        const candidates = arms.filter(a => !s[a].finished);
+        if (candidates.length === 0) return;
+        
+        const arm = candidates[Math.floor(Math.random() * candidates.length)];
+        const data = s[arm];
+        
+        // Determine position
+        let tx = 0, ty = 0;
+        let w = 0, h = 0;
+        
+        // Growth parameters
+        const isVert = (arm === 'N' || arm === 'S');
+        const breadth = Math.random() < 0.3 ? 2 : 1; // Occasional thickness
+        const length = Math.floor(Math.random() * 3) + 2; // 2 to 4 length
+        
+        if (arm === 'N') {
+            tx = -Math.floor(breadth/2);
+            ty = -(data.len + length);
+            w = breadth; h = length;
+        } else if (arm === 'S') {
+            tx = -Math.floor(breadth/2);
+            ty = data.len + 1;
+            w = breadth; h = length;
+        } else if (arm === 'E') {
+            tx = data.len + 1;
+            ty = -Math.floor(breadth/2);
+            w = length; h = breadth;
+        } else if (arm === 'W') {
+            tx = -(data.len + length);
+            ty = -Math.floor(breadth/2);
+            w = length; h = breadth;
+        }
+        
+        // Boundary Check (Logic Grid limits)
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        if (cx + tx < 2 || cx + tx + w > blocksX - 2 || 
+            cy + ty < 2 || cy + ty + h > blocksY - 2) {
+            data.finished = true; // Hit edge
+            return;
+        }
+        
+        // Spawn
+        this._spawnBlock(tx, ty, w, h, 0); // Layer 0 for spine
+        
+        // Update State
+        data.len += length;
     }
 
     _attemptLayerOverlap() {
@@ -385,17 +455,39 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             this._spawnBlock(0, -1, 1, 3, 1); 
         } else {
             this._mergeLayers();
+            // Dynamic Cloud Growth
+            // Pick a random existing block to grow from? 
+            // For now, random scatter near center
+            const range = Math.min(10, 4 + Math.floor(s.step / 5));
             const layer = (s.step % 2);
-            const w = Math.floor(Math.random()*3)+1;
-            const h = Math.floor(Math.random()*3)+1;
-            const x = Math.floor(Math.random()*9)-4;
-            const y = Math.floor(Math.random()*9)-4;
+            
+            // Bias towards center for cloud effect
+            const r = Math.random();
+            let dist = (r * r) * range; // Quadratic bias to center
+            const angle = Math.random() * Math.PI * 2;
+            
+            const x = Math.floor(Math.cos(angle) * dist);
+            const y = Math.floor(Math.sin(angle) * dist);
+            
+            const w = Math.floor(Math.random() * 3) + 1;
+            const h = Math.floor(Math.random() * 3) + 1;
+            
             this._spawnBlock(x, y, w, h, layer);
         }
         s.step++;
     }
 
     _mergeLayers() {
+        // Persist merge by updating Ops
+        if (this.maskOps) {
+            for (const op of this.maskOps) {
+                if (op.layer === 1) {
+                    op.layer = 0;
+                }
+            }
+        }
+        
+        // Also update manual grids for immediate feedback (though Base will overwrite)
         if (!this.renderGridL2 || !this.renderGridL1) return;
         for(let i=0; i<this.renderGridL2.length; i++) {
             const val = this.renderGridL2[i];

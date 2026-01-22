@@ -391,7 +391,9 @@ class SimulationSystem {
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         // If an effect is overriding this cell, pause simulation updates (Freeze)
-        if (grid.overrideActive[idx] !== 0) return;
+        // EXCEPTION: Mode 3 (FULL) is used by Quantized Effects for "Masking" (Replacement),
+        // so we allow the underlying simulation to run underneath.
+        if (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;
