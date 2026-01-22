@@ -790,7 +790,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const screenStepY = d.cellHeight * s.stretchY;
         const gridPixW = grid.cols * d.cellWidth; 
         const gridPixH = grid.rows * d.cellHeight;
-        // Correction: Shift Origin Right (+0.5w) and Up (-0.5h) to align characters with border mask
+        
         const screenOriginX = ((d.cellWidth * 1.0 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
         const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         const cols = grid.cols;
@@ -982,7 +982,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const screenBlocksX = Math.ceil(g.cols / pitchX);
         const screenBlocksY = Math.ceil(g.rows / pitchY);
         
-        const offX = Math.floor((blocksX - screenBlocksX) / 2);
+        const offX = ((blocksX - screenBlocksX - 0.5) / 2);
         const offY = Math.floor((blocksY - screenBlocksY) / 2);
         
         for (let by = 0; by < blocksY; by++) {
@@ -1313,8 +1313,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const halfLineY = lineWidthY / 2;
         const gridPixW = this.g.cols * d.cellWidth; 
         const gridPixH = this.g.rows * d.cellHeight;
-        // Correction: Shift Origin Right (+0.5w) and Up (-0.5h) as requested
-        const screenOriginX = ((d.cellWidth * 1.0 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        
+        const screenOriginX = ((d.cellWidth * 1 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
         const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         
         const bs = this.getBlockSize();

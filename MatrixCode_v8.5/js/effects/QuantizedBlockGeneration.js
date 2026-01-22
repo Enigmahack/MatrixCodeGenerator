@@ -183,11 +183,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const addDuration = Math.max(1, fadeInFrames);
 
         const distMap = this._computeDistanceField(blocksX, blocksY);
+        const outsideMap = this._computeTrueOutside(blocksX, blocksY);
         
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return true; 
-            const idx = ny * blocksX + nx;
-            return (this.renderGridL1[idx] === -1 && this.renderGridL2[idx] === -1);
+            return outsideMap[ny * blocksX + nx] === 1;
         };
 
         // --- PASS 1: Base Grid (Interior) ---
@@ -208,15 +208,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const checkFaceL1 = (bx, by, f) => {
                 let nx = bx, ny = by;
                 if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-                if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return true;
-                return this.renderGridL1[ny * blocksX + nx] === -1;
+                return isTrueOutside(nx, ny);
             };
             
             const checkFaceL2 = (bx, by, f) => {
                 let nx = bx, ny = by;
                 if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-                if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return true;
-                return this.renderGridL1[ny * blocksX + nx] === -1 && this.renderGridL2[ny * blocksX + nx] === -1;
+                return isTrueOutside(nx, ny);
             };
 
             for (let by = 0; by < blocksY; by++) {
@@ -280,17 +278,29 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // --- PASS 4: Lines ---
         if (lCtx) {
             const cleanDist = this.c.state.quantizedGenerateV2CleanInnerDistance || 4;
-            const durationSteps = this.c.state.quantizedGenerateV2InnerLineDuration || 1;
+            const durationSteps = (this.c.state.quantizedGenerateV2InnerLineDuration !== undefined) ? this.c.state.quantizedGenerateV2InnerLineDuration : 1;
             lCtx.fillStyle = '#FFFFFF';
             for (const op of this.maskOps) {
                 if (op.type !== 'addLine') continue;
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const idx = start.y * blocksX + start.x;
+                
+                let nx = start.x, ny = start.y;
+                const f = op.face.toUpperCase();
+                if (f === 'N') ny--;
+                else if (f === 'S') ny++;
+                else if (f === 'W') nx--;
+                else if (f === 'E') nx++;
+                
+                const isInternal = !isTrueOutside(nx, ny);
+                const age = this.stepCount - op.startPhase;
+
+                // 1. Immediate Cleanup for very deep lines
                 if (idx >= 0 && idx < distMap.length && distMap[idx] > cleanDist) continue;
-                if (op.startPhase !== undefined) {
-                    const age = this.stepCount - op.startPhase;
-                    if (age > durationSteps) continue;
-                }
+                
+                // 2. Timed Cleanup for internal lines
+                if (isInternal && age > durationSteps) continue;
+
                 let opacity = 1.0;
                 if (addDuration > 1) opacity = Math.min(1.0, (now - op.startFrame) / addDuration);
                 if (opacity > 0.001) {
