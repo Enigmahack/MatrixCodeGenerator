@@ -260,8 +260,14 @@ class QuantizedEffectEditor {
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
         
-        const startX = l.screenOriginX;
-        const startY = l.screenOriginY;
+        const startX = l.screenOriginX - (l.offX * l.cellPitchX * l.screenStepX);
+        const startY = l.screenOriginY - (l.offY * l.cellPitchY * l.screenStepY);
+
+        // Define offsets at top level for shared use
+        const halfCellW = l.screenStepX * 0.5;
+        const halfCellH = l.screenStepY * 0.5;
+        const blockOffX = halfCellW;
+        const blockOffY = halfCellH;
 
         // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
@@ -270,24 +276,23 @@ class QuantizedEffectEditor {
             ctx.lineWidth = 1;
             ctx.beginPath();
 
-            // Draw verticals
-            // We use the logic grid dimensions
+            // Draw verticals (Centered on Cell 0 of Block)
             for (let bx = 0; bx <= blocksX; bx++) {
-                const x = startX + (bx * l.cellPitchX * l.screenStepX);
+                const x = startX + (bx * l.cellPitchX * l.screenStepX) + halfCellW;
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, height);
             }
-            // Draw horizontals
+            // Draw horizontals (Centered on Row 0 of Block)
             for (let by = 0; by <= blocksY; by++) {
-                const y = startY + (by * l.cellPitchY * l.screenStepY);
+                const y = startY + (by * l.cellPitchY * l.screenStepY) + halfCellH;
                 ctx.moveTo(0, y);
                 ctx.lineTo(width, y);
             }
             ctx.stroke();
             
-            // Highlight Center Block
-            const centerX = startX + (cx * l.cellPitchX * l.screenStepX);
-            const centerY = startY + (cy * l.cellPitchY * l.screenStepY);
+            // Highlight Center Block (Restore Position)
+            const centerX = startX + (cx * l.cellPitchX * l.screenStepX) + blockOffX;
+            const centerY = startY + (cy * l.cellPitchY * l.screenStepY) + blockOffY;
             
             ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
             ctx.strokeRect(centerX, centerY, l.cellPitchX * l.screenStepX, l.cellPitchY * l.screenStepY);
@@ -296,16 +301,15 @@ class QuantizedEffectEditor {
         }
 
         // 3. Render Schematic Layer (Blocks & Ops)
-        // This replaces the old "Holes" fill and ensures we see exactly what the Effect sees.
+        // ... (Blocks remain filled logic cells) ...
         if (this.highlightChanges) {
             ctx.save();
             
-            // A. Draw Active Blocks (from renderGrid)
-            // These are blocks that are currently "Alive" in the effect state
+            // A. Draw Active Blocks
             const rGrid = this.effect.renderGrid;
             if (rGrid) {
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; // Faint Green Fill
-                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)'; // Green Outline
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; 
+                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)'; 
                 ctx.lineWidth = 1;
 
                 const bW = l.cellPitchX * l.screenStepX;
@@ -315,47 +319,68 @@ class QuantizedEffectEditor {
                     if (rGrid[i] !== -1) {
                         const bx = i % blocksX;
                         const by = Math.floor(i / blocksX);
-                        const x = startX + (bx * bW);
-                        const y = startY + (by * bH);
+                        const x = startX + (bx * bW) + blockOffX;
+                        const y = startY + (by * bH) + blockOffY;
                         
                         ctx.fillRect(x + 1, y + 1, bW - 2, bH - 2);
-                        // Optional: Don't stroke every block to reduce noise, or stroke lightly
                     }
                 }
             }
 
             // B. Draw Operations (Lines, Removals)
-            // We iterate maskOps to see lines and explicit removals
             const ops = this.effect.maskOps;
             if (ops) {
                 const bW = l.cellPitchX * l.screenStepX;
                 const bH = l.cellPitchY * l.screenStepY;
+                const halfCellW = l.screenStepX * 0.5;
+                const halfCellH = l.screenStepY * 0.5;
 
                 for (const op of ops) {
                     if (op.type === 'addLine') {
-                        // Draw Line
+                        // Draw Line Centered on Cell Grid
                         const bx = cx + op.x1; 
                         const by = cy + op.y1;
                         const x = startX + (bx * bW);
                         const y = startY + (by * bH);
                         
-                        ctx.strokeStyle = '#FFD700'; // Gold
+                        ctx.strokeStyle = '#FFD700'; 
                         ctx.lineWidth = 2;
                         ctx.beginPath();
                         
+                        // Shift lines to center of boundary characters
                         const face = op.face || 'N';
-                        if (face === 'N') { ctx.moveTo(x, y); ctx.lineTo(x + bW, y); }
-                        else if (face === 'S') { ctx.moveTo(x, y + bH); ctx.lineTo(x + bW, y + bH); }
-                        else if (face === 'E') { ctx.moveTo(x + bW, y); ctx.lineTo(x + bW, y + bH); }
-                        else if (face === 'W') { ctx.moveTo(x, y); ctx.lineTo(x, y + bH); }
+                        if (face === 'N') { 
+                            // Top Edge -> Center of Top Row
+                            ctx.moveTo(x + halfCellW, y + halfCellH); 
+                            ctx.lineTo(x + bW + halfCellW, y + halfCellH); // Spans to next block's start center
+                            // Wait, if it's N border of this block.
+                            // It spans the Width of this block.
+                            // Start: Center of Top-Left Cell.
+                            // End: Center of Top-Right Cell?
+                            // No, borders are shared.
+                            // Right endpoint should meet the vertical border.
+                            // Vertical border is at x + bW + halfCellW.
+                            // So x + bW + halfCellW is correct.
+                        }
+                        else if (face === 'S') { 
+                            ctx.moveTo(x + halfCellW, y + bH + halfCellH); 
+                            ctx.lineTo(x + bW + halfCellW, y + bH + halfCellH); 
+                        }
+                        else if (face === 'E') { 
+                            ctx.moveTo(x + bW + halfCellW, y + halfCellH); 
+                            ctx.lineTo(x + bW + halfCellW, y + bH + halfCellH); 
+                        }
+                        else if (face === 'W') { 
+                            ctx.moveTo(x + halfCellW, y + halfCellH); 
+                            ctx.lineTo(x + halfCellW, y + bH + halfCellH); 
+                        }
                         
                         ctx.stroke();
                     } else if (op.type === 'removeBlock') {
-                        // Draw explicit removal (Red X)
                         const bx = cx + op.x1;
                         const by = cy + op.y1;
-                        const x = startX + (bx * bW);
-                        const y = startY + (by * bH);
+                        const x = startX + (bx * bW) + blockOffX;
+                        const y = startY + (by * bH) + blockOffY;
 
                         ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
                         ctx.lineWidth = 1;
@@ -376,8 +401,8 @@ class QuantizedEffectEditor {
             const minX = this.selectionRect.x + cx;
             const minY = this.selectionRect.y + cy;
             
-            const selX = startX + (minX * l.cellPitchX * l.screenStepX);
-            const selY = startY + (minY * l.cellPitchY * l.screenStepY);
+            const selX = startX + (minX * l.cellPitchX * l.screenStepX) + blockOffX;
+            const selY = startY + (minY * l.cellPitchY * l.screenStepY) + blockOffY;
             const selW = (this.selectionRect.w + 1) * l.cellPitchX * l.screenStepX;
             const selH = (this.selectionRect.h + 1) * l.cellPitchY * l.screenStepY;
             
@@ -400,8 +425,8 @@ class QuantizedEffectEditor {
             const oy = this.hoverBlock.y + cy;
             
             for (const pt of this.clipboard.data) {
-                const rectX = startX + ((ox + pt.x) * l.cellPitchX * l.screenStepX);
-                const rectY = startY + ((oy + pt.y) * l.cellPitchY * l.screenStepY);
+                const rectX = startX + ((ox + pt.x) * l.cellPitchX * l.screenStepX) + blockOffX;
+                const rectY = startY + ((oy + pt.y) * l.cellPitchY * l.screenStepY) + blockOffY;
                 const rectW = l.cellPitchX * l.screenStepX;
                 const rectH = l.cellPitchY * l.screenStepY;
                 ctx.fillRect(rectX, rectY, rectW, rectH);
