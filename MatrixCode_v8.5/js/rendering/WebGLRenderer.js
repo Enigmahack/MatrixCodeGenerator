@@ -270,6 +270,7 @@ class WebGLRenderer {
                 uniform vec2 u_resolution;
                 uniform vec2 u_atlasSize;
                 uniform vec2 u_gridSize;
+                uniform vec2 u_gridOffset; 
                 uniform float u_cellSize;
                 uniform float u_cols;
                 uniform float u_decayDur;
@@ -297,7 +298,7 @@ class WebGLRenderer {
                     vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
                     vec2 worldPos = a_pos + centerPos2D;
                     
-                    v_shadowUV = worldPos / u_gridSize;
+                    v_shadowUV = (worldPos + u_gridOffset) / u_gridSize;
                     
                     // Mirror/Stretch
                     vec2 gridCenter = u_gridSize * 0.5;
@@ -1517,6 +1518,7 @@ class WebGLRenderer {
         const gridPixW = grid.cols * d.cellWidth;
         const gridPixH = grid.rows * d.cellHeight;
         this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridOffset'), d.cellWidth, d.cellHeight);
 
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cellSize'), atlas.cellSize);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cols'), atlas._lastCols);

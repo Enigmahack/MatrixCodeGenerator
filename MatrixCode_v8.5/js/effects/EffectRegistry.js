@@ -91,11 +91,19 @@ class EffectRegistry {
             }
             
             render(ctx, derived) {
+                const cw = derived.cellWidth;
+                const ch = derived.cellHeight;
+                
+                ctx.save();
+                ctx.translate(-cw, -ch);
+                
                 this.effects.forEach(e => {
                     if (e.active && typeof e.render === 'function') {
                         e.render(ctx, derived);
                     }
                 });
+                
+                ctx.restore();
             }
         }
 

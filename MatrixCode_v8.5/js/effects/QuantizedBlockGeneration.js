@@ -27,6 +27,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.blockMap.clear();
         this.activeBlocks = [];
         this.crawlers = [];
+        this.nextBlockId = 0;
         this._lastProcessedOpIndex = 0; 
         
         this._initLogicGrid();
@@ -55,11 +56,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Seed (L1)
         this._spawnBlock(0, 0, 1, 1, 0); 
         
-        // Notify
-        if (this.c.notifications) {
-            this.c.notifications.show("Quantized Block Generator Started", "info");
-        }
-        
         return true;
     }
     
@@ -86,6 +82,167 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.shadowSimFrame = 60;
     }
 
+    _removeBlockFromActiveList(id) {
+        this.activeBlocks = this.activeBlocks.filter(b => b.id !== id);
+    }
+
+    _attemptCrawlerGrowth(existingState) {
+        let s = existingState;
+        
+        // Initialization (Starting a new crawler instance)
+        if (!s) {
+            // Limit to two crawlers at a time
+            if (this.crawlers && this.crawlers.length >= 2) return;
+            if (this.activeBlocks.length === 0) return;
+
+            // Try several times to find a good starting point on the perimeter
+            let bestX, bestY, bestDX, bestDY;
+            let found = false;
+            
+            for (let i = 0; i < 20; i++) {
+                const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+                const dirs = [{dx:0, dy:-1}, {dx:0, dy:1}, {dx:1, dy:0}, {dx:-1, dy:0}];
+                const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                
+                let tx = anchor.x;
+                let ty = anchor.y;
+                if (dir.dx === 1) tx = anchor.x + anchor.w;
+                else if (dir.dx === -1) tx = anchor.x - 2;
+                else if (dir.dy === 1) ty = anchor.y + anchor.h;
+                else if (dir.dy === -1) ty = anchor.y - 1;
+
+                // Check bounds
+                const cx = Math.floor(this.logicGridW / 2);
+                const cy = Math.floor(this.logicGridH / 2);
+                if (tx + cx < 2 || tx + cx >= this.logicGridW - 2 || ty + cy < 2 || ty + cy >= this.logicGridH - 2) continue;
+
+                // Check if this 2x1 at (tx, ty) would be fully internal
+                let overlap = 0;
+                for (const b of this.activeBlocks) {
+                    const ix = Math.max(tx, b.x);
+                    const iy = Math.max(ty, b.y);
+                    const iw = Math.min(tx + 2, b.x + b.w) - ix;
+                    const ih = Math.min(ty + 1, b.y + b.h) - iy;
+                    if (iw > 0 && ih > 0) overlap += (iw * ih);
+                }
+                
+                if (overlap < 2) { 
+                    bestX = tx; bestY = ty; bestDX = dir.dx; bestDY = dir.dy;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) return;
+
+            s = {
+                active: true,
+                step: 0,
+                x: bestX,
+                y: bestY,
+                dx: bestDX,
+                dy: bestDY,
+                lastBlockId: -1
+            };
+            this.crawlers.push(s);
+            return;
+        }
+        
+        const cycle = (s.step % 3);
+        const now = this.animFrame;
+        
+        // --- Directional Sequence Logic ---
+        // Rotated relative to East (1,0)
+        let steps = [];
+
+        if (s.dx === 1) { // East
+             steps = [
+                 { x: 0, y: 0, w: 2, h: 1 }, // Step 0: 2x1
+                 { x: 0, y: 0, w: 1, h: 2 }, // Step 1: 1x2
+                 { x: 0, y: 0, w: 2, h: 2 }  // Step 2: 2x2
+             ];
+        } else if (s.dy === 1) { // South
+             steps = [
+                 { x: 0, y: 0, w: 1, h: 2 }, // Step 0: 1x2
+                 { x: -1, y: 0, w: 2, h: 1 }, // Step 1: 2x1
+                 { x: -1, y: 0, w: 2, h: 2 }  // Step 2: 2x2
+             ];
+        } else if (s.dx === -1) { // West
+             steps = [
+                 { x: -1, y: 0, w: 2, h: 1 }, // Step 0: 2x1
+                 { x: 0, y: -1, w: 1, h: 2 }, // Step 1: 1x2
+                 { x: -1, y: -1, w: 2, h: 2 } // Step 2: 2x2
+             ];
+        } else if (s.dy === -1) { // North
+             steps = [
+                 { x: 0, y: -1, w: 1, h: 2 }, // Step 0: 1x2
+                 { x: 0, y: 0, w: 2, h: 1 },  // Step 1: 2x1
+                 { x: 0, y: -1, w: 2, h: 2 }  // Step 2: 2x2
+             ];
+        }
+
+        const cfg = steps[cycle];
+
+        // --- Collision Check ---
+        // Ensure the target area doesn't overlap with any existing blocks (excluding our own tail)
+        const targetX = s.x + cfg.x;
+        const targetY = s.y + cfg.y;
+        const targetW = cfg.w;
+        const targetH = cfg.h;
+
+        let collision = false;
+        for (const b of this.activeBlocks) {
+            if (b.id === s.lastBlockId) continue; // Ignore self/tail
+            
+            const ix = Math.max(targetX, b.x);
+            const iy = Math.max(targetY, b.y);
+            const iw = Math.min(targetX + targetW, b.x + b.w) - ix;
+            const ih = Math.min(targetY + targetH, b.y + b.h) - iy;
+            
+            if (iw > 0 && ih > 0) {
+                collision = true;
+                break;
+            }
+        }
+        
+        if (collision) {
+            s.active = false;
+            return;
+        }
+
+        if (cycle === 0) {
+            // Step 1 - MUST BE CONNECTED.
+            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, false, true);
+            if (s.lastBlockId === -1) {
+                s.active = false;
+                return;
+            }
+        } else if (cycle === 1) {
+            // Step 2 - Remove block 1, spawn block 2.
+            if (s.lastBlockId !== -1) {
+                 const prev = steps[0];
+                 this.maskOps.push({ type: 'removeBlock', x1: s.x + prev.x, y1: s.y + prev.y, x2: s.x + prev.x + prev.w - 1, y2: s.y + prev.y + prev.h - 1, startFrame: now });
+                 this._writeToGrid(s.x + prev.x, s.y + prev.y, prev.w, prev.h, -1);
+                 this._removeBlockFromActiveList(s.lastBlockId);
+            }
+            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, true, true);
+        } else if (cycle === 2) {
+            // Step 3 - Remove block 2 and replace with a 2x2 block.
+            if (s.lastBlockId !== -1) {
+                 const prev = steps[1];
+                 this.maskOps.push({ type: 'removeBlock', x1: s.x + prev.x, y1: s.y + prev.y, x2: s.x + prev.x + prev.w - 1, y2: s.y + prev.y + prev.h - 1, startFrame: now });
+                 this._writeToGrid(s.x + prev.x, s.y + prev.y, prev.w, prev.h, -1);
+                 this._removeBlockFromActiveList(s.lastBlockId);
+            }
+            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, true, true);
+
+            // Step 4 - Move 2 steps in current direction
+            s.x += s.dx * 2;
+            s.y += s.dy * 2;
+        }         
+        s.step++;
+    }
+
     update() {
         if (!this.active) return;
 
@@ -100,10 +257,14 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Perform cleanup of expired ops (e.g. inner lines)
         const fadeOutFrames = this.getConfig('FadeFrames') || 0;
         if (this.maskOps.length > 0) {
+             const oldLen = this.maskOps.length;
              this.maskOps = this.maskOps.filter(op => {
                  if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOutFrames) return false;
                  return true;
              });
+             if (this.maskOps.length !== oldLen) {
+                 this._lastProcessedOpIndex = 0; // Trigger full re-process
+             }
         }
 
         const durationFrames = (s.quantizedGenerateV2DurationSeconds || 5) * fps;
@@ -145,65 +306,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     
 
 
-    _attemptCrawlerGrowth(existingState) {
-        let s = existingState;
-        
-        // Initialization (Starting a new crawler instance)
-        if (!s) {
-            const rangeX = Math.floor(this.logicGridW / 2) - 10;
-            const rangeY = Math.floor(this.logicGridH / 2) - 10;
-            s = {
-                active: true,
-                step: 0,
-                x: Math.floor(Math.random() * (rangeX * 2)) - rangeX,
-                y: Math.floor(Math.random() * (rangeY * 2)) - rangeY,
-                dx: 0, dy: 0
-            };
-            
-            const isEast = (s.x > 0);
-            const isSouth = (s.y > 0);
-            
-            if (Math.random() < 0.5) {
-                s.dx = isEast ? 1 : -1;
-                s.dy = 0;
-            } else {
-                s.dx = 0;
-                s.dy = isSouth ? 1 : -1;
-            }
-            this.crawlers.push(s);
-        }
-        
-        const cycle = (s.step % 3);
-        let w = 1, h = 1;
-        
-        // Transition Logic: Clear residue from previous shape in this spot
-        if (cycle === 1) { // 1x2 -> 2x1
-             // Clear (x, y+1) which was part of 1x2 but not 2x1
-             this._writeToGrid(s.x, s.y + 1, 1, 1, -1);
-             this.maskOps.push({ type: 'removeBlock', x1: s.x, y1: s.y+1, x2: s.x, y2: s.y+1, startFrame: this.animFrame });
-        }
-        
-        if (cycle === 0) { w = 1; h = 2; }
-        else if (cycle === 1) { w = 2; h = 1; }
-        else { w = 2; h = 2; }
-        
-        this._spawnBlock(s.x, s.y, w, h);
-        
-        s.step++;
-        
-        if (cycle === 2) {
-            s.x += s.dx;
-            s.y += s.dy;
-            
-            // Edge Detection (Persistent Growth until screen edge)
-            const cx = Math.floor(this.logicGridW / 2);
-            const cy = Math.floor(this.logicGridH / 2);
-            if (s.x + cx < 2 || s.x + cx >= this.logicGridW - 2 ||
-                s.y + cy < 2 || s.y + cy >= this.logicGridH - 2) {
-                s.active = false;
-            }
-        }
-    }
+
 
     _attemptCyclicGrowth() {
         if (!this.cycleState) {
@@ -348,25 +451,151 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             totalTarget = 10;
         }
 
-        // 2. Define Random Behavior Pool
-        // Crawler Disabled per request (Vertical hole artifact).
-        // BlockShift Disabled per request (Hole artifacts).
-        const pool = [
-            this._attemptCyclicGrowth.bind(this),
-            this._attemptSpineGrowth.bind(this),
-            this._attemptLayerOverlap.bind(this)
-        ];
-        
+        // 2. Define Random Behavior Pool based on Config
+        const pool = [];
+        const s = this.c.state;
+
+        // Default to true if undefined (backward compatibility)
+        const enCyclic = (s.quantizedGenerateV2EnableCyclic !== undefined) ? s.quantizedGenerateV2EnableCyclic : true;
+        const enSpine = (s.quantizedGenerateV2EnableSpine !== undefined) ? s.quantizedGenerateV2EnableSpine : true;
+        const enOverlap = (s.quantizedGenerateV2EnableOverlap !== undefined) ? s.quantizedGenerateV2EnableOverlap : true;
+        const enUnfold = (s.quantizedGenerateV2EnableUnfold !== undefined) ? s.quantizedGenerateV2EnableUnfold : true;
+        const enCrawler = (s.quantizedGenerateV2EnableCrawler !== undefined) ? s.quantizedGenerateV2EnableCrawler : true;
+
+        if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
+        if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
+        if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
+        if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
+        if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
+
+        // If all disabled, do nothing (or fallback to overlap/cyclic to ensure SOMETHING happens?)
+        // User requested ability to turn them off/isolate. So if all off, nothing grows.
+        if (pool.length === 0) return;
+
         // 3. Shuffle Pool
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
         }
 
-        // 4. Execute Remaining Quota
+        // 4. Process Existing Active Crawlers
+        if (this.crawlers) {
+            for (let i = this.crawlers.length - 1; i >= 0; i--) {
+                const crawler = this.crawlers[i];
+                if (crawler.active) {
+                    this._attemptCrawlerGrowth(crawler);
+                } else {
+                    this.crawlers.splice(i, 1);
+                }
+            }
+        }
+
+        // 5. Execute Remaining Quota
         for (let i = 0; i < totalTarget; i++) {
             const behavior = pool[i % pool.length];
             behavior();
+        }
+    }
+    
+    _attemptUnfoldGrowth() {
+        if (this.activeBlocks.length === 0) return;
+
+        // 1. Determine Bounds of current mass
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        for (const b of this.activeBlocks) {
+            minX = Math.min(minX, b.x);
+            maxX = Math.max(maxX, b.x + b.w - 1);
+            minY = Math.min(minY, b.y);
+            maxY = Math.max(maxY, b.y + b.h - 1);
+        }
+
+        // 2. Pick Direction
+        const dirs = ['N', 'S', 'E', 'W'];
+        const dir = dirs[Math.floor(Math.random() * dirs.length)];
+
+        let srcX, srcY;     // Top-Left of 2x2 Source
+        let shiftX = 0, shiftY = 0; // Shift to Target
+
+        // 3. Setup Coordinates based on Direction (Frontier Selection)
+        if (dir === 'E') {
+            // Source: [maxX-1, maxX]
+            const candidates = this.activeBlocks.filter(b => b.x + b.w - 1 >= maxX - 1);
+            if (candidates.length === 0) return;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            srcX = maxX - 1;
+            srcY = anchor.y; 
+            shiftX = 2;
+        } else if (dir === 'W') {
+            // Source: [minX, minX+1]
+            const candidates = this.activeBlocks.filter(b => b.x <= minX + 1);
+            if (candidates.length === 0) return;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            srcX = minX;
+            srcY = anchor.y;
+            shiftX = -2;
+        } else if (dir === 'S') {
+            // Source: [maxY-1, maxY]
+            const candidates = this.activeBlocks.filter(b => b.y + b.h - 1 >= maxY - 1);
+            if (candidates.length === 0) return;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            srcX = anchor.x;
+            srcY = maxY - 1;
+            shiftY = 2;
+        } else if (dir === 'N') {
+            // Source: [minY, minY+1]
+            const candidates = this.activeBlocks.filter(b => b.y <= minY + 1);
+            if (candidates.length === 0) return;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            srcX = anchor.x;
+            srcY = minY;
+            shiftY = -2;
+        }
+
+        // 4. Read Source & Build Shapes
+        if (!this.renderGrid) return;
+        const w = this.logicGridW;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        
+        // Pattern: [0, 1, 2, 3] corresponding to (x,y), (x+1,y), (x,y+1), (x+1,y+1)
+        const cells = [false, false, false, false];
+        
+        for (let iy = 0; iy < 2; iy++) {
+            for (let ix = 0; ix < 2; ix++) {
+                const gx = srcX + ix;
+                const gy = srcY + iy;
+                
+                const idx = (cy + gy) * w + (cx + gx);
+                if (idx >= 0 && idx < this.renderGrid.length && this.renderGrid[idx] !== -1) {
+                    cells[iy * 2 + ix] = true;
+                }
+            }
+        }
+        
+        // 5. Spawn at Target
+        const tgtX = srcX + shiftX;
+        const tgtY = srcY + shiftY;
+        const spawn = (dx, dy, w, h) => this._spawnBlock(tgtX + dx, tgtY + dy, w, h);
+
+        // Smart Merge Logic
+        if (cells[0] && cells[1] && cells[2] && cells[3]) {
+            spawn(0, 0, 2, 2);
+        } else if (cells[0] && cells[1] && !cells[2] && !cells[3]) {
+             spawn(0, 0, 2, 1);
+        } else if (!cells[0] && !cells[1] && cells[2] && cells[3]) {
+             spawn(0, 1, 2, 1);
+        } else if (cells[0] && !cells[1] && cells[2] && !cells[3]) {
+             spawn(0, 0, 1, 2);
+        } else if (!cells[0] && cells[1] && !cells[2] && cells[3]) {
+             spawn(1, 0, 1, 2);
+        } else {
+            // Fallback to singles (handles L-shapes and diagonals)
+            if (cells[0]) spawn(0, 0, 1, 1);
+            if (cells[1]) spawn(1, 0, 1, 1);
+            if (cells[2]) spawn(0, 1, 1, 1);
+            if (cells[3]) spawn(1, 1, 1, 1);
         }
     }
     
@@ -454,9 +683,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptSpineGrowth() {
         if (!this.spineState) return;
         
-        // Slower update for spine (every 3rd growth step)
-        if (this.stepCount % 3 !== 0) return;
-        
         const s = this.spineState;
         const arms = ['N', 'S', 'E', 'W'];
         
@@ -467,42 +693,93 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const arm = candidates[Math.floor(Math.random() * candidates.length)];
         const data = s[arm];
         
-        // Determine position
-        let tx = 0, ty = 0;
-        let w = 0, h = 0;
-        
         // Growth parameters
-        const isVert = (arm === 'N' || arm === 'S');
         const breadth = Math.random() < 0.3 ? 2 : 1; // Occasional thickness
-        const length = Math.floor(Math.random() * 3) + 2; // 2 to 4 length
+        let length = Math.floor(Math.random() * 3) + 2; // 2 to 4 length
         
-        if (arm === 'N') {
-            tx = -Math.floor(breadth/2);
-            ty = -(data.len + length);
-            w = breadth; h = length;
-        } else if (arm === 'S') {
-            tx = -Math.floor(breadth/2);
-            ty = data.len + 1;
-            w = breadth; h = length;
-        } else if (arm === 'E') {
-            tx = data.len + 1;
-            ty = -Math.floor(breadth/2);
-            w = length; h = breadth;
-        } else if (arm === 'W') {
-            tx = -(data.len + length);
-            ty = -Math.floor(breadth/2);
-            w = length; h = breadth;
-        }
-        
-        // Boundary Check (Logic Grid limits)
+        // Grid Dimensions
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
         
-        if (cx + tx < 2 || cx + tx + w > blocksX - 2 || 
-            cy + ty < 2 || cy + ty + h > blocksY - 2) {
-            data.finished = true; // Hit edge
+        let tx = 0, ty = 0;
+        let w = 0, h = 0;
+        
+        // Calculate tentative position & Clamp to Edge
+        if (arm === 'N') {
+            w = breadth;
+            tx = -Math.floor(breadth/2);
+            // Current top is at -data.len. We want to extend up by length.
+            // New top will be -(data.len + length).
+            // Absolute Y of new top: cy - (data.len + length)
+            // Must be >= 0.
+            const absTop = cy - (data.len + length);
+            if (absTop < 0) {
+                // Clamp length
+                const over = -absTop;
+                length -= over;
+                data.finished = true; // Will hit edge this step
+            }
+            if (length <= 0) { data.finished = true; return; }
+            
+            ty = -(data.len + length);
+            h = length;
+            
+        } else if (arm === 'S') {
+            w = breadth;
+            tx = -Math.floor(breadth/2);
+            // Current bottom is data.len. Start of new block is data.len + 1.
+            // Absolute Y of bottom: cy + (data.len + 1) + length - 1 = cy + data.len + length
+            // Must be < blocksY.
+            const startRel = data.len + 1;
+            const absBottom = cy + startRel + length;
+            if (absBottom > blocksY) {
+                const over = absBottom - blocksY;
+                length -= over;
+                data.finished = true;
+            }
+            if (length <= 0) { data.finished = true; return; }
+            
+            ty = startRel;
+            h = length;
+            
+        } else if (arm === 'E') {
+            h = breadth;
+            ty = -Math.floor(breadth/2);
+            // Start rel x: data.len + 1
+            const startRel = data.len + 1;
+            const absRight = cx + startRel + length;
+            if (absRight > blocksX) {
+                const over = absRight - blocksX;
+                length -= over;
+                data.finished = true;
+            }
+            if (length <= 0) { data.finished = true; return; }
+            
+            tx = startRel;
+            w = length;
+            
+        } else if (arm === 'W') {
+            h = breadth;
+            ty = -Math.floor(breadth/2);
+            // New left: -(data.len + length)
+            const absLeft = cx - (data.len + length);
+            if (absLeft < 0) {
+                const over = -absLeft;
+                length -= over;
+                data.finished = true;
+            }
+            if (length <= 0) { data.finished = true; return; }
+            
+            tx = -(data.len + length);
+            w = length;
+        }
+        
+        // Final sanity check (should be covered by clamping logic)
+        if (cx + tx < 0 || cx + tx + w > blocksX || 
+            cy + ty < 0 || cy + ty + h > blocksY) {
+            data.finished = true;
             return;
         }
         
@@ -888,10 +1165,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     }
     
-    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false) {
+    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
         // Strict Connectivity Check (Perimeter Containment)
         // Ensure new block touches or overlaps at least one existing block.
-        if (this.activeBlocks.length > 0) {
+        if (!skipConnectivity && this.activeBlocks.length > 0) {
              let connected = false;
              let totalOverlap = 0;
              const area = w * h;
@@ -915,18 +1192,19 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
              }
              
              if (!connected) {
-                 return; // Reject disconnected spawn
+                 return -1; // Reject disconnected spawn
              }
              
              // Reject Fully Internal Spawns (Must protrude to be 'on perimeter')
-             // Unless it's a Shifter (which is designed to fill internal gaps)
-             if (!isShifter && totalOverlap >= area) {
-                 return; 
+             // Unless it's a Shifter or allowInternal is true
+             if (!isShifter && !allowInternal && totalOverlap >= area) {
+                 return -1; 
              }
         }
 
         const id = this.nextBlockId++;
         const b = { x, y, w, h, startFrame: this.animFrame, layer, id, isShifter };
+        if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
         
         // Add Op for base class Line Rendering (Interior Lines)
@@ -934,6 +1212,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             type: 'add',
             x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
             startFrame: this.animFrame,
+            expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
             layer: layer,
             blockId: id,
             isShifter: isShifter
@@ -942,7 +1221,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (suppressLines) {
             // Write to Grid only (Solid fill)
             this._writeToGrid(x, y, w, h, this.animFrame, layer);
-            return;
+            return id;
         }
         
         // Calculate Line Duration
@@ -972,6 +1251,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         // Write to Grid
         this._writeToGrid(x, y, w, h, this.animFrame, layer);
+        return id;
     }
     
     _writeToGrid(x, y, w, h, value, layer = 0) {

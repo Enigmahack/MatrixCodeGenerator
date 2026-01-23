@@ -1,0 +1,89 @@
+    _addPerimeterFacePath(bx, by, faceObj, widthX, widthY) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const offX = l.offX || 0;
+        const offY = l.offY || 0;
+        
+        // Apply Offsets
+        const drawBx = bx - offX;
+        const drawBy = by - offY;
+        
+        const startCellX = Math.floor(drawBx * l.cellPitchX);
+        const startCellY = Math.floor(drawBy * l.cellPitchY);
+        const endCellX = Math.floor((drawBx + 1) * l.cellPitchX);
+        const endCellY = Math.floor((drawBy + 1) * l.cellPitchY);
+
+        const hx = widthX / 2;
+        const hy = widthY / 2;
+        
+        const face = faceObj.dir;
+        const rS = faceObj.rS;
+        const rE = faceObj.rE;
+
+        if (face === 'N') {
+            const cy = l.screenOriginY + (startCellY * l.screenStepY);
+            let drawX, drawY, drawW, drawH;
+            const topY = cy; 
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            drawY = topY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX; 
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'S') {
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawY = bottomY - widthY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX;
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'W') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = leftX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'E') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = rightX - widthX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+        }
+    }

@@ -1,0 +1,81 @@
+    _addBlock(blockStart, blockEnd, isExtending, visibilityCheck) {
+        const ctx = this.maskCtx;
+        const l = this.layout;
+        const offX = l.offX || 0;
+        const offY = l.offY || 0;
+        
+        // Apply Offsets to align Logic Grid with Screen
+        const sBx = blockStart.x - offX;
+        const sBy = blockStart.y - offY;
+        const eBx = blockEnd.x - offX;
+        const eBy = blockEnd.y - offY;
+
+        const startX = Math.floor(sBx * l.cellPitchX);
+        const endX = Math.floor((eBx + 1) * l.cellPitchX);
+        const startY = Math.floor(sBy * l.cellPitchY);
+        const endY = Math.floor((eBy + 1) * l.cellPitchY);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+
+        if (visibilityCheck) {
+            const rangeMinBx = blockStart.x;
+            const rangeMaxBx = blockEnd.x;
+            const rangeMinBy = blockStart.y;
+            const rangeMaxBy = blockEnd.y;
+            
+            for (let by = rangeMinBy; by <= rangeMaxBy; by++) {
+                for (let bx = rangeMinBx; bx <= rangeMaxBx; bx++) {
+                    if (!visibilityCheck(bx, by)) continue;
+                    
+                    // Convert absolute logic coords to screen relative
+                    const drawBx = bx - offX;
+                    const drawBy = by - offY;
+                    
+                    const cellX = Math.floor(drawBx * l.cellPitchX);
+                    const cellY = Math.floor(drawBy * l.cellPitchY);
+                    const xPos = l.screenOriginX + (cellX * l.screenStepX);
+                    const yPos = l.screenOriginY + (cellY * l.screenStepY);
+                    
+                    const w = l.screenStepX * l.cellPitchX;
+                    const h = l.screenStepY * l.cellPitchY;
+                    
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
+                }
+            }
+        } else {
+            if (isExtending) {
+                let cy = l.screenOriginY + (startY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                cy = l.screenOriginY + (endY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                let cx = l.screenOriginX + (startX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
+                cx = l.screenOriginX + (endX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
+            } else {
+                // FIXED: Draw SOLID rectangle for filled blocks (Pass 1 - Interior)
+                const rangeMinBx = blockStart.x;
+                const rangeMaxBx = blockEnd.x;
+                const rangeMinBy = blockStart.y;
+                const rangeMaxBy = blockEnd.y;
+                
+                // Calculate total bounds for the block(s) with offsets applied above
+                const sCellX = Math.floor(sBx * l.cellPitchX);
+                const sCellY = Math.floor(sBy * l.cellPitchY);
+                const eCellX = Math.floor((eBx + 1) * l.cellPitchX);
+                const eCellY = Math.floor((eBy + 1) * l.cellPitchY);
+                
+                const xPos = l.screenOriginX + (sCellX * l.screenStepX);
+                const yPos = l.screenOriginY + (sCellY * l.screenStepY);
+                const w = (eCellX - sCellX) * l.screenStepX;
+                const h = (eCellY - sCellY) * l.screenStepY;
+                
+                // Draw single solid rect covering everything (with slight inflate for overlap)
+                // Use 1.0 inflate to guarantee no gaps
+                ctx.rect(xPos - 0.5, yPos - 0.5, w + 1.0, h + 1.0);
+            }
+        }
+        ctx.fill();
+    }

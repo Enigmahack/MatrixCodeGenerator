@@ -266,8 +266,8 @@ class QuantizedEffectEditor {
         // Define offsets at top level for shared use
         const halfCellW = l.screenStepX * 0.5;
         const halfCellH = l.screenStepY * 0.5;
-        const blockOffX = halfCellW;
-        const blockOffY = halfCellH;
+        const blockOffX = 0; // Aligned to Edge (was halfCellW)
+        const blockOffY = 0; // Aligned to Edge (was halfCellH)
 
         // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
@@ -278,13 +278,13 @@ class QuantizedEffectEditor {
 
             // Draw verticals (Centered on Cell 0 of Block)
             for (let bx = 0; bx <= blocksX; bx++) {
-                const x = startX + (bx * l.cellPitchX * l.screenStepX) + halfCellW;
+                const x = startX + (bx * l.cellPitchX * l.screenStepX) + blockOffX;
                 ctx.moveTo(x, 0);
                 ctx.lineTo(x, height);
             }
             // Draw horizontals (Centered on Row 0 of Block)
             for (let by = 0; by <= blocksY; by++) {
-                const y = startY + (by * l.cellPitchY * l.screenStepY) + halfCellH;
+                const y = startY + (by * l.cellPitchY * l.screenStepY) + blockOffY;
                 ctx.moveTo(0, y);
                 ctx.lineTo(width, y);
             }
@@ -336,47 +336,7 @@ class QuantizedEffectEditor {
                 const halfCellH = l.screenStepY * 0.5;
 
                 for (const op of ops) {
-                    if (op.type === 'addLine') {
-                        // Draw Line Centered on Cell Grid
-                        const bx = cx + op.x1; 
-                        const by = cy + op.y1;
-                        const x = startX + (bx * bW);
-                        const y = startY + (by * bH);
-                        
-                        ctx.strokeStyle = '#FFD700'; 
-                        ctx.lineWidth = 2;
-                        ctx.beginPath();
-                        
-                        // Shift lines to center of boundary characters
-                        const face = op.face || 'N';
-                        if (face === 'N') { 
-                            // Top Edge -> Center of Top Row
-                            ctx.moveTo(x + halfCellW, y + halfCellH); 
-                            ctx.lineTo(x + bW + halfCellW, y + halfCellH); // Spans to next block's start center
-                            // Wait, if it's N border of this block.
-                            // It spans the Width of this block.
-                            // Start: Center of Top-Left Cell.
-                            // End: Center of Top-Right Cell?
-                            // No, borders are shared.
-                            // Right endpoint should meet the vertical border.
-                            // Vertical border is at x + bW + halfCellW.
-                            // So x + bW + halfCellW is correct.
-                        }
-                        else if (face === 'S') { 
-                            ctx.moveTo(x + halfCellW, y + bH + halfCellH); 
-                            ctx.lineTo(x + bW + halfCellW, y + bH + halfCellH); 
-                        }
-                        else if (face === 'E') { 
-                            ctx.moveTo(x + bW + halfCellW, y + halfCellH); 
-                            ctx.lineTo(x + bW + halfCellW, y + bH + halfCellH); 
-                        }
-                        else if (face === 'W') { 
-                            ctx.moveTo(x + halfCellW, y + halfCellH); 
-                            ctx.lineTo(x + halfCellW, y + bH + halfCellH); 
-                        }
-                        
-                        ctx.stroke();
-                    } else if (op.type === 'removeBlock') {
+                    if (op.type === 'removeBlock') {
                         const bx = cx + op.x1;
                         const by = cy + op.y1;
                         const x = startX + (bx * bW) + blockOffX;

@@ -474,22 +474,34 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         const blocksX = Math.ceil(grid.cols / cellPitchX);
         const blocksY = Math.ceil(grid.rows / cellPitchY);
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
+        
+        // --- SCALED GRID LOGIC ---
+        const scaledW = this.logicGridW || blocksX;
+        const scaledH = this.logicGridH || blocksY;
+        
+        // Precise Centering (Match Base Logic)
+        const cellOffX = Math.floor((scaledW * cellPitchX - grid.cols) / 2);
+        const cellOffY = Math.floor((scaledH * cellPitchY - grid.rows) / 2);
+        const offX = cellOffX / cellPitchX;
+        const offY = cellOffY / cellPitchY;
+        
+        // Ensure Editor compatibility & Center Alignment
+        this.layout.offX = offX;
+        this.layout.offY = offY;
+        
+        // Center based on Logic Grid (matches Base Effect behavior)
+        const cx = Math.floor(scaledW / 2);
+        const cy = Math.floor(scaledH / 2);
 
         if (!this.maskOps || this.maskOps.length === 0) return;
 
         const now = this.animFrame;
         const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+        const fadeFrames = this.getConfig('FadeFrames') || 0;
         const addDuration = Math.max(1, fadeInFrames);
+        const removeDuration = Math.max(1, fadeFrames);
 
-        // --- SCALED GRID LOGIC ---
-        const scaledW = this.logicGridW || blocksX;
-        const scaledH = this.logicGridH || blocksY;
-        const offX = Math.floor((scaledW - blocksX) / 2);
-        const offY = Math.floor((scaledH - blocksY) / 2);
-
-        // Distance Map for Hollow Masking
+        // Compute maps on the SCALED grid
         const distMap = this._computeDistanceField(scaledW, scaledH);
         
         const outsideMap = this._computeTrueOutside(scaledW, scaledH);
@@ -554,7 +566,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                     if (outW) faces.push({dir: 'W', rS: outN, rE: outS});
                     if (outE) faces.push({dir: 'E', rS: outN, rE: outS});
                     
-                    list.push({bx, by, faces});
+                    list.push({bx: bx + offX, by: by + offY, faces});
                 }
             }
 
