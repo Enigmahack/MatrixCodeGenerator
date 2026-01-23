@@ -26,18 +26,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.maskOps = [];
         this.blockMap.clear();
         this.activeBlocks = [];
+        this.crawlers = [];
         this._lastProcessedOpIndex = 0; 
         
-        this.crawlerState = {
-            active: false,
-            step: 0,
-            x: 0, 
-            y: 0,
-            dx: 0,
-            dy: 0,
-            prevBlocks: []
-        };
-
         this._initLogicGrid();
         
         // Init Shadow World (Invisible background sim)
@@ -53,6 +44,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
         
         this.overlapState = { step: 0 };
+        this.pendingShifts = 0;
         this.spineState = {
             N: { len: 0, finished: false },
             S: { len: 0, finished: false },
@@ -128,6 +120,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 this._attemptGrowth();
             }
             
+            // Perform Hole Cleanup EVERY frame to ensure solidity
+            this._performHoleCleanup();
+            
             if (this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
@@ -150,15 +145,20 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     
 
 
-    _attemptCrawlerGrowth() {
-        const s = this.crawlerState;
+    _attemptCrawlerGrowth(existingState) {
+        let s = existingState;
         
-        // Initialization
-        if (!s.active) {
-            const rangeX = Math.floor(this.logicGridW / 2) - 4;
-            const rangeY = Math.floor(this.logicGridH / 2) - 4;
-            s.x = Math.floor(Math.random() * (rangeX * 2)) - rangeX;
-            s.y = Math.floor(Math.random() * (rangeY * 2)) - rangeY;
+        // Initialization (Starting a new crawler instance)
+        if (!s) {
+            const rangeX = Math.floor(this.logicGridW / 2) - 10;
+            const rangeY = Math.floor(this.logicGridH / 2) - 10;
+            s = {
+                active: true,
+                step: 0,
+                x: Math.floor(Math.random() * (rangeX * 2)) - rangeX,
+                y: Math.floor(Math.random() * (rangeY * 2)) - rangeY,
+                dx: 0, dy: 0
+            };
             
             const isEast = (s.x > 0);
             const isSouth = (s.y > 0);
@@ -170,8 +170,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 s.dx = 0;
                 s.dy = isSouth ? 1 : -1;
             }
-            s.step = 0;
-            s.active = true;
+            this.crawlers.push(s);
         }
         
         const cycle = (s.step % 3);
@@ -195,6 +194,14 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (cycle === 2) {
             s.x += s.dx;
             s.y += s.dy;
+            
+            // Edge Detection (Persistent Growth until screen edge)
+            const cx = Math.floor(this.logicGridW / 2);
+            const cy = Math.floor(this.logicGridH / 2);
+            if (s.x + cx < 2 || s.x + cx >= this.logicGridW - 2 ||
+                s.y + cy < 2 || s.y + cy >= this.logicGridH - 2) {
+                s.active = false;
+            }
         }
     }
 
@@ -214,41 +221,81 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const anchors = this.activeBlocks.filter(b => b.layer === 0); // Always grow from main mass (Layer 0)
             if (anchors.length === 0) return null;
 
-            const attempts = 20;
+            const attempts = 40; // Increased attempts for strict logic
+
+            // Strict Area <= 6 Shapes
+            // Prioritizing interesting shapes (strips, small rects)
+            // 4x2 is 8, so it is excluded.
+            const validShapes = [
+                {w:1, h:2}, {w:2, h:1}, // Area 2
+                {w:1, h:3}, {w:3, h:1}, // Area 3
+                {w:2, h:2},             // Area 4
+                {w:1, h:4}, {w:4, h:1}, // Area 4
+                {w:1, h:5}, {w:5, h:1}, // Area 5
+                {w:2, h:3}, {w:3, h:2}, // Area 6
+                {w:1, h:6}, {w:6, h:1}  // Area 6
+            ];
 
             for (let i = 0; i < attempts; i++) {
                 const anchor = anchors[Math.floor(Math.random() * anchors.length)];
                 
-                // Random Size
-                const w = Math.floor(Math.random() * 3) + 2; // 2-4
-                const h = Math.floor(Math.random() * 3) + 2;
+                // Select Random Shape from valid list
+                const shape = validShapes[Math.floor(Math.random() * validShapes.length)];
+                const w = shape.w;
+                const h = shape.h;
                 
                 // Random Position near anchor
-                const ox = Math.floor(Math.random() * (anchor.w + w)) - w;
-                const oy = Math.floor(Math.random() * (anchor.h + h)) - h;
+                // Allowed range includes strict touching (adjacent edges)
+                // Range for x: [anchor.x - w, anchor.x + anchor.w]
+                const ox = Math.floor(Math.random() * (anchor.w + w + 1)) - w;
+                const oy = Math.floor(Math.random() * (anchor.h + h + 1)) - h;
                 
                 const tx = anchor.x + ox;
                 const ty = anchor.y + oy;
                 
-                // Analyze Overlap with Layer 0 (Precedence Layer)
+                // Analyze Connectivity and Overlap with Layer 0 (Precedence Layer)
                 let intersectArea = 0;
+                let isTouching = false;
+
                 for (const b of this.activeBlocks) {
                     if (b.layer !== 0) continue; 
+                    
+                    // Intersection
                     const ix = Math.max(tx, b.x);
                     const iy = Math.max(ty, b.y);
                     const iw = Math.min(tx + w, b.x + b.w) - ix;
                     const ih = Math.min(ty + h, b.y + b.h) - iy;
+                    
                     if (iw > 0 && ih > 0) {
                         intersectArea += (iw * ih);
+                    } else {
+                        // Check Adjacency (Touching Edges)
+                        // If no intersection, check if sharing an edge
+                        const touchX = (tx === b.x + b.w) || (tx + w === b.x);
+                        const overlapY = (ty < b.y + b.h) && (ty + h > b.y);
+                        
+                        const touchY = (ty === b.y + b.h) || (ty + h === b.y);
+                        const overlapX = (tx < b.x + b.w) && (tx + w > b.x);
+                        
+                        if ((touchX && overlapY) || (touchY && overlapX)) {
+                            isTouching = true;
+                        }
                     }
                 }
                 
                 const totalArea = w * h;
                 const protrudeArea = totalArea - intersectArea;
 
+                // Validation Logic
+                // mustOverlap (Connectivity): Valid if intersection > 0 OR strictly touching
+                const isConnected = (intersectArea > 0 || isTouching);
+                
+                // mustProtrude (Growth): Valid if it adds new area to the blob
+                const isProtruding = (protrudeArea > 0);
+
                 let valid = true;
-                if (mustOverlap && intersectArea === 0) valid = false;
-                if (mustProtrude && protrudeArea === 0) valid = false;
+                if (mustOverlap && !isConnected) valid = false;
+                if (mustProtrude && !isProtruding) valid = false;
                 
                 if (valid) {
                     this._spawnBlock(tx, ty, w, h, layer);
@@ -291,7 +338,117 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _attemptGrowth() {
-        this._attemptCyclicGrowth();
+        // 1. Execute Ramped Count of Random Behaviors
+        let totalTarget;
+        if (this.stepCount < 3) {
+            totalTarget = Math.floor(Math.random() * 2) + 1; // 1-2
+        } else if (this.stepCount < 6) {
+            totalTarget = Math.floor(Math.random() * 3) + 3; // 3-5
+        } else {
+            totalTarget = 10;
+        }
+
+        // 2. Define Random Behavior Pool
+        // Crawler Disabled per request (Vertical hole artifact).
+        // BlockShift Disabled per request (Hole artifacts).
+        const pool = [
+            this._attemptCyclicGrowth.bind(this),
+            this._attemptSpineGrowth.bind(this),
+            this._attemptLayerOverlap.bind(this)
+        ];
+        
+        // 3. Shuffle Pool
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+
+        // 4. Execute Remaining Quota
+        for (let i = 0; i < totalTarget; i++) {
+            const behavior = pool[i % pool.length];
+            behavior();
+        }
+    }
+    
+    _performHoleCleanup() {
+        if (!this.renderGrid) return;
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        
+        // 1. Flood Fill from Outside
+        const visited = new Uint8Array(w * h); // 0=Unvisited(Potential Hole), 1=Outside
+        const stack = [];
+        
+        // Init Stack with Border Empty Cells
+        const add = (x, y) => {
+            const idx = y * w + x;
+            if (this.renderGrid[idx] === -1 && visited[idx] === 0) {
+                visited[idx] = 1;
+                stack.push(idx);
+            }
+        };
+        
+        for (let x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
+        for (let y = 1; y < h - 1; y++) { add(0, y); add(w - 1, y); }
+        
+        while (stack.length > 0) {
+            const idx = stack.pop();
+            const cx = idx % w;
+            const cy = Math.floor(idx / w);
+            
+            // Neighbors
+            const neighbors = [
+                { x: cx, y: cy - 1 },
+                { x: cx, y: cy + 1 },
+                { x: cx - 1, y: cy },
+                { x: cx + 1, y: cy }
+            ];
+            
+            for (const n of neighbors) {
+                if (n.x >= 0 && n.x < w && n.y >= 0 && n.y < h) {
+                    add(n.x, n.y);
+                }
+            }
+        }
+        
+        // 2. Identify Holes (Internal Empty Cells)
+        // We map them to a temporary 'isHole' array to allow pattern matching
+        const isHole = new Uint8Array(w * h);
+        for(let i=0; i<w*h; i++) {
+            if (this.renderGrid[i] === -1 && visited[i] === 0) {
+                isHole[i] = 1;
+            }
+        }
+
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+
+        // 3. Priority Fill: 2x2 Blocks
+        for (let y = 0; y < h - 1; y++) {
+            for (let x = 0; x < w - 1; x++) {
+                const i = y * w + x;
+                // Check 2x2 area
+                if (isHole[i] && isHole[i+1] && isHole[i+w] && isHole[i+w+1]) {
+                    // Spawn 2x2 with suppressed lines (Hole Filler)
+                    this._spawnBlock(x - cx, y - cy, 2, 2, 0, true);
+                    // Mark as filled
+                    isHole[i] = 0; isHole[i+1] = 0;
+                    isHole[i+w] = 0; isHole[i+w+1] = 0;
+                }
+            }
+        }
+        
+        // 4. Fallback Fill: 1x1 Blocks
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = y * w + x;
+                if (isHole[idx]) {
+                    // Spawn 1x1 with suppressed lines (Hole Filler)
+                    this._spawnBlock(x - cx, y - cy, 1, 1, 0, true);
+                    isHole[idx] = 0; 
+                }
+            }
+        }
     }
 
     _attemptSpineGrowth() {
@@ -433,6 +590,176 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         s.step++;
     }
 
+    _attemptBlockShift() {
+        if (this.activeBlocks.length < 5) return false;
+        
+        const validShapes = [
+            {w:1, h:1}, 
+            {w:1, h:2}, {w:2, h:1}, // Area 2
+            {w:1, h:3}, {w:3, h:1}  // Area 3
+        ];
+        
+        if (!this.renderGrid) return false;
+        const w = this.logicGridW;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        
+        // Axis-Driven Placement
+        let useYAxis = Math.random() < 0.5; // True: Vertical Spine (X=0)
+        
+        const shape = validShapes[Math.floor(Math.random() * validShapes.length)];
+        const tw = shape.w;
+        const th = shape.h;
+        
+        let tx, ty;
+        if (useYAxis) {
+            // Vertical Spine (X=0)
+            tx = -Math.floor(tw / 2); 
+            const candidates = this.activeBlocks.filter(b => b.x <= 0 && b.x + b.w > 0);
+            if (candidates.length === 0) return false;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            ty = anchor.y + Math.floor((anchor.h - th) / 2);
+        } else {
+            // Horizontal Spine (Y=0)
+            ty = -Math.floor(th / 2);
+            const candidates = this.activeBlocks.filter(b => b.y <= 0 && b.y + b.h > 0);
+            if (candidates.length === 0) return false;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            tx = anchor.x + Math.floor((anchor.w - tw) / 2);
+        }
+        
+        // Verify Internal
+        let isInternal = true;
+        for (let y = 0; y < th; y++) {
+            for (let x = 0; x < tw; x++) {
+                const gx = cx + tx + x;
+                const gy = cy + ty + y;
+                const idx = gy * w + gx;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH || this.renderGrid[idx] === -1) {
+                    isInternal = false;
+                    break;
+                }
+            }
+            if (!isInternal) break;
+        }
+        
+        if (!isInternal) return false;
+
+        // 4. Determine Direction (Nudge logic)
+        // Center of shifter relative to grid center (0,0)
+        const sx = tx + tw / 2;
+        const sy = ty + th / 2;
+        
+        let shiftX = 0;
+        let shiftY = 0;
+        
+        // Standard Behavior (Dominant Axis)
+        if (Math.abs(sy) > Math.abs(sx)) {
+            // Vertical Dominance
+            if (sy < 0) shiftY = -th; // North
+            else shiftY = th;         // South
+        } else {
+            // Horizontal Dominance
+            if (sx > 0) shiftX = tw;  // East
+            else shiftX = -tw;        // West
+        }
+
+        if (shiftX === 0 && shiftY === 0) return false;
+
+        // 5. Nudge existing blocks
+        // Filter blocks that are "downstream"
+        // Downstream means:
+        // - They overlap the channel (orthogonal axis overlap)
+        // - Their center is further in the shift direction than the shifter center
+        
+        const movingBlocks = [];
+        
+        for (const b of this.activeBlocks) {
+            let inChannel = false;
+            let isDownstream = false;
+            
+            if (shiftX !== 0) {
+                // Horizontal Shift
+                // Overlaps Y range
+                const startY = Math.max(ty, b.y);
+                const endY = Math.min(ty + th, b.y + b.h);
+                if (endY > startY) inChannel = true;
+                
+                // Downstream check
+                const bCenter = b.x + b.w / 2;
+                if (shiftX > 0) isDownstream = (bCenter >= sx); // East
+                else isDownstream = (bCenter <= sx);            // West
+                
+            } else {
+                // Vertical Shift
+                // Overlaps X range
+                const startX = Math.max(tx, b.x);
+                const endX = Math.min(tx + tw, b.x + b.w);
+                if (endX > startX) inChannel = true;
+                
+                // Downstream check
+                const bCenter = b.y + b.h / 2;
+                if (shiftY < 0) isDownstream = (bCenter <= sy); // North (sy is neg)
+                else isDownstream = (bCenter >= sy);            // South
+            }
+            
+            if (inChannel && isDownstream) {
+                movingBlocks.push(b);
+            }
+        }
+
+        if (movingBlocks.length === 0) return false;
+
+        // Execute Shift via "Move" (Update Position)
+        // We move the existing blocks to create space, rather than cloning them (which caused exponential growth).
+        // The Shifter block (spawned below) fills the primary gap, and _performHoleCleanup handles any shearing gaps.
+        for (const b of movingBlocks) {
+            this._updateBlockPosition(b, b.x + shiftX, b.y + shiftY);
+        }
+
+        // 6. Spawn "Invisible" Shifter Block (Solid Fill, No Lines)
+        // This takes up the space vacated by the shift, ensuring no holes.
+        // Marked as isShifter=true for visualization.
+        this._spawnBlock(tx, ty, tw, th, 0, true, true);
+        
+        return true;
+    }
+
+    render(ctx, d) {
+        // 1. Call base render (handles normal layers like Perimeter and Inner lines)
+        super.render(ctx, d);
+        
+        if (!this.active) return;
+
+        // 2. Debug: Draw Shifter blocks as Blue on the overlay
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        const l = this.layout;
+        if (!l) return;
+
+        ctx.fillStyle = 'rgba(0, 100, 255, 0.6)'; // Blue
+        for (const op of this.maskOps) {
+            if (op.isShifter) {
+                const sBx = (cx + op.x1) - l.offX;
+                const sBy = (cy + op.y1) - l.offY;
+                const eBx = (cx + op.x2) - l.offX;
+                const eBy = (cy + op.y2) - l.offY;
+
+                const startX = Math.floor(sBx * l.cellPitchX);
+                const endX = Math.floor((eBx + 1) * l.cellPitchX);
+                const startY = Math.floor(sBy * l.cellPitchY);
+                const endY = Math.floor((eBy + 1) * l.cellPitchY);
+
+                const xPos = l.screenOriginX + (startX * l.screenStepX);
+                const yPos = l.screenOriginY + (startY * l.screenStepY);
+                const w = (endX - startX) * l.screenStepX;
+                const h = (endY - startY) * l.screenStepY;
+
+                ctx.fillRect(xPos, yPos, w, h);
+            }
+        }
+    }
+
     _renderInteriorPass(ctx, now, addDuration) {
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
@@ -536,6 +863,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // 1. Clear old grid pixels
         this._writeToGrid(b.x, b.y, b.w, b.h, -1);
         
+        // Offset Calculation for MaskOps
+        const dx = newX - b.x;
+        const dy = newY - b.y;
+        
         // 2. Update coords
         b.x = newX;
         b.y = newY;
@@ -544,13 +875,58 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Use b.startFrame to preserve age (color/fade)
         this._writeToGrid(b.x, b.y, b.w, b.h, b.startFrame);
         
-        // Note: we are NOT adding a 'move' op to maskOps. 
-        // We manipulate the renderGrid directly. 
-        // Base class renders from renderGrid.
+        // 4. Update associated MaskOps (Lines/Fill)
+        if (this.maskOps) {
+             for (const op of this.maskOps) {
+                 if (op.blockId === b.id) {
+                     op.x1 += dx;
+                     op.x2 += dx;
+                     op.y1 += dy;
+                     op.y2 += dy;
+                 }
+             }
+        }
     }
     
-    _spawnBlock(x, y, w, h, layer = 0) {
-        const b = { x, y, w, h, startFrame: this.animFrame, layer };
+    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false) {
+        // Strict Connectivity Check (Perimeter Containment)
+        // Ensure new block touches or overlaps at least one existing block.
+        if (this.activeBlocks.length > 0) {
+             let connected = false;
+             let totalOverlap = 0;
+             const area = w * h;
+
+             for (const b of this.activeBlocks) {
+                 const xOverlap = (x <= b.x + b.w) && (x + w >= b.x);
+                 const yOverlap = (y <= b.y + b.h) && (y + h >= b.y);
+                 
+                 if (xOverlap && yOverlap) {
+                     connected = true;
+                     
+                     // Calculate Area Overlap
+                     const ix = Math.max(x, b.x);
+                     const iy = Math.max(y, b.y);
+                     const iw = Math.min(x + w, b.x + b.w) - ix;
+                     const ih = Math.min(y + h, b.y + b.h) - iy;
+                     if (iw > 0 && ih > 0) {
+                         totalOverlap += (iw * ih);
+                     }
+                 }
+             }
+             
+             if (!connected) {
+                 return; // Reject disconnected spawn
+             }
+             
+             // Reject Fully Internal Spawns (Must protrude to be 'on perimeter')
+             // Unless it's a Shifter (which is designed to fill internal gaps)
+             if (!isShifter && totalOverlap >= area) {
+                 return; 
+             }
+        }
+
+        const id = this.nextBlockId++;
+        const b = { x, y, w, h, startFrame: this.animFrame, layer, id, isShifter };
         this.activeBlocks.push(b);
         
         // Add Op for base class Line Rendering (Interior Lines)
@@ -558,8 +934,16 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             type: 'add',
             x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
             startFrame: this.animFrame,
-            layer: layer
+            layer: layer,
+            blockId: id,
+            isShifter: isShifter
         });
+        
+        if (suppressLines) {
+            // Write to Grid only (Solid fill)
+            this._writeToGrid(x, y, w, h, this.animFrame, layer);
+            return;
+        }
         
         // Calculate Line Duration
         const durationSteps = this.c.state.quantizedGenerateV2InnerLineDuration || 1;
@@ -576,7 +960,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 startFrame: this.animFrame,
                 expireFrame: this.animFrame + durationFrames, 
                 startPhase: this.stepCount,
-                layer: layer 
+                layer: layer,
+                blockId: id
             });
         };
         
