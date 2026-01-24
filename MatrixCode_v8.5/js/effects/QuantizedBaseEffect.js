@@ -800,9 +800,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const gridPixH = grid.rows * d.cellHeight;
         
         const bs = this.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
-        
         const oddShiftY = (bs.h % 2 !== 0) ? -0.5 : 0.0;
         
         const screenOriginX = ((d.cellWidth * 1.0 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
@@ -810,29 +807,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
-        
-        const blocksX = Math.ceil(grid.cols / cellPitchX);
-        const blocksY = Math.ceil(grid.rows / cellPitchY);
-
-        const { offX, offY } = this._computeCenteredOffset(this.logicGridW, this.logicGridH, cellPitchX, cellPitchY);
-        
-        // User Perimeter Offsets (adjust logic lookup to match moved visuals)
-        const userPerimeterOffsetX = s.quantizedPerimeterOffsetX || 0;
-        const userPerimeterOffsetY = s.quantizedPerimeterOffsetY || 0;
-        // Convert pixels to blocks
-        // Screen Step = cellWidth * stretch. Block Width = Step * Pitch.
-        const blockScreenW = (d.cellWidth * s.stretchX) * cellPitchX;
-        const blockScreenH = (d.cellHeight * s.stretchY) * cellPitchY;
-        const userOffBx = userPerimeterOffsetX / blockScreenW;
-        const userOffBy = userPerimeterOffsetY / blockScreenH;
 
         const drawChar = (x, y) => {
             // DEBUG COUNT
             this._debugCharCount = (this._debugCharCount || 0) + 1;
 
-            if (x >= cols || y >= rows) return;
-            const i = (y * cols) + x;
-            let charCode = chars[i];
+            let charCode = 32;
+            let i = -1;
+
+            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+                i = (y * cols) + x;
+                charCode = chars[i];
+            } else {
+                // Procedural index for out-of-bounds
+                // Offset to ensure positive seeds or just use raw coords
+                i = (y * 10000) + x; 
+                charCode = 0; // Force procedural generation
+            }
+
             if (charCode <= 32) {
                 const activeFonts = d.activeFonts;
                 const fontData = activeFonts[0] || { chars: "01" };
@@ -856,37 +848,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         };
 
-        for (let by = 0; by <= blocksY; by++) {
-            const y = Math.floor(by * cellPitchY);
-            if (y >= rows) continue; 
-            for (let x = 0; x < cols; x++) {
-                // Map screen cell X to logic block BX using offset
-                // Subtract user offset because if lines moved Right, a static cell looks "Left" relative to them
-                const curBx = Math.floor((x / cellPitchX) + offX - userOffBx);
-                // Check neighbors in Logic Grid space
-                const idxAbove = (Math.floor((by / cellPitchY) + offY - userOffBy) - 1) * this.logicGridW + curBx;
-                const idxBelow = Math.floor((by / cellPitchY) + offY - userOffBy) * this.logicGridW + curBx;
-                
-                const activeAbove = (this.renderGrid[idxAbove] !== undefined && this.renderGrid[idxAbove] !== -1);
-                const activeBelow = (this.renderGrid[idxBelow] !== undefined && this.renderGrid[idxBelow] !== -1);
-                
-                if (activeAbove || activeBelow) drawChar(x, y);
-            }
-        }
-        for (let bx = 0; bx <= blocksX; bx++) {
-            const x = Math.floor(bx * cellPitchX);
-            if (x >= cols) continue;
-            for (let y = 0; y < rows; y++) {
-                // Map screen cell Y to logic block BY using offset
-                const curBy = Math.floor((y / cellPitchY) + offY - userOffBy);
-                // Check neighbors in Logic Grid space
-                const idxLeft = curBy * this.logicGridW + (Math.floor((bx / cellPitchX) + offX - userOffBx) - 1);
-                const idxRight = curBy * this.logicGridW + Math.floor((bx / cellPitchX) + offX - userOffBx);
-                
-                const activeLeft = (this.renderGrid[idxLeft] !== undefined && this.renderGrid[idxLeft] !== -1);
-                const activeRight = (this.renderGrid[idxRight] !== undefined && this.renderGrid[idxRight] !== -1);
-                
-                if (activeLeft || activeRight) drawChar(x, y);
+        // Render entire grid with padding
+        const padding = 5;
+        for (let y = -padding; y < rows + padding; y++) {
+            for (let x = -padding; x < cols + padding; x++) {
+                drawChar(x, y);
             }
         }
         
@@ -1178,7 +1144,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const srcOffX = this.c.state.quantizedSourceGridOffsetX || 0;
                 const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
                 ctx.save();
-                ctx.globalAlpha = 1.0;
+                ctx.globalAlpha = 0.3; // Reduced to 30% opacity
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.translate(srcOffX, srcOffY);
                 ctx.drawImage(this.gridCacheCanvas, 0, 0);
@@ -1188,7 +1154,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (showLines && glowStrength > 0) {
                 const scratchCtx = this.scratchCtx;
                 
-                const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter') => {
+                const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter', srcOffX = 0, srcOffY = 0) => {
                 if (!maskCanvas) return;
                 
                 scratchCtx.globalCompositeOperation = 'source-over';
@@ -1200,7 +1166,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     scratchCtx.fillRect(0, 0, width, height);
                 } else {
                     scratchCtx.globalAlpha = this.alpha;
+                    scratchCtx.save();
+                    scratchCtx.translate(srcOffX, srcOffY); // Apply Source Offset here
                     scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+                    scratchCtx.restore();
                     
                     scratchCtx.globalCompositeOperation = 'source-in';
                     scratchCtx.fillStyle = color;
@@ -1223,11 +1192,15 @@ class QuantizedBaseEffect extends AbstractEffect {
             };
 
             if (this.lineMaskCanvas) {
-                renderLayer(this.lineMaskCanvas, interiorColor, isSolid, 'source-over');
+                const srcOffX = this.c.state.quantizedSourceGridOffsetX || 0;
+                const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
+                renderLayer(this.lineMaskCanvas, interiorColor, isSolid, 'source-over', srcOffX, srcOffY);
             }
 
             if (this.perimeterMaskCanvas) {
-                renderLayer(this.perimeterMaskCanvas, borderColor, isSolid, 'source-over');
+                const srcOffX = this.c.state.quantizedSourceGridOffsetX || 0;
+                const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
+                renderLayer(this.perimeterMaskCanvas, borderColor, isSolid, 'source-over', srcOffX, srcOffY);
             }
         }
     }
@@ -1384,6 +1357,126 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
+    renderEditorGrid(ctx) {
+        if (!this.layout) return;
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        const l = this.layout;
+        
+        // Respect Global Toggle 
+        if (this.c.state.layerEnableEditorGrid === false) return;
+
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        // User Editor Offsets
+        const gridOffX = this.c.state.quantizedEditorGridOffsetX || 0;
+        const gridOffY = this.c.state.quantizedEditorGridOffsetY || 0;
+
+        const startX = l.screenOriginX - (l.offX * l.cellPitchX * l.screenStepX);
+        const startY = l.screenOriginY - (l.offY * l.cellPitchY * l.screenStepY);
+        
+        const blockOffX = 0; 
+        const blockOffY = 0; 
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; 
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        
+        // Draw verticals
+        for (let bx = 0; bx <= blocksX; bx++) {
+            const x = startX + (bx * l.cellPitchX * l.screenStepX) + blockOffX + gridOffX;
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+        }
+        // Draw horizontals
+        for (let by = 0; by <= blocksY; by++) {
+            const y = startY + (by * l.cellPitchY * l.screenStepY) + blockOffY + gridOffY;
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+        }
+        ctx.stroke();
+        
+        // Highlight Center Block
+        const centerX = startX + (cx * l.cellPitchX * l.screenStepX) + blockOffX + gridOffX;
+        const centerY = startY + (cy * l.cellPitchY * l.screenStepY) + blockOffY + gridOffY;
+        
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+        ctx.strokeRect(centerX, centerY, l.cellPitchX * l.screenStepX, l.cellPitchY * l.screenStepY);
+
+        ctx.restore();
+    }
+
+    renderEditorOverlay(ctx) {
+         if (!this.layout) return;
+         const l = this.layout;
+         
+         if (this.c.state.layerEnableEditorOverlay === false) return;
+
+         const blocksX = this.logicGridW;
+         const cx = Math.floor(blocksX / 2);
+         const cy = Math.floor(this.logicGridH / 2);
+         
+         const changesOffX = this.c.state.quantizedEditorChangesOffsetX || 0;
+         const changesOffY = this.c.state.quantizedEditorChangesOffsetY || 0;
+         
+         const startX = l.screenOriginX - (l.offX * l.cellPitchX * l.screenStepX);
+         const startY = l.screenOriginY - (l.offY * l.cellPitchY * l.screenStepY);
+         const blockOffX = 0;
+         const blockOffY = 0;
+         
+         ctx.save();
+            
+        // A. Draw Active Blocks
+        const rGrid = this.renderGrid;
+        if (rGrid) {
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; 
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)'; 
+            ctx.lineWidth = 1;
+
+            const bW = l.cellPitchX * l.screenStepX;
+            const bH = l.cellPitchY * l.screenStepY;
+
+            for (let i = 0; i < rGrid.length; i++) {
+                if (rGrid[i] !== -1) {
+                    const bx = i % blocksX;
+                    const by = Math.floor(i / blocksX);
+                    const x = startX + (bx * bW) + blockOffX + changesOffX;
+                    const y = startY + (by * bH) + blockOffY + changesOffY;
+                    
+                    ctx.fillRect(x + 1, y + 1, bW - 2, bH - 2);
+                }
+            }
+        }
+
+        // B. Draw Operations (Lines, Removals)
+        const ops = this.maskOps;
+        if (ops) {
+            const bW = l.cellPitchX * l.screenStepX;
+            const bH = l.cellPitchY * l.screenStepY;
+
+            for (const op of ops) {
+                if (op.type === 'removeBlock') {
+                    const bx = cx + op.x1;
+                    const by = cy + op.y1;
+                    const x = startX + (bx * bW) + blockOffX + changesOffX;
+                    const y = startY + (by * bH) + blockOffY + changesOffY;
+
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y); ctx.lineTo(x + bW, y + bH);
+                    ctx.moveTo(x + bW, y); ctx.lineTo(x, y + bH);
+                    ctx.stroke();
+                }
+            }
+        }
+        ctx.restore();
+    }
+
     stop() {
         this.active = false;
         this.state = 'IDLE';
@@ -1534,7 +1627,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const cx_off = Math.floor(this.logicGridW / 2);
                 const cy_off = Math.floor(this.logicGridH / 2);
 
-                // Pre-rasterize Ops
+                // 1. Pre-rasterize Ops
                 const opMap = new Map();
                 for (const op of this.maskOps) {
                     if ((op.type === 'addLine' || op.type === 'removeLine') && op.face) {
@@ -1568,57 +1661,73 @@ class QuantizedBaseEffect extends AbstractEffect {
                     return { active, time: t, op };
                 };
 
-                const groups = new Map(); // Key -> { V: [], H: [], ctx, t, exp }
+                // 2. Compute Edge States
+                // No shifts or clipping needed for pure grid alignment
+                const groups = new Map(); 
 
-                const processEdge = (b1, b2, bx, by, isVert) => {
-                    if (!b1.active && !b2.active) return;
-                    const winner = (b1.time >= b2.time) ? b1 : b2;
-                    let wantLine = (b1.active !== b2.active);
-                    if (winner.op) wantLine = (winner.op.type === 'addLine');
-
-                    if (wantLine) {
-                        const isInner = (b1.active && b2.active);
-                        const targetCtx = isInner ? lCtx : pCtx;
-                        if (!targetCtx) return;
-
-                        const t = winner.time;
-                        const exp = winner.op ? winner.op.expireFrame : null;
-                        const key = `${t}_${exp}_${isInner}`;
-
-                        if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t, exp });
-                        if (isVert) groups.get(key).V.push({ bx, by });
-                        else groups.get(key).H.push({ bx, by });
-                    }
-                };
-
-                // Vertical Edges
+                // Process Vertical Edges (Cols 0 to blocksX)
                 for (let by = 0; by < blocksY; by++) {
                     for (let bx = 0; bx <= blocksX; bx++) {
-                        processEdge(getBlockEdgeState(bx - 1, by, 'E'), getBlockEdgeState(bx, by, 'W'), bx, by, true);
+                        const b1 = getBlockEdgeState(bx - 1, by, 'E');
+                        const b2 = getBlockEdgeState(bx, by, 'W');
+                        
+                        let wantLine = false;
+                        if (b1.active || b2.active) {
+                            const winner = (b1.time >= b2.time) ? b1 : b2;
+                            wantLine = (b1.active !== b2.active);
+                            if (winner.op) wantLine = (winner.op.type === 'addLine');
+                            
+                            const isInner = (b1.active && b2.active);
+                            
+                            if (wantLine) {
+                                const data = { bx, by, t: winner.time, exp: winner.op ? winner.op.expireFrame : null };
+                                const targetCtx = isInner ? lCtx : pCtx;
+                                if (targetCtx) {
+                                    const key = `${data.t}_${data.exp}_${isInner}`;
+                                    if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t: data.t, exp: data.exp });
+                                    groups.get(key).V.push(data);
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Horizontal Edges
+                // Process Horizontal Edges (Rows 0 to blocksY)
                 for (let by = 0; by <= blocksY; by++) {
                     for (let bx = 0; bx < blocksX; bx++) {
-                        processEdge(getBlockEdgeState(bx, by - 1, 'S'), getBlockEdgeState(bx, by, 'N'), bx, by, false);
+                        const b1 = getBlockEdgeState(bx, by - 1, 'S');
+                        const b2 = getBlockEdgeState(bx, by, 'N');
+                        
+                        let wantLine = false;
+                        if (b1.active || b2.active) {
+                            const winner = (b1.time >= b2.time) ? b1 : b2;
+                            wantLine = (b1.active !== b2.active);
+                            if (winner.op) wantLine = (winner.op.type === 'addLine');
+                            
+                            const isInner = (b1.active && b2.active);
+                            
+                            if (wantLine) {
+                                const data = { bx, by, t: winner.time, exp: winner.op ? winner.op.expireFrame : null };
+                                const targetCtx = isInner ? lCtx : pCtx;
+                                if (targetCtx) {
+                                    const key = `${data.t}_${data.exp}_${isInner}`;
+                                    if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t: data.t, exp: data.exp });
+                                    groups.get(key).H.push(data);
+                                }
+                            }
+                        }
                     }
                 }
 
                 const lwX = l.lineWidthX * 2.0;
                 const lwY = l.lineWidthY * 2.0;
-
+                
+                // 3. Draw
                 for (const group of groups.values()) {
                     let opacity = 1.0;
                     if (!this.debugMode) {
-                        // Fade In
-                        if (fadeInFrames > 0 && group.t > 0) {
-                            opacity = Math.min(opacity, (now - group.t) / fadeInFrames);
-                        }
-                        // Fade Out
-                        if (group.exp && fadeOutFrames > 0) {
-                            opacity = Math.min(opacity, 1.0 - (now - group.exp) / fadeOutFrames);
-                        }
+                        if (fadeInFrames > 0 && group.t > 0) opacity = Math.min(opacity, (now - group.t) / fadeInFrames);
+                        if (group.exp && fadeOutFrames > 0) opacity = Math.min(opacity, 1.0 - (now - group.exp) / fadeOutFrames);
                     }
 
                     if (opacity <= 0.001) continue;
@@ -1630,17 +1739,23 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     for (const seg of group.V) {
                         const cx = (seg.bx - offX) * bw;
-                        const screenX = l.screenOriginX + (cx + 1.0) * l.screenStepX;
-                        const screenY1 = l.screenOriginY + (seg.by * bh - offY + 1.0) * l.screenStepY;
-                        const screenY2 = l.screenOriginY + ((seg.by + 1) * bh - offY + 1.0) * l.screenStepY;
+                        // Align to Left edge of column: cx - 0.5
+                        const screenX = l.screenOriginX + (cx - 0.5) * l.screenStepX;
+                        
+                        const screenY1 = l.screenOriginY + (seg.by * bh - offY - 0.5) * l.screenStepY;
+                        const screenY2 = l.screenOriginY + ((seg.by + 1) * bh - offY - 0.5) * l.screenStepY;
+                        
                         ctx.rect(screenX - lwX/2, screenY1, lwX, screenY2 - screenY1);
                     }
 
                     for (const seg of group.H) {
                         const cy = (seg.by - offY) * bh;
-                        const screenY = l.screenOriginY + (cy + 1.0) * l.screenStepY;
-                        const screenX1 = l.screenOriginX + (seg.bx * bw - offX + 1.0) * l.screenStepX;
-                        const screenX2 = l.screenOriginX + ((seg.bx + 1) * bw - offX + 1.0) * l.screenStepX;
+                        // Align to Top edge of row: cy - 0.5
+                        const screenY = l.screenOriginY + (cy - 0.5) * l.screenStepY;
+                        
+                        const screenX1 = l.screenOriginX + (seg.bx * bw - offX - 0.5) * l.screenStepX;
+                        const screenX2 = l.screenOriginX + ((seg.bx + 1) * bw - offX - 0.5) * l.screenStepX;
+                        
                         ctx.rect(screenX1, screenY - lwY/2, screenX2 - screenX1, lwY);
                     }
                     ctx.fill();    

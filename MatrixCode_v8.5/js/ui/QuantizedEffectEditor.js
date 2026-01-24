@@ -220,9 +220,8 @@ class QuantizedEffectEditor {
     _render() {
         if (!this.canvas || !this.ctx) return;
         
-        // Throttling: Only render if dirty or preview op exists (animations?)
-        // If the effect is static in editor mode, we don't need to redraw unless input happens.
-        if (!this.isDirty && !this.effect.editorPreviewOp) return;
+        // Remove Throttling to ensure live updates from configuration changes
+        // This ensures the canvas is cleared and redrawn every frame when the editor is active.
 
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -236,10 +235,9 @@ class QuantizedEffectEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
-        // 1. Render Actual Effect Preview (Base Layer - "In-Game View")
-        if (this.effect && typeof this.effect.renderEditorPreview === 'function') {
-            this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
-        }
+        // 1. Remove Duplicate Effect Rendering
+        // The main game loop renders the actual effect. The editor should ONLY render the overlay/schematics.
+        // We removed `this.effect.renderEditorPreview(...)` to prevent double-rendering of lines and grid.
 
         // Ensure layout exists for schematic rendering
         if (!this.effect.layout) {
@@ -276,95 +274,55 @@ class QuantizedEffectEditor {
         const blockOffY = 0; // Aligned to Edge (was halfCellH)
 
         // 2. Render Background Grid (Overlay)
-        // Respect Global Toggle AND Editor Toggle
-        const showGridGlobal = (this.effect.c.state.layerEnableEditorGrid !== false);
-        if (this.showGrid && showGridGlobal) {
-            ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; 
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            
-            // Draw verticals (Centered on Cell 0 of Block)
-            for (let bx = 0; bx <= blocksX; bx++) {
-                const x = startX + (bx * l.cellPitchX * l.screenStepX) + blockOffX + gridOffX;
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, height);
-            }
-            // Draw horizontals (Centered on Row 0 of Block)
-            for (let by = 0; by <= blocksY; by++) {
-                const y = startY + (by * l.cellPitchY * l.screenStepY) + blockOffY + gridOffY;
-                ctx.moveTo(0, y);
-                ctx.lineTo(width, y);
-            }
-            ctx.stroke();
-            
-            // Highlight Center Block (Restore Position)
-            const centerX = startX + (cx * l.cellPitchX * l.screenStepX) + blockOffX + gridOffX;
-            const centerY = startY + (cy * l.cellPitchY * l.screenStepY) + blockOffY + gridOffY;
-            
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-            ctx.strokeRect(centerX, centerY, l.cellPitchX * l.screenStepX, l.cellPitchY * l.screenStepY);
-
-            ctx.restore();
+        if (this.showGrid) {
+            this.effect.renderEditorGrid(ctx);
         }
 
         // 3. Render Schematic Layer (Blocks & Ops)
-        // ... (Blocks remain filled logic cells) ...
-        const showOverlayGlobal = (this.effect.c.state.layerEnableEditorOverlay !== false);
-        if (this.highlightChanges && showOverlayGlobal) {
+        if (this.highlightChanges) {
+            this.effect.renderEditorOverlay(ctx);
+        }
+
+        // 3b. Render Editor Preview Op (Schematic)
+        // Since we removed renderEditorPreview, we must draw the "ghost" of the tool action here.
+        if (this.effect.editorPreviewOp) {
+            const op = this.effect.editorPreviewOp;
             ctx.save();
-            
-            // A. Draw Active Blocks
-            const rGrid = this.effect.renderGrid;
-            if (rGrid) {
-                ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; 
-                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)'; 
-                ctx.lineWidth = 1;
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+            ctx.lineWidth = 1;
 
-                const bW = l.cellPitchX * l.screenStepX;
-                const bH = l.cellPitchY * l.screenStepY;
+            const drawBlock = (bx, by) => {
+                 const x = startX + ((cx + bx) * l.cellPitchX * l.screenStepX) + blockOffX + changesOffX;
+                 const y = startY + ((cy + by) * l.cellPitchY * l.screenStepY) + blockOffY + changesOffY;
+                 const w = l.cellPitchX * l.screenStepX;
+                 const h = l.cellPitchY * l.screenStepY;
+                 ctx.fillRect(x, y, w, h);
+                 ctx.strokeRect(x, y, w, h);
+            };
 
-                for (let i = 0; i < rGrid.length; i++) {
-                    if (rGrid[i] !== -1) {
-                        const bx = i % blocksX;
-                        const by = Math.floor(i / blocksX);
-                        const x = startX + (bx * bW) + blockOffX + changesOffX;
-                        const y = startY + (by * bH) + blockOffY + changesOffY;
-                        
-                        ctx.fillRect(x + 1, y + 1, bW - 2, bH - 2);
+            if (op.op === 'addRect') {
+                const [x1, y1, x2, y2] = op.args;
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+                
+                for (let y = minY; y <= maxY; y++) {
+                    for (let x = minX; x <= maxX; x++) {
+                        drawBlock(x, y);
                     }
                 }
+            } else if (op.op === 'add' || op.op === 'addSmart') {
+                const [x, y] = op.args;
+                drawBlock(x, y);
             }
-
-            // B. Draw Operations (Lines, Removals)
-            const ops = this.effect.maskOps;
-            if (ops) {
-                const bW = l.cellPitchX * l.screenStepX;
-                const bH = l.cellPitchY * l.screenStepY;
-                const halfCellW = l.screenStepX * 0.5;
-                const halfCellH = l.screenStepY * 0.5;
-
-                for (const op of ops) {
-                    if (op.type === 'removeBlock') {
-                        const bx = cx + op.x1;
-                        const by = cy + op.y1;
-                        const x = startX + (bx * bW) + blockOffX + changesOffX;
-                        const y = startY + (by * bH) + blockOffY + changesOffY;
-
-                        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(x, y); ctx.lineTo(x + bW, y + bH);
-                        ctx.moveTo(x + bW, y); ctx.lineTo(x, y + bH);
-                        ctx.stroke();
-                    }
-                }
-            }
+            // Add other tool previews here if needed
 
             ctx.restore();
         }
-
-        // 4. Render Active Selection
+        
+        // Define shared variables needed for selection rendering
         if (this.selectionRect) {
             ctx.save();
             const minX = this.selectionRect.x + cx;
