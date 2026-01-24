@@ -1491,23 +1491,32 @@ class WebGLRenderer {
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
         if (this.colorProgram) {
-            this.gl.useProgram(this.colorProgram);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-            this.gl.enableVertexAttribArray(0); 
-            this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-            
-            // Apply Background Color for Fade
-            const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-            const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-            const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-            
-            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
-            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+            // Respect layerEnableBackground (Default: true)
+            // If disabled, we don't clear/fade, which might look glitchy (hall of mirrors), but it's what was asked.
+            // Actually, usually "disable background" means transparent background. 
+            // But here we are drawing a full screen quad.
+            // If layerEnableBackground is false, we skip this draw call.
+            if (s.layerEnableBackground !== false) {
+                this.gl.useProgram(this.colorProgram);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+                this.gl.enableVertexAttribArray(0); 
+                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+                
+                // Apply Background Color for Fade
+                const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+                const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+                const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+                
+                this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+            }
         }
 
         // 2. Draw Cells
-        // Determine Program based on mode
-        const activeProgram = this.program2D;
+        // Respect layerEnablePrimaryCode
+        if (s.layerEnablePrimaryCode !== false) {
+            // Determine Program based on mode
+            const activeProgram = this.program2D;
         this.gl.useProgram(activeProgram);
         
         // --- Shared Uniforms ---
@@ -1583,6 +1592,7 @@ class WebGLRenderer {
         // Draw Main Pass
         this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
         this.gl.bindVertexArray(null);
+        } // End layerEnablePrimaryCode check
 
         // --- POST PROCESS (Bloom) ---
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);

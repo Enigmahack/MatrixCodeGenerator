@@ -816,6 +816,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const { offX, offY } = this._computeCenteredOffset(this.logicGridW, this.logicGridH, cellPitchX, cellPitchY);
         
+        // User Perimeter Offsets (adjust logic lookup to match moved visuals)
+        const userPerimeterOffsetX = s.quantizedPerimeterOffsetX || 0;
+        const userPerimeterOffsetY = s.quantizedPerimeterOffsetY || 0;
+        // Convert pixels to blocks
+        // Screen Step = cellWidth * stretch. Block Width = Step * Pitch.
+        const blockScreenW = (d.cellWidth * s.stretchX) * cellPitchX;
+        const blockScreenH = (d.cellHeight * s.stretchY) * cellPitchY;
+        const userOffBx = userPerimeterOffsetX / blockScreenW;
+        const userOffBy = userPerimeterOffsetY / blockScreenH;
+
         const drawChar = (x, y) => {
             // DEBUG COUNT
             this._debugCharCount = (this._debugCharCount || 0) + 1;
@@ -851,10 +861,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (y >= rows) continue; 
             for (let x = 0; x < cols; x++) {
                 // Map screen cell X to logic block BX using offset
-                const curBx = Math.floor((x / cellPitchX) + offX);
+                // Subtract user offset because if lines moved Right, a static cell looks "Left" relative to them
+                const curBx = Math.floor((x / cellPitchX) + offX - userOffBx);
                 // Check neighbors in Logic Grid space
-                const idxAbove = (Math.floor((by / cellPitchY) + offY) - 1) * this.logicGridW + curBx;
-                const idxBelow = Math.floor((by / cellPitchY) + offY) * this.logicGridW + curBx;
+                const idxAbove = (Math.floor((by / cellPitchY) + offY - userOffBy) - 1) * this.logicGridW + curBx;
+                const idxBelow = Math.floor((by / cellPitchY) + offY - userOffBy) * this.logicGridW + curBx;
                 
                 const activeAbove = (this.renderGrid[idxAbove] !== undefined && this.renderGrid[idxAbove] !== -1);
                 const activeBelow = (this.renderGrid[idxBelow] !== undefined && this.renderGrid[idxBelow] !== -1);
@@ -867,10 +878,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (x >= cols) continue;
             for (let y = 0; y < rows; y++) {
                 // Map screen cell Y to logic block BY using offset
-                const curBy = Math.floor((y / cellPitchY) + offY);
+                const curBy = Math.floor((y / cellPitchY) + offY - userOffBy);
                 // Check neighbors in Logic Grid space
-                const idxLeft = curBy * this.logicGridW + (Math.floor((bx / cellPitchX) + offX) - 1);
-                const idxRight = curBy * this.logicGridW + Math.floor((bx / cellPitchX) + offX);
+                const idxLeft = curBy * this.logicGridW + (Math.floor((bx / cellPitchX) + offX - userOffBx) - 1);
+                const idxRight = curBy * this.logicGridW + Math.floor((bx / cellPitchX) + offX - userOffBx);
                 
                 const activeLeft = (this.renderGrid[idxLeft] !== undefined && this.renderGrid[idxLeft] !== -1);
                 const activeRight = (this.renderGrid[idxRight] !== undefined && this.renderGrid[idxRight] !== -1);
@@ -1037,6 +1048,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         const bs = this.getBlockSize();
         const oddShiftY = (bs.h % 2 !== 0) ? -0.5 : 0.0;
         
+        // User Offsets
+        const userShadowOffsetX = this.c.state.quantizedShadowOffsetX || 0;
+        const userShadowOffsetY = this.c.state.quantizedShadowOffsetY || 0;
+        // Convert pixels to blocks (approximate, assuming resolution scale 1 for logic)
+        // Note: cellWidth/Height in 'derived' are pixels. 
+        const userBlockOffX = userShadowOffsetX / (this.c.derived.cellWidth * pitchX);
+        const userBlockOffY = userShadowOffsetY / (this.c.derived.cellHeight * pitchY);
+
         // PASS 1: Clear Outside (Void) areas
         // We run this first so that if an 'Inside' block overlaps an 'Outside' block, 
         // the 'Inside' block (Pass 2) will overwrite the clear, ensuring expanded borders 
@@ -1046,8 +1065,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const idx = by * blocksX + bx;
                 if (outsideMask[idx] !== 1) continue; // Skip Inside
 
-                const destBx = bx - offX;
-                const destBy = by - offY;
+                const destBx = bx - offX + userBlockOffX;
+                const destBy = by - offY + userBlockOffY;
                 
                 // Allow slightly out of bounds due to shifts
                 // Since offX/offY can be fractional, we use a slightly wider tolerance
@@ -1075,39 +1094,41 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // PASS 2: Draw Inside (Shadow) areas
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const idx = by * blocksX + bx;
-                if (outsideMask[idx] === 1) continue; // Skip Outside
+        if (this.c.state.layerEnableShadowWorld !== false) {
+            for (let by = 0; by < blocksY; by++) {
+                for (let bx = 0; bx < blocksX; bx++) {
+                    const idx = by * blocksX + bx;
+                    if (outsideMask[idx] === 1) continue; // Skip Outside
 
-                const destBx = bx - offX;
-                const destBy = by - offY;
-                
-                if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
-                
-                // Expand North/West by 1 character to cover the perimeter face
-                const startCellX = Math.round(destBx * pitchX + 0.5) - 1;
-                const startCellY = Math.round(destBy * pitchY + oddShiftY) - 1;
-                const endCellX = Math.round((destBx + 1) * pitchX + 0.5);
-                const endCellY = Math.round((destBy + 1) * pitchY + oddShiftY);
-                
-                for (let cy = startCellY; cy < endCellY; cy++) {
-                    if (cy >= g.rows || cy < 0) continue;
-                    for (let cx = startCellX; cx < endCellX; cx++) {
-                        if (cx >= g.cols || cx < 0) continue;
-                        
-                        const destIdx = cy * g.cols + cx;
-                        const srcIdx = cy * sg.cols + cx;
-                        
-                        if (sg && sg.chars && srcIdx < sg.chars.length) {
-                             g.overrideActive[destIdx] = 3; 
-                             g.overrideChars[destIdx] = sg.chars[srcIdx];
-                             g.overrideColors[destIdx] = sg.colors[srcIdx];
-                             g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
-                             g.overrideGlows[destIdx] = sg.glows[srcIdx];
-                             g.overrideMix[destIdx] = sg.mix[srcIdx];
-                             g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
-                             g.overrideFontIndices[destIdx] = sg.fontIndices[srcIdx];
+                    const destBx = bx - offX + userBlockOffX;
+                    const destBy = by - offY + userBlockOffY;
+                    
+                    if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
+                    
+                    // Expand North/West by 1 character to cover the perimeter face
+                    const startCellX = Math.round(destBx * pitchX + 0.5) - 1;
+                    const startCellY = Math.round(destBy * pitchY + oddShiftY) - 1;
+                    const endCellX = Math.round((destBx + 1) * pitchX + 0.5);
+                    const endCellY = Math.round((destBy + 1) * pitchY + oddShiftY);
+                    
+                    for (let cy = startCellY; cy < endCellY; cy++) {
+                        if (cy >= g.rows || cy < 0) continue;
+                        for (let cx = startCellX; cx < endCellX; cx++) {
+                            if (cx >= g.cols || cx < 0) continue;
+                            
+                            const destIdx = cy * g.cols + cx;
+                            const srcIdx = cy * sg.cols + cx;
+                            
+                            if (sg && sg.chars && srcIdx < sg.chars.length) {
+                                g.overrideActive[destIdx] = 3; 
+                                g.overrideChars[destIdx] = sg.chars[srcIdx];
+                                g.overrideColors[destIdx] = sg.colors[srcIdx];
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
+                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
+                                g.overrideMix[destIdx] = sg.mix[srcIdx];
+                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
+                                g.overrideFontIndices[destIdx] = sg.fontIndices[srcIdx];
+                            }
                         }
                     }
                 }
@@ -1145,12 +1166,29 @@ class QuantizedBaseEffect extends AbstractEffect {
              this._maskDirty = false;
         }
 
-        if (glowStrength > 0) {
+        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
+        const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
+
+        if ((glowStrength > 0 && showLines) || showSource) {
+            const isSolid = this.c.state.quantizedSolidPerimeter || false;
             this._updateGridCache(width, height, s, d);
             
-            const scratchCtx = this.scratchCtx;
-            
-            const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter') => {
+            // Draw Source Grid (Debug Layer)
+            if (showSource) {
+                const srcOffX = this.c.state.quantizedSourceGridOffsetX || 0;
+                const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
+                ctx.save();
+                ctx.globalAlpha = 1.0;
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.translate(srcOffX, srcOffY);
+                ctx.drawImage(this.gridCacheCanvas, 0, 0);
+                ctx.restore();
+            }
+
+            if (showLines && glowStrength > 0) {
+                const scratchCtx = this.scratchCtx;
+                
+                const renderLayer = (maskCanvas, color, solid = false, compositeOp = 'lighter') => {
                 if (!maskCanvas) return;
                 
                 scratchCtx.globalCompositeOperation = 'source-over';
@@ -1180,21 +1218,20 @@ class QuantizedBaseEffect extends AbstractEffect {
                 ctx.globalCompositeOperation = compositeOp; 
                 ctx.globalAlpha = 1.0;
                 
-                ctx.shadowColor = color;
-                ctx.shadowBlur = (glowStrength * 4.0) * this.alpha;
                 ctx.drawImage(this.scratchCanvas, 0, 0);
                 ctx.restore();
             };
 
             if (this.lineMaskCanvas) {
-                renderLayer(this.lineMaskCanvas, interiorColor, false, 'source-over');
+                renderLayer(this.lineMaskCanvas, interiorColor, isSolid, 'source-over');
             }
 
             if (this.perimeterMaskCanvas) {
-                renderLayer(this.perimeterMaskCanvas, borderColor, false, 'source-over');
+                renderLayer(this.perimeterMaskCanvas, borderColor, isSolid, 'source-over');
             }
         }
     }
+}
 
     renderDebug(ctx, derived) {
         if (!this.debugMode) return;
@@ -1280,6 +1317,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._updateGridCache(width, height, s, derived);
         const scratchCtx = this.scratchCtx;
+        const isSolid = this.c.state.quantizedSolidPerimeter || false;
+        
+        // Draw Source Grid (Debug Layer)
+        if (this.c.state.layerEnableQuantizedGridCache === true) {
+            const srcOffX = this.c.state.quantizedSourceGridOffsetX || 0;
+            const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
+            ctx.save();
+            ctx.globalAlpha = 1.0;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.translate(srcOffX, srcOffY);
+            ctx.drawImage(this.gridCacheCanvas, 0, 0);
+            ctx.restore();
+        }
 
         const renderLayer = (maskCanvas, color) => {
             if (!maskCanvas) return;
@@ -1287,12 +1337,18 @@ class QuantizedBaseEffect extends AbstractEffect {
             scratchCtx.globalCompositeOperation = 'source-over';
             scratchCtx.clearRect(0, 0, width, height);
 
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            
-            scratchCtx.globalCompositeOperation = 'source-in';
-            scratchCtx.fillStyle = color;
-            scratchCtx.fillRect(0, 0, width, height);
+            if (isSolid) {
+                scratchCtx.globalAlpha = 1.0;
+                scratchCtx.fillStyle = color;
+                scratchCtx.fillRect(0, 0, width, height);
+            } else {
+                scratchCtx.globalAlpha = 1.0;
+                scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+                
+                scratchCtx.globalCompositeOperation = 'source-in';
+                scratchCtx.fillStyle = color;
+                scratchCtx.fillRect(0, 0, width, height);
+            }
             
             scratchCtx.globalCompositeOperation = 'destination-in';
             scratchCtx.drawImage(maskCanvas, 0, 0);
@@ -1392,11 +1448,15 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             const bs = this.getBlockSize();
             const oddShiftY = (bs.h % 2 !== 0) ? -0.5 : 0.0;
+            
+            // User Perimeter Offsets
+            const userPerimeterOffsetX = s.quantizedPerimeterOffsetX || 0;
+            const userPerimeterOffsetY = s.quantizedPerimeterOffsetY || 0;
 
             // Offset 0.5 for Mask (Global Center-Based Offset)
             // Apply oddShiftY scaled by cellHeight (Character Amount)
-            const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-            const screenOriginY = ((s.fontOffsetY + (d.cellHeight * oddShiftY) - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+            const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5) + userPerimeterOffsetX;
+            const screenOriginY = ((s.fontOffsetY + (d.cellHeight * oddShiftY) - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5) + userPerimeterOffsetY;
             
             const cellPitchX = Math.max(1, bs.w);
             const cellPitchY = Math.max(1, bs.h);
