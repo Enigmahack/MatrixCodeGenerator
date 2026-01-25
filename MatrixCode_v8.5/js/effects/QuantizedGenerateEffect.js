@@ -420,8 +420,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
 
             // PART B: Vanishing Fade Out (Removed Blocks)
             if (this.maskOps) {
-                const logicCx = Math.floor(this.logicGridW / 2);
-                const logicCy = Math.floor(this.logicGridH / 2);
+                // Use screen center (cx, cy) to align with Part A and RenderGrid
                 
                 for (const op of this.maskOps) {
                     if (op.type !== 'removeBlock') continue;
@@ -432,8 +431,8 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                     const opacity = Math.max(0, 1.0 - (age / fadeOutFrames));
                     if (opacity <= 0.001) continue;
 
-                    const start = { x: logicCx + op.x1, y: logicCy + op.y1 };
-                    const end = { x: logicCx + op.x2, y: logicCy + op.y2 };
+                    const start = { x: cx + op.x1, y: cy + op.y1 };
+                    const end = { x: cx + op.x2, y: cy + op.y2 };
                     const minX = Math.min(start.x, end.x);
                     const maxX = Math.max(start.x, end.x);
                     const minY = Math.min(start.y, end.y);
@@ -441,6 +440,9 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
 
                     for (let by = minY; by <= maxY; by++) {
                         for (let bx = minX; bx <= maxX; bx++) {
+                            // If the block is currently active (replaced), do not render fade-out
+                            if (isRenderActive(bx, by)) continue;
+
                             const faces = ['N', 'S', 'W', 'E'];
                             for (const f of faces) {
                                 let nx = bx, ny = by;

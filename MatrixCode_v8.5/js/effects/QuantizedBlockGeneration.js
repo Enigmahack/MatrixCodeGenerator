@@ -32,6 +32,18 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         this._initLogicGrid();
         
+        // Force reset of cache flags to prevent stale map usage
+        this._outsideMapDirty = true;
+        this._distMapDirty = true;
+        this._gridCacheDirty = true;
+        
+        // Manually set _last dimensions to ensure updateShadowSim runs correctly on frame 0
+        const bs = this.getBlockSize();
+        this._lastBlocksX = this.logicGridW;
+        this._lastBlocksY = this.logicGridH;
+        this._lastPitchX = Math.max(1, bs.w);
+        this._lastPitchY = Math.max(1, bs.h);
+        
         // Init Shadow World (Invisible background sim)
         this._initShadowWorldBase(false);
         this._populateShadowWorld(); // Custom dense population
