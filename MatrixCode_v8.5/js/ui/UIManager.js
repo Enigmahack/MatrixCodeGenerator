@@ -464,6 +464,7 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_subheader', label: 'Growth Logic', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableCyclic', type: 'checkbox', label: 'Enable Cyclic Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the 3-phase cyclic growth pattern (Layer 0 -> Layer 1 -> Merge)." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableSpine', type: 'checkbox', label: 'Enable Spine Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables vertical/horizontal spine structures." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableCluster', type: 'checkbox', label: 'Enable Cluster Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables shifting clusters of 2-3 blocks along spines." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableOverlap', type: 'checkbox', label: 'Enable Layer Overlap', dep: 'quantizedGenerateV2Enabled', description: "Enables overlapping layer generation (Cloud effect)." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableUnfold', type: 'checkbox', label: 'Enable Unfold Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the unfolding behavior (Copy/Paste frontier)." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableCrawler', type: 'checkbox', label: 'Enable Crawler Behavior', dep: 'quantizedGenerateV2Enabled', description: "Enables the snake-like crawler behavior." },

@@ -27,6 +27,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.blockMap.clear();
         this.activeBlocks = [];
         this.crawlers = [];
+        this.unfoldSequences = [];
         this.nextBlockId = 0;
         this._lastProcessedOpIndex = 0; 
         
@@ -64,6 +65,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             E: { len: 0, finished: false },
             W: { len: 0, finished: false }
         };
+        this.unfoldState = null;
         
         // Seed (L1)
         this._spawnBlock(0, 0, 1, 1, 0); 
@@ -473,12 +475,16 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const enOverlap = (s.quantizedGenerateV2EnableOverlap !== undefined) ? s.quantizedGenerateV2EnableOverlap : true;
         const enUnfold = (s.quantizedGenerateV2EnableUnfold !== undefined) ? s.quantizedGenerateV2EnableUnfold : true;
         const enCrawler = (s.quantizedGenerateV2EnableCrawler !== undefined) ? s.quantizedGenerateV2EnableCrawler : true;
+        const enShift = (s.quantizedGenerateV2EnableShift !== undefined) ? s.quantizedGenerateV2EnableShift : false;
+        const enCluster = (s.quantizedGenerateV2EnableCluster !== undefined) ? s.quantizedGenerateV2EnableCluster : false;
 
         if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
         if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
         if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
         if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
+        if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
+        if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
 
         // If all disabled, do nothing (or fallback to overlap/cyclic to ensure SOMETHING happens?)
         // User requested ability to turn them off/isolate. So if all off, nothing grows.
@@ -502,6 +508,18 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
         }
 
+        // Process Unfold Sequences
+        if (this.unfoldSequences) {
+            for (let i = this.unfoldSequences.length - 1; i >= 0; i--) {
+                const seq = this.unfoldSequences[i];
+                if (seq.active) {
+                    this._attemptUnfoldGrowth(seq);
+                } else {
+                    this.unfoldSequences.splice(i, 1);
+                }
+            }
+        }
+
         // 5. Execute Remaining Quota
         for (let i = 0; i < totalTarget; i++) {
             const behavior = pool[i % pool.length];
@@ -509,105 +527,209 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     }
     
-    _attemptUnfoldGrowth() {
-        if (this.activeBlocks.length === 0) return;
-
-        // 1. Determine Bounds of current mass
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-
-        for (const b of this.activeBlocks) {
-            minX = Math.min(minX, b.x);
-            maxX = Math.max(maxX, b.x + b.w - 1);
-            minY = Math.min(minY, b.y);
-            maxY = Math.max(maxY, b.y + b.h - 1);
-        }
-
-        // 2. Pick Direction
-        const dirs = ['N', 'S', 'E', 'W'];
-        const dir = dirs[Math.floor(Math.random() * dirs.length)];
-
-        let srcX, srcY;     // Top-Left of 2x2 Source
-        let shiftX = 0, shiftY = 0; // Shift to Target
-
-        // 3. Setup Coordinates based on Direction (Frontier Selection)
-        if (dir === 'E') {
-            // Source: [maxX-1, maxX]
-            const candidates = this.activeBlocks.filter(b => b.x + b.w - 1 >= maxX - 1);
-            if (candidates.length === 0) return;
-            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
-            srcX = maxX - 1;
-            srcY = anchor.y; 
-            shiftX = 2;
-        } else if (dir === 'W') {
-            // Source: [minX, minX+1]
-            const candidates = this.activeBlocks.filter(b => b.x <= minX + 1);
-            if (candidates.length === 0) return;
-            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
-            srcX = minX;
-            srcY = anchor.y;
-            shiftX = -2;
-        } else if (dir === 'S') {
-            // Source: [maxY-1, maxY]
-            const candidates = this.activeBlocks.filter(b => b.y + b.h - 1 >= maxY - 1);
-            if (candidates.length === 0) return;
-            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
-            srcX = anchor.x;
-            srcY = maxY - 1;
-            shiftY = 2;
-        } else if (dir === 'N') {
-            // Source: [minY, minY+1]
-            const candidates = this.activeBlocks.filter(b => b.y <= minY + 1);
-            if (candidates.length === 0) return;
-            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
-            srcX = anchor.x;
-            srcY = minY;
-            shiftY = -2;
-        }
-
-        // 4. Read Source & Build Shapes
+    _blockShift(direction, amount, startCoords) {
         if (!this.renderGrid) return;
+
         const w = this.logicGridW;
+        const h = this.logicGridH;
         const cx = Math.floor(w / 2);
-        const cy = Math.floor(this.logicGridH / 2);
-        
-        // Pattern: [0, 1, 2, 3] corresponding to (x,y), (x+1,y), (x,y+1), (x+1,y+1)
-        const cells = [false, false, false, false];
-        
-        for (let iy = 0; iy < 2; iy++) {
-            for (let ix = 0; ix < 2; ix++) {
-                const gx = srcX + ix;
-                const gy = srcY + iy;
-                
-                const idx = (cy + gy) * w + (cx + gx);
-                if (idx >= 0 && idx < this.renderGrid.length && this.renderGrid[idx] !== -1) {
-                    cells[iy * 2 + ix] = true;
-                }
+        const cy = Math.floor(h / 2);
+
+        let dx = 0, dy = 0;
+        let scanX = false; // true if scanning X axis (East/West)
+
+        if (direction === 'N') { dy = -1; scanX = false; }
+        else if (direction === 'S') { dy = 1; scanX = false; }
+        else if (direction === 'E') { dx = 1; scanX = true; }
+        else if (direction === 'W') { dx = -1; scanX = true; }
+
+        // Determine fixed row/col from startCoords
+        const rowY = startCoords.y;
+        const colX = startCoords.x;
+
+        let currentRelX = 0;
+        let currentRelY = 0;
+
+        if (scanX) {
+            currentRelY = rowY;
+        } else {
+            currentRelX = colX;
+        }
+
+        // 1. Find the "Perimeter" (furthest occupied cell from center)
+        let furthestDist = -1;
+        const potentialGaps = [];
+
+        // Scan safe upper bound
+        const maxDist = Math.max(w, h);
+
+        for (let d = 0; d < maxDist; d++) {
+            const tx = currentRelX + (scanX ? d * dx : 0);
+            const ty = currentRelY + (scanX ? 0 : d * dy);
+
+            const gx = cx + tx;
+            const gy = cy + ty;
+
+            // Bounds check
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) break;
+
+            const idx = gy * w + gx;
+            // Check if occupied (value !== -1)
+            const occupied = (this.renderGrid[idx] !== -1);
+
+            if (occupied) {
+                furthestDist = d;
+            } else {
+                potentialGaps.push({x: tx, y: ty, d: d});
             }
         }
-        
-        // 5. Spawn at Target
-        const tgtX = srcX + shiftX;
-        const tgtY = srcY + shiftY;
-        const spawn = (dx, dy, w, h) => this._spawnBlock(tgtX + dx, tgtY + dy, w, h);
 
-        // Smart Merge Logic
-        if (cells[0] && cells[1] && cells[2] && cells[3]) {
-            spawn(0, 0, 2, 2);
-        } else if (cells[0] && cells[1] && !cells[2] && !cells[3]) {
-             spawn(0, 0, 2, 1);
-        } else if (!cells[0] && !cells[1] && cells[2] && cells[3]) {
-             spawn(0, 1, 2, 1);
-        } else if (cells[0] && !cells[1] && cells[2] && !cells[3]) {
-             spawn(0, 0, 1, 2);
-        } else if (!cells[0] && cells[1] && !cells[2] && cells[3]) {
-             spawn(1, 0, 1, 2);
+        // 2. Fill Gaps up to furthestDist
+        // We filter potentialGaps to only those BEFORE the furthest occupied block
+        for (const gap of potentialGaps) {
+            if (gap.d < furthestDist) {
+                // Gap Fill: allowInternal=true to ensure we can fill holes
+                this._spawnBlock(gap.x, gap.y, 1, 1, 0, false, false, 0, false, true); 
+            }
+        }
+
+        // 3. Add 'amount' blocks after furthestDist
+        // If furthestDist was -1 (empty ray), we start at 0 (center axis)
+        let startExt = furthestDist + 1;
+
+        for (let i = 0; i < amount; i++) {
+            const d = startExt + i;
+            const tx = currentRelX + (scanX ? d * dx : 0);
+            const ty = currentRelY + (scanX ? 0 : d * dy);
+            
+            // Check bounds
+            const gx = cx + tx;
+            const gy = cy + ty;
+            if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
+                // Extension: Standard spawn
+                this._spawnBlock(tx, ty, 1, 1, 0);
+            }
+        }
+    }
+
+    _spawnNeighbor(anchor) {
+        // Directions: N, S, E, W
+        const dirs = ['N', 'S', 'E', 'W'];
+        // Try random order
+        for (let i = dirs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+        }
+
+        for (const dir of dirs) {
+            // Determine random size
+            const w = Math.floor(Math.random() * 2) + 1; // 1 or 2
+            const h = Math.floor(Math.random() * 2) + 1; // 1 or 2
+            
+            let tx, ty;
+            
+            if (dir === 'N') {
+                // North: y = anchor.y - h
+                // x aligned with anchor x? overlap range
+                // x range: [anchor.x - w + 1, anchor.x + anchor.w - 1] to ensure overlap
+                const minX = anchor.x - w + 1;
+                const maxX = anchor.x + anchor.w - 1;
+                const range = maxX - minX;
+                tx = minX + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+                ty = anchor.y - h;
+            } else if (dir === 'S') {
+                // South: y = anchor.y + anchor.h
+                const minX = anchor.x - w + 1;
+                const maxX = anchor.x + anchor.w - 1;
+                const range = maxX - minX;
+                tx = minX + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+                ty = anchor.y + anchor.h;
+            } else if (dir === 'E') {
+                // East: x = anchor.x + anchor.w
+                const minY = anchor.y - h + 1;
+                const maxY = anchor.y + anchor.h - 1;
+                const range = maxY - minY;
+                tx = anchor.x + anchor.w;
+                ty = minY + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+            } else if (dir === 'W') {
+                // West: x = anchor.x - w
+                const minY = anchor.y - h + 1;
+                const maxY = anchor.y + anchor.h - 1;
+                const range = maxY - minY;
+                tx = anchor.x - w;
+                ty = minY + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+            }
+            
+            // Attempt spawn
+            // allowInternal = false (default) enforces that it must not be fully inside.
+            // But we want it strictly OUTSIDE. 
+            // _spawnBlock checks connectivity (must touch) and collision.
+            const id = this._spawnBlock(tx, ty, w, h);
+            if (id !== -1) return id;
+        }
+        return -1;
+    }
+
+    _attemptShiftGrowth() {
+        if (this.activeBlocks.length === 0) return;
+
+        // Pick a random edge block
+        const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+        const dirs = ['N', 'S', 'E', 'W'];
+        const dir = dirs[Math.floor(Math.random() * dirs.length)];
+        
+        // Growth amount: 1-2 blocks
+        const amount = Math.floor(Math.random() * 2) + 1;
+        
+        // Targeted Shift:
+        // If North/South: scan from horizontal center (x=0) at anchor.y
+        // If East/West: scan from vertical center (y=0) at anchor.x
+        let startCoords;
+        if (dir === 'N' || dir === 'S') {
+            startCoords = { x: anchor.x, y: 0 };
         } else {
-            // Fallback to singles (handles L-shapes and diagonals)
-            if (cells[0]) spawn(0, 0, 1, 1);
-            if (cells[1]) spawn(1, 0, 1, 1);
-            if (cells[2]) spawn(0, 1, 1, 1);
-            if (cells[3]) spawn(1, 1, 1, 1);
+            startCoords = { x: 0, y: anchor.y };
+        }
+
+        this._blockShift(dir, amount, startCoords);
+    }
+
+    _attemptUnfoldGrowth(sequence = null) {
+        // If updating an existing sequence
+        if (sequence && sequence.lastBlockId !== undefined) {
+             if (sequence.count <= 0) { sequence.active = false; return; }
+             
+             // Find last block
+             const lastBlock = this.activeBlocks.find(b => b.id === sequence.lastBlockId);
+             if (!lastBlock) { sequence.active = false; return; }
+             
+             // Attempt to spawn attached to lastBlock
+             const newId = this._spawnNeighbor(lastBlock);
+             if (newId !== -1) {
+                 sequence.lastBlockId = newId;
+                 sequence.count--;
+                 if (sequence.count <= 0) sequence.active = false;
+             } else {
+                 // Blocked? Abort
+                 sequence.active = false;
+             }
+             return;
+        }
+
+        // STARTING NEW SEQUENCE (From Pool)
+        if (this.activeBlocks.length === 0) return;
+        
+        // Try random blocks to find a valid seed
+        for(let i=0; i<10; i++) {
+            const b = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+            const newId = this._spawnNeighbor(b);
+            if (newId !== -1) {
+                // Success: Start sequence
+                // We spawned 1 block. We need 2 more. count = 2.
+                const seq = { active: true, count: 2, lastBlockId: newId };
+                this.unfoldSequences.push(seq);
+                return;
+            }
         }
     }
     
@@ -707,7 +829,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         // Growth parameters
         const breadth = Math.random() < 0.3 ? 2 : 1; // Occasional thickness
-        let length = Math.floor(Math.random() * 3) + 2; // 2 to 4 length
+        let length;
+
+        if (breadth === 1) {
+            // Single bars: length 3 only 25% of the time, otherwise length 2
+            length = (Math.random() < 0.25) ? 3 : 2;
+        } else {
+            // Breadth 2: Max area 3 means length must be 1
+            length = 1;
+        }
         
         // Grid Dimensions
         const blocksX = this.logicGridW;
@@ -802,6 +932,41 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         data.len += length;
     }
 
+    _attemptClusterGrowth() {
+        if (this.activeBlocks.length === 0) return;
+
+        // "In clusters of 2 or 3, a spine location will be determined."
+        // We interpret this as: Pick a spine, and shift 2-3 blocks along it.
+        
+        // 1. Determine Spine Location (Row or Column)
+        // We pick a random block to define the axis coordinate.
+        const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+        
+        // 2. Determine Axis/Direction
+        // 50% chance of Vertical Spine (N/S) at anchor.x
+        // 50% chance of Horizontal Spine (E/W) at anchor.y
+        const axis = Math.random() < 0.5 ? 'V' : 'H';
+        
+        let dir;
+        let startCoords;
+        
+        if (axis === 'V') {
+            // Vertical Spine: Grow North or South
+            dir = Math.random() < 0.5 ? 'N' : 'S';
+            startCoords = { x: anchor.x, y: 0 }; // Scan col from center y=0
+        } else {
+            // Horizontal Spine: Grow East or West
+            dir = Math.random() < 0.5 ? 'E' : 'W';
+            startCoords = { x: 0, y: anchor.y }; // Scan row from center x=0
+        }
+        
+        // 3. Amount "Cluster of 2 or 3"
+        const amount = Math.floor(Math.random() * 2) + 2; // 2 or 3
+        
+        // 4. Execute Shift
+        this._blockShift(dir, amount, startCoords);
+    }
+
     _attemptLayerOverlap() {
         const s = this.overlapState;
         
@@ -834,7 +999,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             if (!anchor) return;
 
-            const range = Math.min(15, 6 + Math.floor(s.step / 3));
+            const range = 6 + Math.floor(s.step / 3);
             let tx, ty, tw, th;
             
             // Attempt to place a new block that partially overlaps or touches the anchor
@@ -1081,6 +1246,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 if (op.layer === 1) {
                     op.layer = 0;
                 }
+            }
+        }
+
+        // Fix: Update Active Blocks layer so subsequent filters are correct
+        for (const b of this.activeBlocks) {
+            if (b.layer === 1) {
+                b.layer = 0;
             }
         }
         

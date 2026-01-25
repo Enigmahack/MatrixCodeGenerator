@@ -318,6 +318,8 @@ void main() {
             "quantizedGenerateV2CleanInnerDistance": 4,
             "quantizedGenerateV2EnableCyclic": true,
             "quantizedGenerateV2EnableSpine": true,
+            "quantizedGenerateV2EnableCluster": false,
+            "quantizedGenerateV2EnableShift": false,
             "quantizedGenerateV2EnableOverlap": true,
             "quantizedGenerateV2EnableUnfold": true,
             "quantizedGenerateV2EnableCrawler": true,

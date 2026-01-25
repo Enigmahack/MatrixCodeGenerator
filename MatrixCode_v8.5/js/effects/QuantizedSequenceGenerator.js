@@ -1196,6 +1196,8 @@ class QuantizedSequenceGenerator {
             return 1;
         }
         return 0;
+    }
+
     _checkAxisComplete(axis) {
         // Axis: 'X' or 'Y'
         const w = this.width;
