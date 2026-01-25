@@ -333,6 +333,10 @@ void main() {
             "quantizedEditorGridOffsetY": 0,
             "quantizedEditorChangesOffsetX": 0,
             "quantizedEditorChangesOffsetY": 0,
+            "quantizedLineLength": 1.0,
+            "quantizedLineOffset": 0,
+            "quantizedOffsetProfiles": {},
+            "quantizedAutoAlign": true,
             
             "layerEnableBackground": true,
             "layerEnablePrimaryCode": true,
@@ -419,6 +423,64 @@ void main() {
             "flySpeed": 15,
             "performanceMode": false,
             "performanceBackup": null
+        };
+    }
+
+    /**
+     * Computes auto-alignment offsets based on block size.
+     * @private
+     */
+    _computeAutoOffsets(N) {
+        // Algorithm derived from calibration data:
+        // 1x1, 2x2, 3x3, 4x4
+        
+        // 1. Line Length: 1->1.08, 4->1.02
+        const lineLen = 1.10 - (0.02 * N);
+
+        // 2. Line Offset: 1->0, 2->0.24, 3->0.66, 4->1.10
+        let lineOff = 0;
+        if (N > 1) {
+            lineOff = 0.24 + 0.43 * (N - 2);
+        }
+
+        // 3. Perimeter Offset Y: 1->26, 2->22, 3->14, 4->8. Formula: 32 - 6N.
+        const perimY = 32 - (6 * N);
+        
+        // 4. Perimeter Offset X: Odd->(32-6N), Even->(12-7(N-2))
+        let perimX = 0;
+        if (N % 2 !== 0) {
+            perimX = 32 - (6 * N);
+        } else {
+            perimX = 12 - (7 * (N - 2));
+        }
+
+        // 5. Source Grid
+        // 1x1: -26, -26
+        // Even: 8, 18
+        // Odd > 1: 8, 8
+        let srcX = 8;
+        let srcY = 8;
+        if (N === 1) {
+            srcX = -26;
+            srcY = -26;
+        } else if (N % 2 === 0) {
+            srcX = 8;
+            srcY = 18;
+        }
+        
+        return {
+            'quantizedLineLength': parseFloat(lineLen.toFixed(2)),
+            'quantizedLineOffset': parseFloat(lineOff.toFixed(2)),
+            'quantizedPerimeterOffsetX': perimX,
+            'quantizedPerimeterOffsetY': perimY,
+            'quantizedEditorChangesOffsetX': -perimX,
+            'quantizedEditorChangesOffsetY': -perimY,
+            'quantizedEditorGridOffsetX': -perimX,
+            'quantizedEditorGridOffsetY': -perimY,
+            'quantizedSourceGridOffsetX': srcX,
+            'quantizedSourceGridOffsetY': srcY,
+            'quantizedShadowOffsetX': 0,
+            'quantizedShadowOffsetY': 0
         };
     }
 
@@ -1868,6 +1930,11 @@ void main() {
                 if (this.state.eraserStopChance > 25) {
                     this.state.eraserStopChance = 25;
                 }
+
+                // Migration: Ensure quantizedOffsetProfiles exists
+                if (!this.state.quantizedOffsetProfiles) {
+                    this.state.quantizedOffsetProfiles = {};
+                }
             } else {
                 // First run: Clone defaults
                 this.state = this._deepClone(this.defaults);
@@ -2017,6 +2084,92 @@ void main() {
                 if (changed) {
                     this.state.fontSettings = newSettings;
                     this.notify('fontSettings');
+                }
+            }
+        }
+
+        // --- QUANTIZED OFFSET PROFILES ---
+        const OFFSET_KEYS = [
+            'quantizedPerimeterOffsetX', 'quantizedPerimeterOffsetY',
+            'quantizedShadowOffsetX', 'quantizedShadowOffsetY',
+            'quantizedSourceGridOffsetX', 'quantizedSourceGridOffsetY',
+            'quantizedEditorGridOffsetX', 'quantizedEditorGridOffsetY',
+            'quantizedEditorChangesOffsetX', 'quantizedEditorChangesOffsetY',
+            'quantizedLineLength', 'quantizedLineOffset'
+        ];
+
+        const BLOCK_SIZE_KEYS = [
+            'quantizedBlockWidthCells', 'quantizedBlockHeightCells',
+            'quantizedPulseBlockWidthCells', 'quantizedPulseBlockHeightCells',
+            'quantizedAddBlockWidthCells', 'quantizedAddBlockHeightCells',
+            'quantizedRetractBlockWidthCells', 'quantizedRetractBlockHeightCells',
+            'quantizedClimbBlockWidthCells', 'quantizedClimbBlockHeightCells',
+            'quantizedGenerateBlockWidthCells', 'quantizedGenerateBlockHeightCells',
+            'quantizedGenerateV2BlockWidthCells', 'quantizedGenerateV2BlockHeightCells'
+        ];
+
+        // 1. If an offset is changing, save it to the CURRENT profile
+        if (OFFSET_KEYS.includes(key)) {
+            // Find current block size (most specific to pulse by default or first valid)
+            const w = this.state.quantizedPulseBlockWidthCells || this.state.quantizedBlockWidthCells || 4;
+            const h = this.state.quantizedPulseBlockHeightCells || this.state.quantizedBlockHeightCells || 4;
+            const profileKey = `${w}x${h}`;
+            if (!this.state.quantizedOffsetProfiles) this.state.quantizedOffsetProfiles = {};
+            if (!this.state.quantizedOffsetProfiles[profileKey]) this.state.quantizedOffsetProfiles[profileKey] = {};
+            this.state.quantizedOffsetProfiles[profileKey][key] = value;
+        }
+
+        // 2. If a block size is changing, LOAD the profile for the NEW size
+        if (BLOCK_SIZE_KEYS.includes(key)) {
+            let newW = this.state.quantizedPulseBlockWidthCells || this.state.quantizedBlockWidthCells || 4;
+            let newH = this.state.quantizedPulseBlockHeightCells || this.state.quantizedBlockHeightCells || 4;
+            
+            // Override with the incoming change
+            if (key.includes('Width')) newW = value;
+            if (key.includes('Height')) newH = value;
+
+            const profileKey = `${newW}x${newH}`;
+            const profile = this.state.quantizedOffsetProfiles ? this.state.quantizedOffsetProfiles[profileKey] : null;
+
+            // Strategy: 
+            // 1. If Auto-Align is ON: Calculate new defaults.
+            // 2. If Profile exists: Merge it on top (User overrides win? Or Auto-Align wins?)
+            //    Request implies "algorithm... to ensure aligned". 
+            //    So Auto-Align should be the BASELINE.
+            //    But if user manually tweaked a profile, they likely want that.
+            //    Let's say: If Profile Exists, use it. If NOT, use Auto-Align.
+            //    AND: If Auto-Align is ON, should it overwrite the profile? 
+            //    Let's assume Auto-Align provides the *defaults* for a size.
+            
+            let offsetsToApply = {};
+            
+            // A. Calculate Auto-Defaults first
+            if (this.state.quantizedAutoAlign) {
+                offsetsToApply = this._computeAutoOffsets(newW); // Assuming square logic or using Width
+            }
+
+            // B. Apply Profile Overrides (if any)
+            if (profile) {
+                // If the user manually saved this profile, respect it.
+                // However, if we want strict enforcement, we might ignore profile.
+                // But the profile system saves *every* tweak. 
+                // So if we load a profile, we load the last state.
+                // If the user wants to re-auto-align, they can toggle AutoAlign off/on?
+                // Or maybe we treat AutoAlign as a "Smart Reset".
+                // Let's merge: Profile beats Auto.
+                offsetsToApply = { ...offsetsToApply, ...profile };
+            }
+
+            // Apply
+            if (offsetsToApply) {
+                // Update the actual key first
+                this.state[key] = value;
+                
+                for (const oKey of OFFSET_KEYS) {
+                    if (offsetsToApply[oKey] !== undefined) {
+                        this.state[oKey] = offsetsToApply[oKey];
+                        this.notify(oKey);
+                    }
                 }
             }
         }

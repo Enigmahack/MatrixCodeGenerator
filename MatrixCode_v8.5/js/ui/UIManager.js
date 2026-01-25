@@ -564,6 +564,8 @@ class UIManager {
             { cat: 'System', id: 'quantizedEditorGridOffsetY', type: 'range', label: 'Editor Grid Offset Y', min: -200, max: 200, unit: 'px' },
             { cat: 'System', id: 'quantizedEditorChangesOffsetX', type: 'range', label: 'Editor Changes Offset X', min: -200, max: 200, unit: 'px' },
             { cat: 'System', id: 'quantizedEditorChangesOffsetY', type: 'range', label: 'Editor Changes Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'System', id: 'quantizedLineLength', type: 'range', label: 'Line Length', min: 0.1, max: 2.0, step: 0.01, description: 'Scales the length of grid lines.' },
+            { cat: 'System', id: 'quantizedLineOffset', type: 'range', label: 'Line Offset', min: -2.0, max: 2.0, step: 0.01, unit: 'cell', description: 'Shifts grid lines along their axis.' },
             { cat: 'System', id: 'quantizedSolidPerimeter', type: 'checkbox', label: 'Solid Perimeter Lines', description: 'Renders grid lines as solid blocks instead of character-based masks.' },
 
             { cat: 'System', type: 'accordion_header', label: 'Layers' },

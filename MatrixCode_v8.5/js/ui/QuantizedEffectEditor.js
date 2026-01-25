@@ -502,8 +502,9 @@ class QuantizedEffectEditor {
         const btnSetSpeed = this._createBtn('Set', () => {
             if (this.effect) {
                 const val = parseFloat(inpSpeed.value);
-                this.effect.c.state[this.effect.configPrefix + 'Speed'] = isNaN(val) ? 1.0 : val;
-                alert(`Speed set to ${val}`);
+                const finalVal = isNaN(val) ? 1.0 : val;
+                this.effect.c.set(this.effect.configPrefix + 'Speed', finalVal);
+                alert(`Speed set to ${finalVal}`);
             }
         });
         
@@ -528,8 +529,9 @@ class QuantizedEffectEditor {
         const btnSetDur = this._createBtn('Set', () => {
             if (this.effect) {
                 const val = parseFloat(inpDur.value);
-                this.effect.c.state[this.effect.configPrefix + 'DurationSeconds'] = isNaN(val) ? 5.0 : val;
-                alert(`Duration set to ${val}s`);
+                const finalVal = isNaN(val) ? 5.0 : val;
+                this.effect.c.set(this.effect.configPrefix + 'DurationSeconds', finalVal);
+                alert(`Duration set to ${finalVal}s`);
             }
         });
         
@@ -699,8 +701,10 @@ class QuantizedEffectEditor {
         if (isNaN(h) || h < 1) h = 4;
         
         const prefix = this.effect.configPrefix;
-        this.effect.c.state[prefix + 'BlockWidthCells'] = w;
-        this.effect.c.state[prefix + 'BlockHeightCells'] = h;
+        
+        // Use set() to trigger auto-alignment logic in ConfigurationManager
+        this.effect.c.set(prefix + 'BlockWidthCells', w);
+        this.effect.c.set(prefix + 'BlockHeightCells', h);
         
         // Re-init logic grid with new size
         const currentStep = this.effect.expansionPhase;

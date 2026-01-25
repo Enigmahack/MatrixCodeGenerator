@@ -804,6 +804,11 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
     _addPerimeterFacePath(bx, by, faceObj, widthX, widthY) {
         const ctx = this.maskCtx;
         const l = this.layout;
+
+        const s = this.c.state;
+        const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
+        const lineOffset = s.quantizedLineOffset || 0;
+
         const startCellX = Math.floor(bx * l.cellPitchX);
         const startCellY = Math.floor(by * l.cellPitchY);
         const endCellX = Math.floor((bx + 1) * l.cellPitchX);
@@ -817,12 +822,18 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         const rE = faceObj.rE;
 
         if (face === 'N') {
-            const cy = l.screenOriginY + (startCellY * l.screenStepY);
+            const cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY);
             let drawX, drawY, drawW, drawH;
             const topY = cy; 
-            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
-            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+            let leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            let rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midX = (leftX + rightX) * 0.5;
+                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
+                leftX = midX - halfW;
+                rightX = midX + halfW;
+            }
 
             drawY = topY; 
             drawH = widthY;
@@ -835,9 +846,16 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             ctx.rect(drawX, drawY, drawW, drawH);
 
         } else if (face === 'S') {
-            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
-            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+            const bottomY = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY);
+            let leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            let rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midX = (leftX + rightX) * 0.5;
+                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
+                leftX = midX - halfW;
+                rightX = midX + halfW;
+            }
 
             let drawX, drawY, drawW, drawH;
             drawY = bottomY - widthY; 
@@ -851,9 +869,16 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             ctx.rect(drawX, drawY, drawW, drawH);
 
         } else if (face === 'W') {
-            const topY = l.screenOriginY + (startCellY * l.screenStepY);
-            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            let topY = l.screenOriginY + (startCellY * l.screenStepY);
+            let bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midY = (topY + bottomY) * 0.5;
+                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
+                topY = midY - halfH;
+                bottomY = midY + halfH;
+            }
 
             let drawX, drawY, drawW, drawH;
             drawX = leftX; 
@@ -867,9 +892,16 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             ctx.rect(drawX, drawY, drawW, drawH);
 
         } else if (face === 'E') {
-            const topY = l.screenOriginY + (startCellY * l.screenStepY);
-            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+            let topY = l.screenOriginY + (startCellY * l.screenStepY);
+            let bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const rightX = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midY = (topY + bottomY) * 0.5;
+                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
+                topY = midY - halfH;
+                bottomY = midY + halfH;
+            }
 
             let drawX, drawY, drawW, drawH;
             drawX = rightX - widthX; 

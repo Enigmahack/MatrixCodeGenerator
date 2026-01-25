@@ -1627,6 +1627,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const cx_off = Math.floor(this.logicGridW / 2);
                 const cy_off = Math.floor(this.logicGridH / 2);
 
+                const s = this.c.state;
+                const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
+                const lineOffset = s.quantizedLineOffset || 0;
+
                 // 1. Pre-rasterize Ops
                 const opMap = new Map();
                 for (const op of this.maskOps) {
@@ -1740,23 +1744,41 @@ class QuantizedBaseEffect extends AbstractEffect {
                     for (const seg of group.V) {
                         const cx = (seg.bx - offX) * bw;
                         // Align to Left edge of column: cx - 0.5
-                        const screenX = l.screenOriginX + (cx - 0.5) * l.screenStepX;
+                        // Apply lineOffset to the coordinate (nudge along X)
+                        const screenX = l.screenOriginX + (cx - 0.5 + lineOffset) * l.screenStepX;
                         
-                        const screenY1 = l.screenOriginY + (seg.by * bh - offY - 0.5) * l.screenStepY;
-                        const screenY2 = l.screenOriginY + ((seg.by + 1) * bh - offY - 0.5) * l.screenStepY;
+                        let y1 = l.screenOriginY + (seg.by * bh - offY - 0.5) * l.screenStepY;
+                        let y2 = l.screenOriginY + ((seg.by + 1) * bh - offY - 0.5) * l.screenStepY;
                         
-                        ctx.rect(screenX - lwX/2, screenY1, lwX, screenY2 - screenY1);
+                        // Apply lineLengthMult
+                        if (lineLengthMult !== 1.0) {
+                            const midY = (y1 + y2) * 0.5;
+                            const halfH = (y2 - y1) * 0.5 * lineLengthMult;
+                            y1 = midY - halfH;
+                            y2 = midY + halfH;
+                        }
+
+                        ctx.rect(screenX - lwX/2, y1, lwX, y2 - y1);
                     }
 
                     for (const seg of group.H) {
                         const cy = (seg.by - offY) * bh;
                         // Align to Top edge of row: cy - 0.5
-                        const screenY = l.screenOriginY + (cy - 0.5) * l.screenStepY;
+                        // Apply lineOffset to the coordinate (nudge along Y)
+                        const screenY = l.screenOriginY + (cy - 0.5 + lineOffset) * l.screenStepY;
                         
-                        const screenX1 = l.screenOriginX + (seg.bx * bw - offX - 0.5) * l.screenStepX;
-                        const screenX2 = l.screenOriginX + ((seg.bx + 1) * bw - offX - 0.5) * l.screenStepX;
+                        let x1 = l.screenOriginX + (seg.bx * bw - offX - 0.5) * l.screenStepX;
+                        let x2 = l.screenOriginX + ((seg.bx + 1) * bw - offX - 0.5) * l.screenStepX;
                         
-                        ctx.rect(screenX1, screenY - lwY/2, screenX2 - screenX1, lwY);
+                        // Apply lineLengthMult
+                        if (lineLengthMult !== 1.0) {
+                            const midX = (x1 + x2) * 0.5;
+                            const halfW = (x2 - x1) * 0.5 * lineLengthMult;
+                            x1 = midX - halfW;
+                            x2 = midX + halfW;
+                        }
+
+                        ctx.rect(x1, screenY - lwY/2, x2 - x1, lwY);
                     }
                     ctx.fill();    
                 }
@@ -1858,35 +1880,33 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 
-    _removeBlockCorner(bx, by, corner) {
-        const ctx = this.maskCtx;
+    _removeBlockCorner(ctx, bx, by, corner) {
         const l = this.layout;
         const offX = l.offX || 0;
         const offY = l.offY || 0;
-        
         const drawBx = bx - offX;
         const drawBy = by - offY;
+
+        const s = this.c.state;
+        const lineOffset = s.quantizedLineOffset || 0;
+
+        const startCellX = drawBx * l.cellPitchX;
         
         const cellX = drawBx * l.cellPitchX;
         const cellY = drawBy * l.cellPitchY;
         let cx, cy;
-        
         if (corner === 'NW') {
-            cx = l.screenOriginX + ((cellX + 1.0) * l.screenStepX);
-            cy = l.screenOriginY + ((cellY + 1.0) * l.screenStepY);
+            cx = l.screenOriginX + ((startCellX + 1.0 + lineOffset) * l.screenStepX);
+            cy = l.screenOriginY + ((startCellY + 1.0 + lineOffset) * l.screenStepY);
         } else if (corner === 'NE') {
-            const endCellX = (drawBx + 1) * l.cellPitchX;
-            cx = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
-            cy = l.screenOriginY + ((cellY + 1.0) * l.screenStepY);
+            cx = l.screenOriginX + ((endCellX + 1.0 + lineOffset) * l.screenStepX);
+            cy = l.screenOriginY + ((startCellY + 1.0 + lineOffset) * l.screenStepY);
         } else if (corner === 'SW') {
-            const endCellY = (drawBy + 1) * l.cellPitchY;
-            cx = l.screenOriginX + ((cellX + 1.0) * l.screenStepX);
-            cy = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
+            cx = l.screenOriginX + ((startCellX + 1.0 + lineOffset) * l.screenStepX);
+            cy = l.screenOriginY + ((endCellY + 1.0 + lineOffset) * l.screenStepY);
         } else if (corner === 'SE') {
-            const endCellX = (drawBx + 1) * l.cellPitchX;
-            const endCellY = (drawBy + 1) * l.cellPitchY;
-            cx = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
-            cy = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
+            cx = l.screenOriginX + ((endCellX + 1.0 + lineOffset) * l.screenStepX);
+            cy = l.screenOriginY + ((endCellY + 1.0 + lineOffset) * l.screenStepY);
         }
         
         const inflate = 1.0; 
@@ -1900,6 +1920,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const l = this.layout;
         const offX = l.offX || 0;
         const offY = l.offY || 0;
+
+        const s = this.c.state;
+        const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
+        const lineOffset = s.quantizedLineOffset || 0;
         
         const drawBx = bx - offX;
         const drawBy = by - offY;
@@ -1916,30 +1940,62 @@ class QuantizedBaseEffect extends AbstractEffect {
         let drawX, drawY, drawW, drawH;
 
         if (face === 'N') {
-            const cy = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
-            const leftX = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
-            const rightX = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+            const cy = l.screenOriginY + ((startCellY + 1.0 + lineOffset) * l.screenStepY);
+            let leftX = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
+            let rightX = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midX = (leftX + rightX) * 0.5;
+                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
+                leftX = midX - halfW;
+                rightX = midX + halfW;
+            }
+
             drawY = cy; drawH = widthY; drawX = leftX; drawW = rightX - leftX;
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'S') {
-            const bottomY = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
-            const leftX = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
-            const rightX = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+            const bottomY = l.screenOriginY + ((endCellY + 1.0 + lineOffset) * l.screenStepY);
+            let leftX = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
+            let rightX = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midX = (leftX + rightX) * 0.5;
+                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
+                leftX = midX - halfW;
+                rightX = midX + halfW;
+            }
+
             drawY = bottomY - widthY; drawH = widthY; drawX = leftX; drawW = rightX - leftX;
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'W') {
-            const topY = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
-            const bottomY = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
-            const leftX = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
+            let topY = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
+            let bottomY = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
+            const leftX = l.screenOriginX + ((startCellX + 1.0 + lineOffset) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midY = (topY + bottomY) * 0.5;
+                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
+                topY = midY - halfH;
+                bottomY = midY + halfH;
+            }
+
             drawX = leftX; drawW = widthX; drawY = topY; drawH = bottomY - topY;
             if (rS) { drawY += widthY; drawH -= widthY; }
             if (rE) { drawH -= widthY; }
         } else if (face === 'E') {
-            const topY = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
-            const bottomY = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
-            const rightX = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+            let topY = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
+            let bottomY = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
+            const rightX = l.screenOriginX + ((endCellX + 1.0 + lineOffset) * l.screenStepX);
+
+            if (lineLengthMult !== 1.0) {
+                const midY = (topY + bottomY) * 0.5;
+                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
+                topY = midY - halfH;
+                bottomY = midY + halfH;
+            }
+
             drawX = rightX - widthX; drawW = widthX; drawY = topY; drawH = bottomY - topY;
             if (rS) { drawY += widthY; drawH -= widthY; }
             if (rE) { drawH -= widthY; }
@@ -1982,6 +2038,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const offY = l.offY || 0;
         const f = face.toUpperCase();
         
+        const s = this.c.state;
+        const lineOffset = s.quantizedLineOffset || 0;
+
         const minX = Math.min(blockStart.x, blockEnd.x);
         const maxX = Math.max(blockStart.x, blockEnd.x);
         const minY = Math.min(blockStart.y, blockEnd.y);
@@ -2012,22 +2071,22 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const inflate = 0.5; 
 
                 if (f === 'N') {
-                    const cy = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY);
+                    const cy = l.screenOriginY + ((startCellY + 1.0 + lineOffset) * l.screenStepY);
                     const left = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX) + safeX;
                     const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
                     ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 } else if (f === 'S') {
-                    const cy = l.screenOriginY + ((endCellY + 1.0) * l.screenStepY);
+                    const cy = l.screenOriginY + ((endCellY + 1.0 + lineOffset) * l.screenStepY);
                     const left = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX) + safeX;
                     const width = ((endCellX - startCellX) * l.screenStepX) - (safeX * 2);
                     ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 } else if (f === 'W') {
-                    const cx = l.screenOriginX + ((startCellX + 1.0) * l.screenStepX);
+                    const cx = l.screenOriginX + ((startCellX + 1.0 + lineOffset) * l.screenStepX);
                     const top = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY) + safeY;
                     const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
                     ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
                 } else if (f === 'E') {
-                    const cx = l.screenOriginX + ((endCellX + 1.0) * l.screenStepX);
+                    const cx = l.screenOriginX + ((endCellX + 1.0 + lineOffset) * l.screenStepX);
                     const top = l.screenOriginY + ((startCellY + 1.0) * l.screenStepY) + safeY;
                     const height = ((endCellY - startCellY) * l.screenStepY) - (safeY * 2);
                     ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
