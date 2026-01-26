@@ -1,0 +1,35 @@
+1x1: 
+	Line Length: 1.08
+	Line Offset: 0
+	Editor Changes: -26 (both X and Y)
+	Editor Grid: -26 (both X and Y)
+	Source Grid: -26 (both X and Y)
+	Shadow Offset: = 0 (both X and Y)
+	Perimeter Offset: = 26 (both X and Y)
+
+2x2:
+	Line Length: 1.04
+	Line Offset: 0.24
+	Editor Changes: -22px (both)
+	Editor Grid: -22px (both)
+	Source Grid: Y = 18px, X = 8px
+	Shadow Offset: 0 (both)
+	Perimeter Offset: Y = 22px, X = 12px
+
+3x3: 
+	Line Length: 1.04
+	Line Offset: 0.66
+	Editor Changes: -14px (both)
+	Editor Grid: -14px (both)
+	Source Grid: 8px (both)
+	Shadow Offset: 0 (both)
+	Perimeter Offset: 14 (both)
+
+4x4: 
+	Line Length: 1.02
+	Line Offset: 1.1
+	Editor Changes: -8px (both)
+	Editor Grid: -8px (both)
+	Source Grid: Y = 18px, X = 8px
+	Shadow Offset: 0 (both)
+	Perimeter Offset: Y = 8px, X = -2px
