@@ -95,7 +95,7 @@ class EffectRegistry {
                 const ch = derived.cellHeight;
                 
                 ctx.save();
-                ctx.translate(-cw, -ch);
+                // ctx.translate(-cw, -ch); // Removed: Grid now starts at 0,0 (Snap-to-Fit Refactor)
                 
                 this.effects.forEach(e => {
                     if (e.active && typeof e.render === 'function') {

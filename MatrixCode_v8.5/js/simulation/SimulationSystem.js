@@ -41,8 +41,9 @@ class SimulationSystem {
                 const d = this.config.derived;
                 if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
                 
-                const cols = Math.max(1, (width / d.cellWidth) | 0);
-                const rows = Math.max(1, (height / d.cellHeight) | 0);
+                // Matched to CellGrid.js (Snap to Fit)
+                const cols = Math.round(width / d.cellWidth);
+                const rows = Math.ceil(height / d.cellHeight);
                 const total = cols * rows;
 
                 // 2. Allocate Shared Buffers

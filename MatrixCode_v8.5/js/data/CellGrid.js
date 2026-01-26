@@ -98,8 +98,9 @@ class CellGrid {
         if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
         if (!d || !d.cellWidth || !d.cellHeight) return;
 
-        const newCols = Math.ceil(width / d.cellWidth) + 2;
-        const newRows = Math.ceil(height / d.cellHeight) + 2;
+        // Snap to Fit: Round columns (width is primary), Ceil rows (height allows partial)
+        const newCols = Math.round(width / d.cellWidth);
+        const newRows = Math.ceil(height / d.cellHeight);
 
         if (newCols !== this.cols || newRows !== this.rows || buffers) {
             this._resizeGrid(newCols, newRows, buffers);

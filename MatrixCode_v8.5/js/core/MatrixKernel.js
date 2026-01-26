@@ -308,10 +308,39 @@ class MatrixKernel {
      * @private
      */
     _resize() {
-        this.grid.resize(
-            (window.innerWidth) / this.config.state.stretchX,
-            (window.innerHeight) / this.config.state.stretchY
-        );
+        const s = this.config.state;
+        const d = this.config.derived;
+
+        // 1. Calculate Logical Dimensions (accounting for Stretch)
+        const logicalW = window.innerWidth / s.stretchX;
+        const logicalH = window.innerHeight / s.stretchY;
+
+        // 2. Snap Logic: Adjust Derived Cell Size to fit Width perfectly
+        // Calculate target Cell Width based on User Settings
+        const hFactor = Math.max(0.5, s.horizontalSpacingFactor);
+        const targetCellW = s.fontSize * hFactor;
+        
+        // Calculate number of columns that fit closest to logical width
+        // Ensure at least 1 column
+        const cols = Math.max(1, Math.round(logicalW / targetCellW));
+        
+        // Calculate Exact Snapped Cell Width (This ensures Width / CellWidth = Integer)
+        const snappedCellW = logicalW / cols;
+        
+        // Calculate Scale Ratio to maintain Aspect Ratio
+        const ratio = snappedCellW / targetCellW;
+
+        // Update Derived Config (Runtime Override)
+        // This ensures Grid and Renderer use the snapped values
+        d.cellWidth = snappedCellW;
+        
+        // Adjust Cell Height to maintain Font Aspect Ratio
+        const vFactor = Math.max(0.5, s.verticalSpacingFactor);
+        const targetCellH = s.fontSize * vFactor;
+        d.cellHeight = targetCellH * ratio;
+
+        // 3. Resize Grid
+        this.grid.resize(logicalW, logicalH);
         this.renderer.resize();
 
         if (this.overlayCanvas) {

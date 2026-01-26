@@ -291,7 +291,14 @@ class QuantizedSequenceGenerator {
                 /*
                 while (massAdded < currentBlocksPerStep && attempts < 20) {
                     attempts++;
-                    const added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
+                    let added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
+                    
+                    // RESOLUTION 2: Fallback Mechanism
+                    // If weighted expansion fails (e.g. strict occupancy), force a single block to ensure forward progress.
+                    if (added === 0) {
+                        added = this._forceExpansion(s, stepOps, stepOccupancy, config.innerLineDuration);
+                    }
+
                     if (added > 0) {
                         massAdded++; 
                         filledCells += added;
@@ -1129,10 +1136,16 @@ class QuantizedSequenceGenerator {
         // Calculate Outside Map to determine exposure
         const outsideMap = this._computeOutsideMap();
 
-        if (origin.x + w <= this.width && origin.y + h <= this.height) {
-            // Check Step Occupancy
-            for(let by=0; by<h; by++) {
-                for(let bx=0; bx<w; bx++) {
+        // RESOLUTION 1: Boundary Clamping
+        // Instead of rejecting shapes that hit the edge, clamp them to fit.
+        // This fixes the South/East bias where large shapes were impossible to place at the boundary.
+        const safeW = Math.min(w, this.width - origin.x);
+        const safeH = Math.min(h, this.height - origin.y);
+
+        if (safeW > 0 && safeH > 0) {
+            // Check Step Occupancy using clamped dimensions
+            for(let by=0; by<safeH; by++) {
+                for(let bx=0; bx<safeW; bx++) {
                     const idx = this._idx(origin.x+bx, origin.y+by);
                     if (stepOccupancy[idx] === 1) return 0; // Abort if overlaps new
                 }
@@ -1140,8 +1153,8 @@ class QuantizedSequenceGenerator {
 
             // Check if target area touches the True Outside
             let isExposed = false;
-            for(let by=0; by<h; by++) {
-                for(let bx=0; bx<w; bx++) {
+            for(let by=0; by<safeH; by++) {
+                for(let bx=0; bx<safeW; bx++) {
                     const idx = this._idx(origin.x+bx, origin.y+by);
                     if (outsideMap[idx] === 1) {
                         isExposed = true;
@@ -1153,8 +1166,8 @@ class QuantizedSequenceGenerator {
 
             let actualAdded = 0;
             let overwriteCount = 0;
-            for(let by=0; by<h; by++) {
-                for(let bx=0; bx<w; bx++) {
+            for(let by=0; by<safeH; by++) {
+                for(let bx=0; bx<safeW; bx++) {
                     const idx = this._idx(origin.x+bx, origin.y+by);
                     if (this.grid[idx] === 1) overwriteCount++;
                     else {
@@ -1165,21 +1178,21 @@ class QuantizedSequenceGenerator {
                 }
             }
 
-            this._clearAreaLines(origin.x, origin.y, w, h, stepOps); // Clear existing lines before placing
+            this._clearAreaLines(origin.x, origin.y, safeW, safeH, stepOps); // Clear existing lines before placing
 
-            if (w === 1 && h === 1) {
+            if (safeW === 1 && safeH === 1) {
                 stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
             } else {
                 stepOps.push(['addRect', 
                     origin.x - this.cx, 
                     origin.y - this.cy, 
-                    (origin.x + w - 1) - this.cx, 
-                    (origin.y + h - 1) - this.cy
+                    (origin.x + safeW - 1) - this.cx, 
+                    (origin.y + safeH - 1) - this.cy
                 ]);
             }
             
             // Always add perimeter lines to ensure internal lines are generated
-            this._addPerimeterLines(s, origin.x, origin.y, w, h, innerDuration, stepOps);
+            this._addPerimeterLines(s, origin.x, origin.y, safeW, safeH, innerDuration, stepOps);
             
             return actualAdded;
         }
