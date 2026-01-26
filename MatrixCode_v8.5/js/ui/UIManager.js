@@ -91,6 +91,9 @@ class UIManager {
             // FX TAB
             ...this._generateFXSettings(),
 
+            // DEBUG TAB
+            ...this._generateDebugTab(),
+
             // SYSTEM TAB
             ...this._generateSystemTab()
         ];
@@ -111,8 +114,8 @@ class UIManager {
             { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', description: "The head of the stream that writes the code to the screen" },
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
-            { cat: 'Global', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
             { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for older hardware: Font 24px (min), No Bloom/Post-Process, 0.75x Res, No Smoothing." },
+            { cat: 'Global', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', description: "Shows the hidden Debug tab for advanced settings and alignment tools." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -211,6 +214,7 @@ class UIManager {
             { cat: 'Behavior', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length' },
             { cat: 'Behavior', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', description: "Randomizes the length of the trail. Range is between Fade Speed and this value." },
 
+            { cat: 'Behavior', id: 'streamVisibleLengthScale', type: 'range', label: 'Stream Length Scale', min: 0.1, max: 2.0, step: 0.1, description: "Scales the visible length of all code streams." },
             { cat: 'Behavior', id: 'allowTinyStreams', type: 'checkbox', label: 'Allow Tiny Streams', description: "Increases the probability of very short streams spawning." },
             { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, transform: v=>(v*100).toFixed(0)+'%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.' },
         
@@ -515,6 +519,47 @@ class UIManager {
     }
 
     /**
+     * Generates definitions for the 'Debug' settings category.
+     * @private
+     * @returns {Array<Object>} An array of UI control definition objects.
+     */
+    _generateDebugTab() {
+        return [
+            { cat: 'Debug', type: 'accordion_header', label: 'General' },
+            { cat: 'Debug', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', description: "Displays the current frames-per-second in the top-left corner." },
+            { cat: 'Debug', id: 'debugEnabled', type: 'checkbox', label: 'Detailed Performance Stats', dep: 'showFpsCounter', description: "Shows detailed performance logs." },
+            { cat: 'Debug', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', description: "Freezes the falling code animation." },
+            { cat: 'Debug', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
+            { cat: 'Debug', id: 'quantEditorEnabled', type: 'checkbox', label: 'QuantEditor', description: "Enable the visual editor for Quantized Pulse Effect." },
+
+            { cat: 'Debug', type: 'accordion_header', label: 'Layers' },
+            { cat: 'Debug', id: 'layerEnableBackground', type: 'checkbox', label: 'Enable Background Color', description: 'Draws the black background to clear the previous frame.' },
+            { cat: 'Debug', id: 'layerEnablePrimaryCode', type: 'checkbox', label: 'Show Primary Code', description: 'The main Matrix rain simulation.' },
+            { cat: 'Debug', id: 'layerEnableShadowWorld', type: 'checkbox', label: 'Show Shadow World', description: 'The alternate reality revealed by effects.' },
+            { cat: 'Debug', id: 'layerEnableQuantizedLines', type: 'checkbox', label: 'Show Quantized Lines', description: 'The yellow/green grid lines from quantized effects.' },
+            { cat: 'Debug', id: 'layerEnableQuantizedGridCache', type: 'checkbox', label: 'Show Quantized Source Grid', description: 'The raw character grid used to generate lines (Sparse Optimization).' },
+            { cat: 'Debug', id: 'layerEnableEditorGrid', type: 'checkbox', label: 'Show Editor Grid', description: 'The alignment grid in the Quantized Editor.' },
+            { cat: 'Debug', id: 'layerEnableEditorOverlay', type: 'checkbox', label: 'Show Editor Changes', description: 'The green schematic blocks in the Quantized Editor.' },
+            { cat: 'Debug', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
+            { cat: 'Debug', id: 'quantizedSolidPerimeter', type: 'checkbox', label: 'Solid Perimeter Lines', description: 'Renders grid lines as solid blocks instead of character-based masks.' },
+
+            { cat: 'Debug', type: 'accordion_header', label: 'Quantized Offsets' },
+            { cat: 'Debug', id: 'quantizedPerimeterOffsetX', type: 'range', label: 'Perimeter Offset X', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedPerimeterOffsetY', type: 'range', label: 'Perimeter Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedShadowOffsetX', type: 'range', label: 'Shadow Offset X', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedShadowOffsetY', type: 'range', label: 'Shadow Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedSourceGridOffsetX', type: 'range', label: 'Source Grid Offset X', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedSourceGridOffsetY', type: 'range', label: 'Source Grid Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedEditorGridOffsetX', type: 'range', label: 'Editor Grid Offset X', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedEditorGridOffsetY', type: 'range', label: 'Editor Grid Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedEditorChangesOffsetX', type: 'range', label: 'Editor Changes Offset X', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedEditorChangesOffsetY', type: 'range', label: 'Editor Changes Offset Y', min: -200, max: 200, unit: 'px' },
+            { cat: 'Debug', id: 'quantizedLineLength', type: 'range', label: 'Line Length', min: 0.1, max: 2.0, step: 0.01, description: 'Scales the length of grid lines.' },
+            { cat: 'Debug', id: 'quantizedLineOffset', type: 'range', label: 'Line Offset', min: -2.0, max: 2.0, step: 0.01, unit: 'cell', description: 'Shifts grid lines along their axis.' },
+        ];
+    }
+
+    /**
      * Generates definitions for the 'System' settings category.
      * @private
      * @returns {Array<Object>} An array of UI control definition objects.
@@ -554,30 +599,6 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'ReverseTime', label: 'Reverse Time' },
             { cat: 'System', type: 'keybinder', id: 'ToggleUI', label: 'Toggle UI Panel' },
         
-            { cat: 'System', type: 'accordion_header', label: 'Quantized Offsets' },
-            { cat: 'System', id: 'quantizedPerimeterOffsetX', type: 'range', label: 'Perimeter Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedPerimeterOffsetY', type: 'range', label: 'Perimeter Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedShadowOffsetX', type: 'range', label: 'Shadow Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedShadowOffsetY', type: 'range', label: 'Shadow Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedSourceGridOffsetX', type: 'range', label: 'Source Grid Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedSourceGridOffsetY', type: 'range', label: 'Source Grid Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedEditorGridOffsetX', type: 'range', label: 'Editor Grid Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedEditorGridOffsetY', type: 'range', label: 'Editor Grid Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedEditorChangesOffsetX', type: 'range', label: 'Editor Changes Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedEditorChangesOffsetY', type: 'range', label: 'Editor Changes Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'System', id: 'quantizedLineLength', type: 'range', label: 'Line Length', min: 0.1, max: 2.0, step: 0.01, description: 'Scales the length of grid lines.' },
-            { cat: 'System', id: 'quantizedLineOffset', type: 'range', label: 'Line Offset', min: -2.0, max: 2.0, step: 0.01, unit: 'cell', description: 'Shifts grid lines along their axis.' },
-            { cat: 'System', id: 'quantizedSolidPerimeter', type: 'checkbox', label: 'Solid Perimeter Lines', description: 'Renders grid lines as solid blocks instead of character-based masks.' },
-
-            { cat: 'System', type: 'accordion_header', label: 'Layers' },
-            { cat: 'System', id: 'layerEnableBackground', type: 'checkbox', label: 'Enable Background Color', description: 'Draws the black background to clear the previous frame.' },
-            { cat: 'System', id: 'layerEnablePrimaryCode', type: 'checkbox', label: 'Show Primary Code', description: 'The main Matrix rain simulation.' },
-            { cat: 'System', id: 'layerEnableShadowWorld', type: 'checkbox', label: 'Show Shadow World', description: 'The alternate reality revealed by effects.' },
-            { cat: 'System', id: 'layerEnableQuantizedLines', type: 'checkbox', label: 'Show Quantized Lines', description: 'The yellow/green grid lines from quantized effects.' },
-            { cat: 'System', id: 'layerEnableQuantizedGridCache', type: 'checkbox', label: 'Show Quantized Source Grid', description: 'The raw character grid used to generate lines (Sparse Optimization).' },
-            { cat: 'System', id: 'layerEnableEditorGrid', type: 'checkbox', label: 'Show Editor Grid', description: 'The alignment grid in the Quantized Editor.' },
-            { cat: 'System', id: 'layerEnableEditorOverlay', type: 'checkbox', label: 'Show Editor Changes', description: 'The green schematic blocks in the Quantized Editor.' },
-
             { cat: 'System', type: 'accordion_header', label: 'System Reset' },
             { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
             { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn' },
@@ -585,14 +606,6 @@ class UIManager {
             { cat: 'System', type: 'header', label: 'CAUTION ZONE' }, // Use header for visual separation and text
             { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true },
         
-            { cat: 'System', type: 'accordion_header', label: 'Debug' },
-            { cat: 'System', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', description: "Freezes the falling code animation." },
-            { cat: 'System', id: 'streamVisibleLengthScale', type: 'range', label: 'Stream Length Scale', min: 0.1, max: 2.0, step: 0.1, description: "Scales the visible length of all code streams." },
-            { cat: 'System', id: 'debugEnabled', type: 'checkbox', label: 'Enable Debug Messages', description: "Shows detailed performance logs." },
-            { cat: 'System', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
-            { cat: 'System', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', description: "Allows application errors to be logged to the browser console." },
-            { cat: 'System', id: 'quantEditorEnabled', type: 'checkbox', label: 'QuantEditor', description: "Enable the visual editor for Quantized Pulse Effect." },
-
             { cat: 'System', type: 'accordion_header', label: 'About' },
             { cat: 'System', type: 'about_content' },
             { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
@@ -643,12 +656,22 @@ class UIManager {
      * @private
      */
     _setupTabs() {
-        this.dom.track = document.createElement('div'); // Initialize track here
-        this.dom.track.id = 'tabTrack';
-        this.dom.tabs.appendChild(this.dom.track);
+        if (!this.dom.track) {
+            this.dom.track = document.createElement('div');
+            this.dom.track.id = 'tabTrack';
+            this.dom.tabs.appendChild(this.dom.track);
+        } else {
+            this.dom.track.innerHTML = '';
+        }
 
-        const categories = [...new Set(this.defs.map(def => def.cat))];
+        const showDebug = this.c.get('debugTabEnabled');
+        const categories = [...new Set(this.defs.map(def => def.cat))].filter(cat => {
+            if (cat === 'Debug' && !showDebug) return false;
+            return true;
+        });
+
         const tabContentContainers = {}; // Mapping of category -> content container div
+        this.dom.content.innerHTML = '';
 
         // Create tabs and attach event handlers
         categories.forEach((category, index) => {
@@ -1266,7 +1289,7 @@ class UIManager {
         } else if (def.type === 'slot') {
             row.className = 'slot-container';
             const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[def.idx].name; inp.id = `slot-input-${def.idx}`; inp.name = `slot_name_${def.idx}`; inp.onchange = e => this.c.renameSlot(def.idx, e.target.value);
-            inp.onfocus = e => e.target.value = '';
+            inp.onfocus = e => e.target.select();
             const grp = document.createElement('div'); grp.className = 'slot-btn-group';
             const save = document.createElement('button'); save.className = 'btn-icon'; save.textContent = 'SAVE'; save.id = `btn-save-${def.idx}`; save.onclick = () => { this.c.saveToSlot(def.idx); };
             const load = document.createElement('button'); load.className = 'btn-icon'; load.textContent = 'LOAD'; load.id = `btn-load-${def.idx}`; load.onclick = () => { this.c.loadFromSlot(def.idx); };
@@ -1283,6 +1306,16 @@ class UIManager {
                 valDisp.title = "Click to manual input";
                 valDisp.style.cursor = "pointer";
                 
+                // Set initial value
+                const initialVal = this.c.get(def.id);
+                let displayVal = initialVal;
+                if (!def.transform && typeof initialVal === 'number') {
+                    const step = def.step || 1;
+                    const decimals = (step.toString().split('.')[1] || '').length;
+                    displayVal = parseFloat(initialVal.toFixed(decimals));
+                }
+                valDisp.textContent = def.transform ? def.transform(initialVal) : displayVal + (def.unit || '');
+
                 valDisp.onclick = () => {
                     if (valDisp.querySelector('input')) return;
                     
@@ -1306,10 +1339,11 @@ class UIManager {
                     if (def.max !== undefined) numInput.max = def.max;
                     if (def.step !== undefined) numInput.step = def.step;
 
-                    const finish = () => {
+                    let committed = false;
+                    const commit = () => {
+                        if (committed) return;
                         let newVal = parseFloat(numInput.value);
                         if (isNaN(newVal)) {
-                             // Cancelled or invalid
                              this.refresh(def.id);
                              return;
                         }
@@ -1324,18 +1358,23 @@ class UIManager {
                             newVal = Math.round(newVal / step) * step;
                         }
 
+                        committed = true;
                         this.c.set(def.id, newVal);
-                        // Refresh will handle restoring the text span via the subscription
                     };
 
-                    numInput.onblur = finish;
+                    numInput.onblur = () => {
+                        if (!committed) this.refresh(def.id);
+                    };
+
                     numInput.onkeydown = (e) => {
-                         if(e.key === 'Enter') numInput.blur();
+                         e.stopPropagation(); // Ensure keys like Backspace reach the input
+                         if(e.key === 'Enter') commit();
                          if(e.key === 'Escape') this.refresh(def.id);
                     };
 
                     valDisp.appendChild(numInput);
                     numInput.focus();
+                    numInput.select();
                 };
 
                 hdr.appendChild(valDisp); 
@@ -1643,6 +1682,10 @@ class UIManager {
             }
             if (key === 'keyBindings') {
                 this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
+                return;
+            }
+            if (key === 'debugTabEnabled') {
+                this._setupTabs();
                 return;
             }
                         if (key === 'fontFamily' || key === 'fontSettings') { // Now also refreshes on fontSettings changes

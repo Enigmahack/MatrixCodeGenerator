@@ -79,6 +79,8 @@ class ConfigurationManager {
             "smoothingEnabled": false,
             "smoothingAmount": 0.1,
             "showFpsCounter": false,
+            "performanceMode": false,
+            "debugTabEnabled": false,
             "debugEnabled": false,
             "highlightErasers": false,
             "simulationPaused": false,

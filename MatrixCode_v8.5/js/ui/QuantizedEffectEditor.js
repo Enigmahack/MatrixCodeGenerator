@@ -198,7 +198,7 @@ class QuantizedEffectEditor {
         this.canvas.style.left = '0';
         this.canvas.style.width = '100%';
         this.canvas.style.height = '100%';
-        this.canvas.style.zIndex = '9000'; 
+        this.canvas.style.zIndex = '10'; 
         this.canvas.style.pointerEvents = 'none'; 
         document.body.appendChild(this.canvas);
         this.ctx = this.canvas.getContext('2d');
@@ -394,7 +394,7 @@ class QuantizedEffectEditor {
         container.style.position = 'fixed';
         container.style.top = '10px';
         container.style.left = '10px';
-        container.style.zIndex = '10000';
+        container.style.zIndex = '11';
         container.style.background = 'rgba(0, 0, 0, 0.8)';
         container.style.border = '1px solid #0f0';
         container.style.padding = '10px';
@@ -1033,6 +1033,9 @@ class QuantizedEffectEditor {
 
     _onKeyDown(e) {
         if (!this.active) return;
+
+        // Ignore if typing in an input field or text area
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         
         // Shortcuts
         if ((e.ctrlKey || e.metaKey)) {
