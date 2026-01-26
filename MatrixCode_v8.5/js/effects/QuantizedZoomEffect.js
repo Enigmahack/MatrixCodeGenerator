@@ -456,8 +456,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         const halfLineY = lineWidthY / 2;
         const gridPixW = grid.cols * d.cellWidth; 
         const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        const screenOriginX = ((s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
@@ -469,7 +469,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             halfLineX, halfLineY,
             screenOriginX, screenOriginY,
             gridPixW, gridPixH,
-            cellPitchX, cellPitchY
+            cellPitchX, cellPitchY,
+            userBlockOffX: 0,
+            userBlockOffY: 0,
+            pixelOffX: 0,
+            pixelOffY: 0
         };
 
         const blocksX = Math.ceil(grid.cols / cellPitchX);
@@ -480,8 +484,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         const scaledH = this.logicGridH || blocksY;
         
         // Precise Centering (Match Base Logic)
-        const cellOffX = Math.floor((scaledW * cellPitchX - grid.cols) / 2);
-        const cellOffY = Math.floor((scaledH * cellPitchY - grid.rows) / 2);
+        const cellOffX = (scaledW * cellPitchX - grid.cols) / 2.0;
+        const cellOffY = (scaledH * cellPitchY - grid.rows) / 2.0;
         const offX = cellOffX / cellPitchX;
         const offY = cellOffY / cellPitchY;
         

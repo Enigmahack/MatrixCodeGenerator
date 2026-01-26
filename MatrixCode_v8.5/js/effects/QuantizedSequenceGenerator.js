@@ -10,7 +10,7 @@ class QuantizedSequenceGenerator {
     }
 
     generate(width, height, maxSteps = 500, params = {}) {
-        console.log("QuantizedSequenceGenerator: generate() called. Mode: ISOLATED CROSS");
+        // console.log("QuantizedSequenceGenerator: generate() called. Mode: ISOLATED CROSS");
         this.width = width;
         this.height = height;
         this.cx = Math.floor(width / 2);
@@ -1307,7 +1307,7 @@ class QuantizedSequenceGenerator {
             stepOccupancy[idx] = 1;
             
             this._clearAreaLines(tx, ty, 1, 1, stepOps);
-            console.log(`[QGen] StartCross Adding at ${tx}, ${ty}. Step: ${s}`);
+            // console.log(`[QGen] StartCross Adding at ${tx}, ${ty}. Step: ${s}`);
             stepOps.push(['add', tx - this.cx, ty - this.cy]);
             this._addPerimeterLines(s, tx, ty, 1, 1, innerDuration, stepOps);
             return 1;

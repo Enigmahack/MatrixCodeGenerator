@@ -530,6 +530,7 @@ class UIManager {
             { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info' },
             { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info' },
             { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
+            { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', description: 'Double click/tap sliders to reset them to default values.' },
             { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
 
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
@@ -1276,7 +1277,69 @@ class UIManager {
             row.className = def.type === 'checkbox' ? 'checkbox-row' : 'control-row';
             const labelGroup = this.createLabelGroup(def);
             if(def.type !== 'checkbox') { const hdr = document.createElement('div'); hdr.className = 'control-header'; hdr.appendChild(labelGroup); 
-            if(!def.hideValue && def.type === 'range') { const valDisp = document.createElement('span'); valDisp.id = `val-${def.id}`; hdr.appendChild(valDisp); } row.appendChild(hdr); } 
+            if(!def.hideValue && def.type === 'range') { 
+                const valDisp = document.createElement('span'); 
+                valDisp.id = `val-${def.id}`;
+                valDisp.title = "Click to manual input";
+                valDisp.style.cursor = "pointer";
+                
+                valDisp.onclick = () => {
+                    if (valDisp.querySelector('input')) return;
+                    
+                    const currentVal = this.c.get(def.id);
+                    const savedText = valDisp.textContent;
+                    valDisp.textContent = '';
+                    
+                    const numInput = document.createElement('input');
+                    numInput.type = 'number';
+                    numInput.value = currentVal;
+                    numInput.className = 'manual-input'; 
+                    // basic inline styles to make it fit
+                    numInput.style.width = '60px';
+                    numInput.style.background = '#222';
+                    numInput.style.color = '#fff';
+                    numInput.style.border = '1px solid #444';
+                    numInput.style.borderRadius = '3px';
+                    numInput.style.padding = '0 2px';
+
+                    if (def.min !== undefined) numInput.min = def.min;
+                    if (def.max !== undefined) numInput.max = def.max;
+                    if (def.step !== undefined) numInput.step = def.step;
+
+                    const finish = () => {
+                        let newVal = parseFloat(numInput.value);
+                        if (isNaN(newVal)) {
+                             // Cancelled or invalid
+                             this.refresh(def.id);
+                             return;
+                        }
+                        
+                        // Clamp
+                        if (def.min !== undefined && newVal < def.min) newVal = def.min;
+                        if (def.max !== undefined && newVal > def.max) newVal = def.max;
+
+                        // Step precision
+                        if (def.step) {
+                            const step = parseFloat(def.step);
+                            newVal = Math.round(newVal / step) * step;
+                        }
+
+                        this.c.set(def.id, newVal);
+                        // Refresh will handle restoring the text span via the subscription
+                    };
+
+                    numInput.onblur = finish;
+                    numInput.onkeydown = (e) => {
+                         if(e.key === 'Enter') numInput.blur();
+                         if(e.key === 'Escape') this.refresh(def.id);
+                    };
+
+                    valDisp.appendChild(numInput);
+                    numInput.focus();
+                };
+
+                hdr.appendChild(valDisp); 
+            } row.appendChild(hdr); } 
                 else { row.appendChild(labelGroup); }
             let inp;
 
@@ -1286,8 +1349,22 @@ class UIManager {
                 inp.min=def.min; 
                 inp.max=def.max; 
                 if(def.step) inp.step=def.step; 
+
+                const resetToDefault = () => {
+                     if (this.c.get('doubleClickToReset')) {
+                        const defaultVal = this.c.defaults[def.id];
+                        if (defaultVal !== undefined) {
+                            this.c.set(def.id, defaultVal);
+                            this.notifications.show(`Reset ${def.label}`, 'info');
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                inp.ondblclick = resetToDefault;
                 
                 let isTouching = false;
+                let lastTapTime = 0;
 
                 inp.value = def.invert ? (def.max+def.min)-this.c.get(def.id) : this.c.get(def.id);                            
                 
@@ -1312,6 +1389,16 @@ class UIManager {
                 let isHorizontalDrag = false;
 
                 inp.addEventListener('touchstart', e => {
+                    const currentTime = new Date().getTime();
+                    const tapLength = currentTime - lastTapTime;
+                    if (tapLength < 300 && tapLength > 0) {
+                        if (resetToDefault()) {
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                    lastTapTime = currentTime;
+
                     isTouching = true;
                     startX = e.touches[0].clientX;
                     startY = e.touches[0].clientY;

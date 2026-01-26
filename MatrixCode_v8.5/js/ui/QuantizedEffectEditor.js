@@ -15,6 +15,7 @@ class QuantizedEffectEditor {
         this._boundMouseMove = this._onMouseMove.bind(this);
         this._boundMouseUp = this._onMouseUp.bind(this);
         this._boundKeyDown = this._onKeyDown.bind(this);
+        this._boundWheel = this._onWheel.bind(this);
         this._boundRender = this._renderLoop.bind(this);
         
         this.dragStart = null;
@@ -264,15 +265,6 @@ class QuantizedEffectEditor {
         const changesOffX = this.effect.c.state.quantizedEditorChangesOffsetX || 0;
         const changesOffY = this.effect.c.state.quantizedEditorChangesOffsetY || 0;
 
-        const startX = l.screenOriginX - (l.offX * l.cellPitchX * l.screenStepX);
-        const startY = l.screenOriginY - (l.offY * l.cellPitchY * l.screenStepY);
-
-        // Define offsets at top level for shared use
-        const halfCellW = l.screenStepX * 0.5;
-        const halfCellH = l.screenStepY * 0.5;
-        const blockOffX = 0; // Aligned to Edge (was halfCellW)
-        const blockOffY = 0; // Aligned to Edge (was halfCellH)
-
         // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
             this.effect.renderEditorGrid(ctx);
@@ -284,7 +276,6 @@ class QuantizedEffectEditor {
         }
 
         // 3b. Render Editor Preview Op (Schematic)
-        // Since we removed renderEditorPreview, we must draw the "ghost" of the tool action here.
         if (this.effect.editorPreviewOp) {
             const op = this.effect.editorPreviewOp;
             ctx.save();
@@ -293,10 +284,22 @@ class QuantizedEffectEditor {
             ctx.lineWidth = 1;
 
             const drawBlock = (bx, by) => {
-                 const x = startX + ((cx + bx) * l.cellPitchX * l.screenStepX) + blockOffX + changesOffX;
-                 const y = startY + ((cy + by) * l.cellPitchY * l.screenStepY) + blockOffY + changesOffY;
-                 const w = l.cellPitchX * l.screenStepX;
-                 const h = l.cellPitchY * l.screenStepY;
+                 // Absolute Logic Coordinates
+                 const absX = cx + bx;
+                 const absY = cy + by;
+                 
+                 // Snapped Cell Coordinates
+                 const cellX = Math.round((absX - l.offX + l.userBlockOffX) * l.cellPitchX);
+                 const cellY = Math.round((absY - l.offY + l.userBlockOffY) * l.cellPitchY);
+                 
+                 const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
+                 const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                 
+                 const nextCellX = Math.round((absX + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                 const nextCellY = Math.round((absY + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                 const w = (nextCellX - cellX) * l.screenStepX;
+                 const h = (nextCellY - cellY) * l.screenStepY;
+
                  ctx.fillRect(x, y, w, h);
                  ctx.strokeRect(x, y, w, h);
             };
@@ -327,11 +330,19 @@ class QuantizedEffectEditor {
             ctx.save();
             const minX = this.selectionRect.x + cx;
             const minY = this.selectionRect.y + cy;
+            const maxX = minX + this.selectionRect.w + 1; // +1 to cover the block
+            const maxY = minY + this.selectionRect.h + 1;
             
-            const selX = startX + (minX * l.cellPitchX * l.screenStepX) + blockOffX + changesOffX;
-            const selY = startY + (minY * l.cellPitchY * l.screenStepY) + blockOffY + changesOffY;
-            const selW = (this.selectionRect.w + 1) * l.cellPitchX * l.screenStepX;
-            const selH = (this.selectionRect.h + 1) * l.cellPitchY * l.screenStepY;
+            // Calculate Snapped Bounds (min and max corners)
+            const cellX1 = Math.round((minX - l.offX + l.userBlockOffX) * l.cellPitchX);
+            const cellY1 = Math.round((minY - l.offY + l.userBlockOffY) * l.cellPitchY);
+            const cellX2 = Math.round((maxX - l.offX + l.userBlockOffX) * l.cellPitchX);
+            const cellY2 = Math.round((maxY - l.offY + l.userBlockOffY) * l.cellPitchY);
+            
+            const selX = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
+            const selY = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
+            const selW = (cellX2 - cellX1) * l.screenStepX;
+            const selH = (cellY2 - cellY1) * l.screenStepY;
             
             ctx.strokeStyle = '#0088FF';
             ctx.lineWidth = 2;
@@ -352,11 +363,21 @@ class QuantizedEffectEditor {
             const oy = this.hoverBlock.y + cy;
             
             for (const pt of this.clipboard.data) {
-                const rectX = startX + ((ox + pt.x) * l.cellPitchX * l.screenStepX) + blockOffX + changesOffX;
-                const rectY = startY + ((oy + pt.y) * l.cellPitchY * l.screenStepY) + blockOffY + changesOffY;
-                const rectW = l.cellPitchX * l.screenStepX;
-                const rectH = l.cellPitchY * l.screenStepY;
-                ctx.fillRect(rectX, rectY, rectW, rectH);
+                const absX = ox + pt.x;
+                const absY = oy + pt.y;
+                
+                const cellX = Math.round((absX - l.offX + l.userBlockOffX) * l.cellPitchX);
+                const cellY = Math.round((absY - l.offY + l.userBlockOffY) * l.cellPitchY);
+                
+                const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
+                const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                
+                const nextCellX = Math.round((absX + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                const nextCellY = Math.round((absY + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                const w = (nextCellX - cellX) * l.screenStepX;
+                const h = (nextCellY - cellY) * l.screenStepY;
+
+                ctx.fillRect(x, y, w, h);
             }
             ctx.restore();
         }
@@ -625,17 +646,51 @@ class QuantizedEffectEditor {
         gridCheck.onchange = (e) => { this.showGrid = e.target.checked; this.isDirty = true; };
         gridToggle.append(gridCheck, document.createTextNode(' Show Grid'));
         container.appendChild(gridToggle);
+
+        const shadowToggle = document.createElement('label');
+        shadowToggle.style.display = 'block';
+        shadowToggle.style.marginTop = '5px';
+        const shadowCheck = document.createElement('input');
+        shadowCheck.type = 'checkbox';
+        shadowCheck.checked = (this.effect && this.effect.c.state.layerEnableShadowWorld !== false);
+        shadowCheck.onchange = (e) => { 
+            if (this.effect) this.effect.c.set('layerEnableShadowWorld', e.target.checked); 
+            this.isDirty = true; 
+        };
+        shadowToggle.append(shadowCheck, document.createTextNode(' Use Shadow World'));
+        container.appendChild(shadowToggle);
+
+        const removalsToggle = document.createElement('label');
+        removalsToggle.style.display = 'block';
+        removalsToggle.style.marginTop = '5px';
+        const removalsCheck = document.createElement('input');
+        removalsCheck.type = 'checkbox';
+        removalsCheck.checked = (this.effect && this.effect.c.state.layerEnableEditorRemovals !== false);
+        removalsCheck.onchange = (e) => { 
+            if (this.effect) this.effect.c.set('layerEnableEditorRemovals', e.target.checked); 
+            this.isDirty = true; 
+        };
+        removalsToggle.append(removalsCheck, document.createTextNode(' Show Removals'));
+        container.appendChild(removalsToggle);
         
+        const exportControls = document.createElement('div');
+        exportControls.style.display = 'flex';
+        exportControls.style.justifyContent = 'space-between';
+        exportControls.style.marginTop = '10px';
+
         const btnExport = this._createBtn('Copy Data', () => this._exportData());
-        btnExport.style.marginTop = '10px';
+        btnExport.title = "Copy the compressed sequence data to clipboard";
         btnExport.style.width = '48%';
-        container.appendChild(btnExport);
+        btnExport.style.marginRight = '0';
 
         const btnSave = this._createBtn('Save Pattern', () => this._savePattern());
-        btnSave.style.marginTop = '10px';
+        btnSave.title = "Save all patterns to QuantizedPatterns.js";
         btnSave.style.width = '48%';
-        btnSave.style.marginLeft = '4%';
-        container.appendChild(btnSave);
+        btnSave.style.marginRight = '0';
+        
+        exportControls.appendChild(btnExport);
+        exportControls.appendChild(btnSave);
+        container.appendChild(exportControls);
 
         const legend = document.createElement('div');
         legend.style.marginTop = '10px';
@@ -677,6 +732,7 @@ class QuantizedEffectEditor {
         window.addEventListener('mousemove', this._boundMouseMove);
         window.addEventListener('mouseup', this._boundMouseUp);
         window.addEventListener('keydown', this._boundKeyDown);
+        window.addEventListener('wheel', this._boundWheel, { passive: false });
     }
 
     _detachListeners() {
@@ -684,6 +740,7 @@ class QuantizedEffectEditor {
         window.removeEventListener('mousemove', this._boundMouseMove);
         window.removeEventListener('mouseup', this._boundMouseUp);
         window.removeEventListener('keydown', this._boundKeyDown);
+        window.removeEventListener('wheel', this._boundWheel);
     }
 
     _selectTool(tool) {
@@ -1114,6 +1171,23 @@ class QuantizedEffectEditor {
             this.dragStart = null;
             this.effect.editorPreviewOp = null;
             this.isDirty = true; // Ensure preview cleared
+        }
+    }
+
+    _onWheel(e) {
+        if (!this.active) return;
+        
+        // Prevent interfering with UI scrolling
+        const settingsPanel = document.getElementById('settingsPanel');
+        if (this.dom && this.dom.contains(e.target)) return;
+        if (settingsPanel && settingsPanel.contains(e.target)) return;
+
+        e.preventDefault();
+
+        if (e.deltaY < 0) {
+            this._changeStep(-1);
+        } else if (e.deltaY > 0) {
+            this._changeStep(1);
         }
     }
 }

@@ -1,9 +1,10 @@
 ToDo: 
-Go through code and fix all comments.
-
-<- Bugs: 
+Go through code and fix all comments. [DONE]
 
 <- Behavior:
+UI: Add option for double-clicking/tapping sliders to reset to default. [DONE]
+UI: Add manual numeric input when clicking slider values. [DONE]
+Quantized Editor: Scroll to advance/rewind animation steps. [DONE]
 
 <- Look:
 Quantized Pulse Effect: Re-implement the grid overlap effect (Gold glow, 4x4 grid). [DONE]
