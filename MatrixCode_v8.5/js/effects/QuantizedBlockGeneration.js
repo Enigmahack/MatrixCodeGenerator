@@ -266,7 +266,26 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.timer++;
         
         // Shadow Sim Update (Always run to keep code rain moving)
-        this._updateShadowSim();
+        if (!this.hasSwapped && !this.isSwapping) {
+            this._updateShadowSim();
+        } else if (this.isSwapping) {
+            // Keep applying overrides during swap transition buffer
+            this._updateShadowSim();
+            
+            this.swapTimer--;
+            if (this.swapTimer <= 0) {
+                // Transition Complete
+                this.g.clearAllOverrides();
+                this.isSwapping = false;
+                this.hasSwapped = true;
+                this.active = false;
+                this.state = 'IDLE';
+                
+                // Cleanup
+                this.shadowGrid = null;
+                this.shadowSim = null;
+            }
+        }
 
         // Perform cleanup of expired ops (e.g. inner lines)
         const fadeOutFrames = this.getConfig('FadeFrames') || 0;
@@ -298,6 +317,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             // Perform Hole Cleanup EVERY frame to ensure solidity
             this._performHoleCleanup();
             
+            // Check if all spines hit the edge
+            if (this.spineState && this.spineState.N.finished && this.spineState.S.finished && 
+                this.spineState.E.finished && this.spineState.W.finished) {
+                
+                if (!this.hasSwapped && !this.isSwapping) {
+                    this.state = 'FADE_OUT';
+                    this.timer = 0;
+                    this._swapStates();
+                }
+            }
+
             if (this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
@@ -1464,7 +1494,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 // Update Union
                 const l1 = this.renderGridL1 ? this.renderGridL1[idx] : -1;
                 const l2 = this.renderGridL2 ? this.renderGridL2[idx] : -1;
-                this.renderGrid[idx] = (l1 !== -1) ? l1 : l2;
+                this.renderGrid[idx] = (l2 !== -1) ? l2 : l1;
             }
         }
     }
