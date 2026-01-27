@@ -712,12 +712,13 @@ class QuantizedBaseEffect extends AbstractEffect {
             } else {
                 const rows = Math.min(sg.rows, g.rows);
                 const cols = Math.min(sg.cols, g.cols);
-                for (let y = 0; y < rows; y++) {
-                    const srcOff = y * sg.cols;
-                    const dstOff = y * g.cols;
-                    target.set(source.subarray(srcOff, srcOff + cols), dstOff);
-                }
-            }
+                            for (let y = 0; y < rows; y++) {
+                                // Apply +1 offset to X and Y for Shadow World -> Main World copy
+                                // Shadow Grid has 1-cell N/W buffer, so (0,0) on Main is (1,1) on Shadow
+                                const srcOff = (y + 1) * sg.cols + 1;
+                                const dstOff = y * g.cols;
+                                target.set(source.subarray(srcOff, srcOff + cols), dstOff);
+                            }            }
         };
 
         copyData(g.state, sg.state); 
@@ -1045,11 +1046,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Since offX/offY can be fractional, we use a slightly wider tolerance
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
-                // Alignment: Reset to standard Grid + 1 character shift
-                const startCellX = Math.round(destBx * pitchX) + 1;
-                const startCellY = Math.round(destBy * pitchY) + 1;
-                const endCellX = Math.round((destBx + 1) * pitchX) + 1;
-                const endCellY = Math.round((destBy + 1) * pitchY) + 1;
+                // Alignment: Reset to standard Grid (No Shift)
+                const startCellX = Math.floor(destBx * pitchX);
+                const startCellY = Math.floor(destBy * pitchY);
+                const endCellX = Math.ceil((destBx + 1) * pitchX);
+                const endCellY = Math.ceil((destBy + 1) * pitchY);
                 
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
@@ -1077,11 +1078,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                     
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
-                    // Alignment: Reset to standard Grid + 1 character shift
-                    const startCellX = Math.round(destBx * pitchX) + 1;
-                    const startCellY = Math.round(destBy * pitchY) + 1;
-                    const endCellX = Math.round((destBx + 1) * pitchX) + 1;
-                    const endCellY = Math.round((destBy + 1) * pitchY) + 1;
+                    // Alignment: Reset to standard Grid (No Shift)
+                    const startCellX = Math.floor(destBx * pitchX);
+                    const startCellY = Math.floor(destBy * pitchY);
+                    const endCellX = Math.ceil((destBx + 1) * pitchX);
+                    const endCellY = Math.ceil((destBy + 1) * pitchY);
                     
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
