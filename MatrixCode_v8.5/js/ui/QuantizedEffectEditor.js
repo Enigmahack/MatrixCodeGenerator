@@ -96,7 +96,7 @@ class QuantizedEffectEditor {
         }
 
         // Disable all quantized effects to ensure a clean slate for the new one
-        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
         if (this.registry) {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
@@ -137,7 +137,7 @@ class QuantizedEffectEditor {
     toggle(isActive) {
         this.active = isActive;
         if (this.active) {
-            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
             if (this.registry) {
                 qEffects.forEach(name => {
                     const eff = this.registry.get(name);
@@ -156,7 +156,27 @@ class QuantizedEffectEditor {
             this._createCanvas();
             this._attachListeners();
             
-            this.effect.trigger(true); 
+            // Force re-trigger to ensure init logic runs (e.g. Shadow World)
+            this.effect.active = false;
+            const triggered = this.effect.trigger(true); 
+            
+            if (!triggered) {
+                console.warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
+                this.effect.active = true;
+                this.effect.state = 'SUSTAIN';
+                this.effect.alpha = 1.0;
+                this.effect.timer = 0;
+                
+                // Ensure Grid Logic is ready
+                if (typeof this.effect._initLogicGrid === 'function') this.effect._initLogicGrid();
+                
+                // Ensure Shadow World is initialized (Critical for visibility)
+                if (typeof this.effect._initShadowWorld === 'function') {
+                    this.effect._initShadowWorld();
+                } else if (typeof this.effect._initShadowWorldBase === 'function') {
+                    this.effect._initShadowWorldBase(false);
+                }
+            }
             
             if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
                 this.effect.sequence = window.matrixPatterns[this.effect.name];
@@ -166,9 +186,10 @@ class QuantizedEffectEditor {
             
             this.effect.debugMode = true;
             this.effect.manualStep = true; 
-            if (this.effect.expansionPhase >= this.effect.sequence.length) {
-                this.effect.expansionPhase = this.effect.sequence.length - 1;
-            }
+            
+            // Start at the beginning as requested
+            this.effect.expansionPhase = 0;
+
             this.effect.refreshStep();
             this._updateUI(); 
             this.isDirty = true;
@@ -448,7 +469,7 @@ class QuantizedEffectEditor {
             effectSelect.style.color = '#0f0';
             effectSelect.style.border = '1px solid #0f0';
             
-            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
             effects.forEach(effName => {
                 if (this.registry.get(effName)) {
                     const opt = document.createElement('option');

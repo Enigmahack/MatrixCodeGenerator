@@ -55,7 +55,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             // logicGridW and logicGridH are now 120% of screen size due to overridden _initLogicGrid
             const erosionRate = (this.c.state.quantizedGenerateErosionRate !== undefined) ? this.c.state.quantizedGenerateErosionRate : 0.2;
             const innerLineDuration = (this.c.state.quantizedGenerateInnerLineDuration !== undefined) ? this.c.state.quantizedGenerateInnerLineDuration : 1;
-            this.sequence = generator.generate(this.logicGridW, this.logicGridH, 20000, { erosionRate, innerLineDuration });
+            this.sequence = generator.generate(this.logicGridW, this.logicGridH, 1000, { erosionRate, innerLineDuration });
         }
 
         this.state = 'FADE_IN';
