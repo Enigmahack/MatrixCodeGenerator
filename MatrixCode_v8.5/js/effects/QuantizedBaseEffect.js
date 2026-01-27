@@ -515,6 +515,35 @@ class QuantizedBaseEffect extends AbstractEffect {
         return status;
     }
 
+    updateTransition(deactivate = true) {
+        if (!this.isSwapping) return false;
+
+        // Keep applying overrides during swap transition buffer
+        this._updateShadowSim();
+        
+        this.swapTimer--;
+        if (this.swapTimer <= 0) {
+            // Transition Complete
+            this.g.clearAllOverrides();
+            if (this.g.cellLocks) this.g.cellLocks.fill(0);
+            
+            this.isSwapping = false;
+            this.hasSwapped = true;
+            
+            // Cleanup
+            this.shadowGrid = null;
+            this.shadowSim = null;
+            
+            if (deactivate) {
+                this.active = false;
+                this.state = 'IDLE';
+                window.removeEventListener('keydown', this._boundDebugHandler);
+            }
+            return true;
+        }
+        return false;
+    }
+
     _swapStates() {
         if (this.hasSwapped || this.isSwapping) return;
         
@@ -525,6 +554,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.swapTimer = 5; 
         } else if (result === 'SYNC') {
             this.g.clearAllOverrides();
+            if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.hasSwapped = true;
         } else {
             this.g.clearAllOverrides();
@@ -713,9 +743,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const rows = Math.min(sg.rows, g.rows);
                 const cols = Math.min(sg.cols, g.cols);
                             for (let y = 0; y < rows; y++) {
-                                // Apply +1 offset to X and Y for Shadow World -> Main World copy
-                                // Shadow Grid has 1-cell N/W buffer, so (0,0) on Main is (1,1) on Shadow
-                                const srcOff = (y + 1) * sg.cols + 1;
+                                const srcOff = y * sg.cols;
                                 const dstOff = y * g.cols;
                                 target.set(source.subarray(srcOff, srcOff + cols), dstOff);
                             }            }
@@ -1047,10 +1075,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
                 // Alignment: Reset to standard Grid (No Shift)
-                const startCellX = Math.floor(destBx * pitchX);
-                const startCellY = Math.floor(destBy * pitchY);
-                const endCellX = Math.ceil((destBx + 1) * pitchX);
-                const endCellY = Math.ceil((destBy + 1) * pitchY);
+                const startCellX = Math.round(destBx * pitchX);
+                const startCellY = Math.round(destBy * pitchY);
+                const endCellX = Math.round((destBx + 1) * pitchX);
+                const endCellY = Math.round((destBy + 1) * pitchY);
                 
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
@@ -1079,10 +1107,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
                     // Alignment: Reset to standard Grid (No Shift)
-                    const startCellX = Math.floor(destBx * pitchX);
-                    const startCellY = Math.floor(destBy * pitchY);
-                    const endCellX = Math.ceil((destBx + 1) * pitchX);
-                    const endCellY = Math.ceil((destBy + 1) * pitchY);
+                    const startCellX = Math.round(destBx * pitchX);
+                    const startCellY = Math.round(destBy * pitchY);
+                    const endCellX = Math.round((destBx + 1) * pitchX);
+                    const endCellY = Math.round((destBy + 1) * pitchY);
                     
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
@@ -1090,8 +1118,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                             if (cx >= g.cols || cx < 0) continue;
                             
                             const destIdx = cy * g.cols + cx;
-                            // Source reads from Shadow Grid (includes N/W buffer, so cx+1, cy+1)
-                            const srcIdx = (cy + 1) * sg.cols + (cx + 1);
+                            // Source reads from Shadow Grid (aligned 0,0)
+                            const srcIdx = cy * sg.cols + cx;
                             
                             if (sg && sg.chars && srcIdx < sg.chars.length) {
                                 g.overrideActive[destIdx] = 3; 

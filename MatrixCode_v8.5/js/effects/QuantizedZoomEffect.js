@@ -350,18 +350,9 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         if (this.useShadowWorld) {
             if (!this.hasSwapped && !this.isSwapping) {
                 this._updateShadowSim();
-            } else if (this.isSwapping) {
-                this._updateShadowSim();
-                this.swapTimer--;
-                if (this.swapTimer <= 0) {
-                    this.g.clearAllOverrides();
-                    this.isSwapping = false;
-                    this.hasSwapped = true;
-                    this.shadowGrid = null;
-                    this.shadowSim = null;
-                }
-            }
-        }
+                    } else if (this.isSwapping) {
+                        super.updateTransition(false);
+                    }        }
 
         // 2. Zoom & Fade Logic
         const totalSteps = this.sequence.length;

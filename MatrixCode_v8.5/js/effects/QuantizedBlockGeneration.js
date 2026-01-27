@@ -269,22 +269,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (!this.hasSwapped && !this.isSwapping) {
             this._updateShadowSim();
         } else if (this.isSwapping) {
-            // Keep applying overrides during swap transition buffer
-            this._updateShadowSim();
-            
-            this.swapTimer--;
-            if (this.swapTimer <= 0) {
-                // Transition Complete
-                this.g.clearAllOverrides();
-                this.isSwapping = false;
-                this.hasSwapped = true;
-                this.active = false;
-                this.state = 'IDLE';
-                
-                // Cleanup
-                this.shadowGrid = null;
-                this.shadowSim = null;
-            }
+            super.updateTransition(false);
         }
 
         // Perform cleanup of expired ops (e.g. inner lines)

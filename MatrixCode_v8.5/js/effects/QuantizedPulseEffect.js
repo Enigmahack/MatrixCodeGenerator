@@ -148,25 +148,7 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
         if (!this.hasSwapped && !this.isSwapping) {
             super._updateShadowSim();
         } else if (this.isSwapping) {
-            // Keep applying overrides during swap transition buffer
-            // This prevents the "flash of old content" while worker syncs
-            super._updateShadowSim();
-            
-            this.swapTimer--;
-            if (this.swapTimer <= 0) {
-                // Transition Complete
-                this.g.clearAllOverrides();
-                this.isSwapping = false;
-                this.hasSwapped = true;
-                this.active = false;
-                this.state = 'IDLE';
-                
-                // Cleanup
-                this.shadowGrid = null;
-                this.shadowSim = null;
-                
-                window.removeEventListener('keydown', this._boundDebugHandler);
-            }
+            super.updateTransition();
         }
 
         // 3. Lifecycle State Machine

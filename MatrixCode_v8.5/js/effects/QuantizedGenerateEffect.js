@@ -167,24 +167,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         if (!this.hasSwapped && !this.isSwapping) {
             this._updateShadowSim();
         } else if (this.isSwapping) {
-            // Keep applying overrides during swap transition buffer
-            // This prevents the "flash of old content" while worker syncs
-            this._updateShadowSim();
-            
-            this.swapTimer--;
-            if (this.swapTimer <= 0) {
-                // Transition Complete
-                this.g.clearAllOverrides();
-                this.isSwapping = false;
-                this.hasSwapped = true;
-                
-                // Do not set active = false here. 
-                // We rely on the FADE_OUT state (which we are likely in) to handle termination.
-                
-                // Cleanup Shadow World
-                this.shadowGrid = null;
-                this.shadowSim = null;
-            }
+            super.updateTransition(false);
         }
 
         // 3. Lifecycle State Machine
@@ -280,8 +263,8 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         const halfLineY = lineWidthY / 2;
         const gridPixW = grid.cols * d.cellWidth; 
         const gridPixH = grid.rows * d.cellHeight;
-        const screenOriginX = ((d.cellWidth * 0.5 + s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((d.cellHeight * 0.5 + s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        const screenOriginX = ((s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         
         const bs = this.getBlockSize();
         const cellPitchX = Math.max(1, bs.w);
@@ -312,29 +295,32 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         // --- SCALED GRID LOGIC ---
         const scaledW = this.logicGridW || blocksX;
         const scaledH = this.logicGridH || blocksY;
-        const offX = Math.floor((scaledW - blocksX) / 2);
-        const offY = Math.floor((scaledH - blocksY) / 2);
+        
+        // Use centered offset logic (Float)
+        const { offX, offY } = this._computeCenteredOffset(scaledW, scaledH, cellPitchX, cellPitchY);
+        this.layout.offX = offX;
+        this.layout.offY = offY;
 
         // Compute maps on the SCALED grid
         const distMap = this._computeDistanceField(scaledW, scaledH);
         const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         
         const isTrueOutside = (nx, ny) => {
-            if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
-            const idx = (ny + offY) * scaledW + (nx + offX);
+            if (nx < 0 || nx >= scaledW || ny < 0 || ny >= scaledH) return false; 
+            const idx = ny * scaledW + nx;
             return outsideMap[idx] === 1;
         };
         
         const isRenderActive = (bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-            const idx = (by + offY) * scaledW + (bx + offX);
+            if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
+            const idx = by * scaledW + bx;
             if (!this.renderGrid || idx < 0 || idx >= this.renderGrid.length || this.renderGrid[idx] === -1) return false;
             return true;
         };
         
         const isLocationCoveredByLaterAdd = (bx, by, time) => {
-             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-             const idx = (by + offY) * scaledW + (bx + offX);
+             if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
+             const idx = by * scaledW + bx;
              if (!this.renderGrid) return false;
              const activeStart = this.renderGrid[idx];
              if (activeStart !== -1 && activeStart > time) return true;
@@ -367,11 +353,11 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             pCtx.fillStyle = '#FFFFFF';
 
             // PART A: Standard Rendering + Internalizing Fade Out
-            for (let by = 0; by < blocksY; by++) {
-                for (let bx = 0; bx < blocksX; bx++) {
+            for (let by = 0; by < scaledH; by++) {
+                for (let bx = 0; bx < scaledW; bx++) {
                     if (!isRenderActive(bx, by)) continue; 
                     
-                    const idx = (by + offY) * scaledW + (bx + offX);
+                    const idx = by * scaledW + bx;
                     if (idx < 0 || idx >= this.renderGrid.length) continue;
                     const startFrame = this.renderGrid[idx];
                     
@@ -394,7 +380,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                         // Fade Out (Internalizing)
                         else {
                             if (isRenderActive(nx, ny)) {
-                                const nIdx = (ny + offY) * scaledW + (nx + offX);
+                                const nIdx = ny * scaledW + nx;
                                 if (nIdx >= 0 && nIdx < this.renderGrid.length) {
                                     const nStart = this.renderGrid[nIdx];
                                     if (nStart > startFrame) {
@@ -809,10 +795,12 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
         const lineOffset = s.quantizedLineOffset || 0;
 
-        const startCellX = Math.floor(bx * l.cellPitchX);
-        const startCellY = Math.floor(by * l.cellPitchY);
-        const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-        const endCellY = Math.floor((by + 1) * l.cellPitchY);
+        const offX = l.offX || 0;
+        const offY = l.offY || 0;
+        const startCellX = Math.round((bx - offX) * l.cellPitchX);
+        const startCellY = Math.round((by - offY) * l.cellPitchY);
+        const endCellX = Math.round((bx + 1 - offX) * l.cellPitchX);
+        const endCellY = Math.round((by + 1 - offY) * l.cellPitchY);
 
         const hx = widthX / 2;
         const hy = widthY / 2;
@@ -919,10 +907,12 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
     _addBlock(blockStart, blockEnd, isExtending, visibilityCheck) {
         const ctx = this.maskCtx;
         const l = this.layout;
-        const startX = Math.floor(blockStart.x * l.cellPitchX);
-        const endX = Math.floor((blockEnd.x + 1) * l.cellPitchX);
-        const startY = Math.floor(blockStart.y * l.cellPitchY);
-        const endY = Math.floor((blockEnd.y + 1) * l.cellPitchY);
+        const offX = l.offX || 0;
+        const offY = l.offY || 0;
+        const startX = Math.round((blockStart.x - offX) * l.cellPitchX);
+        const endX = Math.round((blockEnd.x + 1 - offX) * l.cellPitchX);
+        const startY = Math.round((blockStart.y - offY) * l.cellPitchY);
+        const endY = Math.round((blockEnd.y + 1 - offY) * l.cellPitchY);
 
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
@@ -937,8 +927,8 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                 for (let bx = rangeMinBx; bx <= rangeMaxBx; bx++) {
                     if (!visibilityCheck(bx, by)) continue;
                     
-                    const cellX = Math.floor(bx * l.cellPitchX);
-                    const cellY = Math.floor(by * l.cellPitchY);
+                    const cellX = Math.round((bx - offX) * l.cellPitchX);
+                    const cellY = Math.round((by - offY) * l.cellPitchY);
                     const xPos = l.screenOriginX + (cellX * l.screenStepX);
                     const yPos = l.screenOriginY + (cellY * l.screenStepY);
                     
@@ -1005,10 +995,10 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                     if (f === 'W' && bx === minX) continue;
                     if (f === 'E' && bx === maxX) continue;
                 }
-                const startCellX = Math.floor(bx * l.cellPitchX);
-                const startCellY = Math.floor(by * l.cellPitchY);
-                const endCellX = Math.floor((bx + 1) * l.cellPitchX);
-                const endCellY = Math.floor((by + 1) * l.cellPitchY);
+                const startCellX = Math.round(bx * l.cellPitchX);
+                const startCellY = Math.round(by * l.cellPitchY);
+                const endCellX = Math.round((bx + 1) * l.cellPitchX);
+                const endCellY = Math.round((by + 1) * l.cellPitchY);
                 const safety = 0.5;
                 const safeX = l.halfLineX + safety; 
                 const safeY = l.halfLineY + safety; 

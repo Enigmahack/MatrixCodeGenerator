@@ -109,18 +109,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         if (!this.hasSwapped && !this.isSwapping) {
             super._updateShadowSim();
         } else if (this.isSwapping) {
-            super._updateShadowSim();
-            this.swapTimer--;
-            if (this.swapTimer <= 0) {
-                this.g.clearAllOverrides();
-                this.isSwapping = false;
-                this.hasSwapped = true;
-                this.active = false;
-                this.state = 'IDLE';
-                this.shadowGrid = null;
-                this.shadowSim = null;
-                window.removeEventListener('keydown', this._boundDebugHandler);
-            }
+            super.updateTransition(true);
         }
 
         // 3. Lifecycle
