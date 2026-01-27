@@ -502,7 +502,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= blocksX || ny < 0 || ny >= blocksY) return false; 
-            const idx = (ny + offY) * scaledW + (nx + offX);
+            // Fix: Round indices to ensure valid integer access to outsideMap
+            const idx = Math.round(ny + offY) * scaledW + Math.round(nx + offX);
             return outsideMap[idx] === 1;
         };
         
@@ -594,7 +595,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                         const y = l.screenOriginY + (by * l.cellPitchY * l.screenStepY);
                         const w = l.cellPitchX * l.screenStepX;
                         const h = l.cellPitchY * l.screenStepY;
-                        pCtx.rect(x - 0.1, y - 0.1, w + 0.2, h + 0.2); 
+                        pCtx.rect(x, y, w, h); 
                     }
                 }
             }

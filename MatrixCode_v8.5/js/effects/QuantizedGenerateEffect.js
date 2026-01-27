@@ -270,13 +270,28 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         const cellPitchX = Math.max(1, bs.w);
         const cellPitchY = Math.max(1, bs.h);
 
+        // User Perimeter Offsets (Pixel Nudge)
+        const userPerimeterOffsetX = s.quantizedPerimeterOffsetX || 0;
+        const userPerimeterOffsetY = s.quantizedPerimeterOffsetY || 0;
+
+        // User Shadow Offsets (Grid Snap)
+        const userShadowOffsetX = s.quantizedShadowOffsetX || 0;
+        const userShadowOffsetY = s.quantizedShadowOffsetY || 0;
+
+        // Calculate Block Offsets for Snapping
+        const userBlockOffX = userShadowOffsetX / (d.cellWidth * cellPitchX);
+        const userBlockOffY = userShadowOffsetY / (d.cellHeight * cellPitchY);
+
         this.layout = {
             screenStepX, screenStepY,
             lineWidthX, lineWidthY,
             halfLineX, halfLineY,
             screenOriginX, screenOriginY,
             gridPixW, gridPixH,
-            cellPitchX, cellPitchY
+            cellPitchX, cellPitchY,
+            userBlockOffX, userBlockOffY,
+            pixelOffX: userPerimeterOffsetX,
+            pixelOffY: userPerimeterOffsetY
         };
 
         const blocksX = Math.ceil(grid.cols / cellPitchX);
@@ -397,7 +412,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                         if (draw && opacity > 0.001) {
                             pCtx.globalAlpha = opacity;
                             pCtx.beginPath();
-                            this._addPerimeterFacePath(bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
+                            this._addPerimeterFacePath(pCtx, bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
                             pCtx.fill();
                         }
                     }
@@ -439,7 +454,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                                     if (isTrueOutside(nx, ny)) {
                                         pCtx.globalAlpha = opacity;
                                         pCtx.beginPath();
-                                        this._addPerimeterFacePath(bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
+                                        this._addPerimeterFacePath(pCtx, bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
                                         pCtx.fill();
                                     }
                                 }
@@ -458,12 +473,17 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
 
             for (let by = 0; by < blocksY; by++) {
                 for (let bx = 0; bx < blocksX; bx++) {
+                    // Logic Index is directly bx, by (since we iterate logic grid dimensions)
                     if (isTrueOutside(bx, by)) {
-                        const x = l.screenOriginX + (bx * l.cellPitchX * l.screenStepX);
-                        const y = l.screenOriginY + (by * l.cellPitchY * l.screenStepY);
+                        // FIX: Apply offX/offY subtraction to align with visual grid center
+                        const cellX = Math.round((bx - offX) * l.cellPitchX);
+                        const cellY = Math.round((by - offY) * l.cellPitchY);
+                        
+                        const x = l.screenOriginX + (cellX * l.screenStepX);
+                        const y = l.screenOriginY + (cellY * l.screenStepY);
                         const w = l.cellPitchX * l.screenStepX;
                         const h = l.cellPitchY * l.screenStepY;
-                        pCtx.rect(x - 0.1, y - 0.1, w + 0.2, h + 0.2); 
+                        pCtx.rect(x, y, w, h); 
                     }
                 }
             }
@@ -784,123 +804,6 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             } catch(e) {
                 console.error("[QuantizedGenerate] Line Pass Failed:", e);
             }
-        }
-    }
-
-    _addPerimeterFacePath(bx, by, faceObj, widthX, widthY) {
-        const ctx = this.maskCtx;
-        const l = this.layout;
-
-        const s = this.c.state;
-        const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
-        const lineOffset = s.quantizedLineOffset || 0;
-
-        const offX = l.offX || 0;
-        const offY = l.offY || 0;
-        const startCellX = Math.round((bx - offX) * l.cellPitchX);
-        const startCellY = Math.round((by - offY) * l.cellPitchY);
-        const endCellX = Math.round((bx + 1 - offX) * l.cellPitchX);
-        const endCellY = Math.round((by + 1 - offY) * l.cellPitchY);
-
-        const hx = widthX / 2;
-        const hy = widthY / 2;
-        
-        const face = faceObj.dir;
-        const rS = faceObj.rS;
-        const rE = faceObj.rE;
-
-        if (face === 'N') {
-            const cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY);
-            let drawX, drawY, drawW, drawH;
-            const topY = cy; 
-            let leftX = l.screenOriginX + (startCellX * l.screenStepX);
-            let rightX = l.screenOriginX + (endCellX * l.screenStepX);
-
-            if (lineLengthMult !== 1.0) {
-                const midX = (leftX + rightX) * 0.5;
-                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
-                leftX = midX - halfW;
-                rightX = midX + halfW;
-            }
-
-            drawY = topY; 
-            drawH = widthY;
-            drawX = leftX;
-            drawW = rightX - leftX; 
-            
-            if (rS) { drawX += widthX; drawW -= widthX; }
-            if (rE) { drawW -= widthX; }
-            
-            ctx.rect(drawX, drawY, drawW, drawH);
-
-        } else if (face === 'S') {
-            const bottomY = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY);
-            let leftX = l.screenOriginX + (startCellX * l.screenStepX);
-            let rightX = l.screenOriginX + (endCellX * l.screenStepX);
-
-            if (lineLengthMult !== 1.0) {
-                const midX = (leftX + rightX) * 0.5;
-                const halfW = (rightX - leftX) * 0.5 * lineLengthMult;
-                leftX = midX - halfW;
-                rightX = midX + halfW;
-            }
-
-            let drawX, drawY, drawW, drawH;
-            drawY = bottomY - widthY; 
-            drawH = widthY;
-            drawX = leftX;
-            drawW = rightX - leftX;
-            
-            if (rS) { drawX += widthX; drawW -= widthX; }
-            if (rE) { drawW -= widthX; }
-            
-            ctx.rect(drawX, drawY, drawW, drawH);
-
-        } else if (face === 'W') {
-            let topY = l.screenOriginY + (startCellY * l.screenStepY);
-            let bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const leftX = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX);
-
-            if (lineLengthMult !== 1.0) {
-                const midY = (topY + bottomY) * 0.5;
-                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
-                topY = midY - halfH;
-                bottomY = midY + halfH;
-            }
-
-            let drawX, drawY, drawW, drawH;
-            drawX = leftX; 
-            drawW = widthX;
-            drawY = topY;
-            drawH = bottomY - topY;
-            
-            if (rS) { drawY += widthY; drawH -= widthY; }
-            if (rE) { drawH -= widthY; }
-            
-            ctx.rect(drawX, drawY, drawW, drawH);
-
-        } else if (face === 'E') {
-            let topY = l.screenOriginY + (startCellY * l.screenStepY);
-            let bottomY = l.screenOriginY + (endCellY * l.screenStepY);
-            const rightX = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX);
-
-            if (lineLengthMult !== 1.0) {
-                const midY = (topY + bottomY) * 0.5;
-                const halfH = (bottomY - topY) * 0.5 * lineLengthMult;
-                topY = midY - halfH;
-                bottomY = midY + halfH;
-            }
-
-            let drawX, drawY, drawW, drawH;
-            drawX = rightX - widthX; 
-            drawW = widthX;
-            drawY = topY;
-            drawH = bottomY - topY;
-            
-            if (rS) { drawY += widthY; drawH -= widthY; }
-            if (rE) { drawH -= widthY; }
-            
-            ctx.rect(drawX, drawY, drawW, drawH);
         }
     }
 

@@ -243,6 +243,9 @@ class QuantizedEffectEditor {
         // Ensure layout exists for schematic rendering
         if (!this.effect.layout) {
             // Force a mask update to generate layout if missing
+            if (typeof this.effect._ensureCanvases === 'function') {
+                this.effect._ensureCanvases(width, height);
+            }
             if (typeof this.effect._updateMask === 'function') {
                 this.effect._updateMask(width, height, this.effect.c.state, this.effect.c.derived);
             }

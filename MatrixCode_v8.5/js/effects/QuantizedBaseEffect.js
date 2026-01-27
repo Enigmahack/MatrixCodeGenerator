@@ -1578,6 +1578,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const ctx = this.maskCtx;
         const pCtx = this.perimeterMaskCtx;
         const lCtx = this.lineMaskCtx;
+        const grid = this.g;
 
         if (!ctx) {
             console.error("[Quantized] Mask Context is STILL NULL after init!", w, h);
@@ -1602,6 +1603,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const unifiedWidth = baseStep * 0.25 * thickness;
         const lineWidthX = unifiedWidth;
         const lineWidthY = unifiedWidth;
+        const halfLineX = lineWidthX / 2;
+        const halfLineY = lineWidthY / 2;
         const gridPixW = this.g.cols * d.cellWidth; 
         const gridPixH = this.g.rows * d.cellHeight;
 
@@ -1632,6 +1635,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.layout = {
             screenStepX, screenStepY,
             lineWidthX, lineWidthY,
+            halfLineX, halfLineY,
             screenOriginX, screenOriginY,
             gridPixW, gridPixH,
             cellPitchX, cellPitchY,
@@ -1639,6 +1643,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             pixelOffX: userPerimeterOffsetX,
             pixelOffY: userPerimeterOffsetY
         };
+        const l = this.layout; // FIX: Define 'l' locally
 
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
@@ -1707,187 +1712,154 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
 
-            _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
-                const l = this.layout;
-                const bw = l.cellPitchX;
-                const bh = l.cellPitchY;
-                const fadeInFrames = this.getConfig('FadeInFrames') || 0;
-                const fadeOutFrames = this.getConfig('FadeFrames') || 0;
-                const cx_off = Math.floor(this.logicGridW / 2);
-                const cy_off = Math.floor(this.logicGridH / 2);
+    _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
+        const l = this.layout;
+        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+        const fadeOutFrames = this.getConfig('FadeFrames') || 0;
+        
+        const scaledW = blocksX;
+        const scaledH = blocksY;
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
 
-                const s = this.c.state;
-                const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
-                const lineOffset = s.quantizedLineOffset || 0;
+        const outsideMap = this._computeTrueOutside(scaledW, scaledH);
+        const isTrueOutside = (nx, ny) => {
+            if (nx < 0 || nx >= scaledW || ny < 0 || ny >= scaledH) return false; 
+            const idx = ny * scaledW + nx;
+            return outsideMap[idx] === 1;
+        };
+        
+        const isRenderActive = (bx, by) => {
+            if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
+            const idx = by * scaledW + bx;
+            if (!this.renderGrid || idx < 0 || idx >= this.renderGrid.length || this.renderGrid[idx] === -1) return false;
+            return true;
+        };
 
-                // 1. Pre-rasterize Ops
-                const opMap = new Map();
-                for (const op of this.maskOps) {
-                    if ((op.type === 'addLine' || op.type === 'removeLine') && op.face) {
-                        const minX = Math.max(0, cx_off + Math.min(op.x1, op.x2));
-                        const maxX = Math.min(blocksX - 1, cx_off + Math.max(op.x1, op.x2));
-                        const minY = Math.max(0, cy_off + Math.min(op.y1, op.y2));
-                        const maxY = Math.min(blocksY - 1, cy_off + Math.max(op.y1, op.y2));
-                        const f = op.face.toUpperCase();
+        const color = this.getConfig('PerimeterColor') || "#FFD700";
+        const iColor = this.getConfig('InnerColor') || "#FFD700";
 
-                        for (let by = minY; by <= maxY; by++) {
-                            for (let bx = minX; bx <= maxX; bx++) {
-                                const idx = by * blocksX + bx;
-                                if (!opMap.has(idx)) opMap.set(idx, {});
-                                opMap.get(idx)[f] = op;
-                            }
-                        }
-                    }
-                }
-
-                const getBlockEdgeState = (bx, by, face) => {
-                    if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return { active: false, time: -1, op: null };
-                    const idx = by * blocksX + bx;
-                    const t = this.renderGrid[idx];
-                    const active = (t !== -1);
-                    let op = null;
-
-                    if (active && opMap.has(idx)) {
-                        const ops = opMap.get(idx);
-                        if (ops[face]) op = ops[face];
-                    }
-                    return { active, time: t, op };
-                };
-
-                // 2. Compute Edge States
-                // No shifts or clipping needed for pure grid alignment
-                const groups = new Map(); 
-
-                // Process Vertical Edges (Cols 0 to blocksX)
-                for (let by = 0; by < blocksY; by++) {
-                    for (let bx = 0; bx <= blocksX; bx++) {
-                        const b1 = getBlockEdgeState(bx - 1, by, 'E');
-                        const b2 = getBlockEdgeState(bx, by, 'W');
-                        
-                        let wantLine = false;
-                        if (b1.active || b2.active) {
-                            const winner = (b1.time >= b2.time) ? b1 : b2;
-                            wantLine = (b1.active !== b2.active);
-                            if (winner.op) wantLine = (winner.op.type === 'addLine');
-                            
-                            const isInner = (b1.active && b2.active);
-                            
-                            if (wantLine) {
-                                const data = { bx, by, t: winner.time, exp: winner.op ? winner.op.expireFrame : null };
-                                const targetCtx = isInner ? lCtx : pCtx;
-                                if (targetCtx) {
-                                    const key = `${data.t}_${data.exp}_${isInner}`;
-                                    if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t: data.t, exp: data.exp });
-                                    groups.get(key).V.push(data);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Process Horizontal Edges (Rows 0 to blocksY)
-                for (let by = 0; by <= blocksY; by++) {
-                    for (let bx = 0; bx < blocksX; bx++) {
-                        const b1 = getBlockEdgeState(bx, by - 1, 'S');
-                        const b2 = getBlockEdgeState(bx, by, 'N');
-                        
-                        let wantLine = false;
-                        if (b1.active || b2.active) {
-                            const winner = (b1.time >= b2.time) ? b1 : b2;
-                            wantLine = (b1.active !== b2.active);
-                            if (winner.op) wantLine = (winner.op.type === 'addLine');
-                            
-                            const isInner = (b1.active && b2.active);
-                            
-                            if (wantLine) {
-                                const data = { bx, by, t: winner.time, exp: winner.op ? winner.op.expireFrame : null };
-                                const targetCtx = isInner ? lCtx : pCtx;
-                                if (targetCtx) {
-                                    const key = `${data.t}_${data.exp}_${isInner}`;
-                                    if (!groups.has(key)) groups.set(key, { V: [], H: [], ctx: targetCtx, t: data.t, exp: data.exp });
-                                    groups.get(key).H.push(data);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                const lwX = l.lineWidthX * 2.0;
-                const lwY = l.lineWidthY * 2.0;
+        // --- PRE-PASS: Build Line State Map ---
+        // Tracks explicit Add/Remove ops per face
+        const lineState = new Map();
+        
+        if (this.maskOps) {
+            for (const op of this.maskOps) {
+                if (op.type !== 'addLine' && op.type !== 'removeLine') continue;
                 
-                // 3. Draw
-                for (const group of groups.values()) {
-                    let opacity = 1.0;
-                    if (!this.debugMode) {
-                        if (fadeInFrames > 0 && group.t > 0) opacity = Math.min(opacity, (now - group.t) / fadeInFrames);
-                        if (group.exp && fadeOutFrames > 0) opacity = Math.min(opacity, 1.0 - (now - group.exp) / fadeOutFrames);
+                const start = { x: cx + op.x1, y: cy + op.y1 };
+                const end = { x: cx + op.x2, y: cy + op.y2 };
+                const minX = Math.min(start.x, end.x);
+                const maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y);
+                const maxY = Math.max(start.y, end.y);
+                const f = op.face ? op.face.toUpperCase() : '';
+
+                for (let by = minY; by <= maxY; by++) {
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        // For removeLine, we process even if inactive (to suppress potential borders)
+                        // For addLine, we check activity
+                        if (op.type === 'addLine' && !isRenderActive(bx, by)) continue;
+
+                        const idx = by * scaledW + bx;
+                        let cell = lineState.get(idx);
+                        if (!cell) { cell = {}; lineState.set(idx, cell); }
+                        
+                        cell[f] = { type: (op.type === 'addLine' ? 'add' : 'rem'), op: op };
                     }
-
-                    if (opacity <= 0.001) continue;
-                    
-                    const ctx = group.ctx;
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.globalAlpha = opacity;
-                    ctx.beginPath();
-
-                    for (const seg of group.V) {
-                        // Snap X (Vertical Line Position)
-                        const cellX = Math.round((seg.bx - offX + l.userBlockOffX) * bw);
-                        const screenX = l.screenOriginX + (cellX + lineOffset) * l.screenStepX + l.pixelOffX;
-                        
-                        // Snap Y Start/End (Segment Height)
-                        const cellY1 = Math.round((seg.by - offY + l.userBlockOffY) * bh);
-                        const cellY2 = Math.round((seg.by + 1 - offY + l.userBlockOffY) * bh);
-                        
-                        let y1 = l.screenOriginY + (cellY1) * l.screenStepY + l.pixelOffY;
-                        let y2 = l.screenOriginY + (cellY2) * l.screenStepY + l.pixelOffY;
-                        
-                        // Apply lineLengthMult
-                        if (lineLengthMult !== 1.0) {
-                            const midY = (y1 + y2) * 0.5;
-                            const halfH = (y2 - y1) * 0.5 * lineLengthMult;
-                            y1 = midY - halfH;
-                            y2 = midY + halfH;
-                        }
-
-                        // Apply Snapping (Screen Pixel Snapping)
-                        const sX = this._getSnap(screenX, 'x');
-                        const sY1 = this._getSnap(y1, 'y');
-                        const sY2 = this._getSnap(y2, 'y');
-
-                        ctx.rect(sX - lwX/2, sY1, lwX, sY2 - sY1);
-                    }
-
-                    for (const seg of group.H) {
-                        // Snap Y (Horizontal Line Position)
-                        const cellY = Math.round((seg.by - offY + l.userBlockOffY) * bh);
-                        const screenY = l.screenOriginY + (cellY + lineOffset) * l.screenStepY + l.pixelOffY;
-                        
-                        // Snap X Start/End (Segment Width)
-                        const cellX1 = Math.round((seg.bx - offX + l.userBlockOffX) * bw);
-                        const cellX2 = Math.round((seg.bx + 1 - offX + l.userBlockOffX) * bw);
-                        
-                        let x1 = l.screenOriginX + (cellX1) * l.screenStepX + l.pixelOffX;
-                        let x2 = l.screenOriginX + (cellX2) * l.screenStepX + l.pixelOffX;
-                        
-                        // Apply lineLengthMult
-                        if (lineLengthMult !== 1.0) {
-                            const midX = (x1 + x2) * 0.5;
-                            const halfW = (x2 - x1) * 0.5 * lineLengthMult;
-                            x1 = midX - halfW;
-                            x2 = midX + halfW;
-                        }
-
-                        // Apply Snapping (Screen Pixel Snapping)
-                        const sY = this._getSnap(screenY, 'y');
-                        const sX1 = this._getSnap(x1, 'x');
-                        const sX2 = this._getSnap(x2, 'x');
-
-                        ctx.rect(sX1, sY - lwY/2, sX2 - sX1, lwY);
-                    }
-                    ctx.fill();    
                 }
             }
+        }
+
+        // --- PASS 3: PERIMETER ---
+        if (pCtx) {
+            pCtx.fillStyle = '#FFFFFF';
+            const batches = new Map();
+
+            for (let by = 0; by < scaledH; by++) {
+                for (let bx = 0; bx < scaledW; bx++) {
+                    if (!isRenderActive(bx, by)) continue; 
+                    
+                    const idx = by * scaledW + bx;
+                    const startFrame = this.renderGrid[idx];
+                    
+                    const outN = isTrueOutside(bx, by - 1);
+                    const outS = isTrueOutside(bx, by + 1);
+                    const outW = isTrueOutside(bx - 1, by);
+                    const outE = isTrueOutside(bx + 1, by);
+
+                    if (!outN && !outS && !outW && !outE) continue; 
+                    
+                    // Check for Suppression
+                    const cellState = lineState.get(idx);
+                    
+                    const faces = [];
+                    // Only add face if it is outside AND not explicitly removed
+                    if (outN && (!cellState || !cellState['N'] || cellState['N'].type !== 'rem')) faces.push({dir: 'N', rS: outW, rE: outE});
+                    if (outS && (!cellState || !cellState['S'] || cellState['S'].type !== 'rem')) faces.push({dir: 'S', rS: outW, rE: outE});
+                    if (outW && (!cellState || !cellState['W'] || cellState['W'].type !== 'rem')) faces.push({dir: 'W', rS: outN, rE: outS});
+                    if (outE && (!cellState || !cellState['E'] || cellState['E'].type !== 'rem')) faces.push({dir: 'E', rS: outN, rE: outS});
+                    
+                    if (faces.length > 0) {
+                        let list = batches.get(startFrame);
+                        if (!list) { list = []; batches.set(startFrame, list); }
+                        list.push({bx: bx, by: by, faces});
+                    }
+                }
+            }
+
+            for (const [startFrame, items] of batches) {
+                let opacity = 1.0;
+                if (fadeInFrames > 0 && startFrame !== -1 && !this.debugMode) {
+                    opacity = Math.min(1.0, (now - startFrame) / fadeInFrames);
+                }
+                
+                if (opacity <= 0.001) continue;
+
+                for (const item of items) {
+                    for (const face of item.faces) {
+                        this._drawExteriorLine(pCtx, item.bx, item.by, face, { color, opacity });
+                    }
+                }
+            }
+        }
+
+        // --- PASS 4: INTERIOR LINES ---
+        if (lCtx && lineState.size > 0) {
+            lCtx.fillStyle = '#FFFFFF';
+            
+            for (const [idx, cell] of lineState) {
+                const bx = idx % scaledW;
+                const by = Math.floor(idx / scaledW);
+                
+                // Only draw 'add' types
+                const drawLine = (face, rS, rE) => {
+                    const data = cell[face];
+                    if (!data || data.type !== 'add') return;
+                    
+                    const op = data.op;
+                    let opacity = 1.0;
+                    if (fadeInFrames > 0 && op.startFrame && !this.debugMode) {
+                        opacity = Math.min(1.0, (now - op.startFrame) / fadeInFrames);
+                    }
+                    
+                    if (opacity <= 0.001) return;
+
+                    this._drawInteriorLine(lCtx, bx, by, {dir: face, rS, rE}, { color: iColor, opacity });
+                };
+
+                const hasN_Border = isTrueOutside(bx, by - 1);
+                const hasS_Border = isTrueOutside(bx, by + 1);
+                const hasN = !!cell['N'] || hasN_Border;
+                const hasS = !!cell['S'] || hasS_Border;
+
+                drawLine('N', false, false);
+                drawLine('S', false, false);
+                drawLine('W', hasN, hasS);
+                drawLine('E', hasN, hasS);
+            }
+        }
+    }
 
     _drawExteriorLine(ctx, bx, by, face, options) {
         const l = this.layout;
@@ -2028,6 +2000,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     _addPerimeterFacePath(ctx, bx, by, faceObj, widthX, widthY) {
         // ctx is passed in now!
         const l = this.layout;
+        if (!l) return;
+
         const offX = l.offX || 0;
         const offY = l.offY || 0;
 
@@ -2064,7 +2038,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 rightX = midX + halfW;
             }
 
-            drawY = cy; drawH = widthY; drawX = leftX; drawW = rightX - leftX;
+            drawY = cy - (widthY * 0.5); // Center line on edge
+            drawH = widthY; drawX = leftX; drawW = rightX - leftX;
+            
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'S') {
@@ -2084,7 +2060,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 rightX = midX + halfW;
             }
 
-            drawY = bottomY - widthY; drawH = widthY; drawX = leftX; drawW = rightX - leftX;
+            drawY = bottomY - (widthY * 0.5); // Center line on edge
+            drawH = widthY; drawX = leftX; drawW = rightX - leftX;
+            
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'W') {
@@ -2104,7 +2082,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 bottomY = midY + halfH;
             }
 
-            drawX = leftX; drawW = widthX; drawY = topY; drawH = bottomY - topY;
+            drawX = leftX - (widthX * 0.5); // Center line on edge
+            drawW = widthX; drawY = topY; drawH = bottomY - topY;
+            
             if (rS) { drawY += widthY; drawH -= widthY; }
             if (rE) { drawH -= widthY; }
         } else if (face === 'E') {
@@ -2124,7 +2104,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 bottomY = midY + halfH;
             }
 
-            drawX = rightX - widthX; drawW = widthX; drawY = topY; drawH = bottomY - topY;
+            drawX = rightX - (widthX * 0.5); // Center line on edge
+            drawW = widthX; drawY = topY; drawH = bottomY - topY;
+            
             if (rS) { drawY += widthY; drawH -= widthY; }
             if (rE) { drawH -= widthY; }
         }
