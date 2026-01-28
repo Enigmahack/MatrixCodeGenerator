@@ -210,61 +210,75 @@ class QuantizedEffectEditor {
 
     _cleanInternalSequence() {
         if (!this.effect) return;
-        const thresh = this.effect.getConfig('CleanInnerDistance') || 4; // More than 3 blocks from void
-        const sequence = this.effect.sequence;
-        const w = this.effect.logicGridW;
-        const h = this.effect.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
+        const threshVal = this.effect.getConfig('CleanInnerDistance');
+        const thresh = (threshVal !== undefined) ? threshVal : 4;
 
+        const sequence = this.effect.sequence;
+        
+        // Save current state
+        const originalPhase = this.effect.expansionPhase;
         this.redoStack = [];
         let totalCount = 0;
 
-        const originalPhase = this.effect.expansionPhase;
-
+        // Iterate steps to find lines that become internal
         for (let i = 0; i < sequence.length; i++) {
             this.effect.jumpToStep(i);
             
-            // CRITICAL FIX: Populate renderGrid before distance check
+            // Ensure logic state is fully updated for this step
             if (typeof this.effect._updateRenderGridLogic === 'function') {
                 this.effect._updateRenderGridLogic();
             }
             
-            const distMap = this.effect._computeDistanceField(w, h);
+            // Force rebuild of edge cache to get current line state and distance map
+            const w = this.effect.logicGridW;
+            const h = this.effect.logicGridH;
             
-            const step = sequence[i];
-            if (!step) continue;
+            // We must call private method to ensure cache is built for this exact step state
+            if (typeof this.effect._rebuildEdgeCache === 'function') {
+                this.effect._rebuildEdgeCache(w, h);
+            }
+            
+            const distMap = this.effect._distMap;
+            const lineState = this.effect._cachedLineState;
+            
+            if (!distMap || !lineState) continue;
 
-            const newStep = step.filter(op => {
-                let dx, dy;
-                if (Array.isArray(op)) {
-                    if (op[0] === 4 || op[0] === 5) { // addLine / remLine
-                        dx = op[1]; dy = op[2];
-                    } else return true;
-                } else if (op.op === 'addLine' || op.op === 'remLine' || op.type === 'addLine' || op.type === 'removeLine') {
-                    dx = (op.args ? op.args[0] : op.x1);
-                    dy = (op.args ? op.args[1] : op.y1);
-                } else return true;
-
-                const bx = cx + dx;
-                const by = cy + dy;
-                const idx = by * w + bx;
-                
-                if (idx >= 0 && idx < distMap.length && distMap[idx] > thresh) {
-                    totalCount++;
-                    return false;
+            const cx = Math.floor(w / 2);
+            const cy = Math.floor(h / 2);
+            const stepRemovals = [];
+            
+            // Iterate all active lines in the cache
+            for (const [idx, cell] of lineState) {
+                // Check if this block is deep inside
+                if (distMap[idx] > thresh) {
+                    ['N', 'S', 'E', 'W'].forEach(face => {
+                        // If line is active (type 'add'), it needs removal
+                        if (cell[face] && cell[face].type === 'add') {
+                            const bx = idx % w;
+                            const by = Math.floor(idx / w);
+                            const dx = bx - cx;
+                            const dy = by - cy;
+                            
+                            stepRemovals.push({ op: 'remLine', args: [dx, dy, face] });
+                        }
+                    });
                 }
-                return true;
-            });
-            sequence[i] = newStep;
+            }
+            
+            if (stepRemovals.length > 0) {
+                sequence[i].push(...stepRemovals);
+                totalCount += stepRemovals.length;
+            }
         }
 
+        // Restore original state
         this.effect.jumpToStep(originalPhase);
         this.isDirty = true;
+        
         if (totalCount > 0) {
-            alert(`Cleaner: Removed ${totalCount} deep internal line operations from sequence.`);
+            alert(`Cleaner: Added ${totalCount} removal operations to clean internal lines.`);
         } else {
-            alert("Cleaner: No deep internal lines found.");
+            alert("Cleaner: No deep internal lines found to remove.");
         }
     }
 

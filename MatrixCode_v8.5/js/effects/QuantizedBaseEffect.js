@@ -1797,6 +1797,38 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Unified Shared Edge Rendering
         this._renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY);
+
+        // PASS 5: Forced Line Erasure
+        // Explicitly remove lines that are marked for removal.
+        // This overrides any cache persistence or implicit border logic.
+        if (this.maskOps) {
+             const cx = Math.floor(blocksX / 2);
+             const cy = Math.floor(blocksY / 2);
+             
+             // We need to set composition to erase
+             if (pCtx) pCtx.globalCompositeOperation = 'destination-out';
+             if (lCtx) lCtx.globalCompositeOperation = 'destination-out';
+
+             for (const op of this.maskOps) {
+                 if (op.type !== 'removeLine') continue;
+                 
+                 // Check timing (if desired, or just force erase)
+                 // For editor/flicker issues, immediate erasure is best.
+                 
+                 const bx = cx + op.x1;
+                 const by = cy + op.y1;
+                 const faceStr = op.face ? op.face.toUpperCase() : 'N';
+                 
+                 // Erase with full extensions (rS=true, rE=true) to ensure corners are cleared
+                 const faceObj = { dir: faceStr, rS: true, rE: true };
+                 
+                 if (pCtx) this._drawExteriorLine(pCtx, bx, by, faceObj, { opacity: 1.0, color: '#FFFFFF' });
+                 if (lCtx) this._drawInteriorLine(lCtx, bx, by, faceObj, { opacity: 1.0, color: '#FFFFFF' });
+             }
+
+             if (pCtx) pCtx.globalCompositeOperation = 'source-over';
+             if (lCtx) lCtx.globalCompositeOperation = 'source-over';
+        }
         
         this._snapSettings = null;
     }
@@ -1824,7 +1856,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cy = Math.floor(this.logicGridH / 2);
         const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         const distMap = this._computeDistanceField(scaledW, scaledH);
-        const cleanDist = this.getConfig('CleanInnerDistance') || 4;
+        const cleanDistVal = this.getConfig('CleanInnerDistance');
+        const cleanDist = (cleanDistVal !== undefined) ? cleanDistVal : 4;
 
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= scaledW || ny < 0 || ny >= scaledH) return false; 

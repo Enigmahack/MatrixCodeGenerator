@@ -29,7 +29,7 @@ class StreamManager {
         const newLen = val ? val.length : 0;
         
         // Critical Log: Catch assignment-based wipe
-        if (oldLen > 20 && newLen === 0) {
+        if (oldLen > 20 && newLen === 0 && this.config.state.logErrors) {
             console.error(`[StreamManager] ActiveStreams REPLACED! Count dropped from ${oldLen} to ${newLen}.`);
             console.trace();
         }
@@ -46,7 +46,7 @@ class StreamManager {
 
     resize(cols) {
         // Critical Log: Catch resize-based wipe
-        if (this._activeStreams && this._activeStreams.length > 0) {
+        if (this._activeStreams && this._activeStreams.length > 0 && this.config.state.logErrors) {
             console.warn(`[StreamManager] Resize triggered (cols: ${cols}). Clearing ${this._activeStreams.length} streams.`);
             console.trace();
         }
@@ -66,7 +66,7 @@ class StreamManager {
     update(frame, timeScale) {
         // Only resize if grid dimensions have actually changed
         if (this.lastStreamInColumn.length !== this.grid.cols) {
-            console.warn(`[StreamManager] Auto-resize triggered. Old: ${this.lastStreamInColumn.length}, New: ${this.grid.cols}`);
+            if (this.config.state.logErrors) console.warn(`[StreamManager] Auto-resize triggered. Old: ${this.lastStreamInColumn.length}, New: ${this.grid.cols}`);
             this.resize(this.grid.cols);
         }
 
@@ -372,7 +372,7 @@ class StreamManager {
 
         // --- WATCHDOG CHECK ---
         // If count dropped to 0 from a healthy state in one frame (or close to it)
-        if (prevCount > 20 && this.activeStreams.length === 0) {
+        if (prevCount > 20 && this.activeStreams.length === 0 && this.config.state.logErrors) {
             console.error(`[StreamManager] MASS EXTINCTION DETECTED! Streams dropped from ${prevCount} to 0 in one frame.`);
             console.trace(); // Log stack to see who called update() or if this logic caused it
             

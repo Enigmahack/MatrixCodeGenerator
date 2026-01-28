@@ -20,12 +20,12 @@ class SimulationSystem {
                     // Test creation
                     new SharedArrayBuffer(10);
                     this.useWorker = true;
-                    console.log("[SimulationSystem] SharedArrayBuffer supported. Initializing Simulation Worker.");
+                    if (this.config.state.logErrors) console.log("[SimulationSystem] SharedArrayBuffer supported. Initializing Simulation Worker.");
                 } catch (e) {
-                    console.warn("[SimulationSystem] SharedArrayBuffer defined but creation failed. Fallback to main thread.", e);
+                    if (this.config.state.logErrors) console.warn("[SimulationSystem] SharedArrayBuffer defined but creation failed. Fallback to main thread.", e);
                 }
             } else {
-                 console.warn("[SimulationSystem] SharedArrayBuffer not supported. Fallback to main thread.");
+                 if (this.config.state.logErrors) console.warn("[SimulationSystem] SharedArrayBuffer not supported. Fallback to main thread.");
             }
         }
 
@@ -99,18 +99,18 @@ class SimulationSystem {
         const embeddedWorker = document.getElementById('simulation-worker-source');
         
         if (embeddedWorker) {
-            console.log("[SimulationSystem] Using embedded worker source.");
+            if (this.config.state.logErrors) console.log("[SimulationSystem] Using embedded worker source.");
             const blob = new Blob([embeddedWorker.textContent], { type: 'text/javascript' });
             const workerUrl = URL.createObjectURL(blob);
             this.worker = new Worker(workerUrl);
         } else {
-            console.log("[SimulationSystem] Using external worker file.");
+            if (this.config.state.logErrors) console.log("[SimulationSystem] Using external worker file.");
             this.worker = new Worker('js/simulation/SimulationWorker.js');
         }
         
         this.worker.onmessage = (e) => {
             // Handle messages from worker (e.g., debug logs, sync ticks)
-            if (e.data.type === 'log') console.log('[Worker]', e.data.message);
+            if (e.data.type === 'log' && this.config.state.logErrors) console.log('[Worker]', e.data.message);
         };
         
         // Initial setup message will be sent by the first resize() call 

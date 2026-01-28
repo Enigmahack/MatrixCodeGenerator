@@ -64,11 +64,11 @@ class MatrixKernel {
             const script = document.createElement('script');
             script.src = 'js/effects/QuantizedPatterns.js';
             script.onload = () => {
-                console.log("Patterns loaded successfully.");
+                if (this.config.state.logErrors) console.log("Patterns loaded successfully.");
                 resolve();
             };
             script.onerror = () => {
-                console.warn("Failed to load patterns from js/effects/QuantizedPatterns.js");
+                if (this.config.state.logErrors) console.warn("Failed to load patterns from js/effects/QuantizedPatterns.js");
                 resolve(); // Resolve anyway to allow app to start
             };
             document.head.appendChild(script);
@@ -127,7 +127,7 @@ class MatrixKernel {
         if (typeof WebGLRenderer !== 'undefined') {
              this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
         } else {
-             console.error("WebGLRenderer not found. Application cannot start.");
+             if (this.config.state.logErrors) console.error("WebGLRenderer not found. Application cannot start.");
              this.notifications.show("Critical Error: WebGL Renderer missing.", "error");
              return;
         }
@@ -309,7 +309,7 @@ class MatrixKernel {
      * @private
      */
     _resize() {
-        console.log("[MatrixKernel] Resize Event Triggered.");
+        if (this.config.state.logErrors) console.log("[MatrixKernel] Resize Event Triggered.");
         this._lastResetReason = "Resize: " + new Date().toLocaleTimeString();
         const s = this.config.state;
         const d = this.config.derived;
