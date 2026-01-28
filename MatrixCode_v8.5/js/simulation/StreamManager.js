@@ -6,7 +6,7 @@ class StreamManager {
     constructor(grid, config) {
         this.grid = grid;
         this.config = config;
-        this.activeStreams = [];
+        this._activeStreams = []; // Backing field
         this.lastStreamInColumn = new Array(grid.cols).fill(null);
         this.lastEraserInColumn = new Array(grid.cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(grid.cols).fill(null);
@@ -20,6 +20,22 @@ class StreamManager {
         for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
     }
 
+    get activeStreams() {
+        return this._activeStreams;
+    }
+
+    set activeStreams(val) {
+        const oldLen = this._activeStreams ? this._activeStreams.length : 0;
+        const newLen = val ? val.length : 0;
+        
+        // Critical Log: Catch assignment-based wipe
+        if (oldLen > 20 && newLen === 0) {
+            console.error(`[StreamManager] ActiveStreams REPLACED! Count dropped from ${oldLen} to ${newLen}.`);
+            console.trace();
+        }
+        this._activeStreams = val;
+    }
+
     _initializeModes(config) {
         return {
             'STANDARD': new StandardMode(config),
@@ -29,12 +45,18 @@ class StreamManager {
     }
 
     resize(cols) {
+        // Critical Log: Catch resize-based wipe
+        if (this._activeStreams && this._activeStreams.length > 0) {
+            console.warn(`[StreamManager] Resize triggered (cols: ${cols}). Clearing ${this._activeStreams.length} streams.`);
+            console.trace();
+        }
+
         this.lastStreamInColumn = new Array(cols).fill(null);
         this.lastEraserInColumn = new Array(cols).fill(null);
         this.lastUpwardTracerInColumn = new Array(cols).fill(null);
         this.columnSpeeds = new Float32Array(cols);
         this.streamsPerColumn = new Int16Array(cols);
-        this.activeStreams = [];
+        this.activeStreams = []; // Triggers setter
         
         // Rebuild columns pool
         this._columnsPool = new Array(cols);
@@ -42,8 +64,9 @@ class StreamManager {
     }
 
     update(frame, timeScale) {
-        // Keep columns arrays in sync with grid size if changed (safety check)
+        // Only resize if grid dimensions have actually changed
         if (this.lastStreamInColumn.length !== this.grid.cols) {
+            console.warn(`[StreamManager] Auto-resize triggered. Old: ${this.lastStreamInColumn.length}, New: ${this.grid.cols}`);
             this.resize(this.grid.cols);
         }
 
@@ -226,6 +249,13 @@ class StreamManager {
         const cellLocks = grid.cellLocks;
         const decays = grid.decays;
 
+        // --- MASS EXTINCTION WATCHDOG ---
+        if (this.activeStreams.length > 50) {
+            this._lastHighCount = this.activeStreams.length;
+        }
+        const prevCount = this.activeStreams.length;
+        // --------------------------------
+
         if (Math.abs(timeScale) < 0.01) return;
 
         const isReverse = timeScale < 0;
@@ -338,6 +368,20 @@ class StreamManager {
                     this._writeHead(stream, frame);
                 }
             }
+        }
+
+        // --- WATCHDOG CHECK ---
+        // If count dropped to 0 from a healthy state in one frame (or close to it)
+        if (prevCount > 20 && this.activeStreams.length === 0) {
+            console.error(`[StreamManager] MASS EXTINCTION DETECTED! Streams dropped from ${prevCount} to 0 in one frame.`);
+            console.trace(); // Log stack to see who called update() or if this logic caused it
+            
+            // Log Config State to see if a kill-switch was hit
+            console.log("Config State at Extinction:", JSON.parse(JSON.stringify(this.config.state)));
+            
+            // Attempt to diagnose "Natural" vs "Forced"
+            // If they died in the loop above, it's natural (age/collision).
+            // But ALL of them?
         }
     }
 

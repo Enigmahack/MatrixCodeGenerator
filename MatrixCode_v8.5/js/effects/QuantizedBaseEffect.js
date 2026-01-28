@@ -40,6 +40,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.isSwapping = false;
         this.swapTimer = 0;
 
+        this._edgeCacheDirty = true;
+        this._cachedLineState = null;
+        this._cachedPerimeterBatches = null;
+
         // Optimization: Pre-allocated BFS Queue (Ring Buffer)
         // Max size is logicGridW * logicGridH. Start reasonable, resize if needed.
         this._bfsQueue = new Int32Array(65536); 
@@ -111,6 +115,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Load Pattern if available
         if (window.matrixPatterns && window.matrixPatterns[this.name]) {
             this.sequence = window.matrixPatterns[this.name];
+            // Ensure no more than 1000 steps
+            if (this.sequence.length > 1000) {
+                this.sequence = this.sequence.slice(0, 1000);
+            }
         }
 
         this.active = true;
@@ -122,6 +130,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._lastProcessedOpIndex = 0;
         this.animFrame = 0;
         this._maskDirty = true;
+        this._edgeCacheDirty = true;
         
         this.hasSwapped = false;
         this.isSwapping = false;
@@ -199,6 +208,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         this._maskDirty = true;
+        this._edgeCacheDirty = true;
     }
 
     refreshStep() {
@@ -624,7 +634,102 @@ class QuantizedBaseEffect extends AbstractEffect {
     _initShadowWorld() {
         this._initShadowWorldBase(false);
         const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        const d = this.c.derived;
+
+        // --- Robust Density Injection ---
+        // Calculate target stream count based on config density or fallback to defaults
+        const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
+        const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
         
+        // Correct Life Calculation: 
+        // StreamManager visibleLen is in STEPS (not frames). 
+        // Approx steps = 5 * rows (1 fall + 4 fade). 
+        // Frames = Steps * Speed (cycleDuration / rows).
+        // So AvgLifeFrames = 5 * cycleDuration * scale.
+        const lifeScale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
+        const avgLifeFrames = 5.0 * (d.cycleDuration || 1) * lifeScale;
+        
+        let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
+        targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
+        targetStreamCount = Math.max(targetStreamCount, 1); // Ensure at least 1 stream
+        
+        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
+        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
+
+        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
+        // Shuffle columns
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+
+        let spawned = 0;
+        let colIdx = 0;
+        const maxAttempts = targetStreamCount * 3; 
+        let attempts = 0;
+
+        while (spawned < targetStreamCount && attempts < maxAttempts) {
+            attempts++;
+            const col = columns[colIdx % columns.length];
+            colIdx++;
+            
+            const isEraser = Math.random() < eraserChance;
+            const stream = sm._initializeStream(col, isEraser, s);
+            
+            // Steady-State Distribution Logic:
+            // Randomly place the stream at any point in its lifecycle.
+            // Lifecycle = Falling Phase (y < rows) + Fading Phase (y >= rows, age < visibleLen)
+            
+            const totalSteps = stream.visibleLen;
+            const fallSteps = this.shadowGrid.rows;
+            
+            // Pick a random 'current age' from the total possible lifespan
+            const currentAge = Math.floor(Math.random() * totalSteps);
+            
+            if (currentAge < fallSteps) {
+                // Falling Phase: Position is proportional to age
+                stream.y = currentAge;
+                stream.age = currentAge;
+            } else {
+                // Fading Phase: Stuck at bottom, aging out
+                stream.y = this.shadowGrid.rows + 1; // Past bottom
+                stream.age = currentAge;
+                
+                // CRITICAL FIX: If a stream is "Fading", it MUST have an Eraser chasing it.
+                // Otherwise, the trail stays fully lit until the stream dies, looking "cut off".
+                // We spawn an Eraser that has already traveled some distance.
+                // Eraser start delay is roughly `fallSteps`.
+                // Eraser travel is `currentAge - fallSteps`.
+                
+                if (!stream.isEraser) {
+                    const eraserAge = currentAge - fallSteps;
+                    if (eraserAge > 0) {
+                        const eraser = sm._initializeStream(col, true, s); // Force Eraser
+                        // Eraser position: It falls at 'speed'. We assume speed approx 1 for initialization sim.
+                        // Eraser Y = eraserAge.
+                        eraser.y = Math.min(eraserAge, this.shadowGrid.rows + 5);
+                        eraser.age = eraserAge;
+                        
+                        // Ensure Eraser Speed matches Tracer Speed (Chain Consistency)
+                        eraser.tickInterval = stream.tickInterval; 
+                        
+                        sm.addActiveStream(eraser);
+                    }
+                }
+            }
+            
+            // Add small variance to visibleLen to prevent micro-clustering
+            stream.visibleLen += Math.floor(Math.random() * 100);
+            
+            // Only add if it hasn't expired yet (sanity check, though logic ensures age < visibleLen)
+            if (stream.age < stream.visibleLen) {
+                sm.addActiveStream(stream);
+                spawned++;
+            }
+        }
+    
+        // Run warmup to settle the simulation
         const warmupFrames = 60; 
         this.shadowSimFrame = warmupFrames;
         
@@ -636,9 +741,10 @@ class QuantizedBaseEffect extends AbstractEffect {
     _initShadowWorldBase(workerEnabled = false) {
         this.shadowGrid = new CellGrid(this.c);
         const d = this.c.derived;
-        // Add 1.0 cell buffer to width and height for N/W faces
-        const w = (this.g.cols * d.cellWidth) + (d.cellWidth * 1.5); 
-        const h = (this.g.rows * d.cellHeight) + (d.cellHeight * 1.0);
+        // Fix: Match Main Grid dimensions exactly to prevent StreamManager array mismatch
+        // (which triggers auto-resize/wipe on swap). Buffer logic moved to render offset.
+        const w = this.g.cols * d.cellWidth; 
+        const h = this.g.rows * d.cellHeight;
         this.shadowGrid.resize(w, h);
         
         this.shadowSim = new SimulationSystem(this.shadowGrid, this.c, false);
@@ -997,6 +1103,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._outsideMapDirty = true;
             this._maskDirty = true;
             this._gridCacheDirty = true;
+            this._edgeCacheDirty = true;
         }
     }
 
@@ -1712,110 +1819,95 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
 
-    _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
-        const l = this.layout;
-        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
-        const fadeOutFrames = this.getConfig('FadeFrames') || 0;
-        
-        const scaledW = blocksX;
-        const scaledH = blocksY;
+    _rebuildEdgeCache(scaledW, scaledH) {
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
-
         const outsideMap = this._computeTrueOutside(scaledW, scaledH);
+        const distMap = this._computeDistanceField(scaledW, scaledH);
+        const cleanDist = this.getConfig('CleanInnerDistance') || 4;
+
         const isTrueOutside = (nx, ny) => {
             if (nx < 0 || nx >= scaledW || ny < 0 || ny >= scaledH) return false; 
-            const idx = ny * scaledW + nx;
-            return outsideMap[idx] === 1;
+            return outsideMap[ny * scaledW + nx] === 1;
         };
-        
         const isRenderActive = (bx, by) => {
             if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
             const idx = by * scaledW + bx;
-            if (!this.renderGrid || idx < 0 || idx >= this.renderGrid.length || this.renderGrid[idx] === -1) return false;
-            return true;
+            return (this.renderGrid && this.renderGrid[idx] !== -1);
         };
 
-        const color = this.getConfig('PerimeterColor') || "#FFD700";
-        const iColor = this.getConfig('InnerColor') || "#FFD700";
-
-        // --- PRE-PASS: Build Line State Map ---
-        // Tracks explicit Add/Remove ops per face
         const lineState = new Map();
-        
         if (this.maskOps) {
             for (const op of this.maskOps) {
                 if (op.type !== 'addLine' && op.type !== 'removeLine') continue;
-                
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.min(start.x, end.x);
-                const maxX = Math.max(start.x, end.x);
-                const minY = Math.min(start.y, end.y);
-                const maxY = Math.max(start.y, end.y);
+                const minX = Math.min(start.x, end.x), maxX = Math.max(start.x, end.x);
+                const minY = Math.min(start.y, end.y), maxY = Math.max(start.y, end.y);
                 const f = op.face ? op.face.toUpperCase() : '';
-
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        // For removeLine, we process even if inactive (to suppress potential borders)
-                        // For addLine, we check activity
                         if (op.type === 'addLine' && !isRenderActive(bx, by)) continue;
-
                         const idx = by * scaledW + bx;
+                        if (op.type === 'addLine' && distMap[idx] > cleanDist) continue;
                         let cell = lineState.get(idx);
                         if (!cell) { cell = {}; lineState.set(idx, cell); }
-                        
                         cell[f] = { type: (op.type === 'addLine' ? 'add' : 'rem'), op: op };
                     }
                 }
             }
         }
+        this._cachedLineState = lineState;
+
+        const batches = new Map();
+        for (let by = 0; by < scaledH; by++) {
+            for (let bx = 0; bx < scaledW; bx++) {
+                if (!isRenderActive(bx, by)) continue; 
+                const idx = by * scaledW + bx;
+                const outN = isTrueOutside(bx, by - 1), outS = isTrueOutside(bx, by + 1);
+                const outW = isTrueOutside(bx - 1, by), outE = isTrueOutside(bx + 1, by);
+                if (!outN && !outS && !outW && !outE) continue; 
+                const cellState = lineState.get(idx);
+                const faces = [];
+                if (outN && (!cellState || !cellState['N'] || cellState['N'].type !== 'rem')) faces.push({dir: 'N', rS: outW, rE: outE});
+                if (outS && (!cellState || !cellState['S'] || cellState['S'].type !== 'rem')) faces.push({dir: 'S', rS: outW, rE: outE});
+                if (outW && (!cellState || !cellState['W'] || cellState['W'].type !== 'rem')) faces.push({dir: 'W', rS: outN, rE: outS});
+                if (outE && (!cellState || !cellState['E'] || cellState['E'].type !== 'rem')) faces.push({dir: 'E', rS: outN, rE: outS});
+                if (faces.length > 0) {
+                    const startFrame = this.renderGrid[idx];
+                    let list = batches.get(startFrame);
+                    if (!list) { list = []; batches.set(startFrame, list); }
+                    list.push({bx, by, faces});
+                }
+            }
+        }
+        this._cachedPerimeterBatches = batches;
+    }
+
+    _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
+        const l = this.layout;
+        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+        
+        const scaledW = blocksX;
+        const scaledH = blocksY;
+
+        if (this._edgeCacheDirty || !this._cachedLineState) {
+            this._rebuildEdgeCache(scaledW, scaledH);
+            this._edgeCacheDirty = false;
+        }
+
+        const color = this.getConfig('PerimeterColor') || "#FFD700";
+        const iColor = this.getConfig('InnerColor') || "#FFD700";
 
         // --- PASS 3: PERIMETER ---
         if (pCtx) {
             pCtx.fillStyle = '#FFFFFF';
-            const batches = new Map();
-
-            for (let by = 0; by < scaledH; by++) {
-                for (let bx = 0; bx < scaledW; bx++) {
-                    if (!isRenderActive(bx, by)) continue; 
-                    
-                    const idx = by * scaledW + bx;
-                    const startFrame = this.renderGrid[idx];
-                    
-                    const outN = isTrueOutside(bx, by - 1);
-                    const outS = isTrueOutside(bx, by + 1);
-                    const outW = isTrueOutside(bx - 1, by);
-                    const outE = isTrueOutside(bx + 1, by);
-
-                    if (!outN && !outS && !outW && !outE) continue; 
-                    
-                    // Check for Suppression
-                    const cellState = lineState.get(idx);
-                    
-                    const faces = [];
-                    // Only add face if it is outside AND not explicitly removed
-                    if (outN && (!cellState || !cellState['N'] || cellState['N'].type !== 'rem')) faces.push({dir: 'N', rS: outW, rE: outE});
-                    if (outS && (!cellState || !cellState['S'] || cellState['S'].type !== 'rem')) faces.push({dir: 'S', rS: outW, rE: outE});
-                    if (outW && (!cellState || !cellState['W'] || cellState['W'].type !== 'rem')) faces.push({dir: 'W', rS: outN, rE: outS});
-                    if (outE && (!cellState || !cellState['E'] || cellState['E'].type !== 'rem')) faces.push({dir: 'E', rS: outN, rE: outS});
-                    
-                    if (faces.length > 0) {
-                        let list = batches.get(startFrame);
-                        if (!list) { list = []; batches.set(startFrame, list); }
-                        list.push({bx: bx, by: by, faces});
-                    }
-                }
-            }
-
-            for (const [startFrame, items] of batches) {
+            for (const [startFrame, items] of this._cachedPerimeterBatches) {
                 let opacity = 1.0;
                 if (fadeInFrames > 0 && startFrame !== -1 && !this.debugMode) {
                     opacity = Math.min(1.0, (now - startFrame) / fadeInFrames);
                 }
-                
                 if (opacity <= 0.001) continue;
-
                 for (const item of items) {
                     for (const face of item.faces) {
                         this._drawExteriorLine(pCtx, item.bx, item.by, face, { color, opacity });
@@ -1825,34 +1917,27 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // --- PASS 4: INTERIOR LINES ---
-        if (lCtx && lineState.size > 0) {
+        if (lCtx && this._cachedLineState.size > 0) {
             lCtx.fillStyle = '#FFFFFF';
-            
-            for (const [idx, cell] of lineState) {
+            for (const [idx, cell] of this._cachedLineState) {
                 const bx = idx % scaledW;
                 const by = Math.floor(idx / scaledW);
-                
-                // Only draw 'add' types
                 const drawLine = (face, rS, rE) => {
                     const data = cell[face];
                     if (!data || data.type !== 'add') return;
-                    
                     const op = data.op;
                     let opacity = 1.0;
                     if (fadeInFrames > 0 && op.startFrame && !this.debugMode) {
                         opacity = Math.min(1.0, (now - op.startFrame) / fadeInFrames);
                     }
-                    
                     if (opacity <= 0.001) return;
-
                     this._drawInteriorLine(lCtx, bx, by, {dir: face, rS, rE}, { color: iColor, opacity });
                 };
-
-                const hasN_Border = isTrueOutside(bx, by - 1);
-                const hasS_Border = isTrueOutside(bx, by + 1);
+                const outsideMap = this._computeTrueOutside(scaledW, scaledH);
+                const hasN_Border = (by > 0 && outsideMap[(by-1)*scaledW + bx] === 1);
+                const hasS_Border = (by < scaledH-1 && outsideMap[(by+1)*scaledW + bx] === 1);
                 const hasN = !!cell['N'] || hasN_Border;
                 const hasS = !!cell['S'] || hasS_Border;
-
                 drawLine('N', false, false);
                 drawLine('S', false, false);
                 drawLine('W', hasN, hasS);

@@ -88,14 +88,13 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                 initialSequence = this.sequence;
             }
 
-            this.sequence = generator.generate(this.logicGridW, this.logicGridH, 50000, { 
-                seedX, 
-                seedY,
-                erosionRate, 
-                innerLineDuration,
-                initialSequence
-            });
-            console.log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
+                        this.sequence = generator.generate(this.logicGridW, this.logicGridH, 1000, {
+                            seedX, 
+                            seedY,
+                            erosionRate, 
+                            innerLineDuration,
+                            initialSequence
+                        });            console.log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
         } else {
             console.error("QuantizedSequenceGenerator not found!");
             this.active = false;

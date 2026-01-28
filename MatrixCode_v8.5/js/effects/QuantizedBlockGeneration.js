@@ -12,6 +12,76 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.genTimer = 0;
     }
 
+    _initShadowWorld() {
+        this._initShadowWorldBase(false);
+        const sm = this.shadowSim.streamManager;
+        const s = this.c.state;
+        
+        // BlockGen requires high density (50%) to look correct, regardless of user config.
+        const cols = this.shadowGrid.cols;
+        const rows = this.shadowGrid.rows;
+        const targetStreamCount = Math.floor(cols * 0.5); 
+        
+        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
+        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
+
+        const columns = Array.from({length: cols}, (_, i) => i);
+        for (let i = columns.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [columns[i], columns[j]] = [columns[j], columns[i]];
+        }
+
+        let spawned = 0;
+        let colIdx = 0;
+        const maxAttempts = targetStreamCount * 3; 
+        let attempts = 0;
+
+        while (spawned < targetStreamCount && attempts < maxAttempts) {
+            attempts++;
+            const col = columns[colIdx % columns.length];
+            colIdx++;
+            
+            const isEraser = Math.random() < eraserChance;
+            const stream = sm._initializeStream(col, isEraser, s);
+            
+            const totalSteps = stream.visibleLen;
+            const fallSteps = rows;
+            const currentAge = Math.floor(Math.random() * totalSteps);
+            
+            if (currentAge < fallSteps) {
+                stream.y = currentAge;
+                stream.age = currentAge;
+            } else {
+                stream.y = rows + 1; 
+                stream.age = currentAge;
+                
+                if (!stream.isEraser) {
+                    const eraserAge = currentAge - fallSteps;
+                    if (eraserAge > 0) {
+                        const eraser = sm._initializeStream(col, true, s);
+                        eraser.y = Math.min(eraserAge, rows + 5);
+                        eraser.age = eraserAge;
+                        eraser.tickInterval = stream.tickInterval; 
+                        sm.addActiveStream(eraser);
+                    }
+                }
+            }
+            
+            stream.visibleLen += Math.floor(Math.random() * 300);
+            
+            if (stream.age < stream.visibleLen) {
+                sm.addActiveStream(stream);
+                spawned++;
+            }
+        }
+    
+        const warmupFrames = 60; 
+        this.shadowSimFrame = warmupFrames;
+        for (let i = 0; i < warmupFrames; i++) {
+            this.shadowSim.update(i);
+        }
+    }
+
     trigger(force = false) {
         if (this.active && !force) return false;
         
@@ -22,6 +92,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.animFrame = 0; // Fix: Initialize animFrame
         this.alpha = 1.0;
         this.state = 'GENERATING';
+        
+        // Reset Swap State
+        this.hasSwapped = false;
+        this.isSwapping = false;
+        this.swapTimer = 0;
         
         this.maskOps = [];
         this.blockMap.clear();
@@ -46,8 +121,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._lastPitchY = Math.max(1, bs.h);
         
         // Init Shadow World (Invisible background sim)
-        this._initShadowWorldBase(false);
-        this._populateShadowWorld(); // Custom dense population
+        this._initShadowWorld(); // Uses robust base logic
         
         if (this.renderGrid) {
             this.renderGrid.fill(-1);
@@ -73,28 +147,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return true;
     }
     
-    _populateShadowWorld() {
-        // High density fill for background
-        const sm = this.shadowSim.streamManager;
-        const s = this.c.state;
-        const d = this.c.derived;
-        
-        const cols = this.shadowGrid.cols;
-        const rows = this.shadowGrid.rows;
-        
-        // Fill 50% of columns with streams
-        for(let i=0; i<cols; i++) {
-            if (Math.random() < 0.5) {
-                const stream = sm._initializeStream(i, false, s);
-                stream.y = Math.floor(Math.random() * rows);
-                sm.addActiveStream(stream);
-            }
-        }
-        
-        // Warmup
-        for(let i=0; i<60; i++) this.shadowSim.update(i);
-        this.shadowSimFrame = 60;
-    }
+
 
     _removeBlockFromActiveList(id) {
         this.activeBlocks = this.activeBlocks.filter(b => b.id !== id);
@@ -295,8 +348,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (this.genTimer >= interval) {
                 this.genTimer = 0;
                 this.stepCount++;
-                // Attempt Growth
-                this._attemptGrowth();
+                
+                if (this.stepCount >= 1000) {
+                    if (!this.hasSwapped && !this.isSwapping) {
+                        this.state = 'FADE_OUT';
+                        this.timer = 0;
+                        this._swapStates();
+                    }
+                } else {
+                    // Attempt Growth
+                    this._attemptGrowth();
+                }
             }
             
             // Perform Hole Cleanup EVERY frame to ensure solidity
@@ -316,6 +378,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
+                if (!this.hasSwapped && !this.isSwapping) {
+                    this._swapStates();
+                }
             }
         } else if (this.state === 'FADE_OUT') {
             const fadeFrames = s.quantizedGenerateV2FadeFrames || 60;

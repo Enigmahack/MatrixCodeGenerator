@@ -163,20 +163,18 @@ class QuantizedEffectEditor {
             if (!triggered) {
                 console.warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
                 this.effect.active = true;
-                this.effect.state = 'SUSTAIN';
-                this.effect.alpha = 1.0;
-                this.effect.timer = 0;
-                
-                // Ensure Grid Logic is ready
                 if (typeof this.effect._initLogicGrid === 'function') this.effect._initLogicGrid();
-                
-                // Ensure Shadow World is initialized (Critical for visibility)
                 if (typeof this.effect._initShadowWorld === 'function') {
                     this.effect._initShadowWorld();
                 } else if (typeof this.effect._initShadowWorldBase === 'function') {
                     this.effect._initShadowWorldBase(false);
                 }
             }
+
+            // Ensure instant visibility for Editor
+            this.effect.state = 'SUSTAIN';
+            this.effect.alpha = 1.0;
+            this.effect.timer = 0;
             
             if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
                 this.effect.sequence = window.matrixPatterns[this.effect.name];
@@ -187,8 +185,8 @@ class QuantizedEffectEditor {
             this.effect.debugMode = true;
             this.effect.manualStep = true; 
             
-            // Start at the beginning as requested
-            this.effect.expansionPhase = 0;
+            // Start at the beginning as requested (Step 1)
+            this.effect.expansionPhase = Math.min(1, Math.max(0, this.effect.sequence.length - 1));
 
             this.effect.refreshStep();
             this._updateUI(); 
@@ -207,6 +205,66 @@ class QuantizedEffectEditor {
             }
             this.selectionRect = null;
             this.redoStack = [];
+        }
+    }
+
+    _cleanInternalSequence() {
+        if (!this.effect) return;
+        const thresh = this.effect.getConfig('CleanInnerDistance') || 4; // More than 3 blocks from void
+        const sequence = this.effect.sequence;
+        const w = this.effect.logicGridW;
+        const h = this.effect.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+
+        this.redoStack = [];
+        let totalCount = 0;
+
+        const originalPhase = this.effect.expansionPhase;
+
+        for (let i = 0; i < sequence.length; i++) {
+            this.effect.jumpToStep(i);
+            
+            // CRITICAL FIX: Populate renderGrid before distance check
+            if (typeof this.effect._updateRenderGridLogic === 'function') {
+                this.effect._updateRenderGridLogic();
+            }
+            
+            const distMap = this.effect._computeDistanceField(w, h);
+            
+            const step = sequence[i];
+            if (!step) continue;
+
+            const newStep = step.filter(op => {
+                let dx, dy;
+                if (Array.isArray(op)) {
+                    if (op[0] === 4 || op[0] === 5) { // addLine / remLine
+                        dx = op[1]; dy = op[2];
+                    } else return true;
+                } else if (op.op === 'addLine' || op.op === 'remLine' || op.type === 'addLine' || op.type === 'removeLine') {
+                    dx = (op.args ? op.args[0] : op.x1);
+                    dy = (op.args ? op.args[1] : op.y1);
+                } else return true;
+
+                const bx = cx + dx;
+                const by = cy + dy;
+                const idx = by * w + bx;
+                
+                if (idx >= 0 && idx < distMap.length && distMap[idx] > thresh) {
+                    totalCount++;
+                    return false;
+                }
+                return true;
+            });
+            sequence[i] = newStep;
+        }
+
+        this.effect.jumpToStep(originalPhase);
+        this.isDirty = true;
+        if (totalCount > 0) {
+            alert(`Cleaner: Removed ${totalCount} deep internal line operations from sequence.`);
+        } else {
+            alert("Cleaner: No deep internal lines found.");
         }
     }
 
@@ -704,16 +762,22 @@ class QuantizedEffectEditor {
 
         const btnExport = this._createBtn('Copy Data', () => this._exportData());
         btnExport.title = "Copy the compressed sequence data to clipboard";
-        btnExport.style.width = '48%';
+        btnExport.style.width = '32%';
         btnExport.style.marginRight = '0';
 
         const btnSave = this._createBtn('Save Pattern', () => this._savePattern());
         btnSave.title = "Save all patterns to QuantizedPatterns.js";
-        btnSave.style.width = '48%';
+        btnSave.style.width = '32%';
         btnSave.style.marginRight = '0';
+
+        const btnClean = this._createBtn('Clean Internal', () => this._cleanInternalSequence());
+        btnClean.title = "Remove lines more than 3 blocks from the perimeter across all steps";
+        btnClean.style.width = '32%';
+        btnClean.style.marginRight = '0';
         
         exportControls.appendChild(btnExport);
         exportControls.appendChild(btnSave);
+        exportControls.appendChild(btnClean);
         container.appendChild(exportControls);
 
         const legend = document.createElement('div');

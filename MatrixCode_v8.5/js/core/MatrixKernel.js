@@ -15,6 +15,7 @@ class MatrixKernel {
         this.timestep = 1000 / 60;
         this._effectTimers = {}; // Initialize map for effect timers
         this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
+        this._lastResetReason = "Startup"; // Track last reset
         this._setupResizeListener();
         this._setupInputListener();
         
@@ -308,6 +309,8 @@ class MatrixKernel {
      * @private
      */
     _resize() {
+        console.log("[MatrixKernel] Resize Event Triggered.");
+        this._lastResetReason = "Resize: " + new Date().toLocaleTimeString();
         const s = this.config.state;
         const d = this.config.derived;
 
@@ -404,6 +407,7 @@ class MatrixKernel {
                          if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
                              text += ` | IntLines: ${qGenV2.debugInternalCount}`;
                          }
+                         text += ` | Reset: ${this._lastResetReason}`;
                      }
                 }
                 this.fpsDisplayElement.textContent = text;
