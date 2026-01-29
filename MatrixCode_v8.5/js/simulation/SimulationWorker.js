@@ -504,6 +504,16 @@ self.onmessage = function(e) {
                 if (s.overlapInitialized !== undefined) simSystem.overlapInitialized = s.overlapInitialized;
                 if (s._lastOverlapDensity !== undefined) simSystem._lastOverlapDensity = s._lastOverlapDensity;
                 
+                // Sync Streams Per Column (Critical for speed logic)
+                if (s.streamsPerColumn && sm.streamsPerColumn) {
+                    sm.streamsPerColumn.set(s.streamsPerColumn);
+                }
+
+                // Clear Cell Locks to prevent stuck streams/rotators from Shadow World blocking Main World
+                if (grid.cellLocks) {
+                    grid.cellLocks.fill(0);
+                }
+                
                 // Sync Complex Styles (Glimmer/Upward Tracers)
                 if (s.complexStyles && Array.isArray(s.complexStyles)) {
                     simSystem.grid.complexStyles.clear();

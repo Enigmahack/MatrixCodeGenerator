@@ -61,60 +61,7 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
         return true;
     }
 
-    _initShadowWorld() {
-        this._initShadowWorldBase(false);
-        const sm = this.shadowSim.streamManager;
-        const s = this.c.state;
-        const d = this.c.derived;
 
-        // --- Dynamic Density Injection ---
-        const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
-        const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
-        const avgLifeFrames = this.shadowGrid.rows * (d.cycleDuration || 1);
-        
-        let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
-        targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
-        targetStreamCount = Math.max(targetStreamCount, 5);
-        
-        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
-        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
-
-        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
-        for (let i = columns.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [columns[i], columns[j]] = [columns[j], columns[i]];
-        }
-
-        let spawned = 0;
-        let colIdx = 0;
-        const maxAttempts = targetStreamCount * 3; 
-        let attempts = 0;
-
-        while (spawned < targetStreamCount && attempts < maxAttempts) {
-            attempts++;
-            const col = columns[colIdx % columns.length];
-            colIdx++;
-            
-            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
-            const isEraser = Math.random() < eraserChance;
-            
-            const stream = sm._initializeStream(col, isEraser, s);
-            stream.y = startY;
-            
-            if (startY < stream.visibleLen) {
-                stream.age = startY;
-                sm.addActiveStream(stream);
-                spawned++;
-            }
-        }
-    
-        const warmupFrames = 400;
-        this.shadowSimFrame = warmupFrames;
-        
-        for (let i = 0; i < warmupFrames; i++) {
-            this.shadowSim.update(i);
-        }
-    }
 
     update() {
         const s = this.c.state;

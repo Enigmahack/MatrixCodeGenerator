@@ -637,109 +637,36 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _initShadowWorld() {
         this._initShadowWorldBase(false);
-        const sm = this.shadowSim.streamManager;
         const s = this.c.state;
         const d = this.c.derived;
 
-        // --- Robust Density Injection ---
-        // Calculate target stream count based on config density or fallback to defaults
-        const spawnInterval = Math.max(1, Math.floor((d.cycleDuration || 1) * (s.releaseInterval || 1)));
-        const spawnRate = (s.streamSpawnCount || 1) / spawnInterval;
+        // --- Robust Warmup (Fast Forward) ---
+        // Instead of manually injecting streams (which is error-prone and misses erasers),
+        // we simply run the simulation at max speed without rendering until it reaches a steady state.
         
-        // Correct Life Calculation: 
-        // StreamManager visibleLen is in STEPS (not frames). 
-        // Approx steps = 5 * rows (1 fall + 4 fade). 
-        // Frames = Steps * Speed (cycleDuration / rows).
-        // So AvgLifeFrames = 5 * cycleDuration * scale.
-        const lifeScale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
-        const avgLifeFrames = 5.0 * (d.cycleDuration || 1) * lifeScale;
+        // Calculate how many frames are needed for a stream to cross the screen
+        // tickInterval approx = 21 - speed. 
+        const avgTickInterval = Math.max(1, 21 - (s.streamSpeed || 10));
+        const rows = this.shadowGrid.rows;
         
-        let targetStreamCount = Math.floor(spawnRate * avgLifeFrames);
-        targetStreamCount = Math.min(targetStreamCount, this.shadowGrid.cols * 2); 
-        targetStreamCount = Math.max(targetStreamCount, 1); // Ensure at least 1 stream
+        // We want enough time for:
+        // 1. Initial streams to spawn and fall (1x traversal)
+        // 2. Initial streams to die and spawn erasers
+        // 3. New streams to replace them (Steady State)
+        // Factor 2.5 ensures complete turnover and density stabilization.
+        let warmupFrames = Math.floor(rows * avgTickInterval * 2.5);
         
-        const totalSpawns = (s.streamSpawnCount || 0) + (s.eraserSpawnCount || 0);
-        const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
-
-        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
-        // Shuffle columns
-        for (let i = columns.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [columns[i], columns[j]] = [columns[j], columns[i]];
-        }
-
-        let spawned = 0;
-        let colIdx = 0;
-        const maxAttempts = targetStreamCount * 3; 
-        let attempts = 0;
-
-        while (spawned < targetStreamCount && attempts < maxAttempts) {
-            attempts++;
-            const col = columns[colIdx % columns.length];
-            colIdx++;
-            
-            const isEraser = Math.random() < eraserChance;
-            const stream = sm._initializeStream(col, isEraser, s);
-            
-            // Steady-State Distribution Logic:
-            // Randomly place the stream at any point in its lifecycle.
-            // Lifecycle = Falling Phase (y < rows) + Fading Phase (y >= rows, age < visibleLen)
-            
-            const totalSteps = stream.visibleLen;
-            const fallSteps = this.shadowGrid.rows;
-            
-            // Pick a random 'current age' from the total possible lifespan
-            const currentAge = Math.floor(Math.random() * totalSteps);
-            
-            if (currentAge < fallSteps) {
-                // Falling Phase: Position is proportional to age
-                stream.y = currentAge;
-                stream.age = currentAge;
-            } else {
-                // Fading Phase: Stuck at bottom, aging out
-                stream.y = this.shadowGrid.rows + 1; // Past bottom
-                stream.age = currentAge;
-                
-                // CRITICAL FIX: If a stream is "Fading", it MUST have an Eraser chasing it.
-                // Otherwise, the trail stays fully lit until the stream dies, looking "cut off".
-                // We spawn an Eraser that has already traveled some distance.
-                // Eraser start delay is roughly `fallSteps`.
-                // Eraser travel is `currentAge - fallSteps`.
-                
-                if (!stream.isEraser) {
-                    const eraserAge = currentAge - fallSteps;
-                    if (eraserAge > 0) {
-                        const eraser = sm._initializeStream(col, true, s); // Force Eraser
-                        // Eraser position: It falls at 'speed'. We assume speed approx 1 for initialization sim.
-                        // Eraser Y = eraserAge.
-                        eraser.y = Math.min(eraserAge, this.shadowGrid.rows + 5);
-                        eraser.age = eraserAge;
-                        
-                        // Ensure Eraser Speed matches Tracer Speed (Chain Consistency)
-                        eraser.tickInterval = stream.tickInterval; 
-                        
-                        sm.addActiveStream(eraser);
-                    }
-                }
-            }
-            
-            // Add small variance to visibleLen to prevent micro-clustering
-            stream.visibleLen += Math.floor(Math.random() * 100);
-            
-            // Only add if it hasn't expired yet (sanity check, though logic ensures age < visibleLen)
-            if (stream.age < stream.visibleLen) {
-                sm.addActiveStream(stream);
-                spawned++;
-            }
-        }
-    
-        // Run warmup to settle the simulation
-        const warmupFrames = 60; 
-        this.shadowSimFrame = warmupFrames;
+        // Safety Clamps
+        warmupFrames = Math.max(200, warmupFrames); // Minimum 200 frames
+        warmupFrames = Math.min(5000, warmupFrames); // Cap at 5000 to prevent freeze on very slow settings
         
+        // Run the simulation loop
+        // Since useWorker is false and we aren't rendering, this is just array math and is very fast.
         for (let i = 0; i < warmupFrames; i++) {
             this.shadowSim.update(i);
         }
+        
+        this.shadowSimFrame = warmupFrames;
     }
 
     _initShadowWorldBase(workerEnabled = false) {
@@ -1185,12 +1112,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Since offX/offY can be fractional, we use a slightly wider tolerance
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
-                // Alignment: Reset to standard Grid (No Shift)
-                const startCellX = Math.round(destBx * pitchX);
-                const startCellY = Math.round(destBy * pitchY);
-                const endCellX = Math.round((destBx + 1) * pitchX);
-                const endCellY = Math.round((destBy + 1) * pitchY);
-                
+                        // Robust Coverage: Use Floor/Ceil to expand the override region slightly (overlap neighbors)
+                        // This prevents "Old World" gaps from appearing between blocks due to rounding jitter.
+                        const startCellX = Math.floor(destBx * pitchX);
+                        const startCellY = Math.floor(destBy * pitchY);
+                        const endCellX = Math.ceil((destBx + 1) * pitchX);
+                        const endCellY = Math.ceil((destBy + 1) * pitchY);                
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
@@ -1217,12 +1144,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                     
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
-                    // Alignment: Reset to standard Grid (No Shift)
-                    const startCellX = Math.round(destBx * pitchX);
-                    const startCellY = Math.round(destBy * pitchY);
-                    const endCellX = Math.round((destBx + 1) * pitchX);
-                    const endCellY = Math.round((destBy + 1) * pitchY);
-                    
+                            // Robust Coverage: Use Floor/Ceil to expand the override region slightly (overlap neighbors)
+                            // This prevents "Old World" gaps from appearing between blocks due to rounding jitter.
+                            const startCellX = Math.floor(destBx * pitchX);
+                            const startCellY = Math.floor(destBy * pitchY);
+                            const endCellX = Math.ceil((destBx + 1) * pitchX);
+                            const endCellY = Math.ceil((destBy + 1) * pitchY);                    
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
                         for (let cx = startCellX; cx < endCellX; cx++) {

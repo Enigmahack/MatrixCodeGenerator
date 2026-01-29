@@ -5,6 +5,9 @@ Go through code and fix all comments. [DONE]
 UI: Add option for double-clicking/tapping sliders to reset to default. [DONE]
 UI: Add manual numeric input when clicking slider values. [DONE]
 Quantized Editor: Scroll to advance/rewind animation steps. [DONE]
+Quantized Effects: Fixed shadow world behavior by implementing a deep warmup simulation (Fast Forward) to ensure full density and correct eraser/tracer logic upon reveal. [DONE]
+- Fixed 'disappearing columns' bug by ensuring `streamsPerColumn` and `cellLocks` are correctly synced/cleared during state transfer in `SimulationWorker.js`. [DONE]
+- Fixed 'horizontal bar' / rounding artifacts by using floor/ceil expansion for shadow override regions, ensuring gapless coverage. [DONE]
 
 <- Look:
 Quantized Pulse Effect: Re-implement the grid overlap effect (Gold glow, 4x4 grid). [DONE]

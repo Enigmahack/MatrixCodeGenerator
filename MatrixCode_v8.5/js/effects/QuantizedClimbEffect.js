@@ -43,37 +43,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this.hasSwapped = false;
         this.isSwapping = false;
 
-        // Initialize Shadow World
-        this._initShadowWorldBase(false);
-        
-        // Climb-specific injection (High Density)
-        const sm = this.shadowSim.streamManager;
-        const s = this.c.state;
-        
-        const columns = Array.from({length: this.shadowGrid.cols}, (_, i) => i);
-        // Shuffle
-        for (let i = columns.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [columns[i], columns[j]] = [columns[j], columns[i]];
-        }
-        
-        // 75% Fill
-        const injectionCount = Math.floor(this.shadowGrid.cols * 0.75);
-        for (let k = 0; k < injectionCount; k++) {
-            const col = columns[k];
-            const startY = Math.floor(Math.random() * this.shadowGrid.rows);
-            const isEraser = Math.random() < 0.2;
-            const stream = sm._initializeStream(col, isEraser, s);
-            stream.y = startY;
-            if (startY < stream.visibleLen) {
-                stream.age = startY;
-                sm.addActiveStream(stream);
-            }
-        }
-
-        // Warmup
-        for (let i = 0; i < 400; i++) this.shadowSim.update(i);
-        this.shadowSimFrame = 400;
+        this._initShadowWorld();
 
         if (this.renderGrid) this.renderGrid.fill(-1);
 
