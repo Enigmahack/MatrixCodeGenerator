@@ -313,6 +313,32 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
             
             pCtx.fillStyle = '#FFFFFF';
 
+            // Pre-calculate Removed Edges for Perimeter
+            const removedEdges = new Set();
+            if (this.maskOps) {
+                for (const op of this.maskOps) {
+                    if (op.type === 'removeLine') {
+                        const start = { x: cx + op.x1, y: cy + op.y1 };
+                        const end = { x: cx + op.x2, y: cy + op.y2 };
+                        const minX = Math.min(start.x, end.x);
+                        const maxX = Math.max(start.x, end.x);
+                        const minY = Math.min(start.y, end.y);
+                        const maxY = Math.max(start.y, end.y);
+                        
+                        const faces = op.face ? [op.face.toUpperCase()] : ['N', 'S', 'E', 'W'];
+                        
+                        for (let by = minY; by <= maxY; by++) {
+                            for (let bx = minX; bx <= maxX; bx++) {
+                                const idx = by * scaledW + bx;
+                                for (const f of faces) {
+                                    removedEdges.add(`${idx}_${f}`);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // PART A: Standard Rendering + Internalizing Fade Out
             for (let by = 0; by < scaledH; by++) {
                 for (let bx = 0; bx < scaledW; bx++) {
@@ -324,6 +350,9 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                     
                     const faces = ['N', 'S', 'W', 'E'];
                     for (const f of faces) {
+                        // Check explicit removal
+                        if (removedEdges.has(`${idx}_${f}`)) continue;
+
                         let nx = bx, ny = by;
                         if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
                         
