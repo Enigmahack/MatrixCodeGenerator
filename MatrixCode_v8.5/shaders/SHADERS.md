@@ -6,7 +6,7 @@ This guide explains how to create and use custom WebGL fragment shaders in the M
 
 The application includes a `PostProcessor` system that allows you to apply full-screen visual effects (post-processing) to the rendered Matrix animation. This is done using WebGL fragment shaders.
 
-The system renders the 2D Canvas content into a WebGL texture (`uTexture`) and draws it onto a full-screen quad. Your shader determines how each pixel of that quad is colored.
+The system renders the 2D Canvas content into a WebGL texture (`uTexture`) and draws it onto a full-screen grid. Your shader determines how each pixel is colored.
 
 ## Available Uniforms
 
@@ -49,7 +49,7 @@ void main() {
 The application now supports importing `.glsl` files directly through the Settings UI.
 
 1.  Open the **Settings Panel**.
-2.  Navigate to the **FX** tab.
+2.  Navigate to the **Effects** tab.
 3.  Scroll down to the **Post Processing** section.
 4.  Enable **Custom Shader**.
 5.  Adjust the **Shader Parameter** slider to control the `uParameter` uniform in your shader.
