@@ -131,6 +131,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.animFrame = 0;
         this._maskDirty = true;
         this._edgeCacheDirty = true;
+        this._distMapDirty = true;
+        this._outsideMapDirty = true;
         
         this.hasSwapped = false;
         this.isSwapping = false;
@@ -209,6 +211,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this._maskDirty = true;
         this._edgeCacheDirty = true;
+        this._distMapDirty = true;
+        this._outsideMapDirty = true;
     }
 
     refreshStep() {
