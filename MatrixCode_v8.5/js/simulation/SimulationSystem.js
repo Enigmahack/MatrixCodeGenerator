@@ -164,7 +164,7 @@ class SimulationSystem {
             effectGlows: new Float32Array(createSAB(float32Size)),
 
             types: new Uint8Array(createSAB(uint8Size)),
-            decays: new Uint8Array(createSAB(uint8Size)),
+            decays: new Uint16Array(createSAB(uint16Size)),
             maxDecays: new Uint16Array(createSAB(uint16Size)),
             ages: new Int32Array(createSAB(int32Size)),
             brightness: new Float32Array(createSAB(float32Size)),

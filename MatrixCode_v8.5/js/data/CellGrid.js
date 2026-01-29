@@ -353,7 +353,7 @@ class CellGrid {
 
             // Simulation
             this.types = new Uint8Array(total);
-            this.decays = new Uint8Array(total);
+            this.decays = new Uint16Array(total);
             this.maxDecays = new Uint16Array(total);
             this.ages = new Int32Array(total);
             this.brightness = new Float32Array(total);

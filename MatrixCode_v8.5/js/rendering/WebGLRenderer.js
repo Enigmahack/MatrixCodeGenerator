@@ -465,25 +465,25 @@ class WebGLRenderer {
                             vec2 sizeBounds = vec2(0.1, 0.1); // Default
                             float rotation = 0.0;
                             
-                            // Probability Distribution:
-                            // 0.00 - 0.30: Vertical Bars (30%)
-                            // 0.30 - 0.60: Horizontal Bars (30%)
-                            // 0.60 - 0.80: Small Rects/Blocks (20%)
-                            // 0.80 - 1.00: Diagonals (20%)
+                            // Probability Distribution (Refactored for Balance):
+                            // 0.00 - 0.40: Vertical Bars (40%) -> High priority per user request
+                            // 0.40 - 0.60: Horizontal Bars (20%)
+                            // 0.60 - 0.70: Small Rects (10%)
+                            // 0.70 - 1.00: Diagonals (30%) -> Split evenly 15% each
                             
-                            if (cellRand < 0.15) {
+                            if (cellRand < 0.20) {
                                 // Vertical Left
                                 center = vec2(0.2, 0.5);
                                 sizeBounds = vec2(0.08, 0.45);
-                            } else if (cellRand < 0.30) {
+                            } else if (cellRand < 0.40) {
                                 // Vertical Right
                                 center = vec2(0.8, 0.5);
                                 sizeBounds = vec2(0.08, 0.45);
-                            } else if (cellRand < 0.40) {
+                            } else if (cellRand < 0.47) {
                                 // Horizontal Top
                                 center = vec2(0.5, 0.8);
                                 sizeBounds = vec2(0.45, 0.08);
-                            } else if (cellRand < 0.50) {
+                            } else if (cellRand < 0.54) {
                                 // Horizontal Bottom
                                 center = vec2(0.5, 0.2);
                                 sizeBounds = vec2(0.45, 0.08);
@@ -495,19 +495,15 @@ class WebGLRenderer {
                                 // Small Rect Center
                                 center = vec2(0.5, 0.5);
                                 sizeBounds = vec2(0.15, 0.15);
-                            } else if (cellRand < 0.80) {
-                                // Small Rect Random Offset (based on fractional part of seed)
-                                float offX = fract(cellRand * 10.0) * 0.6 - 0.3; // -0.3 to 0.3
-                                float offY = fract(cellRand * 20.0) * 0.6 - 0.3;
-                                center = vec2(0.5 + offX, 0.5 + offY);
-                                sizeBounds = vec2(0.12, 0.12);
-                            } else if (cellRand < 0.90) {
-                                // Diagonal 1 (TL to BR)
-                                rotation = 0.785398; // +45 deg
+                            } else if (cellRand < 0.85) {
+                                // Diagonal 1: Bottom-Left to Top-Right (/)
+                                // Rotation +45 deg aligns local X with diagonal
+                                rotation = 0.785398; 
                                 sizeBounds = vec2(0.05, 0.55); 
                             } else {
-                                // Diagonal 2 (BL to TR)
-                                rotation = -0.785398; // -45 deg
+                                // Diagonal 2: Top-Left to Bottom-Right (\)
+                                // Rotation -45 deg
+                                rotation = -0.785398; 
                                 sizeBounds = vec2(0.05, 0.55);
                             }
 
