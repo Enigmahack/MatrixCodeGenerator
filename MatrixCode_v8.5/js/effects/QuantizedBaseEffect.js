@@ -41,8 +41,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.swapTimer = 0;
 
         this._edgeCacheDirty = true;
-        this._cachedLineState = null;
-        this._cachedPerimeterBatches = null;
+        this._cachedEdgeMap = null;
 
         // Optimization: Pre-allocated BFS Queue (Ring Buffer)
         // Max size is logicGridW * logicGridH. Start reasonable, resize if needed.
@@ -1112,12 +1111,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Since offX/offY can be fractional, we use a slightly wider tolerance
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
-                        // Robust Coverage: Use Floor/Ceil to expand the override region slightly (overlap neighbors)
-                        // This prevents "Old World" gaps from appearing between blocks due to rounding jitter.
-                        const startCellX = Math.floor(destBx * pitchX);
-                        const startCellY = Math.floor(destBy * pitchY);
-                        const endCellX = Math.ceil((destBx + 1) * pitchX);
-                        const endCellY = Math.ceil((destBy + 1) * pitchY);                
+                        // Robust Coverage: Use Round to snap to the nearest cell boundary, matching the visual mask/lines.
+                        // This ensures strict alignment with _renderEdges and prevents "leaking" characters.
+                        const startCellX = Math.round(destBx * pitchX);
+                        const startCellY = Math.round(destBy * pitchY);
+                        const endCellX = Math.round((destBx + 1) * pitchX);
+                        const endCellY = Math.round((destBy + 1) * pitchY);                
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
@@ -1144,12 +1143,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                     
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
-                            // Robust Coverage: Use Floor/Ceil to expand the override region slightly (overlap neighbors)
-                            // This prevents "Old World" gaps from appearing between blocks due to rounding jitter.
-                            const startCellX = Math.floor(destBx * pitchX);
-                            const startCellY = Math.floor(destBy * pitchY);
-                            const endCellX = Math.ceil((destBx + 1) * pitchX);
-                            const endCellY = Math.ceil((destBy + 1) * pitchY);                    
+                            // Robust Coverage: Use Round to snap to the nearest cell boundary, matching the visual mask/lines.
+                            // This ensures strict alignment with _renderEdges and prevents "leaking" characters.
+                            const startCellX = Math.round(destBx * pitchX);
+                            const startCellY = Math.round(destBy * pitchY);
+                            const endCellX = Math.round((destBx + 1) * pitchX);
+                            const endCellY = Math.round((destBy + 1) * pitchY);                    
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
                         for (let cx = startCellX; cx < endCellX; cx++) {
@@ -1728,38 +1727,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Unified Shared Edge Rendering
         this._renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY);
-
-        // PASS 5: Forced Line Erasure
-        // Explicitly remove lines that are marked for removal.
-        // This overrides any cache persistence or implicit border logic.
-        if (this.maskOps) {
-             const cx = Math.floor(blocksX / 2);
-             const cy = Math.floor(blocksY / 2);
-             
-             // We need to set composition to erase
-             if (pCtx) pCtx.globalCompositeOperation = 'destination-out';
-             if (lCtx) lCtx.globalCompositeOperation = 'destination-out';
-
-             for (const op of this.maskOps) {
-                 if (op.type !== 'removeLine') continue;
-                 
-                 // Check timing (if desired, or just force erase)
-                 // For editor/flicker issues, immediate erasure is best.
-                 
-                 const bx = cx + op.x1;
-                 const by = cy + op.y1;
-                 const faceStr = op.face ? op.face.toUpperCase() : 'N';
-                 
-                 // Erase with full extensions (rS=true, rE=true) to ensure corners are cleared
-                 const faceObj = { dir: faceStr, rS: true, rE: true };
-                 
-                 if (pCtx) this._drawExteriorLine(pCtx, bx, by, faceObj, { opacity: 1.0, color: '#FFFFFF' });
-                 if (lCtx) this._drawInteriorLine(lCtx, bx, by, faceObj, { opacity: 1.0, color: '#FFFFFF' });
-             }
-
-             if (pCtx) pCtx.globalCompositeOperation = 'source-over';
-             if (lCtx) lCtx.globalCompositeOperation = 'source-over';
-        }
         
         this._snapSettings = null;
     }
@@ -1790,122 +1757,178 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cleanDistVal = this.getConfig('CleanInnerDistance');
         const cleanDist = (cleanDistVal !== undefined) ? cleanDistVal : 4;
 
-        const isTrueOutside = (nx, ny) => {
-            if (nx < 0 || nx >= scaledW || ny < 0 || ny >= scaledH) return false; 
-            return outsideMap[ny * scaledW + nx] === 1;
-        };
+        // Shared Edge Map
+        // Key: `${type}_${u}_${v}` 
+        // type: 'V' (Vertical at u, row v) or 'H' (Horizontal at v, col u)
+        const edgeMap = new Map();
+
         const isRenderActive = (bx, by) => {
             if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
             const idx = by * scaledW + bx;
             return (this.renderGrid && this.renderGrid[idx] !== -1);
         };
 
-        const lineState = new Map();
         if (this.maskOps) {
             for (const op of this.maskOps) {
                 if (op.type !== 'addLine' && op.type !== 'removeLine') continue;
+                
                 const start = { x: cx + op.x1, y: cy + op.y1 };
                 const end = { x: cx + op.x2, y: cy + op.y2 };
                 const minX = Math.min(start.x, end.x), maxX = Math.max(start.x, end.x);
                 const minY = Math.min(start.y, end.y), maxY = Math.max(start.y, end.y);
-                const f = op.face ? op.face.toUpperCase() : '';
+                const f = op.face ? op.face.toUpperCase() : 'N';
+                
+                const type = (op.type === 'addLine' ? 'add' : 'rem');
+
                 for (let by = minY; by <= maxY; by++) {
                     for (let bx = minX; bx <= maxX; bx++) {
-                        if (op.type === 'addLine' && !isRenderActive(bx, by)) continue;
+                        // For addLine, check cleanliness
                         const idx = by * scaledW + bx;
-                        if (op.type === 'addLine' && distMap[idx] > cleanDist) continue;
-                        let cell = lineState.get(idx);
-                        if (!cell) { cell = {}; lineState.set(idx, cell); }
-                        cell[f] = { type: (op.type === 'addLine' ? 'add' : 'rem'), op: op };
+                        if (type === 'add' && !isRenderActive(bx, by)) continue;
+                        if (type === 'add' && distMap[idx] > cleanDist) continue;
+                        
+                        // Canonicalize
+                        let key = '';
+                        if (f === 'N') key = `H_${bx}_${by}`;     // Top edge of bx,by
+                        else if (f === 'S') key = `H_${bx}_${by+1}`; // Bottom edge
+                        else if (f === 'W') key = `V_${bx}_${by}`;   // Left edge
+                        else if (f === 'E') key = `V_${bx+1}_${by}`; // Right edge
+                        
+                        edgeMap.set(key, { type, op });
                     }
                 }
             }
         }
-        this._cachedLineState = lineState;
-
-        const batches = new Map();
-        for (let by = 0; by < scaledH; by++) {
-            for (let bx = 0; bx < scaledW; bx++) {
-                if (!isRenderActive(bx, by)) continue; 
-                const idx = by * scaledW + bx;
-                const outN = isTrueOutside(bx, by - 1), outS = isTrueOutside(bx, by + 1);
-                const outW = isTrueOutside(bx - 1, by), outE = isTrueOutside(bx + 1, by);
-                if (!outN && !outS && !outW && !outE) continue; 
-                const cellState = lineState.get(idx);
-                const faces = [];
-                if (outN && (!cellState || !cellState['N'] || cellState['N'].type !== 'rem')) faces.push({dir: 'N', rS: outW, rE: outE});
-                if (outS && (!cellState || !cellState['S'] || cellState['S'].type !== 'rem')) faces.push({dir: 'S', rS: outW, rE: outE});
-                if (outW && (!cellState || !cellState['W'] || cellState['W'].type !== 'rem')) faces.push({dir: 'W', rS: outN, rE: outS});
-                if (outE && (!cellState || !cellState['E'] || cellState['E'].type !== 'rem')) faces.push({dir: 'E', rS: outN, rE: outS});
-                if (faces.length > 0) {
-                    const startFrame = this.renderGrid[idx];
-                    let list = batches.get(startFrame);
-                    if (!list) { list = []; batches.set(startFrame, list); }
-                    list.push({bx, by, faces});
-                }
-            }
-        }
-        this._cachedPerimeterBatches = batches;
+        this._cachedEdgeMap = edgeMap;
     }
 
     _renderEdges(pCtx, lCtx, now, blocksX, blocksY, offX, offY) {
-        const l = this.layout;
-        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
-        
         const scaledW = blocksX;
         const scaledH = blocksY;
 
-        if (this._edgeCacheDirty || !this._cachedLineState) {
+        if (this._edgeCacheDirty || !this._cachedEdgeMap) {
             this._rebuildEdgeCache(scaledW, scaledH);
             this._edgeCacheDirty = false;
         }
-
+        
+        const edgeMap = this._cachedEdgeMap;
+        const fadeInFrames = this.getConfig('FadeInFrames') || 0;
         const color = this.getConfig('PerimeterColor') || "#FFD700";
         const iColor = this.getConfig('InnerColor') || "#FFD700";
 
-        // --- PASS 3: PERIMETER ---
-        if (pCtx) {
-            pCtx.fillStyle = '#FFFFFF';
-            for (const [startFrame, items] of this._cachedPerimeterBatches) {
-                let opacity = 1.0;
-                if (fadeInFrames > 0 && startFrame !== -1 && !this.debugMode) {
-                    opacity = Math.min(1.0, (now - startFrame) / fadeInFrames);
+        // Helpers
+        const getBlockStart = (bx, by) => {
+             if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return -1;
+             return this.renderGrid[by * scaledW + bx];
+        };
+        const outsideMap = this._computeTrueOutside(scaledW, scaledH);
+        const isTrueOutside = (bx, by) => {
+             if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
+             return outsideMap[by * scaledW + bx] === 1;
+        };
+
+        const drawEdge = (ctx, bx, by, face, styleColor, opacity) => {
+             this._drawExteriorLine(ctx, bx, by, face, { color: styleColor, opacity });
+        };
+        
+        // Iterate Vertical Edges (x: 0 to W)
+        for (let y = 0; y < scaledH; y++) {
+            for (let x = 0; x <= scaledW; x++) {
+                // Vertical Edge at x (Between x-1 and x)
+                const startL = getBlockStart(x - 1, y);
+                const startR = getBlockStart(x, y);
+                const activeL = (startL !== -1 && !isTrueOutside(x - 1, y));
+                const activeR = (startR !== -1 && !isTrueOutside(x, y));
+                
+                if (!activeL && !activeR) continue;
+
+                const key = `V_${x}_${y}`;
+                const override = edgeMap.get(key);
+                
+                let shouldDraw = false;
+                let drawColor = color;
+                let startFrame = -1;
+                let isPerimeter = false;
+
+                if (activeL !== activeR) {
+                    // Perimeter
+                    shouldDraw = true;
+                    isPerimeter = true;
+                    startFrame = activeL ? startL : startR;
+                    if (override && override.type === 'rem') shouldDraw = false;
+                } else {
+                    // Internal (Both Active)
+                    shouldDraw = false;
+                    if (override && override.type === 'add') {
+                        shouldDraw = true;
+                        startFrame = override.op.startFrame;
+                        drawColor = iColor;
+                    }
                 }
-                if (opacity <= 0.001) continue;
-                for (const item of items) {
-                    for (const face of item.faces) {
-                        this._drawExteriorLine(pCtx, item.bx, item.by, face, { color, opacity });
+
+                if (shouldDraw) {
+                    let opacity = 1.0;
+                    if (fadeInFrames > 0 && startFrame !== -1 && !this.debugMode) {
+                        opacity = Math.min(1.0, (now - startFrame) / fadeInFrames);
+                    }
+                    if (opacity > 0.001) {
+                        // Draw 'W' face of right block (x) if valid, else 'E' face of left block (x-1)
+                        const ctx = isPerimeter ? pCtx : lCtx;
+                        if (ctx) {
+                            if (x < scaledW) drawEdge(ctx, x, y, 'W', drawColor, opacity);
+                            else drawEdge(ctx, x - 1, y, 'E', drawColor, opacity);
+                        }
                     }
                 }
             }
         }
 
-        // --- PASS 4: INTERIOR LINES ---
-        if (lCtx && this._cachedLineState.size > 0) {
-            lCtx.fillStyle = '#FFFFFF';
-            for (const [idx, cell] of this._cachedLineState) {
-                const bx = idx % scaledW;
-                const by = Math.floor(idx / scaledW);
-                const drawLine = (face, rS, rE) => {
-                    const data = cell[face];
-                    if (!data || data.type !== 'add') return;
-                    const op = data.op;
-                    let opacity = 1.0;
-                    if (fadeInFrames > 0 && op.startFrame && !this.debugMode) {
-                        opacity = Math.min(1.0, (now - op.startFrame) / fadeInFrames);
+        // Iterate Horizontal Edges (y: 0 to H)
+        for (let y = 0; y <= scaledH; y++) {
+            for (let x = 0; x < scaledW; x++) {
+                // Horizontal Edge at y (Between y-1 and y)
+                const startT = getBlockStart(x, y - 1);
+                const startB = getBlockStart(x, y);
+                const activeT = (startT !== -1 && !isTrueOutside(x, y - 1));
+                const activeB = (startB !== -1 && !isTrueOutside(x, y));
+
+                if (!activeT && !activeB) continue;
+
+                const key = `H_${x}_${y}`;
+                const override = edgeMap.get(key);
+                
+                let shouldDraw = false;
+                let drawColor = color;
+                let startFrame = -1;
+                let isPerimeter = false;
+
+                if (activeT !== activeB) {
+                    shouldDraw = true;
+                    isPerimeter = true;
+                    startFrame = activeT ? startT : startB;
+                    if (override && override.type === 'rem') shouldDraw = false;
+                } else {
+                    shouldDraw = false;
+                    if (override && override.type === 'add') {
+                        shouldDraw = true;
+                        startFrame = override.op.startFrame;
+                        drawColor = iColor;
                     }
-                    if (opacity <= 0.001) return;
-                    this._drawInteriorLine(lCtx, bx, by, {dir: face, rS, rE}, { color: iColor, opacity });
-                };
-                const outsideMap = this._computeTrueOutside(scaledW, scaledH);
-                const hasN_Border = (by > 0 && outsideMap[(by-1)*scaledW + bx] === 1);
-                const hasS_Border = (by < scaledH-1 && outsideMap[(by+1)*scaledW + bx] === 1);
-                const hasN = !!cell['N'] || hasN_Border;
-                const hasS = !!cell['S'] || hasS_Border;
-                drawLine('N', false, false);
-                drawLine('S', false, false);
-                drawLine('W', hasN, hasS);
-                drawLine('E', hasN, hasS);
+                }
+
+                if (shouldDraw) {
+                    let opacity = 1.0;
+                    if (fadeInFrames > 0 && startFrame !== -1 && !this.debugMode) {
+                        opacity = Math.min(1.0, (now - startFrame) / fadeInFrames);
+                    }
+                    if (opacity > 0.001) {
+                        const ctx = isPerimeter ? pCtx : lCtx;
+                        if (ctx) {
+                            if (y < scaledH) drawEdge(ctx, x, y, 'N', drawColor, opacity);
+                            else drawEdge(ctx, x, y - 1, 'S', drawColor, opacity);
+                        }
+                    }
+                }
             }
         }
     }

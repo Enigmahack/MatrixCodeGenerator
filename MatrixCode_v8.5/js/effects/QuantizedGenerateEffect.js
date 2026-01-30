@@ -787,10 +787,10 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         const l = this.layout;
         const offX = l.offX || 0;
         const offY = l.offY || 0;
-        const startX = Math.round((blockStart.x - offX) * l.cellPitchX);
-        const endX = Math.round((blockEnd.x + 1 - offX) * l.cellPitchX);
-        const startY = Math.round((blockStart.y - offY) * l.cellPitchY);
-        const endY = Math.round((blockEnd.y + 1 - offY) * l.cellPitchY);
+        const startX = Math.round((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
+        const endX = Math.round((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+        const startY = Math.round((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
+        const endY = Math.round((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
 
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
@@ -873,10 +873,10 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                     if (f === 'W' && bx === minX) continue;
                     if (f === 'E' && bx === maxX) continue;
                 }
-                const startCellX = Math.round(bx * l.cellPitchX);
-                const startCellY = Math.round(by * l.cellPitchY);
-                const endCellX = Math.round((bx + 1) * l.cellPitchX);
-                const endCellY = Math.round((by + 1) * l.cellPitchY);
+                const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
+                const startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
+                const endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+                const endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
                 const safety = 0.5;
                 const safeX = l.halfLineX + safety; 
                 const safeY = l.halfLineY + safety; 

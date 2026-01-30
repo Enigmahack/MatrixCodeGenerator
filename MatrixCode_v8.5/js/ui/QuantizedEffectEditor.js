@@ -239,29 +239,36 @@ class QuantizedEffectEditor {
             }
             
             const distMap = this.effect._distMap;
-            const lineState = this.effect._cachedLineState;
+            const edgeMap = this.effect._cachedEdgeMap;
             
-            if (!distMap || !lineState) continue;
+            if (!distMap || !edgeMap) continue;
 
             const cx = Math.floor(w / 2);
             const cy = Math.floor(h / 2);
             const stepRemovals = [];
             
-            // Iterate all active lines in the cache
-            for (const [idx, cell] of lineState) {
+            // Iterate all active edges in the cache
+            for (const [key, value] of edgeMap) {
+                // value = { type: 'add'|'rem', op: ... }
+                if (value.type !== 'add') continue;
+
+                const op = value.op;
+                // Get coordinates from the operation that created the line
+                // addLine ops store x1, y1 (block coords relative to center)
+                const dx = op.x1;
+                const dy = op.y1;
+                const bx = cx + dx;
+                const by = cy + dy;
+
+                if (bx < 0 || bx >= w || by < 0 || by >= h) continue;
+
+                const idx = by * w + bx;
+                
                 // Check if this block is deep inside
                 if (distMap[idx] > thresh) {
-                    ['N', 'S', 'E', 'W'].forEach(face => {
-                        // If line is active (type 'add'), it needs removal
-                        if (cell[face] && cell[face].type === 'add') {
-                            const bx = idx % w;
-                            const by = Math.floor(idx / w);
-                            const dx = bx - cx;
-                            const dy = by - cy;
-                            
-                            stepRemovals.push({ op: 'remLine', args: [dx, dy, face] });
-                        }
-                    });
+                    // Use the face from the original op to target the removal correctly
+                    const face = op.face || 'N'; 
+                    stepRemovals.push({ op: 'remLine', args: [dx, dy, face] });
                 }
             }
             
@@ -1219,13 +1226,96 @@ class QuantizedEffectEditor {
             const dy = hit.y;
             const step = this.effect.sequence[this.effect.expansionPhase];
             
+            // Smart Line Toggle (Shared Edges)
+            if (this.currentTool === 'addLine' || this.currentTool === 'removeLine') {
+                const cx = Math.floor(this.effect.logicGridW / 2);
+                const cy = Math.floor(this.effect.logicGridH / 2);
+                const absX = dx + cx; 
+                const absY = dy + cy;
+                const f = this.currentFace;
+
+                // Determine Canonical Key
+                let u=0, v=0, type='';
+                if (f === 'N') { u = absX; v = absY; type = 'H'; }
+                else if (f === 'S') { u = absX; v = absY + 1; type = 'H'; }
+                else if (f === 'W') { u = absX; v = absY; type = 'V'; }
+                else if (f === 'E') { u = absX + 1; v = absY; type = 'V'; }
+
+                const key = `${type}_${u}_${v}`;
+
+                // 1. Clear ALL Overrides on this Edge in CURRENT STEP (Neighbor included)
+                for (let i = step.length - 1; i >= 0; i--) {
+                    const op = step[i];
+                    let oName, oArgs;
+                    if (Array.isArray(op)) { oName = op[0]; oArgs = op.slice(1); }
+                    else { oName = op.op; oArgs = op.args; }
+
+                    if (oName === 'addLine' || oName === 'remLine') {
+                        const ox = oArgs[0] + cx;
+                        const oy = oArgs[1] + cy;
+                        const oface = oArgs[2];
+                        let ou=0, ov=0, otype='';
+                        if (oface === 'N') { ou = ox; ov = oy; otype = 'H'; }
+                        else if (oface === 'S') { ou = ox; ov = oy + 1; otype = 'H'; }
+                        else if (oface === 'W') { ou = ox; ov = oy; otype = 'V'; }
+                        else if (oface === 'E') { ou = ox + 1; ov = oy; otype = 'V'; }
+
+                        if (ou === u && ov === v && otype === type) {
+                            step.splice(i, 1);
+                        }
+                    }
+                }
+
+                // 2. Determine Current Visibility State from Cache
+                // The cache reflects the state BEFORE our clicks (accumulated up to this frame)
+                // We use this to decide what operation is needed.
+                let isVisible = false;
+                const edgeMap = this.effect._cachedEdgeMap;
+                
+                // Fallback helpers if cache isn't ready (shouldn't happen in editor loop)
+                const isActive = (x, y) => {
+                    const idx = y * this.effect.logicGridW + x;
+                    return (this.effect.renderGrid && this.effect.renderGrid[idx] !== -1);
+                };
+                let n1=false, n2=false;
+                if (type === 'V') { n1 = isActive(u-1, v); n2 = isActive(u, v); }
+                else { n1 = isActive(u, v-1); n2 = isActive(u, v); }
+                const isPerimeter = (n1 !== n2);
+                
+                if (edgeMap && edgeMap.has(key)) {
+                    const entry = edgeMap.get(key);
+                    if (entry.type === 'add') isVisible = true;
+                    else if (entry.type === 'rem') isVisible = false;
+                } else {
+                    // No override found in cache -> Use Base State
+                    isVisible = isPerimeter;
+                }
+
+                // 3. Apply Toggle Logic based on Desired vs Actual
+                if (this.currentTool === 'addLine') {
+                    if (!isVisible) {
+                        step.push({ op: 'addLine', args: [dx, dy, f] });
+                    }
+                    // Else: It's already visible. Doing nothing keeps it visible 
+                    // (and we already cleared any local remLine that might have hidden it)
+                } else if (this.currentTool === 'removeLine') {
+                    if (isVisible) {
+                        step.push({ op: 'remLine', args: [dx, dy, f] });
+                    }
+                    // Else: It's already hidden.
+                }
+
+                this.effect.refreshStep();
+                this.isDirty = true;
+                return;
+            }
+
+            // Basic Block Tools
             let opName = null;
             let args = null;
 
             if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
             else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
-            else if (this.currentTool === 'addLine') { opName = 'addLine'; args = [dx, dy, this.currentFace]; } 
-            else if (this.currentTool === 'removeLine') { opName = 'remLine'; args = [dx, dy, this.currentFace]; }
 
             if (opName) {
                 this.redoStack = [];

@@ -213,6 +213,10 @@ DEVELOPER & AI DECISION SUPPORT
   - AI Warning: When creating new effects, always ensure the Shadow World is 
     properly "warmed up" (e.g., 400 frames of hidden simulation) before reveal 
     to ensure density.
+  - Grid Alignment: The Shadow World simulation logic must align perfectly 
+    with the Visual Mask overlay. Use `Math.round` for all cell mappings 
+    (not floor/ceil) to match the visual rendering snap, ensuring characters 
+    don't "leak" outside the border by one cell.
 
 * Rendering Performance:
   - Bottleneck 1: getOverride() is slow. It uses a Map and per-cell object 
