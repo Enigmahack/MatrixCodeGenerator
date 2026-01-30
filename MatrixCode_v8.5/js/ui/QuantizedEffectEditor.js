@@ -9,6 +9,8 @@ class QuantizedEffectEditor {
         this.dom = null;
         this.currentTool = 'add'; 
         this.currentFace = 'N'; 
+        this.currentLayer = 0; // 0, 1, 2
+        this.layerColors = ['#0f0', '#0af', '#f0c']; // Green, Blue, Magenta
         this.hoverBlock = null;
 
         this._boundMouseDown = this._onMouseDown.bind(this);
@@ -46,23 +48,61 @@ class QuantizedEffectEditor {
                 while (i < step.length) {
                     const opCode = step[i++];
                     const opName = OPS_INV[opCode];
-                    if (!opName) continue;
                     
                     let args = [];
                     if (opCode === 1 || opCode === 6 || opCode === 7) {
                         args = [step[i++], step[i++]];
                     } else if (opCode === 3) {
                         args = [step[i++], step[i++], step[i++], step[i++]];
+                    } else if (opCode === 8) { // addLayered
+                        const x = step[i++];
+                        const y = step[i++];
+                        const l = step[i++];
+                        decodedStep.push({ op: 'add', args: [x, y], layer: l });
+                        continue;
+                    } else if (opCode === 9) { // addRectLayered
+                        const x1 = step[i++];
+                        const y1 = step[i++];
+                        const x2 = step[i++];
+                        const y2 = step[i++];
+                        const l = step[i++];
+                        decodedStep.push({ op: 'addRect', args: [x1, y1, x2, y2], layer: l });
+                        continue;
+                    } else if (opCode === 10) { // addSmartLayered
+                        const x = step[i++];
+                        const y = step[i++];
+                        const l = step[i++];
+                        decodedStep.push({ op: 'addSmart', args: [x, y], layer: l });
+                        continue;
+                    } else if (opCode === 11) { // removeBlockLayered
+                        const x = step[i++];
+                        const y = step[i++];
+                        const l = step[i++];
+                        decodedStep.push({ op: 'removeBlock', args: [x, y], layer: l });
+                        continue;
+                    } else if (opCode === 12) { // nudge
+                        const x = step[i++];
+                        const y = step[i++];
+                        const w = step[i++];
+                        const h = step[i++];
+                        const l = step[i++];
+                        decodedStep.push({ op: 'nudge', args: [x, y, w, h], layer: l });
+                        continue;
                     } else if (opCode === 2 || opCode === 4 || opCode === 5) {
                         const x = step[i++];
                         const y = step[i++];
-                        const mask = step[i++];
-                        if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'] });
-                        if (mask & 2) decodedStep.push({ op: opName, args: [x, y, 'S'] });
-                        if (mask & 4) decodedStep.push({ op: opName, args: [x, y, 'E'] });
-                        if (mask & 8) decodedStep.push({ op: opName, args: [x, y, 'W'] });
+                        let mask = step[i++];
+                        
+                        // Unpack Layer
+                        const l = (mask >> 4) & 0x3; // Extract 2 bits
+                        mask = mask & 0xF; // Clear layer bits
+                        
+                        if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'], layer: l });
+                        if (mask & 2) decodedStep.push({ op: opName, args: [x, y, 'S'], layer: l });
+                        if (mask & 4) decodedStep.push({ op: opName, args: [x, y, 'E'], layer: l });
+                        if (mask & 8) decodedStep.push({ op: opName, args: [x, y, 'W'], layer: l });
                         if (mask === 0 && opCode === 2) {
-                             decodedStep.push({ op: 'rem', args: [x, y] });
+                             decodedStep.push({ op: 'rem', args: [x, y], layer: l });
                         }
                         continue; 
                     }
@@ -381,11 +421,21 @@ class QuantizedEffectEditor {
         // 3b. Render Editor Preview Op (Schematic)
         if (this.effect.editorPreviewOp) {
             const op = this.effect.editorPreviewOp;
+            const layerColor = this.layerColors[this.currentLayer] || '#0f0';
+            
+            // Adjust opacity for fill, keep stroke solid/opaque
+            // Simple hex to rgba parser or just use the color directly if it's hex and rely on globalAlpha?
+            // layerColors are hex (e.g. #0f0, #0af). 
+            // Let's use canvas globalAlpha for fill.
+            
             ctx.save();
-            ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-            ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
-            ctx.lineWidth = 1;
-
+            ctx.globalAlpha = 0.3;
+            ctx.fillStyle = layerColor;
+            ctx.strokeStyle = layerColor;
+            
+            // We want stroke to be more opaque, but we set globalAlpha.
+            // Let's manually set strokeStyle with high alpha if possible, or reset globalAlpha for stroke.
+            
             const drawBlock = (bx, by) => {
                  // Absolute Logic Coordinates
                  const absX = cx + bx;
@@ -403,7 +453,9 @@ class QuantizedEffectEditor {
                  const w = (nextCellX - cellX) * l.screenStepX;
                  const h = (nextCellY - cellY) * l.screenStepY;
 
+                 ctx.globalAlpha = 0.3;
                  ctx.fillRect(x, y, w, h);
+                 ctx.globalAlpha = 0.8;
                  ctx.strokeRect(x, y, w, h);
             };
 
@@ -431,12 +483,17 @@ class QuantizedEffectEditor {
         // Define shared variables needed for selection rendering
         if (this.selectionRect) {
             ctx.save();
-            const minX = this.selectionRect.x + cx;
-            const minY = this.selectionRect.y + cy;
-            const maxX = minX + this.selectionRect.w + 1; // +1 to cover the block
+            // selectionRect is now in ABSOLUTE Logic Coords (0..W)
+            const minX = this.selectionRect.x;
+            const minY = this.selectionRect.y;
+            const maxX = minX + this.selectionRect.w + 1; 
             const maxY = minY + this.selectionRect.h + 1;
             
             // Calculate Snapped Bounds (min and max corners)
+            // Note: offX is relative to center? No, logicGrid coordinates 0..W.
+            // l.offX is used to align Logic Grid to Screen Grid.
+            // Formula: ScreenX = Origin + ( (LogicX - offX + userOff) * Pitch ) * Step
+            
             const cellX1 = Math.round((minX - l.offX + l.userBlockOffX) * l.cellPitchX);
             const cellY1 = Math.round((minY - l.offY + l.userBlockOffY) * l.cellPitchY);
             const cellX2 = Math.round((maxX - l.offX + l.userBlockOffX) * l.cellPitchX);
@@ -712,6 +769,7 @@ class QuantizedEffectEditor {
 
         addTool('select', 'Select');
         addTool('add', 'Add Block');
+        addTool('nudge', 'Nudge Block');
         addTool('removeBlock', 'Rem Block');
         addTool('addLine', 'Add Line');
         addTool('removeLine', 'Rem Line');
@@ -739,6 +797,112 @@ class QuantizedEffectEditor {
         checkbox.onchange = (e) => { this.highlightChanges = e.target.checked; this.isDirty = true; };
         colorToggle.append(checkbox, document.createTextNode(' Highlight Changes'));
         container.appendChild(colorToggle);
+
+        // Layer Controls
+        const layerControls = document.createElement('div');
+        layerControls.style.marginTop = '10px';
+        layerControls.style.marginBottom = '5px';
+        layerControls.style.borderTop = '1px solid #555';
+        layerControls.style.paddingTop = '5px';
+        
+        const lblLayers = document.createElement('div');
+        lblLayers.textContent = 'Active Layer:';
+        lblLayers.style.fontWeight = 'bold';
+        layerControls.appendChild(lblLayers);
+
+        const layerRadios = document.createElement('div');
+        layerRadios.style.display = 'flex';
+        layerRadios.style.gap = '10px';
+        
+        [0, 1, 2].forEach(lIdx => {
+             const lbl = document.createElement('label');
+             lbl.style.color = this.layerColors[lIdx];
+             const rd = document.createElement('input');
+             rd.type = 'radio';
+             rd.name = 'q-editor-layer';
+             rd.value = lIdx;
+             rd.checked = (lIdx === this.currentLayer);
+             rd.onchange = () => { this.currentLayer = lIdx; this.isDirty = true; };
+             lbl.append(rd, document.createTextNode(` L${lIdx}`));
+             layerRadios.appendChild(lbl);
+        });
+        layerControls.appendChild(layerRadios);
+        
+        // Merge Controls
+        const mergeControls = document.createElement('div');
+        mergeControls.style.marginTop = '5px';
+        mergeControls.style.borderTop = '1px dashed #555';
+        mergeControls.style.paddingTop = '5px';
+        mergeControls.style.display = 'flex';
+        mergeControls.style.flexDirection = 'column';
+        
+        const lblMerge = document.createElement('div');
+        lblMerge.textContent = 'Merge To Layer 0:';
+        lblMerge.style.fontSize = '11px';
+        mergeControls.appendChild(lblMerge);
+
+        const mergeChecksDiv = document.createElement('div');
+        mergeChecksDiv.style.display = 'flex';
+        mergeChecksDiv.style.gap = '10px';
+        mergeChecksDiv.style.marginBottom = '5px';
+        
+        this.mergeChecks = [];
+        [1, 2].forEach(lIdx => { // Only Merge L1 and L2 into L0? Or any? Usually flatten down.
+             const lbl = document.createElement('label');
+             lbl.style.color = this.layerColors[lIdx];
+             const chk = document.createElement('input');
+             chk.type = 'checkbox';
+             chk.value = lIdx;
+             chk.checked = true; // Default merge all
+             this.mergeChecks.push(chk);
+             lbl.append(chk, document.createTextNode(` L${lIdx}`));
+             mergeChecksDiv.appendChild(lbl);
+        });
+        mergeControls.appendChild(mergeChecksDiv);
+
+        const btnMerge = this._createBtn('Merge Selected', () => {
+             // 1. If Selection matches request "merge selected blocks", use Transition Merge
+             if (this.selectionRect) {
+                 if (confirm("Merge ALL blocks in Selection to Layer 0 for this step?")) {
+                     const count = this.effect.mergeSelectionAtStep(this.selectionRect, this.effect.expansionPhase);
+                     if (count === 0) {
+                         alert("No active blocks found in selection on Layers 1 or 2.");
+                     } else {
+                         alert(`Merged ${count} blocks.`);
+                         this.effect.refreshStep();
+                         this.isDirty = true;
+                     }
+                 }
+                 return;
+             }
+
+             // 2. Fallback to Legacy Flatten (Merge by Definition)
+             const layersToMerge = this.mergeChecks.filter(c => c.checked).map(c => parseInt(c.value));
+             if (layersToMerge.length === 0) { alert("Select layers to merge."); return; }
+             
+             // const sel = this.selectionRect; // Already handled above
+             
+             let msg = `Merge Layer(s) ${layersToMerge.join(', ')} into Layer 0`;
+             msg += " for the CURRENT STEP?";
+             
+             if (confirm(msg)) {
+                 // Pass expansionPhase as stepIndex
+                 const count = this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
+                 if (count === 0) {
+                     alert("No matching operations found on this step.");
+                 } else {
+                     alert(`Merged ${count} operations.`);
+                     this.effect.refreshStep();
+                     this.isDirty = true;
+                 }
+             }
+        });
+        btnMerge.style.width = '100%';
+        mergeControls.appendChild(btnMerge);
+        
+        layerControls.appendChild(mergeControls);
+        
+        container.appendChild(layerControls);
 
         const gridToggle = document.createElement('label');
         gridToggle.style.display = 'block';
@@ -1003,14 +1167,14 @@ class QuantizedEffectEditor {
     }
 
     _encodeSequence(sequence) {
-        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addLine': 4, 'remLine': 5, 'addSmart': 6, 'removeBlock': 7 };
+        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addLine': 4, 'remLine': 5, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12 };
         const FACES = { 'N': 1, 'n': 1, 'S': 2, 's': 2, 'E': 4, 'e': 4, 'W': 8, 'w': 8 };
         
         const packedSequence = [];
         for (const step of sequence) {
             const stepData = [];
             for (const opObj of step) {
-                let opName, args;
+                let opName, args, layer = 0;
                 if (Array.isArray(opObj)) {
                     if (typeof opObj[0] === 'number') {
                         stepData.push(...opObj);
@@ -1018,26 +1182,56 @@ class QuantizedEffectEditor {
                     }
                     opName = opObj[0];
                     args = opObj.slice(1);
+                    // Legacy array format likely doesn't have layer
                 } else {
                     opName = opObj.op;
                     args = opObj.args;
+                    layer = opObj.layer || 0;
                 }
 
                 const opCode = OPS[opName];
                 if (!opCode) continue;
 
-                stepData.push(opCode);
-                if (opCode === 1 || opCode === 6 || opCode === 7) {
-                    stepData.push(args[0], args[1]);
-                } else if (opCode === 3) {
-                    stepData.push(args[0], args[1], args[2], args[3]);
+                if (opCode === 1) { // add
+                    if (layer > 0) {
+                        stepData.push(8, args[0], args[1], layer); // 8: addLayered
+                    } else {
+                        stepData.push(1, args[0], args[1]);
+                    }
+                } else if (opCode === 3) { // addRect
+                    if (layer > 0) {
+                        stepData.push(9, args[0], args[1], args[2], args[3], layer); // 9: addRectLayered
+                    } else {
+                        stepData.push(3, args[0], args[1], args[2], args[3]);
+                    }
+                } else if (opCode === 6) { // addSmart
+                    if (layer > 0) {
+                         stepData.push(10, args[0], args[1], layer); // 10: addSmartLayered
+                    } else {
+                         stepData.push(6, args[0], args[1]);
+                    }
+                } else if (opCode === 7) { // removeBlock
+                    if (layer > 0) {
+                         stepData.push(11, args[0], args[1], layer); // 11: removeBlockLayered
+                    } else {
+                         stepData.push(7, args[0], args[1]);
+                    }
+                } else if (opCode === 12) { // nudge(x, y, w, h, layer)
+                    // OpCode 12 takes layer as last arg
+                    stepData.push(12, args[0], args[1], args[2], args[3], layer);
                 } else if (opCode === 2 || opCode === 4 || opCode === 5) {
-                    stepData.push(args[0], args[1]);
+                    // rem(2), addLine(4), remLine(5)
+                    stepData.push(opCode, args[0], args[1]);
                     let mask = 0;
                     if (args.length > 2 && typeof args[2] === 'string') {
                         mask = FACES[args[2].toUpperCase()] || 0;
                     } else if (typeof args[2] === 'number') {
                          mask = args[2];
+                    }
+                    
+                    // Pack Layer into Mask (Bits 4-5) to avoid stream ambiguity
+                    if (layer > 0) {
+                        mask = mask | (layer << 4);
                     }
                     stepData.push(mask);
                 }
@@ -1073,15 +1267,13 @@ class QuantizedEffectEditor {
         if (!this.selectionRect) return;
         const grid = this.effect.logicGrid;
         const w = this.effect.logicGridW;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(this.effect.logicGridH / 2);
         
-        const r = this.selectionRect;
+        const r = this.selectionRect; // Absolute coords now
         const data = [];
         
         for (let y = r.y; y <= r.y + r.h; y++) {
             for (let x = r.x; x <= r.x + r.w; x++) {
-                const idx = (y+cy) * w + (x+cx);
+                const idx = y * w + x;
                 if (grid[idx] === 1) {
                     data.push({ x: x - r.x, y: y - r.y });
                 }
@@ -1100,14 +1292,15 @@ class QuantizedEffectEditor {
         const w = this.effect.logicGridW;
         const cx = Math.floor(w / 2);
         const cy = Math.floor(this.effect.logicGridH / 2);
-        const r = this.selectionRect;
+        const r = this.selectionRect; // Absolute
 
         let count = 0;
         for (let y = r.y; y <= r.y + r.h; y++) {
             for (let x = r.x; x <= r.x + r.w; x++) {
-                const idx = (y+cy) * w + (x+cx);
+                const idx = y * w + x;
                 if (grid[idx] === 1) {
-                    step.push({ op: 'removeBlock', args: [x, y] });
+                    // Convert absolute back to relative for removeBlock args
+                    step.push({ op: 'removeBlock', args: [x - cx, y - cy], layer: this.currentLayer });
                     count++;
                 }
             }
@@ -1169,13 +1362,32 @@ class QuantizedEffectEditor {
         // Optimize: Check if hover changed
         const hoverHash = hit ? `${hit.x},${hit.y}` : "null";
         
-        if (this.currentTool === 'addRect' || this.currentTool === 'select') {
+        if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge') {
             if (this.dragStart && hit) {
                 // Update Preview op for drawing
-                this.effect.editorPreviewOp = {
-                    op: 'addRect',
-                    args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y]
-                };
+                if (this.currentTool === 'nudge') {
+                    // Nudge preview: Just the block itself, or the shift?
+                    // Just showing the block being added is enough for now.
+                    // Nudge op args: x, y, w, h
+                    // We need to calculate top-left and size from drag
+                    const x1 = Math.min(this.dragStart.x, hit.x);
+                    const y1 = Math.min(this.dragStart.y, hit.y);
+                    const x2 = Math.max(this.dragStart.x, hit.x);
+                    const y2 = Math.max(this.dragStart.y, hit.y);
+                    const w = x2 - x1 + 1;
+                    const h = y2 - y1 + 1;
+                    
+                    // We render it as an 'addRect' preview visually
+                    this.effect.editorPreviewOp = {
+                        op: 'addRect',
+                        args: [x1, y1, x2, y2]
+                    };
+                } else {
+                    this.effect.editorPreviewOp = {
+                        op: 'addRect',
+                        args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y]
+                    };
+                }
                 this.isDirty = true; // Dragging requires redraw
             } else {
                 if (this.effect.editorPreviewOp) {
@@ -1216,7 +1428,7 @@ class QuantizedEffectEditor {
                 return;
             }
 
-            if (this.currentTool === 'addRect' || this.currentTool === 'select') {
+            if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge') {
                 this.dragStart = hit;
                 return; // Wait for mouse up
             }
@@ -1294,13 +1506,13 @@ class QuantizedEffectEditor {
                 // 3. Apply Toggle Logic based on Desired vs Actual
                 if (this.currentTool === 'addLine') {
                     if (!isVisible) {
-                        step.push({ op: 'addLine', args: [dx, dy, f] });
+                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });
                     }
                     // Else: It's already visible. Doing nothing keeps it visible 
                     // (and we already cleared any local remLine that might have hidden it)
                 } else if (this.currentTool === 'removeLine') {
                     if (isVisible) {
-                        step.push({ op: 'remLine', args: [dx, dy, f] });
+                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });
                     }
                     // Else: It's already hidden.
                 }
@@ -1319,22 +1531,29 @@ class QuantizedEffectEditor {
 
             if (opName) {
                 this.redoStack = [];
-                const existingIdx = step.findIndex(o => {
+                const argsMatch = (o, op, a) => {
                     let oOp, oArgs;
                     if (Array.isArray(o)) {
-                        oOp = o[0];
-                        oArgs = o.slice(1);
+                        oOp = o[0]; oArgs = o.slice(1);
                     } else {
-                        oOp = o.op;
-                        oArgs = o.args;
+                        oOp = o.op; oArgs = o.args;
                     }
+                    // For nudge, args match if x,y match (ignoring w,h if simplified check, but let's match strict)
+                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
+                };
+
+                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
+                
+                if (existingIdx !== -1) { 
+                    step.splice(existingIdx, 1); 
+                } else { 
+                    const newOp = { op: opName, args: args };
+                    // Only add layer for additive ops
+                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
+                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
                     
-                    return oOp === opName && 
-                    oArgs.length === args.length && 
-                    oArgs.every((v, i) => v === args[i]);
-                });
-                if (existingIdx !== -1) { step.splice(existingIdx, 1); } 
-                else { step.push({ op: opName, args: args }); }
+                    step.push(newOp); 
+                }
                 this.effect.refreshStep();
                 this.isDirty = true;
             }
@@ -1350,15 +1569,45 @@ class QuantizedEffectEditor {
                 if (this.currentTool === 'addRect') {
                     this.redoStack = [];
                     const step = this.effect.sequence[this.effect.expansionPhase];
-                    step.push({ op: 'addRect', args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y] });
+                    step.push({ 
+                        op: 'addRect', 
+                        args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y],
+                        layer: this.currentLayer
+                    });
                     this.effect.refreshStep();
                     this.isDirty = true;
-                } else if (this.currentTool === 'select') {
-                    // Define Selection Rect
+                } else if (this.currentTool === 'nudge') {
+                    this.redoStack = [];
+                    const step = this.effect.sequence[this.effect.expansionPhase];
                     const x1 = Math.min(this.dragStart.x, hit.x);
                     const y1 = Math.min(this.dragStart.y, hit.y);
                     const x2 = Math.max(this.dragStart.x, hit.x);
                     const y2 = Math.max(this.dragStart.y, hit.y);
+                    const w = x2 - x1 + 1;
+                    const h = y2 - y1 + 1;
+                    
+                    step.push({ 
+                        op: 'nudge', 
+                        args: [x1, y1, w, h],
+                        layer: this.currentLayer
+                    });
+                    this.effect.refreshStep();
+                    this.isDirty = true;
+                } else if (this.currentTool === 'select') {
+                    // Define Selection Rect
+                    // dragStart and hit are in block coordinates relative to CENTER (from hitTest)
+                    // hitTest returns { x: bx - cx, y: by - cy, absX: bx, absY: by }
+                    // We want ABSOLUTE logic coordinates (0..W) for simpler bounds checking in flattenLayers?
+                    // flattenLayers converts ops (relative) to absolute (0..W). 
+                    // So let's store Absolute coords in selectionRect.
+                    
+                    const absStart = this.dragStart.absX !== undefined ? this.dragStart : { absX: this.dragStart.x, absY: this.dragStart.y }; // Fallback
+                    
+                    const x1 = Math.min(this.dragStart.absX, hit.absX);
+                    const y1 = Math.min(this.dragStart.absY, hit.absY);
+                    const x2 = Math.max(this.dragStart.absX, hit.absX);
+                    const y2 = Math.max(this.dragStart.absY, hit.absY);
+                    
                     this.selectionRect = { x: x1, y: y1, w: x2-x1, h: y2-y1 };
                     this.isDirty = true;
                 }
