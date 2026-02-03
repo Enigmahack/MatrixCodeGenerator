@@ -119,16 +119,8 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
             }
         }
 
-        // 4. Dirtiness Check
-        const addDuration = Math.max(1, s.quantizedClimbFadeInFrames || 0);
-        if (this.maskOps) {
-            for (const op of this.maskOps) {
-                if (this.animFrame - op.startFrame < addDuration) {
-                    this._maskDirty = true;
-                    break;
-                }
-            }
-        }
+        // 4. Animation Transition Management (Dirtiness)
+        this._checkDirtiness();
     }
 
     _processAnimationStep() {

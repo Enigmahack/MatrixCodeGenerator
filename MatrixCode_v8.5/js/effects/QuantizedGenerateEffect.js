@@ -161,19 +161,7 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
         }
 
         // 4. Animation Transition Management (Dirtiness)
-        const addDuration = Math.max(1, s.quantizedGenerateFadeInFrames || 0);
-        const removeDuration = Math.max(1, s.quantizedGenerateFadeFrames || 0);
-
-        if (this.maskOps) {
-            for (const op of this.maskOps) {
-                const age = this.animFrame - op.startFrame;
-                const duration = (op.type === 'remove') ? removeDuration : addDuration;
-                if (age < duration) {
-                    this._maskDirty = true;
-                    break;
-                }
-            }
-        }
+        this._checkDirtiness();
     }
 
     _processAnimationStep() {
@@ -339,105 +327,9 @@ class QuantizedGenerateEffect extends QuantizedBaseEffect {
                 }
             }
 
-            // PART A: Standard Rendering + Internalizing Fade Out
-            for (let by = 0; by < scaledH; by++) {
-                for (let bx = 0; bx < scaledW; bx++) {
-                    if (!isRenderActive(bx, by)) continue; 
-                    
-                    const idx = by * scaledW + bx;
-                    if (idx < 0 || idx >= this.renderGrid.length) continue;
-                    const startFrame = this.renderGrid[idx];
-                    
-                    const faces = ['N', 'S', 'W', 'E'];
-                    for (const f of faces) {
-                        // Check explicit removal
-                        if (removedEdges.has(`${idx}_${f}`)) continue;
-
-                        let nx = bx, ny = by;
-                        if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-                        
-                        const isVoid = isTrueOutside(nx, ny);
-                        
-                        let draw = isVoid;
-                        let opacity = 1.0;
-                        
-                        // Standard Fade In
-                        if (draw) {
-                            if (addDuration > 1 && startFrame !== -1 && !this.debugMode) {
-                                opacity = Math.min(1.0, (now - startFrame) / addDuration);
-                            }
-                        } 
-                        // Fade Out (Internalizing)
-                        else {
-                            if (isRenderActive(nx, ny)) {
-                                const nIdx = ny * scaledW + nx;
-                                if (nIdx >= 0 && nIdx < this.renderGrid.length) {
-                                    const nStart = this.renderGrid[nIdx];
-                                    if (nStart > startFrame) {
-                                        const age = now - nStart;
-                                        if (age < fadeOutFrames) {
-                                            draw = true;
-                                            opacity = Math.max(0, 1.0 - (age / fadeOutFrames));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (draw && opacity > 0.001) {
-                            pCtx.globalAlpha = opacity;
-                            pCtx.beginPath();
-                            this._addPerimeterFacePath(pCtx, bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
-                            pCtx.fill();
-                        }
-                    }
-                }
-            }
-
-            // PART B: Vanishing Fade Out (Removed Blocks)
-            if (this.maskOps) {
-                // Use screen center (cx, cy) to align with Part A and RenderGrid
-                
-                for (const op of this.maskOps) {
-                    if (op.type !== 'removeBlock') continue;
-                    
-                    const age = now - op.startFrame;
-                    if (age >= fadeOutFrames) continue;
-                    
-                    const opacity = Math.max(0, 1.0 - (age / fadeOutFrames));
-                    if (opacity <= 0.001) continue;
-
-                    const start = { x: cx + op.x1, y: cy + op.y1 };
-                    const end = { x: cx + op.x2, y: cy + op.y2 };
-                    const minX = Math.min(start.x, end.x);
-                    const maxX = Math.max(start.x, end.x);
-                    const minY = Math.min(start.y, end.y);
-                    const maxY = Math.max(start.y, end.y);
-
-                    for (let by = minY; by <= maxY; by++) {
-                        for (let bx = minX; bx <= maxX; bx++) {
-                            // If the block is currently active (replaced), do not render fade-out
-                            if (isRenderActive(bx, by)) continue;
-
-                            const faces = ['N', 'S', 'W', 'E'];
-                            for (const f of faces) {
-                                let nx = bx, ny = by;
-                                if (f === 'N') ny--; else if (f === 'S') ny++; else if (f === 'W') nx--; else if (f === 'E') nx++;
-
-                                let isInternalToOp = (nx >= minX && nx <= maxX && ny >= minY && ny <= maxY);
-                                if (!isInternalToOp) {
-                                    if (isTrueOutside(nx, ny)) {
-                                        pCtx.globalAlpha = opacity;
-                                        pCtx.beginPath();
-                                        this._addPerimeterFacePath(pCtx, bx, by, {dir: f, rS: false, rE: false}, boldLineWidthX, boldLineWidthY);
-                                        pCtx.fill();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // PART A: Standard Rendering + Internalizing Fade Out & PART B: Vanishing Fade Out
+            // REPLACED with Base Class _renderEdges to ensure grid-based shared edge rendering
+            this._renderEdges(pCtx, null, now, scaledW, scaledH, offX, offY);
 
             // --- PASS 3.5: VOID CLEANUP ---
             pCtx.globalCompositeOperation = 'destination-out';

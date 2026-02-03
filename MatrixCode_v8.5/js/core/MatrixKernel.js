@@ -60,6 +60,9 @@ class MatrixKernel {
      * @private
      */
     async _loadPatterns() {
+        if (window.matrixPatterns) {
+            return Promise.resolve();
+        }
         return new Promise((resolve) => {
             const script = document.createElement('script');
             script.src = 'js/effects/QuantizedPatterns.js';

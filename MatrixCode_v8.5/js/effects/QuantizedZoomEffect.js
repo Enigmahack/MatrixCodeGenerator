@@ -327,9 +327,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         // 1. Animation Cycle
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        // Use quantizedZoomSpeed: Higher value = Faster updates (Lower interval)
-        const speed = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 1.0;
-        const effectiveInterval = Math.max(1, baseDuration / Math.max(0.1, speed)); 
+        const delayMult = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 1;
+        const effectiveInterval = baseDuration * (delayMult / 4.0);
 
         this.cycleTimer++;
         if (this.cycleTimer >= effectiveInterval) {
@@ -414,17 +413,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             }
         }
 
-        // 4. Dirtiness
-        const addDuration = Math.max(1, s.quantizedZoomFadeInFrames || 0);
-        if (this.maskOps) {
-            for (const op of this.maskOps) {
-                if (this.animFrame - op.startFrame < addDuration) {
-                    this._maskDirty = true;
-                    break;
-                }
-            }
-        }
-        if (progress >= 0.5) this._maskDirty = true; 
+        // 4. Animation Transition Management (Dirtiness)
+        this._checkDirtiness();
     }
 
     // _updateMask removed to use Base implementation

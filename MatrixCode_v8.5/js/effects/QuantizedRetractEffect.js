@@ -141,19 +141,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         }
 
         // 4. Animation Transition Management (Dirtiness)
-        const addDuration = Math.max(1, s.quantizedRetractFadeInFrames || 0);
-        const removeDuration = Math.max(1, s.quantizedRetractFadeFrames || 0);
-
-        if (this.maskOps) {
-            for (const op of this.maskOps) {
-                const age = this.animFrame - op.startFrame;
-                const duration = (op.type === 'remove') ? removeDuration : addDuration;
-                if (age < duration) {
-                    this._maskDirty = true;
-                    break;
-                }
-            }
-        }
+        this._checkDirtiness();
     }
 
 

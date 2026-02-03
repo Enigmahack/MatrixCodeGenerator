@@ -341,8 +341,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const durationFrames = (s.quantizedGenerateV2DurationSeconds || 5) * fps;
         
         if (this.state === 'GENERATING') {
-            const speed = s.quantizedGenerateV2Speed || 1; 
-            const interval = Math.max(1, 10 / speed); // Higher speed = lower interval
+            const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+            const delayMult = (s.quantizedGenerateV2Speed !== undefined) ? s.quantizedGenerateV2Speed : 1;
+            const interval = baseDuration * (delayMult / 4.0);
             
             this.genTimer++;
             if (this.genTimer >= interval) {
@@ -392,10 +393,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
         }
         
-        // Base class renders based on maskOps and renderGrid
-        // We manually update renderGrid in _addBlock / _shiftBlocks, so we don't rely on base class logic loop
-        // But we MUST set _maskDirty to trigger redraw
-        this._maskDirty = true;
+        // 4. Animation Transition Management (Dirtiness)
+        this._checkDirtiness();
     }
     
 
