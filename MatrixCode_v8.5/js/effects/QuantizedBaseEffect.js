@@ -2708,13 +2708,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._addBlock(start, end, false, false);
             this.maskCtx = oldCtx;
         }
-        colorLayerCtx.globalCompositeOperation = 'source-over';
-        colorLayerCtx.globalAlpha = 1.0;
-
-        // Unified Shared Edge Rendering to Color Layer
-        this._renderEdges(colorLayerCtx, colorLayerCtx, now, blocksX, blocksY, offX, offY);
-
-        // VOID CLEANUP: Ensure no characters are revealed outside active or fading blocks
         colorLayerCtx.globalCompositeOperation = 'destination-out';
         const fadeOutFr = this.getConfig('FadeFrames') || 0;
         for (let by = 0; by < blocksY; by++) {
@@ -2745,6 +2738,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         colorLayerCtx.globalCompositeOperation = 'source-over';
+
+        // Unified Shared Edge Rendering to Color Layer
+        // MUST happen after VOID CLEANUP to prevent clipping centered lines on boundaries
+        this._renderEdges(colorLayerCtx, colorLayerCtx, now, blocksX, blocksY, offX, offY);
         
         this._snapSettings = null;
     }
@@ -2920,52 +2917,88 @@ class QuantizedBaseEffect extends AbstractEffect {
             let opacity = 1.0;
             let scale = 1.0;
 
-            // 1. SILHOUETTE LOGIC (Composite)
-            if (activeA && activeB) {
-                // Internal Edge
-                // Check if layers differ
-                const layerA = getLayerForBlock(ax, ay);
-                const layerB = getLayerForBlock(bx, by);
-                
-                if (layerA !== layerB) {
-                    // Boundary between layers -> DRAW
-                    shouldDraw = true;
-                    opacity = 1.0;
-                    // Use higher layer color
-                    const winLayer = Math.max(layerA, layerB);
-                    // (Optional: can customize color/opacity for internal dividers here)
-                } else {
-                    // Same layer -> SKIP (Merge)
-                    return;
+            // 1. Manual Line Overrides (from edgeMap)
+            // We check all layers for manual lines
+            const key = `${type}_${x}_${y}`;
+            let manualOp = null;
+            for (let i = 2; i >= 0; i--) {
+                const em = this._cachedEdgeMaps[i];
+                if (em && em.has(key)) {
+                    manualOp = em.get(key);
+                    break;
                 }
-            } 
-            else if (activeA !== activeB) {
-                // Active Boundary
-                shouldDraw = true;
-                opacity = 1.0;
-                // Use color of the Active block
-                const activeLyr = activeA ? getLayerForBlock(ax, ay) : getLayerForBlock(bx, by);
-                // Can customize color per layer here if needed, defaulting to global config
-            } 
-            else {
-                // Both Inactive -> Check Ghosts (Fading Out)
-                const remA = getRem(ax, ay);
-                const remB = getRem(bx, by);
-                const ghostA = (remA !== -1);
-                const ghostB = (remB !== -1);
+            }
 
-                if (ghostA && ghostB) {
-                    // Internal Ghost -> SKIP
-                    return;
-                }
-                else if (ghostA !== ghostB) {
-                    // Ghost Boundary
-                    const deathFrame = ghostA ? remA : remB;
+            if (manualOp) {
+                if (manualOp.type === 'add') {
+                    shouldDraw = true;
+                } else if (manualOp.type === 'rem') {
+                    // Check for FADE OUT of manually removed line
+                    const deathFrame = manualOp.op.startFrame || 0;
                     const fade = getFadeState(deathFrame);
                     if (fade) {
                         shouldDraw = true;
                         finalColor = fade.c;
                         opacity = fade.o;
+                    } else {
+                        return; // Fully removed
+                    }
+                }
+            }
+
+            // 2. SILHOUETTE LOGIC (Composite)
+            if (!shouldDraw) {
+                if (activeA && activeB) {
+                    // Internal Edge - Check if layers differ
+                    const layerA = getLayerForBlock(ax, ay);
+                    const layerB = getLayerForBlock(bx, by);
+                    
+                    if (layerA !== layerB) {
+                        // Boundary between DIFFERENT layers -> DRAW
+                        shouldDraw = true;
+                        opacity = 1.0;
+                    } else {
+                        // Same layer -> Normally MERGED (Hidden)
+                        // Check for FADE OUT (Merge Event)
+                        // The line "died" when the LATER block appeared (completing the connection)
+                        const startA = getBlock(this.renderGrid, ax, ay);
+                        const startB = getBlock(this.renderGrid, bx, by);
+                        const mergeFrame = Math.max(startA, startB);
+                        
+                        const fade = getFadeState(mergeFrame);
+                        if (fade) {
+                            shouldDraw = true;
+                            finalColor = fade.c;
+                            opacity = fade.o;
+                        }
+                        // Else: return (skip drawing internal edge)
+                    }
+                } 
+                else if (activeA !== activeB) {
+                    // Active Boundary (External Perimeter)
+                    shouldDraw = true;
+                    opacity = 1.0;
+                } 
+                else {
+                    // Both Inactive -> Check Ghosts (Fading Out)
+                    const remA = getRem(ax, ay);
+                    const remB = getRem(bx, by);
+                    const ghostA = (remA !== -1);
+                    const ghostB = (remB !== -1);
+
+                    if (ghostA && ghostB) {
+                        // Internal Ghost -> SKIP
+                        return;
+                    }
+                    else if (ghostA !== ghostB) {
+                        // Ghost Boundary
+                        const deathFrame = ghostA ? remA : remB;
+                        const fade = getFadeState(deathFrame);
+                        if (fade) {
+                            shouldDraw = true;
+                            finalColor = fade.c;
+                            opacity = fade.o;
+                        }
                     }
                 }
             }
@@ -3003,8 +3036,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.fillStyle = color;
         
         ctx.beginPath();
-        const lwX = l.lineWidthX * 2.0 * scale;
-        const lwY = l.lineWidthY * 2.0 * scale;
+        // Use 1.0 multiplier for correct thickness
+        const lwX = l.lineWidthX * 1.0 * scale;
+        const lwY = l.lineWidthY * 1.0 * scale;
         const faceObj = (typeof face === 'string') ? {dir: face} : face;
         
         this._addPerimeterFacePath(ctx, bx, by, faceObj, lwX, lwY);
@@ -3020,8 +3054,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.fillStyle = color;
 
         ctx.beginPath();
-        const lwX = l.innerLineWidthX * 2.0;
-        const lwY = l.innerLineWidthY * 2.0;
+        // Use 1.0 multiplier for correct thickness
+        const lwX = l.innerLineWidthX * 1.0;
+        const lwY = l.innerLineWidthY * 1.0;
         
         const faceObj = (typeof face === 'string') ? {dir: face} : face;
         
@@ -3098,7 +3133,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const offY = l.offY || 0;
 
         const s = this.c.state;
-        const lineOffset = s.quantizedLineOffset || 0;
+        // const lineOffset = s.quantizedLineOffset || 0;
+        const lineOffset = 0;
 
         // Snap Cell Indices
         const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
@@ -3108,17 +3144,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         let cx, cy;
         if (corner === 'NW') {
-            cx = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            cx = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
+            cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
         } else if (corner === 'NE') {
-            cx = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            cx = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
+            cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
         } else if (corner === 'SW') {
-            cx = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            cx = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
+            cy = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
         } else if (corner === 'SE') {
-            cx = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            cx = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
+            cy = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
         }
         
         // Apply Snapping
@@ -3139,9 +3175,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         const offX = l.offX || 0;
         const offY = l.offY || 0;
 
+        // Force strictly centered lines on the border (no inset/offset)
+        const lineOffset = 0; 
+        
         const s = this.c.state;
         const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
-        const lineOffset = s.quantizedLineOffset || 0;
         
         // Snap Cell Indices
         const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
@@ -3156,7 +3194,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         let drawX, drawY, drawW, drawH;
 
         if (face === 'N') {
-            let cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            // Top Edge
+            let cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
             let leftX = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
             let rightX = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
 
@@ -3183,7 +3222,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'S') {
-            let bottomY = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+            // Bottom Edge
+            let bottomY = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
             let leftX = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
             let rightX = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
 
@@ -3199,6 +3239,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 rightX = midX + halfW;
             }
 
+            // Center line on edge
             drawY = bottomY - (widthY * 0.5); 
             drawH = widthY; 
             
@@ -3209,9 +3250,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (rS) { drawX += widthX; drawW -= widthX; }
             if (rE) { drawW -= widthX; }
         } else if (face === 'W') {
+            // Left Edge
             let topY = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
             let bottomY = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
-            let leftX = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
+            let leftX = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
 
             // Snap
             topY = this._getSnap(topY, 'y');
@@ -3225,6 +3267,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 bottomY = midY + halfH;
             }
 
+            // Center line on edge
             drawX = leftX - (widthX * 0.5); 
             drawW = widthX; 
             
@@ -3235,9 +3278,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (rS) { drawY += widthY; drawH -= widthY; }
             if (rE) { drawH -= widthY; }
         } else if (face === 'E') {
+            // Right Edge
             let topY = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
             let bottomY = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
-            let rightX = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
+            let rightX = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
 
             // Snap
             topY = this._getSnap(topY, 'y');
@@ -3251,6 +3295,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 bottomY = midY + halfH;
             }
 
+            // Center line on edge
             drawX = rightX - (widthX * 0.5); 
             drawW = widthX; 
             
@@ -3306,7 +3351,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const f = face.toUpperCase();
         
         const s = this.c.state;
-        const lineOffset = s.quantizedLineOffset || 0;
+        // const lineOffset = s.quantizedLineOffset || 0;
+        const lineOffset = 0;
 
         const minX = Math.min(blockStart.x, blockEnd.x);
         const maxX = Math.max(blockStart.x, blockEnd.x);
@@ -3337,7 +3383,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const inflate = 0.5; 
 
                 if (f === 'N') {
-                    let cy = l.screenOriginY + ((startCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+                    let cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
                     let baseLeft = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
                     let baseRight = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
                     
@@ -3350,7 +3396,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const width = (baseRight - baseLeft) - (safeX * 2);
                     ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 } else if (f === 'S') {
-                    let cy = l.screenOriginY + ((endCellY + lineOffset) * l.screenStepY) + l.pixelOffY;
+                    let cy = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
                     let baseLeft = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
                     let baseRight = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
                     
@@ -3363,7 +3409,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const width = (baseRight - baseLeft) - (safeX * 2);
                     ctx.rect(left, cy - l.halfLineY - inflate, width, l.lineWidthY + (inflate * 2));
                 } else if (f === 'W') {
-                    let cx = l.screenOriginX + ((startCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
+                    let cx = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
                     let baseTop = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
                     let baseBottom = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
                     
@@ -3376,7 +3422,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const height = (baseBottom - baseTop) - (safeY * 2);
                     ctx.rect(cx - l.halfLineX - inflate, top, l.lineWidthX + (inflate * 2), height);
                 } else if (f === 'E') {
-                    let cx = l.screenOriginX + ((endCellX + lineOffset) * l.screenStepX) + l.pixelOffX;
+                    let cx = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
                     let baseTop = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
                     let baseBottom = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
                     
