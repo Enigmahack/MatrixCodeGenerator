@@ -668,7 +668,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                             }
                         }
                         for (const m of moves) {
-                            this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
+                            this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
                             setLayerInactive(m.x, m.y, layerIdx); 
                             
                             let nx = m.x, ny = m.y;
@@ -832,7 +832,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                                     if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                                     const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
                                     this.maskOps.push({ 
-                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx 
+                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false 
                                     });
                                 }
                             };
@@ -841,7 +841,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                             copyLineOp('W', `V_${m.bx}_${m.by}`);
                             copyLineOp('E', `V_${m.bx+1}_${m.by}`);
                         }
-                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
+                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
                         setLayerInactive(m.x, m.y, layerIdx); 
                         
                         let nx = m.x, ny = m.y;
@@ -927,7 +927,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                                     if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                                     const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
                                     this.maskOps.push({ 
-                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx 
+                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false 
                                     });
                                 }
                             };
@@ -936,7 +936,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                             copyLineOp('W', `V_${m.bx}_${m.by}`);
                             copyLineOp('E', `V_${m.bx+1}_${m.by}`);
                         }
-                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
+                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
                         setLayerInactive(m.x, m.y, layerIdx); 
                         
                         let nx = m.x, ny = m.y;
@@ -1039,7 +1039,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                                         force: true, 
                                         startFrame: now, 
                                         startPhase: this.expansionPhase, 
-                                        layer: layerIdx 
+                                        layer: layerIdx,
+                                        fade: false
                                     });
                                 }
                             };
@@ -2934,6 +2935,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                     shouldDraw = true;
                 } else if (manualOp.type === 'rem') {
                     // Check for FADE OUT of manually removed line
+                    if (manualOp.op.fade === false) return;
+
                     const deathFrame = manualOp.op.startFrame || 0;
                     const fade = getFadeState(deathFrame);
                     if (fade) {
