@@ -187,8 +187,6 @@ class UIManager {
             { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
             { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },
             { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05 },
-            { cat: 'Appearance', id: 'fontOffsetX', type: 'range', label: 'Cell Offset X', min: -100, max: 100, unit: 'px' },
-            { cat: 'Appearance', id: 'fontOffsetY', type: 'range', label: 'Cell Offset Y', min: -100, max: 100, unit: 'px' },
             
             // View Window Controls
             { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1 },
@@ -375,11 +373,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedBlockWidthCells', type: 'range', label: 'Block Width', min: 1, max: 20, step: 1, dep: 'quantizedPulseEnabled', description: "Width of each block in character cells." },
             { cat: 'Effects', id: 'quantizedBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedPulseEnabled', description: "Height of each block in character cells." },
-            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
+            { cat: 'Effects', id: 'quantizedPulseBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulsePerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulsePerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedPulseEnabled' },
             { cat: 'Effects', id: 'quantizedPulseInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedPulseEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add', action: 'quantizedAdd', class: 'btn-warn' },
@@ -391,11 +388,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedAddBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedAddEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedAddFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedAddEnabled' },
+            { cat: 'Effects', id: 'quantizedAddBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddPerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddPerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedAddEnabled' },
             { cat: 'Effects', id: 'quantizedAddInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedAddEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Retract' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract', action: 'quantizedRetract', class: 'btn-warn' },
@@ -407,11 +403,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedRetractBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedRetractEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedRetractFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedRetractEnabled' },
+            { cat: 'Effects', id: 'quantizedRetractBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractPerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractPerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedRetractEnabled' },
             { cat: 'Effects', id: 'quantizedRetractInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedRetractEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Climb' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb', action: 'quantizedClimb', class: 'btn-warn' },
@@ -423,11 +418,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedClimbBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedClimbEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedClimbFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedClimbEnabled' },
             { cat: 'Effects', id: 'quantizedClimbFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedClimbEnabled' },
-            { cat: 'Effects', id: 'quantizedClimbBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedClimbEnabled' },
+            { cat: 'Effects', id: 'quantizedClimbBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedClimbEnabled' },
             { cat: 'Effects', id: 'quantizedClimbPerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedClimbEnabled' },
             { cat: 'Effects', id: 'quantizedClimbPerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedClimbEnabled' },
             { cat: 'Effects', id: 'quantizedClimbInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedClimbEnabled' },
-            { cat: 'Effects', id: 'quantizedClimbInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedClimbEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Zoom' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom', action: 'quantizedZoom', class: 'btn-warn' },
@@ -442,31 +436,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedZoomBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedZoomEnabled', description: "Height of each block in character cells." },
             { cat: 'Effects', id: 'quantizedZoomFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedZoomEnabled' },
             { cat: 'Effects', id: 'quantizedZoomFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedZoomEnabled' },
-            { cat: 'Effects', id: 'quantizedZoomBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedZoomEnabled' },
+            { cat: 'Effects', id: 'quantizedZoomBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedZoomEnabled' },
             { cat: 'Effects', id: 'quantizedZoomPerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedZoomEnabled' },
             { cat: 'Effects', id: 'quantizedZoomPerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedZoomEnabled' },
             { cat: 'Effects', id: 'quantizedZoomInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedZoomEnabled' },
-            { cat: 'Effects', id: 'quantizedZoomInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedZoomEnabled' },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Generate' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Generate', action: 'quantizedGenerate', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedGenerateEnabled', type: 'checkbox', label: 'Enable Quantized Generate' },
-            { cat: 'Effects', id: 'quantizedGenerateFrequencySeconds', type: 'range', label: 'Frequency', min: 10, max: 300, step: 5, unit: 's', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateDurationSeconds', type: 'range', label: 'Max Duration', min: 0.5, max: 30, step: 0.1, unit: 's', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateSpeed', type: 'range', label: 'Speed', min: 0.1, max: 1000, step: 0.1, invert: true, dep: 'quantizedGenerateEnabled', description: "Controls the animation update rate. Right = Fast (Update every cycle). Left = Slow (Update every 1000 cycles)." },
-            { cat: 'Effects', id: 'quantizedGenerateFadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateFadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateBlockWidthCells', type: 'range', label: 'Block Width', min: 1, max: 20, step: 1, dep: 'quantizedGenerateEnabled', description: "Width of each block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateBlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedGenerateEnabled', description: "Height of each block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateBorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGeneratePerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGeneratePerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateInnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateEnabled' },
-            { cat: 'Effects', id: 'quantizedGenerateInnerLineDuration', type: 'range', label: 'Inner Line Duration', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateEnabled', description: "How long internal lines stay visible after overwrite." },
-            { cat: 'Effects', id: 'quantizedGenerateErosionRate', type: 'range', label: 'Erosion Rate', min: 0.0, max: 0.5, step: 0.05, transform: v=>(v*100).toFixed(0)+'%', dep: 'quantizedGenerateEnabled', description: "Probability of blocks randomly disappearing from the edges during growth." },
-
-            { cat: 'Effects', id: 'quantizedGenerateMergeDelay', type: 'checkbox', label: 'Merge Delay', dep: 'quantizedGenerateEnabled', description: "Delays merging of internal lines until blocks settle." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'quantizedGenerateV2', class: 'btn-warn' },
@@ -486,11 +459,10 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2FadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2BlockWidthCells', type: 'range', label: 'Block Width', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Width of each block in character cells." },
             { cat: 'Effects', id: 'quantizedGenerateV2BlockHeightCells', type: 'range', label: 'Block Height', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Height of each block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateV2BorderIllumination', type: 'range', label: 'Border Illumination', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedGenerateV2Enabled' },
+            { cat: 'Effects', id: 'quantizedGenerateV2BorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2PerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2PerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2InnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2InnerFadeFrames', type: 'range', label: 'Inner World Fade', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2InnerLineDuration', type: 'range', label: 'Inner Line Duration', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateV2Enabled', description: "How long internal lines stay visible after overwrite." },
             { cat: 'Effects', id: 'quantizedGenerateV2CleanInnerDistance', type: 'range', label: 'Inner Cleanup Dist', min: 2, max: 10, step: 1, unit: 'blocks', dep: 'quantizedGenerateV2Enabled', description: "Removes lines deeper than this distance from the edge." },
 
@@ -549,20 +521,6 @@ class UIManager {
             { cat: 'Debug', id: 'layerEnableEditorOverlay', type: 'checkbox', label: 'Show Editor Changes', description: 'The green schematic blocks in the Quantized Editor.' },
             { cat: 'Debug', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
             { cat: 'Debug', id: 'quantizedSolidPerimeter', type: 'checkbox', label: 'Solid Perimeter Lines', description: 'Renders grid lines as solid blocks instead of character-based masks.' },
-
-            { cat: 'Debug', type: 'accordion_header', label: 'Quantized Offsets' },
-            { cat: 'Debug', id: 'quantizedPerimeterOffsetX', type: 'range', label: 'Perimeter Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedPerimeterOffsetY', type: 'range', label: 'Perimeter Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedShadowOffsetX', type: 'range', label: 'Shadow Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedShadowOffsetY', type: 'range', label: 'Shadow Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedSourceGridOffsetX', type: 'range', label: 'Source Grid Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedSourceGridOffsetY', type: 'range', label: 'Source Grid Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedEditorGridOffsetX', type: 'range', label: 'Editor Grid Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedEditorGridOffsetY', type: 'range', label: 'Editor Grid Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedEditorChangesOffsetX', type: 'range', label: 'Editor Changes Offset X', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedEditorChangesOffsetY', type: 'range', label: 'Editor Changes Offset Y', min: -200, max: 200, unit: 'px' },
-            { cat: 'Debug', id: 'quantizedLineLength', type: 'range', label: 'Line Length', min: 0.1, max: 2.0, step: 0.01, description: 'Scales the length of grid lines.' },
-            { cat: 'Debug', id: 'quantizedLineOffset', type: 'range', label: 'Line Offset', min: -2.0, max: 2.0, step: 0.01, unit: 'cell', description: 'Shifts grid lines along their axis.' },
         ];
     }
 
@@ -599,7 +557,6 @@ class UIManager {
             { cat: 'System', type: 'keybinder', id: 'QuantizedRetract', label: 'Quantized Retract' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedClimb', label: 'Quantized Climb' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedZoom', label: 'Quantized Zoom' },
-            { cat: 'System', type: 'keybinder', id: 'QuantizedGenerate', label: 'Quantized Generate' },
             { cat: 'System', type: 'keybinder', id: 'QuantizedBlockGenerator', label: 'Quantized Block Generator' },
             { cat: 'System', type: 'keybinder', id: 'DejaVu', label: 'Deja Vu' },
             { cat: 'System', type: 'keybinder', id: 'Superman', label: 'Superman' },
@@ -1646,7 +1603,6 @@ class UIManager {
         if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
                 if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
-                if(action === 'quantizedGenerate') { if(this.effects.trigger('QuantizedGenerate')) this.notifications.show('Quantized Generate Triggered', 'success'); else this.notifications.show('Quantized Generate already active...', 'info'); }
                 if(action === 'quantizedGenerateV2') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
                 if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
@@ -1921,3 +1877,4 @@ class UIManager {
         } catch(e) { console.warn("UI Refresh Error:", e); }
     }
 }
+

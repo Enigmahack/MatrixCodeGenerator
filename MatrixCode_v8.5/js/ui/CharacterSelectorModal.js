@@ -355,3 +355,5 @@ class CharacterSelectorModal {
         this.config.set('fontSettings', allSettings);
     }
 }
+
+

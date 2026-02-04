@@ -32,7 +32,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedGenerate", "QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedClimb"];
+            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedClimb"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
@@ -55,7 +55,14 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._initLogicGrid();
         
         if (this.useShadowWorld) {
-            this._initShadowWorld();
+                    this.expansionPhase = 0;
+        this.cycleTimer = 0;
+        this.cyclesCompleted = 0;
+        this.manualStep = false;
+        this.maskOps = [];
+        this._maskDirty = true;
+
+        this._initShadowWorld();
         }
 
         // 2. Capture Current State
@@ -310,11 +317,20 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     update() {
         if (!this.active) return;
 
+        // 0. Update Shadow Simulation & Warmup
+        if (this.useShadowWorld) {
+            if (!this.hasSwapped && !this.isSwapping) {
+                if (this._updateShadowSim()) return;
+            } else if (this.isSwapping) {
+                super.updateTransition(false);
+            }
+        }
+
         const s = this.c.state;
         const fps = 60;
         this.animFrame++;
 
-        // 0. WAITING State (Delay Start)
+        // 1. WAITING State (Delay Start)
         if (this.state === 'WAITING') {
             this.timer--;
             if (this.timer <= 0) {
@@ -343,14 +359,6 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         
         // Optimize: Update render logic
         this._updateRenderGridLogic();
-        
-        // 1.5 Shadow Simulation
-        if (this.useShadowWorld) {
-            if (!this.hasSwapped && !this.isSwapping) {
-                this._updateShadowSim();
-                    } else if (this.isSwapping) {
-                        super.updateTransition(false);
-                    }        }
 
         // 2. Zoom & Fade Logic
         const totalSteps = this.sequence.length;
@@ -416,6 +424,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         // 4. Animation Transition Management (Dirtiness)
         this._checkDirtiness();
     }
+
 
     // _updateMask removed to use Base implementation
 
@@ -496,6 +505,9 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         // --- Layer 2: Overlay (Border + Lines) ---
         const pColor = this.getConfig('PerimeterColor') || '#FFD700';
         const iColor = this.getConfig('InnerColor') || '#00FF00';
+        
+        const glowStrength = this.getConfig('BorderIllumination') || 4.0;
+        const alphaMult = Math.min(1.0, glowStrength / 4.0);
 
         // Ensure Grid Cache (Dense Characters) is updated
         this._updateGridCache(width, height, s, d);
@@ -521,13 +533,15 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
             // 4. Composite to Screen
             ctx.save();
-            ctx.globalAlpha = this.alpha;
+            ctx.globalAlpha = this.alpha * alphaMult;
             
             // Glow
-            ctx.globalCompositeOperation = 'screen';
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 10; 
-            ctx.drawImage(this.scratchCanvas, 0, 0);
+            if (glowStrength > 2.0) {
+                ctx.globalCompositeOperation = 'screen';
+                ctx.shadowColor = color;
+                ctx.shadowBlur = glowStrength * 3.0; 
+                ctx.drawImage(this.scratchCanvas, 0, 0);
+            }
             
             // Solid
             ctx.globalCompositeOperation = 'source-over';
@@ -609,3 +623,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         }
     }
 }
+
+
+
+
+

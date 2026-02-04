@@ -453,3 +453,4 @@ class FontManager {
        await document.fonts.ready;
   }
 }
+

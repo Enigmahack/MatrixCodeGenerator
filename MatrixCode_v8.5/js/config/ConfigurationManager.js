@@ -107,8 +107,8 @@ class ConfigurationManager {
             "clearAlpha": 1,
             "horizontalSpacingFactor": 0.95,
             "verticalSpacingFactor": 0.95,
-            "fontOffsetX": 0,
-            "fontOffsetY": 0,
+            
+            
             "stretchX": 1,
             "stretchY": 1,
             "decayFadeDurationFrames": 25,
@@ -203,7 +203,6 @@ class ConfigurationManager {
             "quantizedPulseInnerThickness": 0.6,
             "quantizedPulsePerimeterColor": "#eeff00",
             "quantizedPulseInnerColor": "#0cd709",
-            "quantizedPulseInnerFadeFrames": 0,
             "quantizedPulseFadeInFrames": 0,
             "quantizedPulseFadeFrames": 0,
             "quantizedAddEnabled": false,
@@ -217,7 +216,6 @@ class ConfigurationManager {
             "quantizedAddInnerThickness": 0.7,
             "quantizedAddPerimeterColor": "#d4ff00",
             "quantizedAddInnerColor": "#000000",
-            "quantizedAddInnerFadeFrames": 0,
             "quantizedAddFadeInFrames": 0,
             "quantizedAddFadeFrames": 0,
             "quantizedRetractEnabled": false,
@@ -233,7 +231,6 @@ class ConfigurationManager {
             "quantizedRetractInnerThickness": 0.6,
             "quantizedRetractPerimeterColor": "#FFD700",
             "quantizedRetractInnerColor": "#0011ff",
-            "quantizedRetractInnerFadeFrames": 0,
             "quantizedClimbEnabled": false,
             "quantizedClimbFrequencySeconds": 265,
             "quantizedClimbDurationSeconds": 3.6,
@@ -247,7 +244,6 @@ class ConfigurationManager {
             "quantizedClimbInnerThickness": 0.5,
             "quantizedClimbPerimeterColor": "#e1ff00",
             "quantizedClimbInnerColor": "#027a00",
-            "quantizedClimbInnerFadeFrames": 0,
             "quantizedZoomEnabled": false,
             "quantizedZoomFrequencySeconds": 60,
             "quantizedZoomDurationSeconds": 5,
@@ -263,26 +259,6 @@ class ConfigurationManager {
             "quantizedZoomInnerThickness": 1,
             "quantizedZoomPerimeterColor": "#FFD700",
             "quantizedZoomInnerColor": "#FFD700",
-            "quantizedZoomInnerFadeFrames": 0,
-            "quantizedGenerateEnabled": false,
-            "quantizedGenerateFrequencySeconds": 240,
-            "quantizedGenerateDurationSeconds": 7.6,
-            "quantizedGenerateSpeed": 1,
-            "quantizedGenerateBlockWidthCells": 4,
-            "quantizedGenerateBlockHeightCells": 4,
-            "quantizedGenerateBorderIllumination": 4,
-            "quantizedGeneratePerimeterThickness": 1,
-            "quantizedGenerateInnerThickness": 1,
-            "quantizedGeneratePerimeterColor": "#FFD700",
-            "quantizedGenerateInnerColor": "#FFD700",
-            "quantizedGenerateInnerFadeFrames": 0,
-            "quantizedGenerateFadeInFrames": 0,
-            "quantizedGenerateFadeFrames": 0,
-            "quantizedGenerateSimultaneousSpawns": 3,
-            "quantizedGenerateErosionRate": 0.2,
-            "quantizedGenerateInnerLineDuration": 1,
-            "quantizedGenerateGreenFadeSeconds": 0.1,
-            "quantizedGenerateMergeDelay": true,
             "quantizedGenerateV2Enabled": false,
             "quantizedGenerateV2FrequencySeconds": 240,
             "quantizedGenerateV2DurationSeconds": 7.6,
@@ -294,7 +270,6 @@ class ConfigurationManager {
             "quantizedGenerateV2InnerThickness": 1,
             "quantizedGenerateV2PerimeterColor": "#FFD700",
             "quantizedGenerateV2InnerColor": "#FFD700",
-            "quantizedGenerateV2InnerFadeFrames": 0,
             "quantizedGenerateV2FadeInFrames": 0,
             "quantizedGenerateV2FadeFrames": 0,
             "quantizedGenerateV2SimultaneousSpawns": 3,
@@ -306,7 +281,6 @@ class ConfigurationManager {
             "quantizedRetractCleanInnerDistance": 4,
             "quantizedClimbCleanInnerDistance": 4,
             "quantizedZoomCleanInnerDistance": 4,
-            "quantizedGenerateCleanInnerDistance": 4,
             "quantizedGenerateV2CleanInnerDistance": 4,
             "quantizedPerimeterOffsetX": 0,
             "quantizedPerimeterOffsetY": 0,
@@ -321,7 +295,7 @@ class ConfigurationManager {
             "quantizedLineLength": 1,
             "quantizedLineOffset": 0,
             "quantizedOffsetProfiles": {},
-            "quantizedAutoAlign": true,
+            "quantizedAutoAlign": false,
             "layerEnableBackground": true,
             "layerEnablePrimaryCode": true,
             "layerEnableShadowWorld": true,
@@ -433,64 +407,6 @@ class ConfigurationManager {
     }
 
     /**
-     * Computes auto-alignment offsets based on block size.
-     * @private
-     */
-    _computeAutoOffsets(N) {
-        // Algorithm derived from calibration data:
-        // 1x1, 2x2, 3x3, 4x4
-        
-        // 1. Line Length: 1->1.08, 4->1.02
-        const lineLen = 1.10 - (0.02 * N);
-
-        // 2. Line Offset: 1->0, 2->0.24, 3->0.66, 4->1.10
-        let lineOff = 0;
-        if (N > 1) {
-            lineOff = 0.24 + 0.43 * (N - 2);
-        }
-
-        // 3. Perimeter Offset Y: 1->26, 2->22, 3->14, 4->8. Formula: 32 - 6N.
-        const perimY = 32 - (6 * N);
-        
-        // 4. Perimeter Offset X: Odd->(32-6N), Even->(12-7(N-2))
-        let perimX = 0;
-        if (N % 2 !== 0) {
-            perimX = 32 - (6 * N);
-        } else {
-            perimX = 12 - (7 * (N - 2));
-        }
-
-        // 5. Source Grid
-        // 1x1: -26, -26
-        // Even: 8, 18
-        // Odd > 1: 8, 8
-        let srcX = 8;
-        let srcY = 8;
-        if (N === 1) {
-            srcX = -26;
-            srcY = -26;
-        } else if (N % 2 === 0) {
-            srcX = 8;
-            srcY = 18;
-        }
-        
-        return {
-            'quantizedLineLength': parseFloat(lineLen.toFixed(2)),
-            'quantizedLineOffset': parseFloat(lineOff.toFixed(2)),
-            'quantizedPerimeterOffsetX': perimX,
-            'quantizedPerimeterOffsetY': perimY,
-            'quantizedEditorChangesOffsetX': -perimX,
-            'quantizedEditorChangesOffsetY': -perimY,
-            'quantizedEditorGridOffsetX': -perimX,
-            'quantizedEditorGridOffsetY': -perimY,
-            'quantizedSourceGridOffsetX': srcX,
-            'quantizedSourceGridOffsetY': srcY,
-            'quantizedShadowOffsetX': 0,
-            'quantizedShadowOffsetY': 0
-        };
-    }
-
-    /**
      * Deep clone utility to minimize allocations and handle future structuredClone availability.
      * @private
      */
@@ -560,8 +476,8 @@ class ConfigurationManager {
                     "clearAlpha": 0.72,
                     "horizontalSpacingFactor": 0.7,
                     "verticalSpacingFactor": 1,
-                    "fontOffsetX": 0,
-                    "fontOffsetY": 0,
+                    
+                    
                     "stretchX": 1,
                     "stretchY": 1.1,
                     "decayFadeDurationFrames": 15,
@@ -700,20 +616,6 @@ void main() {
                     "quantizedRetractFadeInFrames": 5,
                     "quantizedRetractFadeFrames": 15,
                     "quantizedRetractBorderIllumination": 4,
-                    "quantizedGenerateEnabled": false,
-                    "quantizedGenerateFrequencySeconds": 240,
-                    "quantizedGenerateDurationSeconds": 7.6,
-                    "quantizedGenerateSpeed": 1,
-                    "quantizedGenerateBlockWidthCells": 4,
-                    "quantizedGenerateBlockHeightCells": 4,
-                    "quantizedGenerateBorderIllumination": 4,
-                    "quantizedGeneratePerimeterThickness": 1.0,
-                    "quantizedGeneratePerimeterColor": "#FFD700",
-                    "quantizedGenerateInnerColor": "#FFD700",
-                    "quantizedGenerateFadeInFrames": 0,
-                    "quantizedGenerateFadeFrames": 0,
-                    "quantizedGenerateSimultaneousSpawns": 3,
-                    "quantizedGenerateGreenFadeSeconds": 0.1,
                     "dejaVuEnabled": true,
                     "dejaVuFrequencySeconds": 350,
                     "dejaVuDurationSeconds": 5,
@@ -831,8 +733,8 @@ void main() {
                     "clearAlpha": 1,
                     "horizontalSpacingFactor": 1,
                     "verticalSpacingFactor": 0.95,
-                    "fontOffsetX": 0,
-                    "fontOffsetY": 0,
+                    
+                    
                     "stretchX": 0.8,
                     "stretchY": 1,
                     "decayFadeDurationFrames": 20,
@@ -981,20 +883,6 @@ void main() {
                     "quantizedRetractFadeInFrames": 5,
                     "quantizedRetractFadeFrames": 15,
                     "quantizedRetractBorderIllumination": 4,
-                    "quantizedGenerateEnabled": false,
-                    "quantizedGenerateFrequencySeconds": 240,
-                    "quantizedGenerateDurationSeconds": 7.6,
-                    "quantizedGenerateSpeed": 1,
-                    "quantizedGenerateBlockWidthCells": 4,
-                    "quantizedGenerateBlockHeightCells": 4,
-                    "quantizedGenerateBorderIllumination": 4,
-                    "quantizedGeneratePerimeterThickness": 1.0,
-                    "quantizedGeneratePerimeterColor": "#FFD700",
-                    "quantizedGenerateInnerColor": "#FFD700",
-                    "quantizedGenerateFadeInFrames": 0,
-                    "quantizedGenerateFadeFrames": 0,
-                    "quantizedGenerateSimultaneousSpawns": 3,
-                    "quantizedGenerateGreenFadeSeconds": 0.1,
                     "dejaVuEnabled": false,
                     "dejaVuFrequencySeconds": 350,
                     "dejaVuDurationSeconds": 5,
@@ -1112,8 +1000,8 @@ void main() {
                     "clearAlpha": 0.89,
                     "horizontalSpacingFactor": 0.95,
                     "verticalSpacingFactor": 0.95,
-                    "fontOffsetX": 0,
-                    "fontOffsetY": 0,
+                    
+                    
                     "stretchX": 0.9,
                     "stretchY": 0.9,
                     "decayFadeDurationFrames": 60,
@@ -1262,20 +1150,6 @@ void main() {
                     "quantizedRetractFadeInFrames": 5,
                     "quantizedRetractFadeFrames": 15,
                     "quantizedRetractBorderIllumination": 4,
-                    "quantizedGenerateEnabled": false,
-                    "quantizedGenerateFrequencySeconds": 240,
-                    "quantizedGenerateDurationSeconds": 7.6,
-                    "quantizedGenerateSpeed": 1,
-                    "quantizedGenerateBlockWidthCells": 4,
-                    "quantizedGenerateBlockHeightCells": 4,
-                    "quantizedGenerateBorderIllumination": 4,
-                    "quantizedGeneratePerimeterThickness": 1.0,
-                    "quantizedGeneratePerimeterColor": "#FFD700",
-                    "quantizedGenerateInnerColor": "#FFD700",
-                    "quantizedGenerateFadeInFrames": 0,
-                    "quantizedGenerateFadeFrames": 0,
-                    "quantizedGenerateSimultaneousSpawns": 3,
-                    "quantizedGenerateGreenFadeSeconds": 0.1,
                     "dejaVuEnabled": false,
                     "dejaVuFrequencySeconds": 350,
                     "dejaVuDurationSeconds": 5,
@@ -1396,8 +1270,8 @@ void main() {
                     "clearAlpha": 0.89,
                     "horizontalSpacingFactor": 0.95,
                     "verticalSpacingFactor": 0.95,
-                    "fontOffsetX": 0,
-                    "fontOffsetY": 0,
+                    
+                    
                     "stretchX": 0.9,
                     "stretchY": 0.9,
                     "decayFadeDurationFrames": 60,
@@ -1504,20 +1378,6 @@ void main() {
                     "quantizedRetractFadeInFrames": 5,
                     "quantizedRetractFadeFrames": 15,
                     "quantizedRetractBorderIllumination": 4,
-                    "quantizedGenerateEnabled": false,
-                    "quantizedGenerateFrequencySeconds": 240,
-                    "quantizedGenerateDurationSeconds": 7.6,
-                    "quantizedGenerateSpeed": 1,
-                    "quantizedGenerateBlockWidthCells": 4,
-                    "quantizedGenerateBlockHeightCells": 4,
-                    "quantizedGenerateBorderIllumination": 4,
-                    "quantizedGeneratePerimeterThickness": 1.0,
-                    "quantizedGeneratePerimeterColor": "#FFD700",
-                    "quantizedGenerateInnerColor": "#FFD700",
-                    "quantizedGenerateFadeInFrames": 0,
-                    "quantizedGenerateFadeFrames": 0,
-                    "quantizedGenerateSimultaneousSpawns": 3,
-                    "quantizedGenerateGreenFadeSeconds": 0.1,
                     "dejaVuEnabled": false,
                     "dejaVuFrequencySeconds": 350,
                     "dejaVuDurationSeconds": 5,
@@ -1638,8 +1498,8 @@ void main() {
                     "clearAlpha": 0.7,
                     "horizontalSpacingFactor": 0.75,
                     "verticalSpacingFactor": 1,
-                    "fontOffsetX": 0,
-                    "fontOffsetY": 0,
+                    
+                    
                     "stretchX": 1,
                     "stretchY": 1,
                     "decayFadeDurationFrames": 33,
@@ -1778,20 +1638,6 @@ void main() {
                     "quantizedRetractFadeInFrames": 5,
                     "quantizedRetractFadeFrames": 15,
                     "quantizedRetractBorderIllumination": 4,
-                    "quantizedGenerateEnabled": false,
-                    "quantizedGenerateFrequencySeconds": 240,
-                    "quantizedGenerateDurationSeconds": 7.6,
-                    "quantizedGenerateSpeed": 1,
-                    "quantizedGenerateBlockWidthCells": 4,
-                    "quantizedGenerateBlockHeightCells": 4,
-                    "quantizedGenerateBorderIllumination": 4,
-                    "quantizedGeneratePerimeterThickness": 1.0,
-                    "quantizedGeneratePerimeterColor": "#FFD700",
-                    "quantizedGenerateInnerColor": "#FFD700",
-                    "quantizedGenerateFadeInFrames": 0,
-                    "quantizedGenerateFadeFrames": 0,
-                    "quantizedGenerateSimultaneousSpawns": 3,
-                    "quantizedGenerateGreenFadeSeconds": 0.1,
                     "dejaVuEnabled": true,
                     "dejaVuFrequencySeconds": 350,
                     "dejaVuDurationSeconds": 5,
@@ -1935,11 +1781,6 @@ void main() {
                 // Clamp to max 25
                 if (this.state.eraserStopChance > 25) {
                     this.state.eraserStopChance = 25;
-                }
-
-                // Migration: Ensure quantizedOffsetProfiles exists
-                if (!this.state.quantizedOffsetProfiles) {
-                    this.state.quantizedOffsetProfiles = {};
                 }
             } else {
                 // First run: Clone defaults
@@ -2094,92 +1935,6 @@ void main() {
             }
         }
 
-        // --- QUANTIZED OFFSET PROFILES ---
-        const OFFSET_KEYS = [
-            'quantizedPerimeterOffsetX', 'quantizedPerimeterOffsetY',
-            'quantizedShadowOffsetX', 'quantizedShadowOffsetY',
-            'quantizedSourceGridOffsetX', 'quantizedSourceGridOffsetY',
-            'quantizedEditorGridOffsetX', 'quantizedEditorGridOffsetY',
-            'quantizedEditorChangesOffsetX', 'quantizedEditorChangesOffsetY',
-            'quantizedLineLength', 'quantizedLineOffset'
-        ];
-
-        const BLOCK_SIZE_KEYS = [
-            'quantizedBlockWidthCells', 'quantizedBlockHeightCells',
-            'quantizedPulseBlockWidthCells', 'quantizedPulseBlockHeightCells',
-            'quantizedAddBlockWidthCells', 'quantizedAddBlockHeightCells',
-            'quantizedRetractBlockWidthCells', 'quantizedRetractBlockHeightCells',
-            'quantizedClimbBlockWidthCells', 'quantizedClimbBlockHeightCells',
-            'quantizedGenerateBlockWidthCells', 'quantizedGenerateBlockHeightCells',
-            'quantizedGenerateV2BlockWidthCells', 'quantizedGenerateV2BlockHeightCells'
-        ];
-
-        // 1. If an offset is changing, save it to the CURRENT profile
-        if (OFFSET_KEYS.includes(key)) {
-            // Find current block size (most specific to pulse by default or first valid)
-            const w = this.state.quantizedPulseBlockWidthCells || this.state.quantizedBlockWidthCells || 4;
-            const h = this.state.quantizedPulseBlockHeightCells || this.state.quantizedBlockHeightCells || 4;
-            const profileKey = `${w}x${h}`;
-            if (!this.state.quantizedOffsetProfiles) this.state.quantizedOffsetProfiles = {};
-            if (!this.state.quantizedOffsetProfiles[profileKey]) this.state.quantizedOffsetProfiles[profileKey] = {};
-            this.state.quantizedOffsetProfiles[profileKey][key] = value;
-        }
-
-        // 2. If a block size is changing, LOAD the profile for the NEW size
-        if (BLOCK_SIZE_KEYS.includes(key)) {
-            let newW = this.state.quantizedPulseBlockWidthCells || this.state.quantizedBlockWidthCells || 4;
-            let newH = this.state.quantizedPulseBlockHeightCells || this.state.quantizedBlockHeightCells || 4;
-            
-            // Override with the incoming change
-            if (key.includes('Width')) newW = value;
-            if (key.includes('Height')) newH = value;
-
-            const profileKey = `${newW}x${newH}`;
-            const profile = this.state.quantizedOffsetProfiles ? this.state.quantizedOffsetProfiles[profileKey] : null;
-
-            // Strategy: 
-            // 1. If Auto-Align is ON: Calculate new defaults.
-            // 2. If Profile exists: Merge it on top (User overrides win? Or Auto-Align wins?)
-            //    Request implies "algorithm... to ensure aligned". 
-            //    So Auto-Align should be the BASELINE.
-            //    But if user manually tweaked a profile, they likely want that.
-            //    Let's say: If Profile Exists, use it. If NOT, use Auto-Align.
-            //    AND: If Auto-Align is ON, should it overwrite the profile? 
-            //    Let's assume Auto-Align provides the *defaults* for a size.
-            
-            let offsetsToApply = {};
-            
-            // A. Calculate Auto-Defaults first
-            if (this.state.quantizedAutoAlign) {
-                offsetsToApply = this._computeAutoOffsets(newW); // Assuming square logic or using Width
-            }
-
-            // B. Apply Profile Overrides (if any)
-            if (profile) {
-                // If the user manually saved this profile, respect it.
-                // However, if we want strict enforcement, we might ignore profile.
-                // But the profile system saves *every* tweak. 
-                // So if we load a profile, we load the last state.
-                // If the user wants to re-auto-align, they can toggle AutoAlign off/on?
-                // Or maybe we treat AutoAlign as a "Smart Reset".
-                // Let's merge: Profile beats Auto.
-                offsetsToApply = { ...offsetsToApply, ...profile };
-            }
-
-            // Apply
-            if (offsetsToApply) {
-                // Update the actual key first
-                this.state[key] = value;
-                
-                for (const oKey of OFFSET_KEYS) {
-                    if (offsetsToApply[oKey] !== undefined) {
-                        this.state[oKey] = offsetsToApply[oKey];
-                        this.notify(oKey);
-                    }
-                }
-            }
-        }
-        
         this.state[key] = value; // Update the actual key's value
 
         // Only recompute derived values when relevant keys change (preserves behavior, improves perf)
@@ -2376,3 +2131,6 @@ void main() {
         }
     }
 }
+
+
+

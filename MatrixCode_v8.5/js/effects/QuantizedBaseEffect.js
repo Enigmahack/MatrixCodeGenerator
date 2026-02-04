@@ -53,6 +53,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.lineStates = new Map(); // Key -> { visible: boolean, deathFrame: number }
         this.suppressedFades = new Set(); // Set of Keys to ignore for fading this frame
         this.lastVisibilityChangeFrame = 0;
+        this.warmupRemaining = 0;
     }
 
     _checkDirtiness() {
@@ -1154,13 +1155,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         warmupFrames = Math.max(200, warmupFrames); // Minimum 200 frames
         warmupFrames = Math.min(5000, warmupFrames); // Cap at 5000 to prevent freeze on very slow settings
         
-        // Run the simulation loop
-        // Since useWorker is false and we aren't rendering, this is just array math and is very fast.
-        for (let i = 0; i < warmupFrames; i++) {
-            this.shadowSim.update(i);
-        }
-        
-        this.shadowSimFrame = warmupFrames;
+        this.warmupRemaining = warmupFrames;
+        this.shadowSimFrame = 0;
     }
 
     _initShadowWorldBase(workerEnabled = false) {
@@ -1344,9 +1340,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         const glowStrength = this.getConfig('BorderIllumination') || 0;
         const t = Math.min(1.0, glowStrength / 10.0);
-        const charR = 255;
-        const charG = Math.floor(204 + (255 - 204) * t);
-        const charB = Math.floor(0 + (255 - 0) * t);
+        
+        // Scale brightness for low illumination values to ensure 0.1-1.0 range is visible
+        const intensity = Math.min(1.0, glowStrength / 1.0); 
+        const charR = Math.floor(255 * intensity);
+        const charG = Math.floor((204 + (255 - 204) * t) * intensity);
+        const charB = Math.floor((0 + (255 - 0) * t) * intensity);
         const charColor = `rgb(${charR}, ${charG}, ${charB})`;
         
         const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
@@ -1370,8 +1369,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
         
-        const screenOriginX = ((s.fontOffsetX - (grid.cols * d.cellWidth * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((s.fontOffsetY - (grid.rows * d.cellHeight * 0.5)) * s.stretchY) + (h * 0.5);
+        const screenOriginX = ((0 - (grid.cols * d.cellWidth * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((0 - (grid.rows * d.cellHeight * 0.5)) * s.stretchY) + (h * 0.5);
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
@@ -1614,11 +1613,23 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _updateShadowSim() {
-        if (!this.shadowSim) return;
+        if (!this.shadowSim) return false;
         
+        if (this.warmupRemaining > 0) {
+            // Process in batches of 50 frames to avoid blocking the main thread too much
+            // but finish quickly.
+            const batch = 50; 
+            const toRun = Math.min(this.warmupRemaining, batch);
+            for (let i = 0; i < toRun; i++) {
+                this.shadowSim.update(++this.shadowSimFrame);
+            }
+            this.warmupRemaining -= toRun;
+            return true; // Still warming up
+        }
+
         this.shadowSim.update(++this.shadowSimFrame);
         
-        if (!this.renderGrid || !this._lastBlocksX) return;
+        if (!this.renderGrid || !this._lastBlocksX) return false;
 
         const blocksX = this._lastBlocksX;
         const blocksY = this._lastBlocksY;
@@ -1635,17 +1646,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const screenBlocksX = Math.ceil(g.cols / pitchX);
         const screenBlocksY = Math.ceil(g.rows / pitchY);
 
-        const bs = this.getBlockSize();
-        // Reset offset
-        const oddShiftY = 0.0; 
-        
-        // User Offsets
-        const userShadowOffsetX = this.c.state.quantizedShadowOffsetX || 0;
-        const userShadowOffsetY = this.c.state.quantizedShadowOffsetY || 0;
-        // Convert pixels to blocks (approximate, assuming resolution scale 1 for logic)
-        // Note: cellWidth/Height in 'derived' are pixels. 
-        const userBlockOffX = userShadowOffsetX / (this.c.derived.cellWidth * pitchX);
-        const userBlockOffY = userShadowOffsetY / (this.c.derived.cellHeight * pitchY);
+        const userBlockOffX = 0;
+        const userBlockOffY = 0;
 
         // PASS 1: Clear Outside (Void) areas
         // We run this first so that if an 'Inside' block overlaps an 'Outside' block, 
@@ -1715,18 +1717,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                                 g.overrideChars[destIdx] = sg.chars[srcIdx];
                                 g.overrideColors[destIdx] = sg.colors[srcIdx];
                                 
-                                let finalAlpha = sg.alphas[srcIdx];
-                                const innerFadeFrames = this.getConfig('InnerFadeFrames') || 0;
-                                if (innerFadeFrames > 0) {
-                                    const bIdx = by * blocksX + bx;
-                                    const startFrame = this.renderGrid[bIdx];
-                                    if (startFrame !== -1) {
-                                        const age = this.animFrame - startFrame;
-                                        const blockAlpha = Math.min(1.0, Math.max(0, age / innerFadeFrames));
-                                        finalAlpha *= blockAlpha;
-                                    }
-                                }
-                                g.overrideAlphas[destIdx] = finalAlpha;
+                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
 
                                 g.overrideGlows[destIdx] = sg.glows[srcIdx];
                                 g.overrideMix[destIdx] = sg.mix[srcIdx];
@@ -1770,8 +1761,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             
             // Draw Source Grid (Debug Layer)
             if (showSource) {
-                const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (d.cellWidth * 0.5);
-                const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (d.cellHeight * 0.5);
+                const srcOffX = (0) + (d.cellWidth * 0.5);
+                const srcOffY = (0) + (d.cellHeight * 0.5);
                 ctx.save();
                 ctx.globalAlpha = 0.3; // Reduced to 30% opacity
                 ctx.globalCompositeOperation = 'source-over';
@@ -1782,8 +1773,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             if (showLines && glowStrength > 0) {
                 const scratchCtx = this.scratchCtx;
-                const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (d.cellWidth * 0.5);
-                const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (d.cellHeight * 0.5);
+                const srcOffX = (0) + (d.cellWidth * 0.5);
+                const srcOffY = (0) + (d.cellHeight * 0.5);
 
                 scratchCtx.globalCompositeOperation = 'source-over';
                 scratchCtx.clearRect(0, 0, width, height);
@@ -1805,7 +1796,21 @@ class QuantizedBaseEffect extends AbstractEffect {
                 
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter'; 
-                ctx.globalAlpha = 1.0;
+                
+                // Border Illumination Control: Scale alpha based on glowStrength
+                const alphaMult = Math.min(1.0, glowStrength / 4.0); // Reach full opacity at 4.0
+                ctx.globalAlpha = alphaMult;
+                
+                // Add Glow Effect for higher perceived brightness at higher illumination levels
+                if (glowStrength > 2.0) {
+                    const t = Math.min(1.0, (glowStrength - 2.0) / 8.0);
+                    const glowR = 255;
+                    const glowG = Math.floor(215 + (255 - 215) * t);
+                    const glowB = Math.floor(0 + (255 - 0) * t);
+                    ctx.shadowColor = `rgb(${glowR}, ${glowG}, ${glowB})`;
+                    ctx.shadowBlur = (glowStrength * 3.0);
+                }
+                
                 ctx.drawImage(this.scratchCanvas, 0, 0);
                 ctx.restore();
             }
@@ -1832,8 +1837,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         scratchCtx.clearRect(0, 0, width, height);
 
         scratchCtx.globalAlpha = 1.0; 
-        const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
-        const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (derived.cellHeight * 0.5);
+        const srcOffX = (0) + (derived.cellWidth * 0.5);
+        const srcOffY = (0) + (derived.cellHeight * 0.5);
         scratchCtx.save();
         scratchCtx.translate(srcOffX, srcOffY);
         scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
@@ -1904,8 +1909,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Draw Source Grid (Debug Layer) - IF enabled
         if (this.c.state.layerEnableQuantizedGridCache === true) {
             this._updateGridCache(width, height, s, derived);
-            const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
-            const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (derived.cellHeight * 0.5);
+            const srcOffX = (0) + (derived.cellWidth * 0.5);
+            const srcOffY = (0) + (derived.cellHeight * 0.5);
             ctx.save();
             ctx.globalAlpha = 0.3;
             ctx.globalCompositeOperation = 'source-over';
@@ -1916,8 +1921,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Render the actual effect components from the pre-updated canvases
         const scratchCtx = this.scratchCtx;
-        const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
-        const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (derived.cellHeight * 0.5);
+        const srcOffX = (0) + (derived.cellWidth * 0.5);
+        const srcOffY = (0) + (derived.cellHeight * 0.5);
 
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
@@ -1975,8 +1980,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cy = Math.floor(blocksY / 2);
         
         // User Editor Offsets
-        const gridOffX = this.c.state.quantizedEditorGridOffsetX || 0;
-        const gridOffY = this.c.state.quantizedEditorGridOffsetY || 0;
+        const gridOffX = 0;
+        const gridOffY = 0;
 
         ctx.save();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; 
@@ -2030,8 +2035,8 @@ class QuantizedBaseEffect extends AbstractEffect {
          const cx = Math.floor(blocksX / 2);
          const cy = Math.floor(this.logicGridH / 2);
          
-         const changesOffX = this.c.state.quantizedEditorChangesOffsetX || 0;
-         const changesOffY = this.c.state.quantizedEditorChangesOffsetY || 0;
+         const changesOffX = 0;
+         const changesOffY = 0;
          
          ctx.save();
             
@@ -2415,20 +2420,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         const bs = this.getBlockSize();
         const oddShiftY = 0.0; 
         
-        const userPerimeterOffsetX = s.quantizedPerimeterOffsetX || 0;
-        const userPerimeterOffsetY = s.quantizedPerimeterOffsetY || 0;
+        const userPerimeterOffsetX = 0;
+        const userPerimeterOffsetY = 0;
 
-        const userShadowOffsetX = s.quantizedShadowOffsetX || 0;
-        const userShadowOffsetY = s.quantizedShadowOffsetY || 0;
+        const userShadowOffsetX = 0;
+        const userShadowOffsetY = 0;
 
-        const screenOriginX = ((s.fontOffsetX - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
-        const screenOriginY = ((s.fontOffsetY - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
+        const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (w * 0.5);
+        const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (h * 0.5);
         
         const cellPitchX = Math.max(1, bs.w);
         const cellPitchY = Math.max(1, bs.h);
-
-        const userBlockOffX = userShadowOffsetX / (d.cellWidth * cellPitchX);
-        const userBlockOffY = userShadowOffsetY / (d.cellHeight * cellPitchY);
 
         this.layout = {
             screenStepX, screenStepY,
@@ -2438,9 +2440,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             screenOriginX, screenOriginY,
             gridPixW, gridPixH,
             cellPitchX, cellPitchY,
-            userBlockOffX, userBlockOffY,
-            pixelOffX: userPerimeterOffsetX,
-            pixelOffY: userPerimeterOffsetY
+            userBlockOffX: 0, userBlockOffY: 0,
+            pixelOffX: 0,
+            pixelOffY: 0
         };
         const l = this.layout;
 
@@ -2980,7 +2982,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const offY = l.offY || 0;
 
         const s = this.c.state;
-        // const lineOffset = s.quantizedLineOffset || 0;
+        // const lineOffset = 0;
         const lineOffset = 0;
 
         // Snap Cell Indices
@@ -3026,7 +3028,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const lineOffset = 0; 
         
         const s = this.c.state;
-        const lineLengthMult = s.quantizedLineLength !== undefined ? s.quantizedLineLength : 1.0;
+        const lineLengthMult = 1 !== undefined ? 1 : 1.0;
         
         // Snap Cell Indices
         const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
@@ -3198,7 +3200,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const f = face.toUpperCase();
         
         const s = this.c.state;
-        // const lineOffset = s.quantizedLineOffset || 0;
+        // const lineOffset = 0;
         const lineOffset = 0;
 
         const minX = Math.min(blockStart.x, blockEnd.x);
@@ -3288,3 +3290,5 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.globalCompositeOperation = 'source-over';
     }
 }
+
+

@@ -136,7 +136,7 @@ class QuantizedEffectEditor {
         }
 
         // Disable all quantized effects to ensure a clean slate for the new one
-        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
+        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
         if (this.registry) {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
@@ -177,7 +177,7 @@ class QuantizedEffectEditor {
     toggle(isActive) {
         this.active = isActive;
         if (this.active) {
-            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
+            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
             if (this.registry) {
                 qEffects.forEach(name => {
                     const eff = this.registry.get(name);
@@ -408,10 +408,10 @@ class QuantizedEffectEditor {
         const cy = Math.floor(blocksY / 2);
         
         // User Editor Offsets
-        const gridOffX = this.effect.c.state.quantizedEditorGridOffsetX || 0;
-        const gridOffY = this.effect.c.state.quantizedEditorGridOffsetY || 0;
-        const changesOffX = this.effect.c.state.quantizedEditorChangesOffsetX || 0;
-        const changesOffY = this.effect.c.state.quantizedEditorChangesOffsetY || 0;
+        const gridOffX = 0;
+        const gridOffY = 0;
+        const changesOffX = 0;
+        const changesOffY = 0;
 
         // 2. Render Background Grid (Overlay)
         if (this.showGrid) {
@@ -610,7 +610,7 @@ class QuantizedEffectEditor {
             effectSelect.style.color = '#0f0';
             effectSelect.style.border = '1px solid #0f0';
             
-            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedGenerate'];
+            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
             effects.forEach(effName => {
                 if (this.registry.get(effName)) {
                     const opt = document.createElement('option');
@@ -1658,3 +1658,4 @@ class QuantizedEffectEditor {
         }
     }
 }
+

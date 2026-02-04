@@ -110,7 +110,6 @@ class MatrixKernel {
             QuantizedRetractEffect,
             QuantizedClimbEffect,
             QuantizedZoomEffect,
-            QuantizedGenerateEffect,
             QuantizedBlockGeneration
         ];
         effects.forEach((EffectClass) => {
@@ -233,9 +232,7 @@ class MatrixKernel {
             'stretchY',
             'fontSize',
             'horizontalSpacingFactor',
-            'verticalSpacingFactor',
-            'fontOffsetX',
-            'fontOffsetY'
+            'verticalSpacingFactor'
         ]);
 
         const smoothingTriggers = new Set([
@@ -289,7 +286,6 @@ class MatrixKernel {
                 { enabledKey: 'quantizedAddEnabled', frequencyKey: 'quantizedAddFrequencySeconds', effectName: 'QuantizedAdd' },
                 { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
                 { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
-                { enabledKey: 'quantizedGenerateEnabled', frequencyKey: 'quantizedGenerateFrequencySeconds', effectName: 'QuantizedGenerate' },
                 { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
             ];
@@ -464,7 +460,6 @@ class MatrixKernel {
             { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
             { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
             { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
-            { enabledKey: 'quantizedGenerateEnabled', frequencyKey: 'quantizedGenerateFrequencySeconds', effectName: 'QuantizedGenerate' },
             { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
@@ -507,3 +502,4 @@ window.addEventListener('DOMContentLoaded', async () => {
     await kernel.initAsync();
     kernel.lastFrameTime = performance.now(); // Set initial time
 });
+

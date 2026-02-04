@@ -1316,3 +1316,6 @@ class QuantizedSequenceGenerator {
         return 0;
     }
 }
+
+
+

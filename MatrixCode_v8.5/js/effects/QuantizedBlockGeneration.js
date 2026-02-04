@@ -76,10 +76,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     
         const warmupFrames = 60; 
-        this.shadowSimFrame = warmupFrames;
-        for (let i = 0; i < warmupFrames; i++) {
-            this.shadowSim.update(i);
-        }
+        this.warmupRemaining = warmupFrames;
+        this.shadowSimFrame = 0;
     }
 
     trigger(force = false) {
@@ -89,7 +87,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.timer = 0;
         this.genTimer = 0;
         this.stepCount = 0;
-        this.animFrame = 0; // Fix: Initialize animFrame
+        this.animFrame = 0;
+        this.expansionPhase = 0;
+        this.cycleTimer = 0;
+        this.cyclesCompleted = 0;
+        this.manualStep = false;
+        this.maskOps = [];
+        this._maskDirty = true;
         this.alpha = 1.0;
         this.state = 'GENERATING';
         
@@ -313,17 +317,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     update() {
         if (!this.active) return;
 
+        // 0. Update Shadow Simulation & Warmup
+        if (!this.hasSwapped && !this.isSwapping) {
+            if (this._updateShadowSim()) return;
+        } else if (this.isSwapping) {
+            super.updateTransition(false);
+        }
+
         const s = this.c.state;
         const fps = 60;
         this.animFrame++;
         this.timer++;
-        
-        // Shadow Sim Update (Always run to keep code rain moving)
-        if (!this.hasSwapped && !this.isSwapping) {
-            this._updateShadowSim();
-        } else if (this.isSwapping) {
-            super.updateTransition(false);
-        }
 
         // Perform cleanup of expired ops (e.g. inner lines)
         const fadeOutFrames = this.getConfig('FadeFrames') || 0;
@@ -1548,3 +1552,5 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     }
 }
+
+

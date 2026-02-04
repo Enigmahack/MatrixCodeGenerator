@@ -396,3 +396,4 @@ class CellGrid {
         this.rows = newRows;
     }
 }
+

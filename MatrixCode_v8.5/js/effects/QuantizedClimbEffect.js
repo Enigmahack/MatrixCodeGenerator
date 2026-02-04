@@ -26,7 +26,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
 
         // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedGenerate", "QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedZoom"];
+            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedZoom"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
@@ -43,6 +43,13 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this.hasSwapped = false;
         this.isSwapping = false;
 
+                this.expansionPhase = 0;
+        this.cycleTimer = 0;
+        this.cyclesCompleted = 0;
+        this.manualStep = false;
+        this.maskOps = [];
+        this._maskDirty = true;
+
         this._initShadowWorld();
 
         if (this.renderGrid) this.renderGrid.fill(-1);
@@ -52,6 +59,13 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
 
     update() {
         if (!this.active) return;
+
+        // 0. Update Shadow Simulation & Warmup
+        if (!this.hasSwapped && !this.isSwapping) {
+            if (super._updateShadowSim()) return;
+        } else if (this.isSwapping) {
+            super.updateTransition(true);
+        }
 
         const s = this.c.state;
         const fps = 60;
@@ -74,13 +88,6 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         }
 
         this._updateRenderGridLogic();
-
-        // 2. Shadow Simulation
-        if (!this.hasSwapped && !this.isSwapping) {
-            super._updateShadowSim();
-        } else if (this.isSwapping) {
-            super.updateTransition(true);
-        }
 
         // 3. Lifecycle
         const fadeInFrames = Math.max(1, (s.quantizedClimbFadeInFrames !== undefined) ? s.quantizedClimbFadeInFrames : 60);
@@ -132,3 +139,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         }
     }
 }
+
+
+
+

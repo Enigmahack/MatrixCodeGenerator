@@ -32,7 +32,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
 
         // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
-            const siblings = ["QuantizedGenerate", "QuantizedPulse", "QuantizedAdd", "QuantizedClimb", "QuantizedZoom"];
+            const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedClimb", "QuantizedZoom"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
                 if (eff && eff.active) {
@@ -48,6 +48,13 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         this.alpha = 0.0;
         this.offsetX = 0.5; 
         this.offsetY = 0.5;
+
+                this.expansionPhase = 0;
+        this.cycleTimer = 0;
+        this.cyclesCompleted = 0;
+        this.manualStep = false;
+        this.maskOps = [];
+        this._maskDirty = true;
 
         this._initShadowWorld();
         this.hasSwapped = false;
@@ -68,6 +75,13 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         const fps = 60;
 
         if (!this.active) return;
+
+        // 0. Update Shadow Simulation & Warmup
+        if (!this.hasSwapped && !this.isSwapping) {
+            if (this._updateShadowSim()) return;
+        } else if (this.isSwapping) {
+            super.updateTransition(true);
+        }
 
         this.animFrame++;
 
@@ -90,13 +104,6 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
 
         // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
         this._updateRenderGridLogic();
-
-        // 2. Update Shadow Simulation & Apply Overrides
-        if (!this.hasSwapped && !this.isSwapping) {
-            this._updateShadowSim();
-        } else if (this.isSwapping) {
-            super.updateTransition(true);
-        }
 
         // 3. Lifecycle State Machine
         const fadeInFrames = Math.max(1, (s.quantizedRetractFadeInFrames !== undefined) ? s.quantizedRetractFadeInFrames : 60);
@@ -150,3 +157,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         // No grid overrides - we render directly to overlayCanvas
     }
 }
+
+
+
+

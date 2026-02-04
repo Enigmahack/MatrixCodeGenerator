@@ -552,3 +552,4 @@ class PulseEffect extends AbstractEffect {
         }
     }
 }
+

@@ -806,7 +806,7 @@ class WebGLRenderer {
         
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
-        const xOff = s.fontOffsetX; const yOff = s.fontOffsetY;
+        const xOff = 0; const yOff = 0;
         for (let i = 0; i < totalCells; i++) {
              const col = i % this.grid.cols;
              const row = Math.floor(i / this.grid.cols);
@@ -1665,3 +1665,4 @@ class WebGLRenderer {
         }
     }
 }
+

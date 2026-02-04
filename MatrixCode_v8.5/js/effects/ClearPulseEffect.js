@@ -373,3 +373,5 @@ class ClearPulseEffect extends AbstractEffect {
         }
     }
 }
+
+

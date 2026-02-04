@@ -113,3 +113,4 @@ class EffectRegistry {
             update() {}
             getActiveIndices() { return new Set(); }
         }
+
