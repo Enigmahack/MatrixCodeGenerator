@@ -102,7 +102,6 @@ class MatrixKernel {
             MiniPulseEffect,
             DejaVuEffect,
             SupermanEffect,
-            ReverseEffect,
             BootEffect,
             CrashEffect,
             QuantizedPulseEffect,
@@ -113,7 +112,7 @@ class MatrixKernel {
             QuantizedBlockGeneration
         ];
         effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect || EffectClass === BootEffect || EffectClass === ReverseEffect) {
+            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
             } else {
                 this.effectRegistry.register(new EffectClass(this.grid, this.config));
@@ -292,7 +291,7 @@ class MatrixKernel {
 
             autoEffects.forEach(effect => {
                 if ((key === effect.enabledKey && this.config.state[effect.enabledKey]) || key === 'ALL') {
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
+                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
                     const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
                     this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
                 } else if (key === effect.enabledKey && !this.config.state[effect.enabledKey]) {
@@ -301,6 +300,21 @@ class MatrixKernel {
                 }
             });
         });
+    }
+
+    /**
+     * Calculates the minimum frequency in frames, handling the "Random" (500s) special case for Quantized effects.
+     * @private
+     * @param {string} effectName - The name of the effect.
+     * @param {string} frequencyKey - The configuration key for the frequency.
+     * @returns {number} The calculated frequency in frames.
+     */
+    _getMinFrequencyFrames(effectName, frequencyKey) {
+        let seconds = this.config.state[frequencyKey];
+        if (seconds === 500 && effectName.startsWith('Quantized')) {
+            seconds = Utils.randomInt(50, 500);
+        }
+        return seconds * 60;
     }
 
     /**
@@ -468,7 +482,7 @@ class MatrixKernel {
             if (this.config.state[effect.enabledKey]) {
                 if (!this._effectTimers[effect.effectName]) {
                     // Initialize timer with randomization if not already set
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
+                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
                     const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
                     this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
                 }
@@ -478,7 +492,7 @@ class MatrixKernel {
                 if (this._effectTimers[effect.effectName] <= 0) {
                     this.effectRegistry.trigger(effect.effectName);
                     // Reset timer with randomization
-                    const minFrequencyFrames = this.config.state[effect.frequencyKey] * 60;
+                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
                     const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5);
                     this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
                 }

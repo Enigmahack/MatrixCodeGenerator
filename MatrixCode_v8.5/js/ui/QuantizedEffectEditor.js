@@ -359,6 +359,16 @@ class QuantizedEffectEditor {
 
     _renderLoop() {
         if (!this.active) return;
+        
+        // Override: Ensure effect stays alive and visible while editing
+        if (this.effect) {
+             this.effect.active = true;
+             if (this.effect.state === 'FADE_OUT' || this.effect.state === 'IDLE') {
+                 this.effect.state = 'SUSTAIN';
+                 this.effect.alpha = 1.0;
+             }
+        }
+
         this._render();
         requestAnimationFrame(this._boundRender);
     }
@@ -637,7 +647,7 @@ class QuantizedEffectEditor {
         const inpW = document.createElement('input');
         inpW.type = 'number';
         inpW.min = '1';
-        inpW.max = '50';
+        inpW.max = '8';
         inpW.style.width = '40px';
         inpW.style.background = '#333';
         inpW.style.color = '#fff';
@@ -649,7 +659,7 @@ class QuantizedEffectEditor {
         const inpH = document.createElement('input');
         inpH.type = 'number';
         inpH.min = '1';
-        inpH.max = '50';
+        inpH.max = '8';
         inpH.style.width = '40px';
         inpH.style.background = '#333';
         inpH.style.color = '#fff';

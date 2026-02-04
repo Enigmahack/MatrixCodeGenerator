@@ -73,7 +73,9 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
 
         // 1. Animation Cycle
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const delayMult = (s.quantizedClimbSpeed !== undefined) ? s.quantizedClimbSpeed : 1;
+        const userSpeed = (s.quantizedClimbSpeed !== undefined) ? s.quantizedClimbSpeed : 5;
+        // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
+        const delayMult = 11 - userSpeed;
         const effectiveInterval = baseDuration * (delayMult / 4.0);
 
         this.cycleTimer++;
@@ -82,7 +84,11 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
             this.cyclesCompleted++;
             
             if (!this.debugMode || this.manualStep) {
-                this._processAnimationStep();
+                if (this.expansionPhase < this.sequence.length) {
+                    this._processAnimationStep();
+                } else if (this.getConfig('AutoGenerateRemaining')) {
+                    this._attemptGrowth();
+                }
                 this.manualStep = false;
             }
         }
@@ -104,7 +110,10 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
             }
         } else if (this.state === 'SUSTAIN') {
             this.timer++;
-            if (!this.debugMode && this.timer >= durationFrames) {
+            const isFinished = (this.timer >= durationFrames);
+            const procFinished = this.getConfig('AutoGenerateRemaining') && this._isProceduralFinished();
+
+            if (!this.debugMode && (isFinished || procFinished)) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {
@@ -128,15 +137,6 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
 
         // 4. Animation Transition Management (Dirtiness)
         this._checkDirtiness();
-    }
-
-    _processAnimationStep() {
-        if (this.expansionPhase < this.sequence.length) {
-            const step = this.sequence[this.expansionPhase];
-            if (step) this._executeStepOps(step);
-            this.expansionPhase++;
-            this._maskDirty = true;
-        }
     }
 }
 

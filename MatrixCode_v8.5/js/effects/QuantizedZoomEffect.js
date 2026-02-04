@@ -343,7 +343,9 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         // 1. Animation Cycle
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const delayMult = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 1;
+        const userSpeed = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 5;
+        // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
+        const delayMult = 11 - userSpeed;
         const effectiveInterval = baseDuration * (delayMult / 4.0);
 
         this.cycleTimer++;
@@ -352,7 +354,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             this.cyclesCompleted++;
             
             if (!this.debugMode || this.manualStep) {
-                this._processAnimationStep();
+                if (this.expansionPhase < this.sequence.length) {
+                    this._processAnimationStep();
+                } else if (this.getConfig('AutoGenerateRemaining')) {
+                    this._attemptGrowth();
+                }
                 this.manualStep = false;
             }
         }
@@ -398,8 +404,10 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             this.timer++;
             this.alpha = 1.0;
 
-            // Run strictly for duration, independent of sequence progress
-            if (this.timer >= durationFrames) {
+            const isFinished = (this.timer >= durationFrames);
+            const procFinished = this.getConfig('AutoGenerateRemaining') && this._isProceduralFinished();
+
+            if (!this.debugMode && (isFinished || procFinished)) {
                 this.state = 'FADE_OUT';
                 this.fadeTimer = 0;
             }

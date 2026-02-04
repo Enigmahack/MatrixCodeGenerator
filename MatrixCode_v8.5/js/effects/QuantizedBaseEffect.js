@@ -54,6 +54,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.suppressedFades = new Set(); // Set of Keys to ignore for fading this frame
         this.lastVisibilityChangeFrame = 0;
         this.warmupRemaining = 0;
+
+        // Procedural Generation State
+        this.blockMap = new Map();
+        this.activeBlocks = [];
+        this.crawlers = [];
+        this.unfoldSequences = [];
+        this.nextBlockId = 0;
+        this.spineState = null;
+        this.overlapState = { step: 0 };
+        this.cycleState = null;
     }
 
     _checkDirtiness() {
@@ -230,6 +240,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.hasSwapped = false;
         this.isSwapping = false;
         this.swapTimer = 0;
+        
+        // Reset Procedural State
+        this.blockMap.clear();
+        this.activeBlocks = [];
+        this.crawlers = [];
+        this.unfoldSequences = [];
+        this.nextBlockId = 0;
+        this.spineState = null;
+        this.overlapState = { step: 0 };
+        this.cycleState = null;
+        this.proceduralInitiated = false;
         
         this._initLogicGrid();
 
@@ -3288,6 +3309,666 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // =========================================================================
+    // PROCEDURAL GENERATION (from BlockGenerator)
+    // =========================================================================
+
+    _initProceduralState() {
+        if (this.proceduralInitiated) return;
+        this.proceduralInitiated = true;
+
+        // Initialize activeBlocks from current maskOps (manual steps)
+        if (this.maskOps) {
+            for (const op of this.maskOps) {
+                if (op.type === 'add' || op.type === 'addSmart') {
+                    // Reconstruct block object
+                    const id = this.nextBlockId++;
+                    this.activeBlocks.push({
+                        x: op.x1, y: op.y1, 
+                        w: Math.abs(op.x2 - op.x1) + 1, 
+                        h: Math.abs(op.y2 - op.y1) + 1,
+                        startFrame: op.startFrame || this.animFrame,
+                        layer: op.layer || 0,
+                        id: id
+                    });
+                }
+            }
+        }
+
+        // Initialize growth states
+        this.spineState = {
+            N: { len: 0, finished: false },
+            S: { len: 0, finished: false },
+            E: { len: 0, finished: false },
+            W: { len: 0, finished: false }
+        };
+        this.overlapState = { step: 0 };
+        this.crawlers = [];
+        this.unfoldSequences = [];
+        this.cycleState = { step: 0, step1Block: null };
+    }
+
+    _attemptGrowth() {
+        this._initProceduralState();
+
+        let totalTarget;
+        // Adjust ramp count if we are taking over from a manual sequence
+        // We probably already have blocks, so we can go straight to higher target
+        totalTarget = (this.activeBlocks.length > 5) ? 10 : 3;
+
+        const pool = [];
+        const s = this.c.state;
+
+        // Use global generation settings or defaults
+        const enCyclic = (s.quantizedGenerateV2EnableCyclic !== undefined) ? s.quantizedGenerateV2EnableCyclic : true;
+        const enSpine = (s.quantizedGenerateV2EnableSpine !== undefined) ? s.quantizedGenerateV2EnableSpine : true;
+        const enOverlap = (s.quantizedGenerateV2EnableOverlap !== undefined) ? s.quantizedGenerateV2EnableOverlap : true;
+        const enUnfold = (s.quantizedGenerateV2EnableUnfold !== undefined) ? s.quantizedGenerateV2EnableUnfold : true;
+        const enCrawler = (s.quantizedGenerateV2EnableCrawler !== undefined) ? s.quantizedGenerateV2EnableCrawler : true;
+        const enShift = (s.quantizedGenerateV2EnableShift !== undefined) ? s.quantizedGenerateV2EnableShift : false;
+        const enCluster = (s.quantizedGenerateV2EnableCluster !== undefined) ? s.quantizedGenerateV2EnableCluster : false;
+
+        if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
+        if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
+        if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
+        if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
+        if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
+        if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
+        if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
+
+        if (pool.length === 0) return;
+
+        // Shuffle Pool
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+
+        // Process Existing Active Crawlers
+        if (this.crawlers) {
+            for (let i = this.crawlers.length - 1; i >= 0; i--) {
+                const crawler = this.crawlers[i];
+                if (crawler.active) {
+                    this._attemptCrawlerGrowth(crawler);
+                } else {
+                    this.crawlers.splice(i, 1);
+                }
+            }
+        }
+
+        // Process Unfold Sequences
+        if (this.unfoldSequences) {
+            for (let i = this.unfoldSequences.length - 1; i >= 0; i--) {
+                const seq = this.unfoldSequences[i];
+                if (seq.active) {
+                    this._attemptUnfoldGrowth(seq);
+                } else {
+                    this.unfoldSequences.splice(i, 1);
+                }
+            }
+        }
+
+        // Execute Remaining Quota
+        for (let i = 0; i < totalTarget; i++) {
+            const behavior = pool[i % pool.length];
+            behavior();
+        }
+
+        this._performHoleCleanup();
+    }
+
+    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
+        if (!skipConnectivity && this.activeBlocks.length > 0) {
+             let connected = false;
+             let totalOverlap = 0;
+             const area = w * h;
+
+             for (const b of this.activeBlocks) {
+                 const xOverlap = (x <= b.x + b.w) && (x + w >= b.x);
+                 const yOverlap = (y <= b.y + b.h) && (y + h >= b.y);
+                 
+                 if (xOverlap && yOverlap) {
+                     connected = true;
+                     const ix = Math.max(x, b.x);
+                     const iy = Math.max(y, b.y);
+                     const iw = Math.min(x + w, b.x + b.w) - ix;
+                     const ih = Math.min(y + h, b.y + b.h) - iy;
+                     if (iw > 0 && ih > 0) {
+                         totalOverlap += (iw * ih);
+                     }
+                 }
+             }
+             if (!connected) return -1;
+             if (!isShifter && !allowInternal && totalOverlap >= area) return -1; 
+        }
+
+        const id = this.nextBlockId++;
+        const b = { x, y, w, h, startFrame: this.animFrame, layer, id, isShifter };
+        if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
+        this.activeBlocks.push(b);
+        
+        this.maskOps.push({
+            type: 'add',
+            x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
+            startFrame: this.animFrame,
+            expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
+            layer: layer,
+            blockId: id,
+            isShifter: isShifter
+        });
+        
+        if (suppressLines) {
+            this._writeToGrid(x, y, w, h, this.animFrame, layer);
+            return id;
+        }
+        
+        const durationSteps = this.c.state.quantizedGenerateV2InnerLineDuration || 1;
+        const speed = this.getConfig('Speed') || 5;
+        const framesPerStep = Math.max(1, 10 / speed);
+        const durationFrames = durationSteps * framesPerStep;
+
+        const addLine = (lx, ly, face) => {
+            this.maskOps.push({ 
+                type: 'addLine', 
+                x1: lx, y1: ly, x2: lx, y2: ly, 
+                face: face, 
+                startFrame: this.animFrame,
+                expireFrame: this.animFrame + durationFrames, 
+                startPhase: this.expansionPhase,
+                layer: layer,
+                blockId: id
+            });
+        };
+        
+        for(let i=0; i<w; i++) addLine(x+i, y, 'N');
+        for(let i=0; i<w; i++) addLine(x+i, y+h-1, 'S');
+        for(let i=0; i<h; i++) addLine(x, y+i, 'W');
+        for(let i=0; i<h; i++) addLine(x+w-1, y+i, 'E');
+        
+        this._writeToGrid(x, y, w, h, this.animFrame, layer);
+        return id;
+    }
+
+    _writeToGrid(x, y, w, h, value, layer = 0) {
+        if (!this.renderGrid) return;
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+        
+        const startX = cx + x;
+        const startY = cy + y;
+        
+        const minX = Math.max(0, startX);
+        const maxX = Math.min(blocksX - 1, startX + w - 1);
+        const minY = Math.max(0, startY);
+        const maxY = Math.min(blocksY - 1, startY + h - 1);
+        
+        for (let gy = minY; gy <= maxY; gy++) {
+            for (let gx = minX; gx <= maxX; gx++) {
+                const idx = gy * blocksX + gx;
+                if (layer === 0) {
+                    if (!this.layerGrids[0]) return;
+                    this.layerGrids[0][idx] = value;
+                } else if (layer === 1) {
+                    if (!this.layerGrids[1]) return;
+                    this.layerGrids[1][idx] = value;
+                }
+                
+                const l0 = this.layerGrids[0] ? this.layerGrids[0][idx] : -1;
+                const l1 = this.layerGrids[1] ? this.layerGrids[1][idx] : -1;
+                const l2 = this.layerGrids[2] ? this.layerGrids[2][idx] : -1;
+                this.renderGrid[idx] = (l2 !== -1) ? l2 : (l1 !== -1 ? l1 : l0);
+            }
+        }
+    }
+
+    _attemptCyclicGrowth() {
+        const phase = this.cycleState.step % 3;
+        const spawnSmart = (layer, mustOverlap, mustProtrude) => {
+            const anchors = this.activeBlocks.filter(b => b.layer === 0);
+            if (anchors.length === 0) return null;
+            const attempts = 40;
+            const validShapes = [
+                {w:1, h:2}, {w:2, h:1}, {w:1, h:3}, {w:3, h:1},
+                {w:2, h:2}, {w:1, h:4}, {w:4, h:1}, {w:1, h:5},
+                {w:5, h:1}, {w:2, h:3}, {w:3, h:2}, {w:1, h:6}, {w:6, h:1}
+            ];
+            for (let i = 0; i < attempts; i++) {
+                const anchor = anchors[Math.floor(Math.random() * anchors.length)];
+                const shape = validShapes[Math.floor(Math.random() * validShapes.length)];
+                const w = shape.w, h = shape.h;
+                const ox = Math.floor(Math.random() * (anchor.w + w + 1)) - w;
+                const oy = Math.floor(Math.random() * (anchor.h + h + 1)) - h;
+                const tx = anchor.x + ox, ty = anchor.y + oy;
+                let intersectArea = 0, isTouching = false;
+                for (const b of this.activeBlocks) {
+                    if (b.layer !== 0) continue; 
+                    const ix = Math.max(tx, b.x), iy = Math.max(ty, b.y);
+                    const iw = Math.min(tx + w, b.x + b.w) - ix, ih = Math.min(ty + h, b.y + b.h) - iy;
+                    if (iw > 0 && ih > 0) intersectArea += (iw * ih);
+                    else {
+                        const touchX = (tx === b.x + b.w) || (tx + w === b.x);
+                        const overlapY = (ty < b.y + b.h) && (ty + h > b.y);
+                        const touchY = (ty === b.y + b.h) || (ty + h === b.y);
+                        const overlapX = (tx < b.x + b.w) && (tx + w > b.x);
+                        if ((touchX && overlapY) || (touchY && overlapX)) isTouching = true;
+                    }
+                }
+                const totalArea = w * h;
+                const protrudeArea = totalArea - intersectArea;
+                const isConnected = (intersectArea > 0 || isTouching);
+                const isProtruding = (protrudeArea > 0);
+                if ((!mustOverlap || isConnected) && (!mustProtrude || isProtruding)) {
+                    this._spawnBlock(tx, ty, w, h, layer);
+                    return { x: tx, y: ty, w, h };
+                }
+            }
+            return null;
+        };
+        if (phase === 0) { 
+            const b = spawnSmart(0, true, true);
+            if (b) this.cycleState.step1Block = b;
+        } else if (phase === 1) { 
+            spawnSmart(1, true, true);
+        } else if (phase === 2) { 
+            spawnSmart(0, true, true);
+            if (this.cycleState.step1Block) {
+                const b = this.cycleState.step1Block;
+                for (let iy = 0; iy < b.h; iy++) {
+                    for (let ix = 0; ix < b.w; ix++) {
+                        const lx = b.x + ix, ly = b.y + iy;
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'N', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'S', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'W', force: true, startFrame: this.animFrame });
+                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'E', force: true, startFrame: this.animFrame });
+                    }
+                }
+            }
+        }
+        this.cycleState.step++;
+    }
+
+    _attemptSpineGrowth() {
+        if (!this.spineState) return;
+        const arms = ['N', 'S', 'E', 'W'];
+        const candidates = arms.filter(a => !this.spineState[a].finished);
+        if (candidates.length === 0) return;
+        const arm = candidates[Math.floor(Math.random() * candidates.length)];
+        const data = this.spineState[arm];
+        const breadth = Math.random() < 0.3 ? 2 : 1;
+        let length = (breadth === 1) ? (Math.random() < 0.25 ? 3 : 2) : 1;
+        const blocksX = this.logicGridW, blocksY = this.logicGridH;
+        const cx = Math.floor(blocksX / 2), cy = Math.floor(blocksY / 2);
+        let tx = 0, ty = 0, w = 0, h = 0;
+        if (arm === 'N') {
+            w = breadth; tx = -Math.floor(breadth/2);
+            const absTop = cy - (data.len + length);
+            if (absTop < 0) { length -= -absTop; data.finished = true; }
+            if (length <= 0) { data.finished = true; return; }
+            ty = -(data.len + length); h = length;
+        } else if (arm === 'S') {
+            w = breadth; tx = -Math.floor(breadth/2);
+            const startRel = data.len + 1;
+            const absBottom = cy + startRel + length;
+            if (absBottom > blocksY) { length -= (absBottom - blocksY); data.finished = true; }
+            if (length <= 0) { data.finished = true; return; }
+            ty = startRel; h = length;
+        } else if (arm === 'E') {
+            h = breadth; ty = -Math.floor(breadth/2);
+            const startRel = data.len + 1;
+            const absRight = cx + startRel + length;
+            if (absRight > blocksX) { length -= (absRight - blocksX); data.finished = true; }
+            if (length <= 0) { data.finished = true; return; }
+            tx = startRel; w = length;
+        } else if (arm === 'W') {
+            h = breadth; ty = -Math.floor(breadth/2);
+            const absLeft = cx - (data.len + length);
+            if (absLeft < 0) { length -= -absLeft; data.finished = true; }
+            if (length <= 0) { data.finished = true; return; }
+            tx = -(data.len + length); w = length;
+        }
+        if (cx + tx < 0 || cx + tx + w > blocksX || cy + ty < 0 || cy + ty + h > blocksY) {
+            data.finished = true; return;
+        }
+        this._spawnBlock(tx, ty, w, h, 0);
+        data.len += length;
+    }
+
+    _attemptLayerOverlap() {
+        if (this.overlapState.step % 4 === 0) this._mergeLayers();
+        const l1Blocks = this.activeBlocks.filter(b => b.layer === 1);
+        const anchor = (l1Blocks.length > 0 && Math.random() < 0.7) 
+            ? l1Blocks[Math.floor(Math.random() * l1Blocks.length)]
+            : this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+        if (!anchor) return;
+        const range = 6 + Math.floor(this.overlapState.step / 3);
+        let tx, ty, tw, th, success = false;
+        for (let i = 0; i < 5; i++) {
+            tw = Math.floor(Math.random() * 3) + 1; th = Math.floor(Math.random() * 3) + 1;
+            const ox = Math.floor(Math.random() * (anchor.w + tw + 1)) - tw;
+            const oy = Math.floor(Math.random() * (anchor.h + th + 1)) - th;
+            tx = anchor.x + ox; ty = anchor.y + oy;
+            if (Math.abs(tx) <= range && Math.abs(ty) <= range) { success = true; break; }
+        }
+        if (!success) {
+            tx = Math.floor(Math.random() * range * 2) - range;
+            ty = Math.floor(Math.random() * range * 2) - range;
+            tw = Math.floor(Math.random() * 2) + 1; th = Math.floor(Math.random() * 2) + 1;
+        }
+        this._spawnBlock(tx, ty, tw, th, 1);
+        if (Math.random() < 0.2) this._spawnBlock(tx + Math.floor(Math.random() * 5) - 2, ty + Math.floor(Math.random() * 5) - 2, 1, 1, 0);
+        this.overlapState.step++;
+    }
+
+    _mergeLayers() {
+        if (this.maskOps) {
+            for (const op of this.maskOps) if (op.layer === 1) op.layer = 0;
+        }
+        for (const b of this.activeBlocks) if (b.layer === 1) b.layer = 0;
+        if (!this.layerGrids[1] || !this.layerGrids[0]) return;
+        for(let i=0; i<this.layerGrids[1].length; i++) {
+            const val = this.layerGrids[1][i];
+            if (val !== -1) { this.layerGrids[0][i] = val; this.layerGrids[1][i] = -1; }
+        }
+    }
+
+    _attemptUnfoldGrowth(sequence = null) {
+        if (sequence && sequence.lastBlockId !== undefined) {
+             if (sequence.count <= 0) { sequence.active = false; return; }
+             const lastBlock = this.activeBlocks.find(b => b.id === sequence.lastBlockId);
+             if (!lastBlock) { sequence.active = false; return; }
+             const newId = this._spawnNeighbor(lastBlock);
+             if (newId !== -1) {
+                 sequence.lastBlockId = newId; sequence.count--;
+                 if (sequence.count <= 0) sequence.active = false;
+             } else sequence.active = false;
+             return;
+        }
+        if (this.activeBlocks.length === 0) return;
+        for(let i=0; i<10; i++) {
+            const b = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+            const newId = this._spawnNeighbor(b);
+            if (newId !== -1) {
+                this.unfoldSequences.push({ active: true, count: 2, lastBlockId: newId });
+                return;
+            }
+        }
+    }
+
+    _spawnNeighbor(anchor) {
+        const dirs = ['N', 'S', 'E', 'W'];
+        for (let i = dirs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+        }
+        for (const dir of dirs) {
+            const w = Math.floor(Math.random() * 2) + 1, h = Math.floor(Math.random() * 2) + 1;
+            let tx, ty;
+            if (dir === 'N') {
+                tx = anchor.x - w + 1 + Math.floor(Math.random() * (anchor.w + w - 1));
+                ty = anchor.y - h;
+            } else if (dir === 'S') {
+                tx = anchor.x - w + 1 + Math.floor(Math.random() * (anchor.w + w - 1));
+                ty = anchor.y + anchor.h;
+            } else if (dir === 'E') {
+                tx = anchor.x + anchor.w;
+                ty = anchor.y - h + 1 + Math.floor(Math.random() * (anchor.h + h - 1));
+            } else if (dir === 'W') {
+                tx = anchor.x - w;
+                ty = anchor.y - h + 1 + Math.floor(Math.random() * (anchor.h + h - 1));
+            }
+            const id = this._spawnBlock(tx, ty, w, h);
+            if (id !== -1) return id;
+        }
+        return -1;
+    }
+
+    _attemptCrawlerGrowth(existingState) {
+        let s = existingState;
+        if (!s) {
+            if (this.crawlers.length >= 2 || this.activeBlocks.length === 0) return;
+            let bestX, bestY, bestDX, bestDY, found = false;
+            for (let i = 0; i < 20; i++) {
+                const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+                const dirs = [{dx:0, dy:-1}, {dx:0, dy:1}, {dx:1, dy:0}, {dx:-1, dy:0}];
+                const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                let tx = anchor.x, ty = anchor.y;
+                if (dir.dx === 1) tx = anchor.x + anchor.w;
+                else if (dir.dx === -1) tx = anchor.x - 2;
+                else if (dir.dy === 1) ty = anchor.y + anchor.h;
+                else if (dir.dy === -1) ty = anchor.y - 1;
+                const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
+                if (tx + cx < 2 || tx + cx >= this.logicGridW - 2 || ty + cy < 2 || ty + cy >= this.logicGridH - 2) continue;
+                let overlap = 0;
+                for (const b of this.activeBlocks) {
+                    const ix = Math.max(tx, b.x), iy = Math.max(ty, b.y);
+                    const iw = Math.min(tx + 2, b.x + b.w) - ix, ih = Math.min(ty + 1, b.y + b.h) - iy;
+                    if (iw > 0 && ih > 0) overlap += (iw * ih);
+                }
+                if (overlap < 2) { bestX = tx; bestY = ty; bestDX = dir.dx; bestDY = dir.dy; found = true; break; }
+            }
+            if (!found) return;
+            s = { active: true, step: 0, x: bestX, y: bestY, dx: bestDX, dy: bestDY, lastBlockId: -1 };
+            this.crawlers.push(s); return;
+        }
+        const cycle = (s.step % 3), now = this.animFrame;
+        let steps = [];
+        if (s.dx === 1) steps = [{x:0,y:0,w:2,h:1},{x:0,y:0,w:1,h:2},{x:0,y:0,w:2,h:2}];
+        else if (s.dy === 1) steps = [{x:0,y:0,w:1,h:2},{x:-1,y:0,w:2,h:1},{x:-1,y:0,w:2,h:2}];
+        else if (s.dx === -1) steps = [{x:-1,y:0,w:2,h:1},{x:0,y:-1,w:1,h:2},{x:-1,y:-1,w:2,h:2}];
+        else if (s.dy === -1) steps = [{x:0,y:-1,w:1,h:2},{x:0,y:0,w:2,h:1},{x:0,y:-1,w:2,h:2}];
+        const cfg = steps[cycle], targetX = s.x + cfg.x, targetY = s.y + cfg.y, targetW = cfg.w, targetH = cfg.h;
+        let collision = false;
+        for (const b of this.activeBlocks) {
+            if (b.id === s.lastBlockId) continue;
+            const ix = Math.max(targetX, b.x), iy = Math.max(targetY, b.y);
+            const iw = Math.min(targetX + targetW, b.x + b.w) - ix, ih = Math.min(targetY + targetH, b.y + b.h) - iy;
+            if (iw > 0 && ih > 0) { collision = true; break; }
+        }
+        if (collision) { s.active = false; return; }
+        if (cycle === 0) {
+            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, false, true);
+            if (s.lastBlockId === -1) { s.active = false; return; }
+        } else if (cycle === 1 || cycle === 2) {
+            if (s.lastBlockId !== -1) {
+                 const prev = steps[cycle - 1];
+                 this.maskOps.push({ type: 'removeBlock', x1: s.x + prev.x, y1: s.y + prev.y, x2: s.x + prev.x + prev.w - 1, y2: s.y + prev.y + prev.h - 1, startFrame: now });
+                 this._writeToGrid(s.x + prev.x, s.y + prev.y, prev.w, prev.h, -1);
+                 this.activeBlocks = this.activeBlocks.filter(b => b.id !== s.lastBlockId);
+            }
+            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, true, true);
+            if (cycle === 2) { s.x += s.dx * 2; s.y += s.dy * 2; }
+        }
+        s.step++;
+    }
+
+    _attemptShiftGrowth() {
+        if (this.activeBlocks.length === 0) return;
+        const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+        const dirs = ['N', 'S', 'E', 'W'], dir = dirs[Math.floor(Math.random() * dirs.length)];
+        const amount = Math.floor(Math.random() * 2) + 1;
+        let startCoords = (dir === 'N' || dir === 'S') ? { x: anchor.x, y: 0 } : { x: 0, y: anchor.y };
+        this._blockShift(dir, amount, startCoords);
+    }
+
+    _blockShift(direction, amount, startCoords) {
+        if (!this.renderGrid) return;
+        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        let dx = 0, dy = 0, scanX = false;
+        if (direction === 'N') { dy = -1; scanX = false; }
+        else if (direction === 'S') { dy = 1; scanX = false; }
+        else if (direction === 'E') { dx = 1; scanX = true; }
+        else if (direction === 'W') { dx = -1; scanX = true; }
+        const rowY = startCoords.y, colX = startCoords.x;
+        let currentRelX = scanX ? 0 : colX, currentRelY = scanX ? rowY : 0;
+        let furthestDist = -1; const potentialGaps = [];
+        const maxDist = Math.max(w, h);
+        for (let d = 0; d < maxDist; d++) {
+            const tx = currentRelX + (scanX ? d * dx : 0), ty = currentRelY + (scanX ? 0 : d * dy);
+            const gx = cx + tx, gy = cy + ty;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) break;
+            const idx = gy * w + gx;
+            if (this.renderGrid[idx] !== -1) furthestDist = d;
+            else potentialGaps.push({x: tx, y: ty, d: d});
+        }
+        for (const gap of potentialGaps) if (gap.d < furthestDist) this._spawnBlock(gap.x, gap.y, 1, 1, 0, false, false, 0, false, true); 
+        let startExt = furthestDist + 1;
+        for (let i = 0; i < amount; i++) {
+            const d = startExt + i, tx = currentRelX + (scanX ? d * dx : 0), ty = currentRelY + (scanX ? 0 : d * dy);
+            const gx = cx + tx, gy = cy + ty;
+            if (gx >= 0 && gx < w && gy >= 0 && gy < h) this._spawnBlock(tx, ty, 1, 1, 0);
+        }
+    }
+
+    _attemptClusterGrowth() {
+        if (this.activeBlocks.length === 0) return;
+        const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+        const axis = Math.random() < 0.5 ? 'V' : 'H';
+        let dir, startCoords;
+        if (axis === 'V') { dir = Math.random() < 0.5 ? 'N' : 'S'; startCoords = { x: anchor.x, y: 0 }; }
+        else { dir = Math.random() < 0.5 ? 'E' : 'W'; startCoords = { x: 0, y: anchor.y }; }
+        this._blockShift(dir, Math.floor(Math.random() * 2) + 2, startCoords);
+    }
+
+    _attemptBlockShift() {
+        if (this.activeBlocks.length < 5 || !this.renderGrid) return false;
+        const validShapes = [{w:1,h:1},{w:1,h:2},{w:2,h:1},{w:1,h:3},{w:3,h:1}];
+        const w = this.logicGridW, cx = Math.floor(w / 2), cy = Math.floor(this.logicGridH / 2);
+        let useYAxis = Math.random() < 0.5; 
+        const shape = validShapes[Math.floor(Math.random() * validShapes.length)];
+        const tw = shape.w, th = shape.h;
+        let tx, ty;
+        if (useYAxis) {
+            tx = -Math.floor(tw / 2); 
+            const candidates = this.activeBlocks.filter(b => b.x <= 0 && b.x + b.w > 0);
+            if (candidates.length === 0) return false;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            ty = anchor.y + Math.floor((anchor.h - th) / 2);
+        } else {
+            ty = -Math.floor(th / 2);
+            const candidates = this.activeBlocks.filter(b => b.y <= 0 && b.y + b.h > 0);
+            if (candidates.length === 0) return false;
+            const anchor = candidates[Math.floor(Math.random() * candidates.length)];
+            tx = anchor.x + Math.floor((anchor.w - tw) / 2);
+        }
+        let isInternal = true;
+        for (let y = 0; y < th; y++) {
+            for (let x = 0; x < tw; x++) {
+                const gx = cx + tx + x, gy = cy + ty + y, idx = gy * w + gx;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH || this.renderGrid[idx] === -1) { isInternal = false; break; }
+            }
+            if (!isInternal) break;
+        }
+        if (!isInternal) return false;
+        const sx = tx + tw / 2, sy = ty + th / 2;
+        let shiftX = 0, shiftY = 0;
+        if (Math.abs(sy) > Math.abs(sx)) shiftY = (sy < 0) ? -th : th;
+        else shiftX = (sx > 0) ? tw : -tw;
+        if (shiftX === 0 && shiftY === 0) return false;
+        const movingBlocks = [];
+        for (const b of this.activeBlocks) {
+            let inChannel = false, isDownstream = false;
+            if (shiftX !== 0) {
+                if (Math.min(ty + th, b.y + b.h) > Math.max(ty, b.y)) inChannel = true;
+                if (shiftX > 0) isDownstream = (b.x + b.w / 2 >= sx); else isDownstream = (b.x + b.w / 2 <= sx);
+            } else {
+                if (Math.min(tx + tw, b.x + b.w) > Math.max(tx, b.x)) inChannel = true;
+                if (shiftY < 0) isDownstream = (b.y + b.h / 2 <= sy); else isDownstream = (b.y + b.h / 2 >= sy);
+            }
+            if (inChannel && isDownstream) movingBlocks.push(b);
+        }
+        if (movingBlocks.length === 0) return false;
+        for (const b of movingBlocks) this._updateBlockPosition(b, b.x + shiftX, b.y + shiftY);
+        this._spawnBlock(tx, ty, tw, th, 0, true, true);
+        return true;
+    }
+
+    _updateBlockPosition(b, newX, newY) {
+        this._writeToGrid(b.x, b.y, b.w, b.h, -1);
+        const dx = newX - b.x, dy = newY - b.y;
+        b.x = newX; b.y = newY;
+        this._writeToGrid(b.x, b.y, b.w, b.h, b.startFrame);
+        if (this.maskOps) {
+             for (const op of this.maskOps) if (op.blockId === b.id) { op.x1 += dx; op.x2 += dx; op.y1 += dy; op.y2 += dy; }
+        }
+    }
+
+    _performHoleCleanup() {
+        if (!this.renderGrid) return;
+        const w = this.logicGridW, h = this.logicGridH;
+        const visited = new Uint8Array(w * h), stack = [];
+        const add = (x, y) => {
+            const idx = y * w + x;
+            if (this.renderGrid[idx] === -1 && visited[idx] === 0) { visited[idx] = 1; stack.push(idx); }
+        };
+        for (let x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
+        for (let y = 1; y < h - 1; y++) { add(0, y); add(w - 1, y); }
+        while (stack.length > 0) {
+            const idx = stack.pop(), cx = idx % w, cy = Math.floor(idx / w);
+            const neighbors = [{x:cx,y:cy-1},{x:cx,y:cy+1},{x:cx-1,y:cy},{x:cx+1,y:cy}];
+            for (const n of neighbors) if (n.x >= 0 && n.x < w && n.y >= 0 && n.y < h) add(n.x, n.y);
+        }
+        const isHole = new Uint8Array(w * h);
+        for(let i=0; i<w*h; i++) if (this.renderGrid[i] === -1 && visited[i] === 0) isHole[i] = 1;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        for (let y = 0; y < h - 1; y++) {
+            for (let x = 0; x < w - 1; x++) {
+                const i = y * w + x;
+                if (isHole[i] && isHole[i+1] && isHole[i+w] && isHole[i+w+1]) {
+                    this._spawnBlock(x - cx, y - cy, 2, 2, 0, true);
+                    isHole[i] = 0; isHole[i+1] = 0; isHole[i+w] = 0; isHole[i+w+1] = 0;
+                }
+            }
+        }
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = y * w + x;
+                if (isHole[idx]) { this._spawnBlock(x - cx, y - cy, 1, 1, 0, true); isHole[idx] = 0; }
+            }
+        }
+    }
+
+    _isProceduralFinished() {
+        if (!this.renderGrid) return false;
+
+        const bs = this.getBlockSize();
+        const pitchX = Math.max(1, bs.w);
+        const pitchY = Math.max(1, bs.h);
+        
+        // Calculate Logic <-> Screen mapping
+        const { offX, offY } = this._computeCenteredOffset(this.logicGridW, this.logicGridH, pitchX, pitchY);
+        
+        // Calculate Visible Block Range (Logic Coordinates)
+        const startBx = Math.floor(offX);
+        const startBy = Math.floor(offY);
+        
+        const screenBlocksX = this.g.cols / pitchX;
+        const screenBlocksY = this.g.rows / pitchY;
+        
+        const endBx = Math.ceil(offX + screenBlocksX);
+        const endBy = Math.ceil(offY + screenBlocksY);
+        
+        // Clamp to Logic Grid limits
+        const minX = Math.max(0, startBx);
+        const minY = Math.max(0, startBy);
+        const maxX = Math.min(this.logicGridW, endBx);
+        const maxY = Math.min(this.logicGridH, endBy);
+        
+        // Iterate visible area
+        for (let y = minY; y < maxY; y++) {
+            for (let x = minX; x < maxX; x++) {
+                const idx = y * this.logicGridW + x;
+                // If any visible block is -1 (Old World), we are not finished.
+                if (this.renderGrid[idx] === -1) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
     }
 }
 
