@@ -249,27 +249,30 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
-    hitTest(x, y) {
-        if (!this.layout) return;
+    hitTest(x, y, options = {}) {
+        if (!this.layout) return null;
         const l = this.layout;
-        // const blockScreenW = l.cellPitchX * l.screenStepX; // Unused
-        // const blockScreenH = l.cellPitchY * l.screenStepY; // Unused
         
-        // Inverse of the render equation:
-        // ScreenX = Origin + PixelOff + (CellIndex * Step)
-        // CellIndex ~= (Block - Off + UserOff) * Pitch
-        
+        // Editor offsets if provided
+        const offX = options.editorOffX || 0;
+        const offY = options.editorOffY || 0;
+
         // 1. Normalize to Cell Space
-        const cellX = (x - l.screenOriginX - l.pixelOffX) / l.screenStepX;
-        const cellY = (y - l.screenOriginY - l.pixelOffY) / l.screenStepY;
+        const cellX = (x - offX - l.screenOriginX - l.pixelOffX) / l.screenStepX;
+        const cellY = (y - offY - l.screenOriginY - l.pixelOffY) / l.screenStepY;
         
         // 2. Normalize to Block Space
-        const rawBx = (cellX / l.cellPitchX) + l.offX - l.userBlockOffX;
-        const rawBy = (cellY / l.cellPitchY) + l.offY - l.userBlockOffY;
+        // We floor the cell coordinates first to get the integer cell index,
+        // matching the discrete nature of the screen grid.
+        const bx_screen = Math.floor(cellX);
+        const by_screen = Math.floor(cellY);
+
+        const rawBx = (bx_screen / l.cellPitchX) + l.offX - l.userBlockOffX;
+        const rawBy = (by_screen / l.cellPitchY) + l.offY - l.userBlockOffY;
         
-        // 3. Round to get Index (Matching Rendering Snapping)
-        const bx = Math.round(rawBx);
-        const by = Math.round(rawBy);
+        // 3. Floor to get Logic Index
+        const bx = Math.floor(rawBx + 0.001); // Epsilon for float stability
+        const by = Math.floor(rawBy + 0.001);
         
         // Relativize to Center
         const blocksX = this.logicGridW;

@@ -1355,9 +1355,22 @@ class QuantizedEffectEditor {
         if (e.key === 'ArrowLeft') this._changeStep(-1);
     }
 
+    _getHitTest(clientX, clientY) {
+        if (!this.effect) return null;
+        
+        // We use changesOff because that's where the visual blocks are drawn.
+        // gridOff should ideally match but changesOff is primary for 'hitting' things.
+        const options = {
+            editorOffX: this.effect.c.state.quantizedEditorChangesOffsetX || 0,
+            editorOffY: this.effect.c.state.quantizedEditorChangesOffsetY || 0
+        };
+        
+        return this.effect.hitTest(clientX, clientY, options);
+    }
+
     _onMouseMove(e) {
         if (!this.active) return;
-        const hit = this.effect.hitTest(e.clientX, e.clientY);
+        const hit = this._getHitTest(e.clientX, e.clientY);
         
         // Optimize: Check if hover changed
         const hoverHash = hit ? `${hit.x},${hit.y}` : "null";
@@ -1421,7 +1434,7 @@ class QuantizedEffectEditor {
             return;
         }
 
-        const hit = this.effect.hitTest(e.clientX, e.clientY);
+        const hit = this._getHitTest(e.clientX, e.clientY);
         if (hit) {
             if (this.currentTool === 'paste') {
                 this._commitPaste(hit.x, hit.y);
@@ -1589,7 +1602,7 @@ class QuantizedEffectEditor {
         if (!this.active) return;
         
         if (this.dragStart) {
-            const hit = this.effect.hitTest(e.clientX, e.clientY);
+            const hit = this._getHitTest(e.clientX, e.clientY);
             if (hit) {
                 if (this.currentTool === 'addRect') {
                     this.redoStack = [];
