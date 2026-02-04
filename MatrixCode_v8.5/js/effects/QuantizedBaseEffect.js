@@ -48,6 +48,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Optimization: Pre-allocated BFS Queue (Ring Buffer)
         // Max size is logicGridW * logicGridH. Start reasonable, resize if needed.
         this._bfsQueue = new Int32Array(65536); 
+
+        // Line Tracking for Fading and Visibility
+        this.lineStates = new Map(); // Key -> { visible: boolean, deathFrame: number }
+        this.suppressedFades = new Set(); // Set of Keys to ignore for fading this frame
+        this.lastVisibilityChangeFrame = 0;
     }
 
     _checkDirtiness() {
@@ -55,7 +60,13 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const fadeIn = Math.max(1, this.getConfig('FadeInFrames') || 0);
         const fadeOut = Math.max(1, this.getConfig('FadeFrames') || 0);
-        const maxDuration = Math.max(fadeIn, fadeOut) + 2; // Add buffer to ensure we render the final 'clear' frame
+        const maxDuration = Math.max(fadeIn, fadeOut) + 2; 
+
+        // 1. Check if any line is still in its fade window
+        if (this.animFrame - this.lastVisibilityChangeFrame < fadeOut + 2) {
+            this._maskDirty = true;
+            return;
+        }
 
         if (this.maskOps) {
             // Optimization: Prune old ops periodically to prevent memory leaks
@@ -623,67 +634,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const l = step[i++];
                     this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: l });
                     setLocalInactive(dx, dy);
-                } else if (opCode === 12) { // nudge
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const w = step[i++];
-                    const h = step[i++];
-                    const l = step[i++];
-                    
-                    if (dx === 0 && dy === 0) continue;
-                    if (Math.abs(dx) === Math.abs(dy)) continue;
-                    
-                    let axis = 'X';
-                    let dir = 1;
-                    if (Math.abs(dy) > Math.abs(dx)) { axis = 'Y'; dir = Math.sign(dy); }
-                    else { axis = 'X'; dir = Math.sign(dx); }
-                    
-                    const rangeW = this.logicGridW;
-                    const rangeH = this.logicGridH;
-                    const toRelX = (bx) => bx - cx;
-                    const toRelY = (by) => by - cy;
-                    
-                    for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
-                        const grid = this.layerGrids[layerIdx];
-                        if (!grid) continue;
-                        const moves = [];
-                        for (let by = 0; by < rangeH; by++) {
-                            for (let bx = 0; bx < rangeW; bx++) {
-                                const idx = by * rangeW + bx;
-                                if (grid[idx] !== -1) {
-                                    const rx = toRelX(bx);
-                                    const ry = toRelY(by);
-                                    let shouldMove = false;
-                                    if (axis === 'X') {
-                                        const laneMatch = (ry >= dy && ry < dy + h);
-                                        const posMatch = (dir > 0) ? (rx >= dx) : (rx <= dx + w - 1); 
-                                        if (laneMatch && posMatch) shouldMove = true;
-                                    } else { 
-                                        const laneMatch = (rx >= dx && rx < dx + w);
-                                        const posMatch = (dir > 0) ? (ry >= dy) : (ry <= dy + h - 1);
-                                        if (laneMatch && posMatch) shouldMove = true;
-                                    }
-                                    if (shouldMove) moves.push({ x: rx, y: ry, start: grid[idx] });
-                                }
-                            }
-                        }
-                        for (const m of moves) {
-                            this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
-                            setLayerInactive(m.x, m.y, layerIdx); 
-                            
-                            let nx = m.x, ny = m.y;
-                            if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                            this.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
-                            setLayerActive(nx, ny, layerIdx, m.start);
-                        }
-                    }
-                    this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                    for (let y = dy; y < dy + h; y++) {
-                        for (let x = dx; x < dx + w; x++) {
-                            setLocalActive(x, y);
-                            setLayerActive(x, y, l, now);
-                        }
-                    }
                 }
             }
             return;
@@ -762,196 +712,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             } else if (op === 'remLine') {
                 const [dx, dy, face] = args;
                 this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-            } else if (op === 'addSmartLayered') {
-                const [dx, dy] = args;
-                this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                setLocalActive(dx, dy);
-                setLayerActive(dx, dy, layer !== undefined ? layer : 0, now);
-            } else if (op === 'removeBlockLayered') {
-                const [dx, dy] = args;
-                this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                setLocalInactive(dx, dy);
-                setLayerInactive(dx, dy, layer);
-            } else if (op === 'nudge') {
-                const [dx, dy, w, h] = args;
-                const l = layer || 0;
-                
-                if (dx === 0 && dy === 0) continue;
-                if (Math.abs(dx) === Math.abs(dy)) continue;
-                
-                let axis = 'X';
-                let dir = 1;
-                if (Math.abs(dy) > Math.abs(dx)) { axis = 'Y'; dir = Math.sign(dy); }
-                else { axis = 'X'; dir = Math.sign(dx); }
-                
-                const rangeW = this.logicGridW;
-                const rangeH = this.logicGridH;
-                const toRelX = (bx) => bx - cx;
-                const toRelY = (by) => by - cy;
-                
-                for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
-                    const grid = this.layerGrids[layerIdx];
-                    const edgeMap = (this._cachedEdgeMaps && this._cachedEdgeMaps[layerIdx]) ? this._cachedEdgeMaps[layerIdx] : null;
-                    if (!grid) continue;
-                    const moves = [];
-                    for (let by = 0; by < rangeH; by++) {
-                        for (let bx = 0; bx < rangeW; bx++) {
-                            const idx = by * rangeW + bx;
-                            if (grid[idx] !== -1) {
-                                const rx = toRelX(bx);
-                                const ry = toRelY(by);
-                                let shouldMove = false;
-                                if (axis === 'X') {
-                                    const laneMatch = (ry >= dy && ry < dy + h);
-                                    const posMatch = (dir > 0) ? (rx >= dx) : (rx <= dx + w - 1); 
-                                    if (laneMatch && posMatch) shouldMove = true;
-                                } else { 
-                                    const laneMatch = (rx >= dx && rx < dx + w);
-                                    const posMatch = (dir > 0) ? (ry >= dy) : (ry <= dy + h - 1);
-                                    if (laneMatch && posMatch) shouldMove = true;
-                                }
-                                if (shouldMove) moves.push({ x: rx, y: ry, start: grid[idx], bx, by });
-                            }
-                        }
-                    }
-                    
-                    if (axis === 'X') {
-                        if (dir > 0) moves.sort((a, b) => b.x - a.x);
-                        else moves.sort((a, b) => a.x - b.x);
-                    } else {
-                        if (dir > 0) moves.sort((a, b) => b.y - a.y);
-                        else moves.sort((a, b) => a.y - b.y);
-                    }
-
-                    for (const m of moves) {
-                        if (edgeMap) {
-                            const copyLineOp = (face, key) => {
-                                if (edgeMap.has(key)) {
-                                    const entry = edgeMap.get(key);
-                                    let nx = m.x, ny = m.y;
-                                    if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                                    const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
-                                    this.maskOps.push({ 
-                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false 
-                                    });
-                                }
-                            };
-                            copyLineOp('N', `H_${m.bx}_${m.by}`);
-                            copyLineOp('S', `H_${m.bx}_${m.by+1}`);
-                            copyLineOp('W', `V_${m.bx}_${m.by}`);
-                            copyLineOp('E', `V_${m.bx+1}_${m.by}`);
-                        }
-                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
-                        setLayerInactive(m.x, m.y, layerIdx); 
-                        
-                        let nx = m.x, ny = m.y;
-                        if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                        this.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
-                        setLayerActive(nx, ny, layerIdx, m.start);
-                    }
-                }
-                this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                for (let y = dy; y < dy + h; y++) {
-                    for (let x = dx; x < dx + w; x++) {
-                        setLocalActive(x, y);
-                        setLayerActive(x, y, l, now);
-                    }
-                }
-            } else if (op === 'addSmartLayered') {
-                const [dx, dy] = args;
-                this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                setLocalActive(dx, dy);
-                setLayerActive(dx, dy, layer !== undefined ? layer : 0, now);
-            } else if (op === 'removeBlockLayered') {
-                const [dx, dy] = args;
-                this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                setLocalInactive(dx, dy);
-                setLayerInactive(dx, dy, layer);
-            } else if (op === 'nudge') {
-                const [dx, dy, w, h] = args;
-                const l = layer || 0;
-                
-                if (dx === 0 && dy === 0) continue;
-                if (Math.abs(dx) === Math.abs(dy)) continue;
-                
-                let axis = 'X';
-                let dir = 1;
-                if (Math.abs(dy) > Math.abs(dx)) { axis = 'Y'; dir = Math.sign(dy); }
-                else { axis = 'X'; dir = Math.sign(dx); }
-                
-                const rangeW = this.logicGridW;
-                const rangeH = this.logicGridH;
-                const toRelX = (bx) => bx - cx;
-                const toRelY = (by) => by - cy;
-                
-                for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
-                    const grid = this.layerGrids[layerIdx];
-                    const edgeMap = (this._cachedEdgeMaps && this._cachedEdgeMaps[layerIdx]) ? this._cachedEdgeMaps[layerIdx] : null;
-                    if (!grid) continue;
-                    const moves = [];
-                    for (let by = 0; by < rangeH; by++) {
-                        for (let bx = 0; bx < rangeW; bx++) {
-                            const idx = by * rangeW + bx;
-                            if (grid[idx] !== -1) {
-                                const rx = toRelX(bx);
-                                const ry = toRelY(by);
-                                let shouldMove = false;
-                                if (axis === 'X') {
-                                    const laneMatch = (ry >= dy && ry < dy + h);
-                                    const posMatch = (dir > 0) ? (rx >= dx) : (rx <= dx + w - 1); 
-                                    if (laneMatch && posMatch) shouldMove = true;
-                                } else { 
-                                    const laneMatch = (rx >= dx && rx < dx + w);
-                                    const posMatch = (dir > 0) ? (ry >= dy) : (ry <= dy + h - 1);
-                                    if (laneMatch && posMatch) shouldMove = true;
-                                }
-                                if (shouldMove) moves.push({ x: rx, y: ry, start: grid[idx], bx, by });
-                            }
-                        }
-                    }
-                    
-                    if (axis === 'X') {
-                        if (dir > 0) moves.sort((a, b) => b.x - a.x);
-                        else moves.sort((a, b) => a.x - b.x);
-                    } else {
-                        if (dir > 0) moves.sort((a, b) => b.y - a.y);
-                        else moves.sort((a, b) => a.y - b.y);
-                    }
-
-                    for (const m of moves) {
-                        if (edgeMap) {
-                            const copyLineOp = (face, key) => {
-                                if (edgeMap.has(key)) {
-                                    const entry = edgeMap.get(key);
-                                    let nx = m.x, ny = m.y;
-                                    if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                                    const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
-                                    this.maskOps.push({ 
-                                        type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false 
-                                    });
-                                }
-                            };
-                            copyLineOp('N', `H_${m.bx}_${m.by}`);
-                            copyLineOp('S', `H_${m.bx}_${m.by+1}`);
-                            copyLineOp('W', `V_${m.bx}_${m.by}`);
-                            copyLineOp('E', `V_${m.bx+1}_${m.by}`);
-                        }
-                        this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
-                        setLayerInactive(m.x, m.y, layerIdx); 
-                        
-                        let nx = m.x, ny = m.y;
-                        if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                        this.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
-                        setLayerActive(nx, ny, layerIdx, m.start);
-                    }
-                }
-                this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                for (let y = dy; y < dy + h; y++) {
-                    for (let x = dx; x < dx + w; x++) {
-                        setLocalActive(x, y);
-                        setLayerActive(x, y, l, now);
-                    }
-                }
             } else if (op === 'addSmartLayered') {
                 const [dx, dy] = args; // layer is in 'layer' var
                 this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
@@ -1095,6 +855,36 @@ class QuantizedBaseEffect extends AbstractEffect {
         const b = Math.round(rgb1.b + (rgb2.b - rgb1.b) * t);
         
         return `rgb(${r},${g},${b})`;
+    }
+
+    isLineVisible(bx, by, face) {
+        const f = face.toUpperCase();
+        let key = '';
+        if (f === 'N') key = `H_${bx}_${by}`;
+        else if (f === 'S') key = `H_${bx}_${by+1}`;
+        else if (f === 'W') key = `V_${bx}_${by}`;
+        else if (f === 'E') key = `V_${bx+1}_${by}`;
+        
+        const state = this.lineStates.get(key);
+        return state ? state.visible : false;
+    }
+
+    isLineFading(bx, by, face) {
+        const f = face.toUpperCase();
+        let key = '';
+        if (f === 'N') key = `H_${bx}_${by}`;
+        else if (f === 'S') key = `H_${bx}_${by+1}`;
+        else if (f === 'W') key = `V_${bx}_${by}`;
+        else if (f === 'E') key = `V_${bx+1}_${by}`;
+        
+        const state = this.lineStates.get(key);
+        if (!state || state.visible || state.deathFrame === -1) return false;
+        
+        const fadeOutFrames = this.getConfig('FadeFrames') || 0;
+        if (fadeOutFrames <= 0) return false;
+        
+        const age = this.animFrame - state.deathFrame;
+        return age >= 0 && age < fadeOutFrames;
     }
 
     _ensureBfsQueueSize(size) {
@@ -1950,6 +1740,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
+        // Ensure passive animations (like line fades) keep the mask dirty
+        this._checkDirtiness();
+
         // Ensure Grid Logic is up to date for this frame
         this._updateRenderGridLogic();
 
@@ -2095,69 +1888,56 @@ class QuantizedBaseEffect extends AbstractEffect {
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height);
 
+        // ALWAYS check dirtiness to support fading lines
+        this._checkDirtiness();
+
         if (this._maskDirty) {
              this._updateMask(width, height, s, derived);
              this._maskDirty = false;
         }
         
-        const borderColor = this.getConfig('PerimeterColor') || "#FFD700";
-        const interiorColor = this.getConfig('InnerColor') || "#FFD700";
-        
-        this._updateGridCache(width, height, s, derived);
-        const scratchCtx = this.scratchCtx;
         const isSolid = this.c.state.quantizedSolidPerimeter || false;
         
-        // Draw Source Grid (Debug Layer)
+        // Draw Source Grid (Debug Layer) - IF enabled
         if (this.c.state.layerEnableQuantizedGridCache === true) {
+            this._updateGridCache(width, height, s, derived);
             const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
             const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (derived.cellHeight * 0.5);
             ctx.save();
-            ctx.globalAlpha = 1.0;
+            ctx.globalAlpha = 0.3;
             ctx.globalCompositeOperation = 'source-over';
             ctx.translate(srcOffX, srcOffY);
             ctx.drawImage(this.gridCacheCanvas, 0, 0);
             ctx.restore();
         }
 
-        const renderLayer = (maskCanvas, color) => {
-            if (!maskCanvas) return;
+        // Render the actual effect components from the pre-updated canvases
+        const scratchCtx = this.scratchCtx;
+        const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
+        const srcOffY = (this.c.state.quantizedSourceGridOffsetY || 0) + (derived.cellHeight * 0.5);
+
+        scratchCtx.globalCompositeOperation = 'source-over';
+        scratchCtx.clearRect(0, 0, width, height);
+
+        if (isSolid) {
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
+        } else {
+            this._updateGridCache(width, height, s, derived);
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.save();
+            scratchCtx.translate(srcOffX, srcOffY);
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            scratchCtx.restore();
             
-            const srcOffX = (this.c.state.quantizedSourceGridOffsetX || 0) + (derived.cellWidth * 0.5);
-            const srcOffY = this.c.state.quantizedSourceGridOffsetY || 0;
-
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-
-            if (isSolid) {
-                scratchCtx.globalAlpha = 1.0;
-                scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
-            } else {
-                scratchCtx.globalAlpha = 1.0;
-                scratchCtx.save();
-                scratchCtx.translate(srcOffX, srcOffY);
-                scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-                scratchCtx.restore();
-                
-                scratchCtx.globalCompositeOperation = 'source-in';
-                scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
-            }
-            
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-over'; 
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
-        };
-
-        renderLayer(this.perimeterMaskCanvas, borderColor);
-
-        /* DISABLED: Lines are now part of the mask
-        if (this.lineMaskCanvas) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-over'; 
-            ctx.drawImage(this.lineMaskCanvas, 0, 0);
-            ctx.restore();
+            scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
         }
-        */
+        
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter'; 
+        ctx.drawImage(this.scratchCanvas, 0, 0);
+        ctx.restore();
 
         if (this._previewActive) {
             this.maskOps.length = this._lastPreviewSavedOpsLen;
@@ -2679,6 +2459,41 @@ class QuantizedBaseEffect extends AbstractEffect {
         const now = this.animFrame;
         const fadeInFrames = this.getConfig('FadeInFrames') || 0;
         const addDuration = Math.max(1, fadeInFrames);
+
+        // Populate Suppressed Fades (Keys to ignore for fading this frame)
+        this.suppressedFades.clear();
+        if (this.maskOps) {
+            const cx = Math.floor(this.logicGridW / 2);
+            const cy = Math.floor(this.logicGridH / 2);
+            for (const op of this.maskOps) {
+                if (op.fade === false && op.startFrame === now) {
+                    if (op.type === 'removeBlock') {
+                        const minX = Math.min(cx + op.x1, cx + op.x2);
+                        const maxX = Math.max(cx + op.x1, cx + op.x2);
+                        const minY = Math.min(cy + op.y1, cy + op.y2);
+                        const maxY = Math.max(cy + op.y1, cy + op.y2);
+                        for (let y = minY; y <= maxY; y++) {
+                            for (let x = minX; x <= maxX; x++) {
+                                this.suppressedFades.add(`H_${x}_${y}`);
+                                this.suppressedFades.add(`H_${x}_${y+1}`);
+                                this.suppressedFades.add(`V_${x}_${y}`);
+                                this.suppressedFades.add(`V_${x+1}_${y}`);
+                            }
+                        }
+                    } else if (op.type === 'removeLine' || op.type === 'remove' || op.type === 'remLine') {
+                         const bx = cx + op.x1;
+                         const by = cy + op.y1;
+                         if (op.face) {
+                             const f = op.face.toUpperCase();
+                             if (f === 'N') this.suppressedFades.add(`H_${bx}_${by}`);
+                             else if (f === 'S') this.suppressedFades.add(`H_${bx}_${by+1}`);
+                             else if (f === 'W') this.suppressedFades.add(`V_${bx}_${by}`);
+                             else if (f === 'E') this.suppressedFades.add(`V_${bx+1}_${by}`);
+                         }
+                    }
+                }
+            }
+        }
         
         // Render Interiors (Blocks) to Color Layer
         const iColor = this.getConfig('InnerColor') || "#FFD700";
@@ -2860,21 +2675,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             return grid[by * scaledW + bx];
         };
 
-        const getRem = (bx, by) => {
-            if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return -1;
-            let maxRem = -1;
-            const idx = by * scaledW + bx;
-            for (let i = 0; i < 3; i++) {
-                if (this.removalGrids[i] && this.removalGrids[i][idx] !== -1) {
-                    // Only consider if still visible
-                    if (now < this.removalGrids[i][idx] + fadeOutFrames) {
-                        if (this.removalGrids[i][idx] > maxRem) maxRem = this.removalGrids[i][idx];
-                    }
-                }
-            }
-            return maxRem;
-        };
-
         const getLayerForBlock = (bx, by) => {
             const idx = by * scaledW + bx;
             // Return highest active layer
@@ -2913,13 +2713,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             const activeA = (getBlock(this.renderGrid, ax, ay) !== -1);
             const activeB = (getBlock(this.renderGrid, bx, by) !== -1);
 
-            let shouldDraw = false;
-            let finalColor = color;
-            let opacity = 1.0;
-            let scale = 1.0;
+            let isVisibleNow = false;
 
             // 1. Manual Line Overrides (from edgeMap)
-            // We check all layers for manual lines
             const key = `${type}_${x}_${y}`;
             let manualOp = null;
             for (let i = 2; i >= 0; i--) {
@@ -2932,25 +2728,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             if (manualOp) {
                 if (manualOp.type === 'add') {
-                    shouldDraw = true;
+                    isVisibleNow = true;
                 } else if (manualOp.type === 'rem') {
-                    // Check for FADE OUT of manually removed line
-                    if (manualOp.op.fade === false) return;
-
-                    const deathFrame = manualOp.op.startFrame || 0;
-                    const fade = getFadeState(deathFrame);
-                    if (fade) {
-                        shouldDraw = true;
-                        finalColor = fade.c;
-                        opacity = fade.o;
-                    } else {
-                        return; // Fully removed
-                    }
+                    // Manual removal overrides procedural visibility
+                    isVisibleNow = false;
                 }
             }
 
             // 2. SILHOUETTE LOGIC (Composite)
-            if (!shouldDraw) {
+            let isLayerMerge = false;
+            if (!manualOp) {
                 if (activeA && activeB) {
                     // Internal Edge - Check if layers differ
                     const layerA = getLayerForBlock(ax, ay);
@@ -2958,59 +2745,55 @@ class QuantizedBaseEffect extends AbstractEffect {
                     
                     if (layerA !== layerB) {
                         // Boundary between DIFFERENT layers -> DRAW
-                        shouldDraw = true;
-                        opacity = 1.0;
+                        isVisibleNow = true;
                     } else {
-                        // Same layer -> Normally MERGED (Hidden)
-                        // Check for FADE OUT (Merge Event)
-                        // The line "died" when the LATER block appeared (completing the connection)
-                        const startA = getBlock(this.renderGrid, ax, ay);
-                        const startB = getBlock(this.renderGrid, bx, by);
-                        const mergeFrame = Math.max(startA, startB);
-                        
-                        const fade = getFadeState(mergeFrame);
-                        if (fade) {
-                            shouldDraw = true;
-                            finalColor = fade.c;
-                            opacity = fade.o;
-                        }
-                        // Else: return (skip drawing internal edge)
+                        // Both active on SAME layer -> Check for Merge Transition
+                        isLayerMerge = true;
                     }
                 } 
                 else if (activeA !== activeB) {
                     // Active Boundary (External Perimeter)
-                    shouldDraw = true;
-                    opacity = 1.0;
-                } 
-                else {
-                    // Both Inactive -> Check Ghosts (Fading Out)
-                    const remA = getRem(ax, ay);
-                    const remB = getRem(bx, by);
-                    const ghostA = (remA !== -1);
-                    const ghostB = (remB !== -1);
+                    isVisibleNow = true;
+                }
+            }
 
-                    if (ghostA && ghostB) {
-                        // Internal Ghost -> SKIP
-                        return;
-                    }
-                    else if (ghostA !== ghostB) {
-                        // Ghost Boundary
-                        const deathFrame = ghostA ? remA : remB;
-                        const fade = getFadeState(deathFrame);
-                        if (fade) {
-                            shouldDraw = true;
-                            finalColor = fade.c;
-                            opacity = fade.o;
-                        }
+            // 3. State Management & Fading Interception
+            let state = this.lineStates.get(key);
+            if (!state) {
+                state = { visible: false, deathFrame: -1 };
+                this.lineStates.set(key, state);
+            }
+
+            if (isVisibleNow) {
+                state.visible = true;
+                state.deathFrame = -1;
+            } else {
+                if (state.visible) {
+                    // Just died! (Either block removed OR layer merge)
+                    state.visible = false;
+                    this.lastVisibilityChangeFrame = now;
+                    
+                    // Nudge suppression only applies to block removals, not merges
+                    const isNudged = !isLayerMerge && this.suppressedFades.has(key);
+                    
+                    if (!isNudged) {
+                        state.deathFrame = now;
                     }
                 }
             }
 
-            if (shouldDraw && opacity > 0.001) {
-                // Use 'W' for Vertical (draws at Left of block x)
-                // Use 'N' for Horizontal (draws at Top of block y)
+            // 4. Rendering
+            if (state.visible) {
                 const face = (type === 'V') ? 'W' : 'N';
-                this._drawExteriorLine(ctx, x, y, face, { color: finalColor, opacity: opacity, scale: scale });
+                this._drawExteriorLine(ctx, x, y, face, { color: color, opacity: 1.0 });
+            } else if (state.deathFrame !== -1) {
+                const fade = getFadeState(state.deathFrame);
+                if (fade) {
+                    const face = (type === 'V') ? 'W' : 'N';
+                    this._drawExteriorLine(ctx, x, y, face, { color: fade.c, opacity: fade.o });
+                } else {
+                    state.deathFrame = -1; // Fade finished
+                }
             }
         };
 

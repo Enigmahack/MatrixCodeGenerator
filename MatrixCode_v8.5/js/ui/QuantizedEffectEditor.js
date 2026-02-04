@@ -376,9 +376,9 @@ class QuantizedEffectEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
-        // 1. Remove Duplicate Effect Rendering
-        // The main game loop renders the actual effect. The editor should ONLY render the overlay/schematics.
-        // We removed `this.effect.renderEditorPreview(...)` to prevent double-rendering of lines and grid.
+        // 1. Render actual effect components (Fades, Source Grid etc)
+        // This also triggers _updateMask which is essential for line fade logic.
+        this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
 
         // Ensure layout exists for schematic rendering
         if (!this.effect.layout) {
@@ -1503,61 +1503,86 @@ class QuantizedEffectEditor {
                     isVisible = isPerimeter;
                 }
 
-                // 3. Apply Toggle Logic based on Desired vs Actual
-                if (this.currentTool === 'addLine') {
-                    if (!isVisible) {
-                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });
-                    }
-                    // Else: It's already visible. Doing nothing keeps it visible 
-                    // (and we already cleared any local remLine that might have hidden it)
-                } else if (this.currentTool === 'removeLine') {
-                    if (isVisible) {
-                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });
-                    }
-                    // Else: It's already hidden.
-                }
-
-                this.effect.refreshStep();
-                this.isDirty = true;
-                return;
-            }
-
-            // Basic Block Tools
-            let opName = null;
-            let args = null;
-
-            if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
-            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
-
-            if (opName) {
-                this.redoStack = [];
-                const argsMatch = (o, op, a) => {
-                    let oOp, oArgs;
-                    if (Array.isArray(o)) {
-                        oOp = o[0]; oArgs = o.slice(1);
-                    } else {
-                        oOp = o.op; oArgs = o.args;
-                    }
-                    // For nudge, args match if x,y match (ignoring w,h if simplified check, but let's match strict)
-                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
-                };
-
-                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
+                                // 3. Apply Toggle Logic based on Desired vs Actual
+                                let transientOp = null;
+                                if (this.currentTool === 'addLine') {
+                                    if (!isVisible) {
+                                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });       
+                                    } else {
+                                        // Toggle OFF: We push a transient removal to trigger fade.
+                                        transientOp = { 
+                                            type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: f, 
+                                            startFrame: this.effect.animFrame, layer: this.currentLayer 
+                                        };
+                                    }
+                                } else if (this.currentTool === 'removeLine') {
+                                    if (isVisible) {
+                                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });       
+                                    } else {
+                                        // Toggle OFF a removal (Restore line)
+                                        transientOp = { 
+                                            type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dx, face: f, 
+                                            startFrame: this.effect.animFrame, layer: this.currentLayer 
+                                        };
+                                    }
+                                }
                 
-                if (existingIdx !== -1) { 
-                    step.splice(existingIdx, 1); 
-                } else { 
-                    const newOp = { op: opName, args: args };
-                    // Only add layer for additive ops
-                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
-                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
-                    
-                    step.push(newOp); 
-                }
-                this.effect.refreshStep();
-                this.isDirty = true;
-            }
-        }
+                                this.effect.refreshStep();
+                                if (transientOp) {
+                                    this.effect.maskOps.push(transientOp);
+                                }
+                                this.isDirty = true;
+                                return;
+                            }
+                
+                            // Basic Block Tools
+                            let opName = null;
+                            let args = null;
+                
+                            if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
+                            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
+                
+                            if (opName) {
+                                this.redoStack = [];
+                                const argsMatch = (o, op, a) => {
+                                    let oOp, oArgs;
+                                    if (Array.isArray(o)) {
+                                        oOp = o[0]; oArgs = o.slice(1);
+                                    } else {
+                                        oOp = o.op; oArgs = o.args;
+                                    }
+                                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
+                                };
+                
+                                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
+                                let deletedOp = null;
+                                
+                                if (existingIdx !== -1) { 
+                                    deletedOp = step[existingIdx];
+                                    step.splice(existingIdx, 1); 
+                                } else { 
+                                    const newOp = { op: opName, args: args };
+                                    // Only add layer for additive ops
+                                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
+                                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
+                                    
+                                    step.push(newOp); 
+                                }
+                
+                                this.effect.refreshStep();
+                
+                                // If we deleted an 'add' op, trigger a transient fade event AFTER the grid is rebuilt
+                                if (deletedOp && (opName === 'add')) {
+                                    this.effect.maskOps.push({ 
+                                        type: 'removeBlock', 
+                                        x1: dx, y1: dy, x2: dx, y2: dy, 
+                                        startFrame: this.effect.animFrame, 
+                                        layer: this.currentLayer 
+                                    });
+                                }
+                
+                                this.isDirty = true;
+                            }        }
     }
 
     _onMouseUp(e) {
