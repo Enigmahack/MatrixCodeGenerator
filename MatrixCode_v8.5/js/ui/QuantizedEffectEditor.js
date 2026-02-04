@@ -279,36 +279,41 @@ class QuantizedEffectEditor {
             }
             
             const distMap = this.effect._distMap;
-            const edgeMap = this.effect._cachedEdgeMap;
+            const edgeMaps = this.effect._cachedEdgeMaps;
             
-            if (!distMap || !edgeMap) continue;
+            if (!distMap || !edgeMaps) continue;
 
             const cx = Math.floor(w / 2);
             const cy = Math.floor(h / 2);
             const stepRemovals = [];
             
-            // Iterate all active edges in the cache
-            for (const [key, value] of edgeMap) {
-                // value = { type: 'add'|'rem', op: ... }
-                if (value.type !== 'add') continue;
+            // Iterate all active edges in the cache across all layers
+            for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
+                const edgeMap = edgeMaps[layerIdx];
+                if (!edgeMap) continue;
 
-                const op = value.op;
-                // Get coordinates from the operation that created the line
-                // addLine ops store x1, y1 (block coords relative to center)
-                const dx = op.x1;
-                const dy = op.y1;
-                const bx = cx + dx;
-                const by = cy + dy;
+                for (const [key, value] of edgeMap) {
+                    // value = { type: 'add'|'rem', op: ... }
+                    if (value.type !== 'add') continue;
 
-                if (bx < 0 || bx >= w || by < 0 || by >= h) continue;
+                    const op = value.op;
+                    // Get coordinates from the operation that created the line
+                    // addLine ops store x1, y1 (block coords relative to center)
+                    const dx = op.x1;
+                    const dy = op.y1;
+                    const bx = cx + dx;
+                    const by = cy + dy;
 
-                const idx = by * w + bx;
-                
-                // Check if this block is deep inside
-                if (distMap[idx] > thresh) {
-                    // Use the face from the original op to target the removal correctly
-                    const face = op.face || 'N'; 
-                    stepRemovals.push({ op: 'remLine', args: [dx, dy, face] });
+                    if (bx < 0 || bx >= w || by < 0 || by >= h) continue;
+
+                    const idx = by * w + bx;
+                    
+                    // Check if this block is deep inside
+                    if (distMap[idx] > thresh) {
+                        // Use the face from the original op to target the removal correctly
+                        const face = op.face || 'N'; 
+                        stepRemovals.push({ op: 'remLine', args: [dx, dy, face], layer: layerIdx });
+                    }
                 }
             }
             
@@ -1491,54 +1496,34 @@ class QuantizedEffectEditor {
                     }
                 }
 
-                // 2. Determine Current Visibility State from Cache
-                // The cache reflects the state BEFORE our clicks (accumulated up to this frame)
-                // We use this to decide what operation is needed.
-                let isVisible = false;
-                const edgeMap = this.effect._cachedEdgeMap;
-                
-                // Fallback helpers if cache isn't ready (shouldn't happen in editor loop)
-                const isActive = (x, y) => {
-                    const idx = y * this.effect.logicGridW + x;
-                    return (this.effect.renderGrid && this.effect.renderGrid[idx] !== -1);
-                };
-                let n1=false, n2=false;
-                if (type === 'V') { n1 = isActive(u-1, v); n2 = isActive(u, v); }
-                else { n1 = isActive(u, v-1); n2 = isActive(u, v); }
-                const isPerimeter = (n1 !== n2);
-                
-                if (edgeMap && edgeMap.has(key)) {
-                    const entry = edgeMap.get(key);
-                    if (entry.type === 'add') isVisible = true;
-                    else if (entry.type === 'rem') isVisible = false;
-                } else {
-                    // No override found in cache -> Use Base State
-                    isVisible = isPerimeter;
-                }
+                // 2. Determine Current Visibility State
+                // Use the centralized visibility helper which accounts for manual overrides, 
+                // layer boundaries, and perimeters.
+                const isVisible = this.effect.getEdgeVisibility(absX, absY, f);
 
-                                // 3. Apply Toggle Logic based on Desired vs Actual
-                                let transientOp = null;
-                                if (this.currentTool === 'addLine') {
-                                    if (!isVisible) {
-                                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });       
-                                    } else {
-                                        // Toggle OFF: We push a transient removal to trigger fade.
-                                        transientOp = { 
-                                            type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: f, 
-                                            startFrame: this.effect.animFrame, layer: this.currentLayer 
-                                        };
-                                    }
-                                } else if (this.currentTool === 'removeLine') {
-                                    if (isVisible) {
-                                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });       
-                                    } else {
-                                        // Toggle OFF a removal (Restore line)
-                                        transientOp = { 
-                                            type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dx, face: f, 
-                                            startFrame: this.effect.animFrame, layer: this.currentLayer 
-                                        };
-                                    }
-                                }
+                // 3. Apply Toggle Logic based on Desired vs Actual
+                let transientOp = null;
+                if (this.currentTool === 'addLine') {
+                    if (!isVisible) {
+                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });       
+                    } else {
+                        // Toggle OFF: We push a transient removal to trigger fade.
+                        transientOp = { 
+                            type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: f, 
+                            startFrame: this.effect.animFrame, layer: this.currentLayer 
+                        };
+                    }
+                } else if (this.currentTool === 'removeLine') {
+                    if (isVisible) {
+                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });       
+                    } else {
+                        // Toggle OFF a removal (Restore line)
+                        transientOp = { 
+                            type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dx, face: f, 
+                            startFrame: this.effect.animFrame, layer: this.currentLayer 
+                        };
+                    }
+                }
                 
                                 this.effect.refreshStep();
                                 if (transientOp) {

@@ -2607,7 +2607,6 @@ class QuantizedBaseEffect extends AbstractEffect {
     _rebuildEdgeCache(scaledW, scaledH) {
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
-        const outsideMap = this._computeTrueOutside(scaledW, scaledH);
         const distMap = this._computeDistanceField(scaledW, scaledH);
         const cleanDistVal = this.getConfig('CleanInnerDistance');
         const cleanDist = (cleanDistVal !== undefined) ? cleanDistVal : 4;
@@ -2658,6 +2657,65 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
             this._cachedEdgeMaps.push(edgeMap);
         }
+    }
+
+    _getBlock(bx, by) {
+        if (bx < 0 || bx >= this.logicGridW || by < 0 || by >= this.logicGridH) return -1;
+        return this.renderGrid[by * this.logicGridW + bx];
+    }
+
+    _getLayerForBlock(bx, by) {
+        const idx = by * this.logicGridW + bx;
+        if (bx < 0 || bx >= this.logicGridW || by < 0 || by >= this.logicGridH) return 0;
+        // Return highest active layer
+        for (let i = 2; i >= 0; i--) {
+            if (this.layerGrids[i] && this.layerGrids[i][idx] !== -1) return i;
+        }
+        return 0; // Fallback
+    }
+
+    getEdgeVisibility(bx, by, face) {
+        if (this._edgeCacheDirty || !this._cachedEdgeMaps || this._cachedEdgeMaps.length === 0) {
+            this._rebuildEdgeCache(this.logicGridW, this.logicGridH);
+            this._edgeCacheDirty = false;
+        }
+
+        const f = face.toUpperCase();
+        let x = bx, y = by, type = '';
+        if (f === 'N') { type = 'H'; }
+        else if (f === 'S') { type = 'H'; y++; }
+        else if (f === 'W') { type = 'V'; }
+        else if (f === 'E') { type = 'V'; x++; }
+        
+        const key = `${type}_${x}_${y}`;
+        
+        // 1. Manual Overrides (Highest Layer Wins)
+        for (let i = 2; i >= 0; i--) {
+            const em = this._cachedEdgeMaps[i];
+            if (em && em.has(key)) {
+                return (em.get(key).type === 'add');
+            }
+        }
+        
+        // 2. Procedural / Silhouette Logic
+        let ax, ay, bbx, bby; 
+        if (type === 'V') {
+            ax = x - 1; ay = y;
+            bbx = x;     bby = y;
+        } else {
+            ax = x;     ay = y - 1;
+            bbx = x;     bby = y;
+        }
+
+        const activeA = (this._getBlock(ax, ay) !== -1);
+        const activeB = (this._getBlock(bbx, bby) !== -1);
+
+        if (activeA && activeB) {
+            const layerA = this._getLayerForBlock(ax, ay);
+            const layerB = this._getLayerForBlock(bbx, bby);
+            return (layerA !== layerB);
+        } 
+        return (activeA !== activeB);
     }
 
     _renderEdges(ctx, ignoredCtx, now, blocksX, blocksY, offX, offY) {
