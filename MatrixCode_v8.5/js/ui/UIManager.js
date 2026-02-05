@@ -115,7 +115,6 @@ class UIManager {
             { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px' },
             { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1 },
             { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for older hardware: Font 24px (min), No Bloom/Post-Process, 0.75x Res, No Smoothing." },
-            { cat: 'Global', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', description: "Shows the hidden Debug tab for advanced settings and alignment tools." },
 
             { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
             { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v=>v+'x' },
@@ -132,7 +131,7 @@ class UIManager {
      */
     _generateAppearanceSettings() {
         return [
-            { cat: 'Appearance', type: 'accordion_header', label: 'Character Customization' },
+            { cat: 'Appearance', type: 'accordion_header', label: 'Character Fonts' },
             { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: () => this._getFonts() },
             { cat: 'Appearance', type: 'font_list' },
             { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info' },
@@ -172,10 +171,10 @@ class UIManager {
             { cat: 'Appearance', id: 'upwardTracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled' },
             { cat: 'Appearance', id: 'upwardTracerSpeedMult', type: 'range', label: 'Vertical Climb Speed', min: 0.5, max: 4.0, step: 0.1, transform: v=>v+'x', dep: 'upwardTracerEnabled' },
             { cat: 'Appearance', id: 'upwardTracerGlimmerSpeed', type: 'range', label: 'Glimmer Blink Speed', min: 0.01, max: 10.0, step: 0.01, dep: 'upwardTracerEnabled' },
-            { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled' },
-            { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled' },
+            { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled', description: "The number of mini blocks that determine the shape of the Glimmer highlighting." },
+            { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', description: "The amount of mini blocks that are lit within the Glimmer Grid." },
             { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled' },
-            { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', transform: v=>(v*100).toFixed(0)+'%' },
+            { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', transform: v=>(v*100).toFixed(0)+'%', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting." },
 
             { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
             { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
@@ -218,12 +217,12 @@ class UIManager {
         
             { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Tracers'},
-            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Maximum number of tracers released per-cycle" },
+            { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, description: "Max number of tracers released per cycle. A tracer is the leading character that 'writes' the stream to the screen." },
             { cat: 'Behavior', id: 'preferClusters', type: 'checkbox', label: 'Prefer Clusters', description: "Slightly increases the chance of tracers spawning side-by-side." },
             { cat: 'Behavior', id: 'tracerStopChance', type: 'range', label: 'Tracer Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for a tracer to randomly stop, leaving a hanging stream.'},
             
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Erasers'},
-            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that start erasing code" },
+            { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, description: "Invisible tracers that erase code streams instead of writing it." },
             { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, transform: v=>v+'%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.' },
             { cat: 'Behavior', type: 'accordion_subheader', label: 'Inverted Tracers'},
             { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', description: "Tracers that only write occassional characters" },
@@ -231,13 +230,13 @@ class UIManager {
 
             { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
             { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Symbol Rotator' },
-            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 1.0, step: 0.01, dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 100, step: 1, unit: '%', dep: 'rotatorEnabled', description: "Rotators are characters that change over time. This is the likelyhood that a rotator will be spawned." },
             { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', description: "Lock the rotator change to the cycles that move the tracers" },
             { cat: 'Behavior', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled','rotatorSyncToTracer'], transform: v => v + 'x' },
             { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'] },
             { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled' },
             { cat: 'Behavior', id: 'rotateDuringFade', type: 'checkbox', label: 'Rotate during fade', dep: 'rotatorEnabled' },
-            { cat: 'Behavior', id: 'rotatorDesyncEnabled', type: 'checkbox', label: 'Desynchronize Rotators', dep: 'rotatorEnabled' },
+            { cat: 'Behavior', id: 'rotatorDesyncEnabled', type: 'checkbox', label: 'Desynchronize Rotators', dep: 'rotatorEnabled', description: "Allow rotators to rotate at different speeds" },
             { cat: 'Behavior', id: 'rotatorDesyncVariance', type: 'range', label: 'Desync Variance', min: 0, max: 100, unit: '%', dep: ['rotatorEnabled', 'rotatorDesyncEnabled'] },
         ];
     }
@@ -262,7 +261,7 @@ class UIManager {
             { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
             { cat: 'Effects', id: 'pulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
-            { cat: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
+            { cat: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['pulseEnabled', '!pulseMovieAccurate'], description: "Honor blank spaces within the code streams." },
             { cat: 'Effects', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Preserve Tracer Glow', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
             { cat: 'Effects', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: ['pulseEnabled', '!pulseMovieAccurate'] },
             { cat: 'Effects', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: ['pulseEnabled', '!pulseMovieAccurate'], description: "Blend the outer edge (tracer color) to inner edge (code color)" },
@@ -280,7 +279,7 @@ class UIManager {
             { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
             { cat: 'Effects', id: 'clearPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
-            { cat: 'Effects', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
+            { cat: 'Effects', id: 'clearPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: "Honor blank spaces within the code streams." },
             { cat: 'Effects', id: 'clearPulseBlend', type: 'checkbox', label: 'Color Blend', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: "Blend the outer edge (tracer color) to inner edge (code color)" },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
             { cat: 'Effects', id: 'clearPulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit:'px', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
@@ -295,7 +294,7 @@ class UIManager {
             { cat: 'Effects', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled' },
+            { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled', description: "Honor blank spaces within the code streams." },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 150, unit: 'px', dep: 'miniPulseEnabled' },
             { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
@@ -542,6 +541,7 @@ class UIManager {
             { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show' },
             { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', description: 'Double click/tap sliders to reset them to default values.' },
             { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', description: 'Disable pop-up notifications at the bottom of the screen.' },
+            { cat: 'System', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', description: "Shows the hidden Debug tab for advanced settings and alignment tools." },
 
             { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
             { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', description: 'Master switch for key bindings. When enabled, keybinds will force effects to run even if the effect is disabled in settings.' },
@@ -574,7 +574,7 @@ class UIManager {
             { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
             { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.' },
             { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.' },
-            { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Customization" you can import your own TTF or OTF font file.' },
+            { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.' },
             { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.' },
             { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' },
             { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Feel free to reach out via github! I\'m definitely open to ideas and suggestions.' }

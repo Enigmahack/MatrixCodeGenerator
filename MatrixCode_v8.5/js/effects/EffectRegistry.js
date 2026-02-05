@@ -13,7 +13,34 @@ class EffectRegistry {
                 // ... (Load dynamically or manually)
             }
             get(name) { return this.effects.find(e => e.name === name); }
-            trigger(name, ...args) { const fx = this.effects.find(e => e.name === name); if(fx) return fx.trigger(...args); return false; }
+
+            _isEditorActive() {
+                if (window.matrix && window.matrix.ui && window.matrix.ui.quantEditor) {
+                    return window.matrix.ui.quantEditor.active;
+                }
+                return false;
+            }
+
+            trigger(name, ...args) {
+                const fx = this.effects.find(e => e.name === name);
+                if (!fx) return false;
+
+                // 1. Prevent running quantized effects while in the editor
+                const isQuantized = name.startsWith('Quantized');
+                if (isQuantized && this._isEditorActive()) {
+                    return false;
+                }
+
+                // 2. Prevent two quantized effects from running at the same time
+                if (isQuantized) {
+                    const activeQuantized = this.effects.find(e => e.active && e.name.startsWith('Quantized'));
+                    if (activeQuantized && activeQuantized !== fx) {
+                        return false;
+                    }
+                }
+
+                return fx.trigger(...args);
+            }
             
             update() { 
                 this.grid.clearAllOverrides();

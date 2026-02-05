@@ -573,7 +573,7 @@ class StreamManager {
             const d = this.config.derived;
             const grid = this.grid;
 
-            let cellType = s.rotatorEnabled && Math.random() < s.rotatorChance
+            let cellType = s.rotatorEnabled && Math.random() < (s.rotatorChance / 100)
                 ? CELL_TYPE.ROTATOR
                 : CELL_TYPE.TRACER;
 

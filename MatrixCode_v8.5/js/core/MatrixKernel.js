@@ -207,6 +207,14 @@ class MatrixKernel {
                         let targetAction = action;
                         if (action === 'QuantizedGenerateV2') targetAction = 'QuantizedBlockGenerator';
 
+                        // Block quantized effects if editor is active
+                        const isQuantized = targetAction.startsWith('Quantized');
+                        const editorActive = this.ui && this.ui.quantEditor && this.ui.quantEditor.active;
+                        
+                        if (isQuantized && editorActive) {
+                            return;
+                        }
+
                         // Always force execution via keybind, overriding "Automatic Enabled" toggles
                         if (this.effectRegistry.trigger(targetAction, true)) {
                             this.notifications.show(`${targetAction} Triggered`, 'success');

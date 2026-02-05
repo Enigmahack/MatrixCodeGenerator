@@ -47,8 +47,6 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this.cycleTimer = 0;
         this.cyclesCompleted = 0;
         this.manualStep = false;
-        this.maskOps = [];
-        this._maskDirty = true;
 
         this._initShadowWorld();
 

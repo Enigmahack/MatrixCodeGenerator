@@ -55,14 +55,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._initLogicGrid();
         
         if (this.useShadowWorld) {
-                    this.expansionPhase = 0;
-        this.cycleTimer = 0;
-        this.cyclesCompleted = 0;
-        this.manualStep = false;
-        this.maskOps = [];
-        this._maskDirty = true;
+            this.expansionPhase = 0;
+            this.cycleTimer = 0;
+            this.cyclesCompleted = 0;
+            this.manualStep = false;
 
-        this._initShadowWorld();
+            this._initShadowWorld();
         }
 
         // 2. Capture Current State

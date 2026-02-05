@@ -236,6 +236,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._edgeCacheDirty = true;
         this._distMapDirty = true;
         this._outsideMapDirty = true;
+        this._gridCacheDirty = true;
+        this.lastGridSeed = -1;
+        
+        // Reset Line Tracking
+        this.lineStates.clear();
+        this.suppressedFades.clear();
+        this._cachedEdgeMaps = [];
+        this.lastVisibilityChangeFrame = 0;
         
         this.hasSwapped = false;
         this.isSwapping = false;
@@ -1949,7 +1957,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         scratchCtx.clearRect(0, 0, width, height);
 
         if (isSolid) {
-            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.globalAlpha = this.alpha;
             scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
         } else {
             this._updateGridCache(width, height, s, derived);
@@ -1960,6 +1968,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             scratchCtx.restore();
             
             scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.globalAlpha = this.alpha;
             scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
         }
         
@@ -2783,6 +2792,16 @@ class QuantizedBaseEffect extends AbstractEffect {
              }
         };
 
+        const getBirthState = (birthFrame) => {
+            const fadeInFrames = this.getConfig('FadeInFrames') || 0;
+            if (fadeInFrames <= 0 || birthFrame === -1) return { c: color, o: 1.0 };
+            const progress = (now - birthFrame) / fadeInFrames;
+            if (progress < 0) return null;
+            if (progress >= 1) return { c: color, o: 1.0 };
+            
+            return { c: color, o: progress };
+        };
+
         const resolveEdge = (x, y, type) => {
             // A = Left/Top, B = Right/Bottom
             let ax, ay, bx, by; 
@@ -2844,18 +2863,22 @@ class QuantizedBaseEffect extends AbstractEffect {
             // 3. State Management & Fading Interception
             let state = this.lineStates.get(key);
             if (!state) {
-                state = { visible: false, deathFrame: -1 };
+                state = { visible: false, deathFrame: -1, birthFrame: -1 };
                 this.lineStates.set(key, state);
             }
 
             if (isVisibleNow) {
-                state.visible = true;
-                state.deathFrame = -1;
+                if (!state.visible) {
+                    state.visible = true;
+                    state.deathFrame = -1;
+                    state.birthFrame = now;
+                }
             } else {
                 if (state.visible) {
                     // Just died! (Either block removed OR layer merge)
                     state.visible = false;
                     this.lastVisibilityChangeFrame = now;
+                    state.birthFrame = -1;
                     
                     // Nudge suppression only applies to block removals, not merges
                     const isNudged = !isLayerMerge && this.suppressedFades.has(key);
@@ -2868,8 +2891,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             // 4. Rendering
             if (state.visible) {
-                const face = (type === 'V') ? 'W' : 'N';
-                this._drawExteriorLine(ctx, x, y, face, { color: color, opacity: 1.0 });
+                const birth = getBirthState(state.birthFrame);
+                if (birth) {
+                    const face = (type === 'V') ? 'W' : 'N';
+                    this._drawExteriorLine(ctx, x, y, face, { color: birth.c, opacity: birth.o });
+                }
             } else if (state.deathFrame !== -1) {
                 const fade = getFadeState(state.deathFrame);
                 if (fade) {

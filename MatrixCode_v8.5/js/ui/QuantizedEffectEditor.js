@@ -136,7 +136,7 @@ class QuantizedEffectEditor {
         }
 
         // Disable all quantized effects to ensure a clean slate for the new one
-        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+        const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedBlockGenerator'];
         if (this.registry) {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
@@ -177,7 +177,7 @@ class QuantizedEffectEditor {
     toggle(isActive) {
         this.active = isActive;
         if (this.active) {
-            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+            const qEffects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedBlockGenerator'];
             if (this.registry) {
                 qEffects.forEach(name => {
                     const eff = this.registry.get(name);
@@ -211,11 +211,6 @@ class QuantizedEffectEditor {
                 }
             }
 
-            // Ensure instant visibility for Editor
-            this.effect.state = 'SUSTAIN';
-            this.effect.alpha = 1.0;
-            this.effect.timer = 0;
-            
             if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
                 this.effect.sequence = window.matrixPatterns[this.effect.name];
             }
