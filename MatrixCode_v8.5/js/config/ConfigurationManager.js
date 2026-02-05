@@ -153,6 +153,7 @@ class ConfigurationManager {
             "rotateDuringFade": true,
             "rotatorDesyncEnabled": true,
             "rotatorDesyncVariance": 41,
+            "rotatorRandomSpeedEnabled": false,
             "shaderEnabled": false,
             "customShader": null,
             "effectShader": null,

@@ -38,6 +38,11 @@ class WorkerSimulationSystem {
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.timeScale = 1.0;
+
+        this.rotatorSpeedMap = new Float32Array(60);
+        for (let i = 0; i < 60; i++) {
+            this.rotatorSpeedMap[i] = 0.5 + Math.random() * 2.5; 
+        }
     }
 
     update(frame) {
@@ -365,12 +370,18 @@ class WorkerSimulationSystem {
             }
         } else if (s.rotatorEnabled && (decay === 1 || (s.rotateDuringFade && decay > 1))) {
             let effectiveCycle = d.rotatorCycleFrames;
-            if (s.rotatorDesyncEnabled) {
+            if (s.rotatorRandomSpeedEnabled) {
+                const approxRotationCount = Math.floor(frame / (d.rotatorCycleFrames * 1.5));
+                const speedIdx = (approxRotationCount + grid.rotatorOffsets[idx]) % 60;
+                effectiveCycle = Math.round(d.rotatorCycleFrames * this.rotatorSpeedMap[speedIdx]);
+            } else if (s.rotatorDesyncEnabled) {
                 const variancePercent = s.rotatorDesyncVariance / 100;
                 const maxVariance = d.rotatorCycleFrames * variancePercent;
                 const offsetNorm = (grid.rotatorOffsets[idx] / 127.5) - 1.0;
                 effectiveCycle = Math.max(1, Math.round(d.rotatorCycleFrames + (offsetNorm * maxVariance)));
             }
+            
+            effectiveCycle = Math.max(1, effectiveCycle);
 
             if (frame % effectiveCycle === 0) {
                 const fontIdx = grid.fontIndices[idx];

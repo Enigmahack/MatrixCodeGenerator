@@ -12,6 +12,11 @@ class SimulationSystem {
         this.useWorker = false;
         this.workerBuffers = null; // Store current SABs
 
+        this.rotatorSpeedMap = new Float32Array(60);
+        for (let i = 0; i < 60; i++) {
+            this.rotatorSpeedMap[i] = 0.5 + Math.random() * 2.5; 
+        }
+
         if (enableWorker) {
             // Check for SharedArrayBuffer support
             // Note: functionality requires secure context (HTTPS/localhost) and cross-origin isolation headers.
@@ -587,12 +592,20 @@ class SimulationSystem {
         const grid = this.grid;
         let effectiveCycle = cycleFrames;
         
-        if (s.rotatorDesyncEnabled) {
+        if (s.rotatorRandomSpeedEnabled) {
+            // Pick a multiplier from the pre-generated map
+            // Use frame and rotatorOffsets to pick a stable index that evolves
+            const approxRotationCount = Math.floor(frame / (cycleFrames * 1.5));
+            const speedIdx = (approxRotationCount + grid.rotatorOffsets[idx]) % 60;
+            effectiveCycle = Math.round(cycleFrames * this.rotatorSpeedMap[speedIdx]);
+        } else if (s.rotatorDesyncEnabled) {
             const variancePercent = s.rotatorDesyncVariance / 100;
             const maxVariance = cycleFrames * variancePercent;
             const offsetNorm = (grid.rotatorOffsets[idx] / 127.5) - 1.0;
             effectiveCycle = Math.max(1, Math.round(cycleFrames + (offsetNorm * maxVariance)));
         }
+
+        effectiveCycle = Math.max(1, effectiveCycle);
 
         if (frame % effectiveCycle === 0) {
             const fontIdx = grid.fontIndices[idx];
