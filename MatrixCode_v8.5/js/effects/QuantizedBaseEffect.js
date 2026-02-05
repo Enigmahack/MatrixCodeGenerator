@@ -3475,7 +3475,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
         
-        this.maskOps.push({
+        const op = {
             type: 'add',
             x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
             startFrame: this.animFrame,
@@ -3483,7 +3483,19 @@ class QuantizedBaseEffect extends AbstractEffect {
             layer: layer,
             blockId: id,
             isShifter: isShifter
-        });
+        };
+        this.maskOps.push(op);
+
+        // Record to sequence for Editor/Step support
+        if (this.manualStep && this.sequence) {
+            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+            const seqOp = {
+                op: (w === 1 && h === 1) ? 'add' : 'addRect',
+                args: (w === 1 && h === 1) ? [x, y] : [x, y, x + w - 1, y + h - 1],
+                layer: layer
+            };
+            this.sequence[this.expansionPhase].push(seqOp);
+        }
         
         if (suppressLines) {
             this._writeToGrid(x, y, w, h, this.animFrame, layer);
@@ -3496,7 +3508,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const durationFrames = durationSteps * framesPerStep;
 
         const addLine = (lx, ly, face) => {
-            this.maskOps.push({ 
+            const op = { 
                 type: 'addLine', 
                 x1: lx, y1: ly, x2: lx, y2: ly, 
                 face: face, 
@@ -3505,7 +3517,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                 startPhase: this.expansionPhase,
                 layer: layer,
                 blockId: id
-            });
+            };
+            this.maskOps.push(op);
+
+            if (this.manualStep && this.sequence) {
+                if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+                this.sequence[this.expansionPhase].push({
+                    op: 'addLine',
+                    args: [lx, ly, face],
+                    layer: layer
+                });
+            }
         };
         
         for(let i=0; i<w; i++) addLine(x+i, y, 'N');
@@ -3606,10 +3628,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                 for (let iy = 0; iy < b.h; iy++) {
                     for (let ix = 0; ix < b.w; ix++) {
                         const lx = b.x + ix, ly = b.y + iy;
-                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'N', force: true, startFrame: this.animFrame });
-                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'S', force: true, startFrame: this.animFrame });
-                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'W', force: true, startFrame: this.animFrame });
-                        this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: 'E', force: true, startFrame: this.animFrame });
+                        const faces = ['N', 'S', 'W', 'E'];
+                        for (const face of faces) {
+                            this.maskOps.push({ type: 'remLine', x1: lx, y1: ly, x2: lx, y2: ly, face: face, force: true, startFrame: this.animFrame });
+                            if (this.manualStep && this.sequence) {
+                                if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+                                this.sequence[this.expansionPhase].push({ op: 'remLine', args: [lx, ly, face] });
+                            }
+                        }
                     }
                 }
             }
@@ -3694,6 +3720,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (const op of this.maskOps) if (op.layer === 1) op.layer = 0;
         }
         for (const b of this.activeBlocks) if (b.layer === 1) b.layer = 0;
+        
+        // RECORDING: For now, we don't have a 'merge' op in the sequence format that's easily decodable.
+        // However, we can just record that we are now targeting Layer 0.
+        
         if (!this.layerGrids[1] || !this.layerGrids[0]) return;
         for(let i=0; i<this.layerGrids[1].length; i++) {
             const val = this.layerGrids[1][i];
@@ -3801,8 +3831,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         } else if (cycle === 1 || cycle === 2) {
             if (s.lastBlockId !== -1) {
                  const prev = steps[cycle - 1];
-                 this.maskOps.push({ type: 'removeBlock', x1: s.x + prev.x, y1: s.y + prev.y, x2: s.x + prev.x + prev.w - 1, y2: s.y + prev.y + prev.h - 1, startFrame: now });
-                 this._writeToGrid(s.x + prev.x, s.y + prev.y, prev.w, prev.h, -1);
+                 const x1 = s.x + prev.x, y1 = s.y + prev.y;
+                 const x2 = x1 + prev.w - 1, y2 = y1 + prev.h - 1;
+                 
+                 this.maskOps.push({ type: 'removeBlock', x1: x1, y1: y1, x2: x2, y2: y2, startFrame: now });
+                 if (this.manualStep && this.sequence) {
+                     if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+                     this.sequence[this.expansionPhase].push({ op: 'removeBlock', args: [x1, y1, x2, y2] });
+                 }
+                 
+                 this._writeToGrid(x1, y1, prev.w, prev.h, -1);
                  this.activeBlocks = this.activeBlocks.filter(b => b.id !== s.lastBlockId);
             }
             s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, true, true);
@@ -3915,8 +3953,29 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateBlockPosition(b, newX, newY) {
         this._writeToGrid(b.x, b.y, b.w, b.h, -1);
         const dx = newX - b.x, dy = newY - b.y;
+        
+        if (this.manualStep && this.sequence) {
+            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+            // Record Removal
+            this.sequence[this.expansionPhase].push({
+                op: 'removeBlock',
+                args: [b.x, b.y, b.x + b.w - 1, b.y + b.h - 1],
+                layer: b.layer || 0
+            });
+        }
+
         b.x = newX; b.y = newY;
         this._writeToGrid(b.x, b.y, b.w, b.h, b.startFrame);
+        
+        if (this.manualStep && this.sequence) {
+            // Record Addition at new position
+            this.sequence[this.expansionPhase].push({
+                op: (b.w === 1 && b.h === 1) ? 'add' : 'addRect',
+                args: (b.w === 1 && b.h === 1) ? [b.x, b.y] : [b.x, b.y, b.x + b.w - 1, b.y + b.h - 1],
+                layer: b.layer || 0
+            });
+        }
+
         if (this.maskOps) {
              for (const op of this.maskOps) if (op.blockId === b.id) { op.x1 += dx; op.x2 += dx; op.y1 += dy; op.y2 += dy; }
         }

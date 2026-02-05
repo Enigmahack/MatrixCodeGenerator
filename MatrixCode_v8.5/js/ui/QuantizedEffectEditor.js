@@ -615,7 +615,7 @@ class QuantizedEffectEditor {
             effectSelect.style.color = '#0f0';
             effectSelect.style.border = '1px solid #0f0';
             
-            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom'];
+            const effects = ['QuantizedPulse', 'QuantizedClimb', 'QuantizedRetract', 'QuantizedAdd', 'QuantizedZoom', 'QuantizedBlockGenerator'];
             effects.forEach(effName => {
                 if (this.registry.get(effName)) {
                     const opt = document.createElement('option');
@@ -1090,6 +1090,28 @@ class QuantizedEffectEditor {
         this.redoStack = [];
         let newStep = this.effect.expansionPhase + delta;
         if (newStep < 0) newStep = 0;
+        
+        // Procedural Generation Support:
+        // If we are at the end of the sequence (or it's a procedural effect) and stepping forward
+        if (delta > 0 && newStep >= this.effect.sequence.length) {
+            if (this.effect.name === 'QuantizedBlockGenerator' || (this.effect.state === 'GENERATING' && typeof this.effect._attemptGrowth === 'function')) {
+                // Ensure we have a sequence slot for this step if we want to record it
+                if (!this.effect.sequence[this.effect.expansionPhase]) {
+                    this.effect.sequence[this.effect.expansionPhase] = [];
+                }
+                
+                // Trigger one unit of growth
+                this.effect.expansionPhase = newStep;
+                this.effect._attemptGrowth();
+                
+                // If the effect supports recording (we'll implement this), the sequence will be populated.
+                // If not, it just adds to maskOps directly which is visible in the preview.
+                this._updateUI();
+                this.isDirty = true;
+                return;
+            }
+        }
+
         if (newStep >= this.effect.sequence.length) newStep = this.effect.sequence.length - 1;
         this.effect.expansionPhase = newStep;
         this.effect.jumpToStep(newStep); 

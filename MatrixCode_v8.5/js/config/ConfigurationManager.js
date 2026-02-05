@@ -186,7 +186,7 @@ class ConfigurationManager {
             "clearPulseCircular": false,
             "miniPulseEnabled": false,
             "miniPulseUseTracerGlow": true,
-            "miniPulseFrequencySeconds": 450,
+            "miniPulseFrequencySeconds": 300,
             "miniPulseDurationSeconds": 5,
             "miniPulsePreserveSpaces": true,
             "miniPulseThickness": 100,
@@ -335,7 +335,7 @@ class ConfigurationManager {
             "rainbowStreamIntensity": 50,
             "bootSequenceEnabled": false,
             "crashEnabled": false,
-            "crashFrequencySeconds": 600,
+            "crashFrequencySeconds": 300,
             "crashDurationSeconds": 30,
             "crashSheetCount": 25,
             "crashSheetSpeed": 1,
@@ -1813,6 +1813,17 @@ void main() {
      */
     get(key) {
         return this.state[key];
+    }
+
+    /**
+     * Resets all shader-related state to defaults.
+     * Used on startup to prevent persistence of old shaders.
+     */
+    clearShaderState() {
+        this.state.shaderEnabled = false;
+        this.state.customShader = null;
+        this.state.effectShader = null;
+        this.save();
     }
 
     /**

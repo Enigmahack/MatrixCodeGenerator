@@ -25,13 +25,13 @@ class EffectRegistry {
                 const fx = this.effects.find(e => e.name === name);
                 if (!fx) return false;
 
-                // 1. Prevent running quantized effects while in the editor
-                const isQuantized = name.startsWith('Quantized');
-                if (isQuantized && this._isEditorActive()) {
+                // 1. Prevent running ANY effects while in the editor
+                if (this._isEditorActive()) {
                     return false;
                 }
 
                 // 2. Prevent two quantized effects from running at the same time
+                const isQuantized = name.startsWith('Quantized');
                 if (isQuantized) {
                     const activeQuantized = this.effects.find(e => e.active && e.name.startsWith('Quantized'));
                     if (activeQuantized && activeQuantized !== fx) {
@@ -42,10 +42,26 @@ class EffectRegistry {
                 return fx.trigger(...args);
             }
             
+            _getEditedEffect() {
+                if (window.matrix && window.matrix.ui && window.matrix.ui.quantEditor && window.matrix.ui.quantEditor.active) {
+                    return window.matrix.ui.quantEditor.effect;
+                }
+                return null;
+            }
+
             update() { 
                 this.grid.clearAllOverrides();
                 this.grid.clearAllEffects();
+
+                const isEditorActive = this._isEditorActive();
+                const editedEffect = this._getEditedEffect();
+
                 this.effects.forEach(e => {
+                    // If editor is active, only allow the currently edited effect to update
+                    if (isEditorActive && e !== editedEffect) {
+                        return;
+                    }
+
                     e.update(); 
                     if (!e.active) return;
 

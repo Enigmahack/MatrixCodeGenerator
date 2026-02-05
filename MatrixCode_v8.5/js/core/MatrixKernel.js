@@ -84,6 +84,7 @@ class MatrixKernel {
      */
     _initializeManagers() {
         this.config = new ConfigurationManager();
+        this.config.clearShaderState(); // Ensure clean shader state on every load
         this.notifications = new NotificationManager(this.config);
         this.config.setNotificationManager(this.notifications);
         this.grid = new CellGrid(this.config);
@@ -152,12 +153,6 @@ class MatrixKernel {
 
         // Initialize font manager and await its completion
         await this.fontMgr.init();
-
-        // Safety: Reset Shader State on Reload
-        if (this.config.get('shaderEnabled')) {
-            this.config.set('shaderEnabled', false);
-            this.config.set('customShader', null);
-        }
     }
 
     /**
@@ -292,6 +287,7 @@ class MatrixKernel {
                 { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
                 { enabledKey: 'quantizedAddEnabled', frequencyKey: 'quantizedAddFrequencySeconds', effectName: 'QuantizedAdd' },
                 { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
+                { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
                 { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
                 { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
                 { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
@@ -319,7 +315,7 @@ class MatrixKernel {
      */
     _getMinFrequencyFrames(effectName, frequencyKey) {
         let seconds = this.config.state[frequencyKey];
-        if (seconds === 500 && effectName.startsWith('Quantized')) {
+        if (seconds === 500) {
             seconds = Utils.randomInt(50, 500);
         }
         return seconds * 60;
@@ -486,6 +482,8 @@ class MatrixKernel {
             { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
         ];
 
+        const isEditorActive = this.config.get('quantEditorEnabled') === true;
+
         autoEffects.forEach(effect => {
             if (this.config.state[effect.enabledKey]) {
                 if (!this._effectTimers[effect.effectName]) {
@@ -495,14 +493,16 @@ class MatrixKernel {
                     this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
                 }
 
-                this._effectTimers[effect.effectName]--;
+                if (!isEditorActive) {
+                    this._effectTimers[effect.effectName]--;
 
-                if (this._effectTimers[effect.effectName] <= 0) {
-                    this.effectRegistry.trigger(effect.effectName);
-                    // Reset timer with randomization
-                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5);
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
+                    if (this._effectTimers[effect.effectName] <= 0) {
+                        this.effectRegistry.trigger(effect.effectName);
+                        // Reset timer with randomization
+                        const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
+                        const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5);
+                        this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
+                    }
                 }
             } else {
                 // If effect is disabled, ensure its timer is reset or cleared
