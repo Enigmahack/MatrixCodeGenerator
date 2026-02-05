@@ -407,7 +407,7 @@ class ConfigurationManager {
             "quantizedBlockGridHeight": 10,
             "upwardTracerGlimmerChance": 0,
             "quantEditorEnabled": false,
-            "streamVisibleLengthScale": 1.2
+            "streamVisibleLengthScale": 0.8
         };
     }
 
