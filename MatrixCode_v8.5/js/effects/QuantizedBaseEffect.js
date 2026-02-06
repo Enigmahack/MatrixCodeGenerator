@@ -1164,6 +1164,31 @@ class QuantizedBaseEffect extends AbstractEffect {
         const s = this.c.state;
         const d = this.c.derived;
 
+        const sm = this.shadowSim.streamManager;
+        const cols = this.shadowGrid.cols;
+        const rows = this.shadowGrid.rows;
+
+        // --- Stream Injection (Pre-population) ---
+        // Inject a diverse population of tracers and erasers to jump-start the simulation.
+        // This ensures the shadow world looks populated and follows settings immediately.
+        for (let x = 0; x < cols; x++) {
+            // 30% chance for a tracer
+            if (Math.random() < 0.30) {
+                const y = Math.floor(Math.random() * (rows + 10));
+                sm.injectStream(x, y, false);
+                
+                // 15% chance for a following eraser
+                if (Math.random() < 0.15) {
+                    const ey = Math.floor(Math.random() * (y - 5));
+                    sm.injectStream(x, ey, true);
+                }
+            } else if (Math.random() < 0.15) {
+                // 15% chance for a standalone eraser
+                const y = Math.floor(Math.random() * (rows + 10));
+                sm.injectStream(x, y, true);
+            }
+        }
+
         // --- Robust Warmup (Fast Forward) ---
         // Instead of manually injecting streams (which is error-prone and misses erasers),
         // we simply run the simulation at max speed without rendering until it reaches a steady state.
@@ -1171,7 +1196,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Calculate how many frames are needed for a stream to cross the screen
         // tickInterval approx = 21 - speed. 
         const avgTickInterval = Math.max(1, 21 - (s.streamSpeed || 10));
-        const rows = this.shadowGrid.rows;
         
         // We want enough time for:
         // 1. Initial streams to spawn and fall (1x traversal)
@@ -1694,12 +1718,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Since offX/offY can be fractional, we use a slightly wider tolerance
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
-                        // Robust Coverage: Use Round to snap to the nearest cell boundary, matching the visual mask/lines.
-                        // This ensures strict alignment with _renderEdges and prevents "leaking" characters.
-                        const startCellX = Math.round(destBx * pitchX);
-                        const startCellY = Math.round(destBy * pitchY);
-                        const endCellX = Math.round((destBx + 1) * pitchX);
-                        const endCellY = Math.round((destBy + 1) * pitchY);                
+                        // Robust Coverage: Use floor/ceil to ensure total coverage of screen cells.
+                        // This prevents 1-pixel gaps (leaks) caused by floating point rounding.
+                        const startCellX = Math.floor(destBx * pitchX);
+                        const startCellY = Math.floor(destBy * pitchY);
+                        const endCellX = Math.ceil((destBx + 1) * pitchX);
+                        const endCellY = Math.ceil((destBy + 1) * pitchY);                
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
@@ -1726,12 +1750,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                     
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
-                            // Robust Coverage: Use Round to snap to the nearest cell boundary, matching the visual mask/lines.
-                            // This ensures strict alignment with _renderEdges and prevents "leaking" characters.
-                            const startCellX = Math.round(destBx * pitchX);
-                            const startCellY = Math.round(destBy * pitchY);
-                            const endCellX = Math.round((destBx + 1) * pitchX);
-                            const endCellY = Math.round((destBy + 1) * pitchY);                    
+                            // Robust Coverage: Use floor/ceil to ensure total coverage of screen cells.
+                            // This prevents 1-pixel gaps (leaks) caused by floating point rounding.
+                            const startCellX = Math.floor(destBx * pitchX);
+                            const startCellY = Math.floor(destBy * pitchY);
+                            const endCellX = Math.ceil((destBx + 1) * pitchX);
+                            const endCellY = Math.ceil((destBy + 1) * pitchY);                    
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
                         for (let cx = startCellX; cx < endCellX; cx++) {
@@ -2575,10 +2599,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                         }
                     }
                     if (!isFading) {
-                        const sx = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const ex = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const sy = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        const ey = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        const sx = Math.floor((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        const ex = Math.ceil((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        const sy = Math.floor((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        const ey = Math.ceil((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
                         const x = l.screenOriginX + (sx * l.screenStepX) + l.pixelOffX;
                         const y = l.screenOriginY + (sy * l.screenStepY) + l.pixelOffY;
                         const w = (ex - sx) * l.screenStepX;
@@ -2615,10 +2639,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const l = this.layout;
                     const offX = l.offX || 0;
                     const offY = l.offY || 0;
-                    const startX = Math.round((start.x - offX + l.userBlockOffX) * l.cellPitchX);
-                    const endX = Math.round((end.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-                    const startY = Math.round((start.y - offY + l.userBlockOffY) * l.cellPitchY);
-                    const endY = Math.round((end.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+                    const startX = Math.floor((start.x - offX + l.userBlockOffX) * l.cellPitchX);
+                    const endX = Math.ceil((end.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+                    const startY = Math.floor((start.y - offY + l.userBlockOffY) * l.cellPitchY);
+                    const endY = Math.ceil((end.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
 
                     ctx.beginPath();
                     const xPos = l.screenOriginX + (startX) * l.screenStepX + l.pixelOffX;
@@ -3213,10 +3237,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const offY = l.offY || 0;
 
         // Snap Cell Indices
-        const startX = Math.round((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
-        const endX = Math.round((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        const startY = Math.round((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
-        const endY = Math.round((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+        const startX = Math.floor((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
+        const endX = Math.ceil((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+        const startY = Math.floor((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
+        const endY = Math.ceil((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
 
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();

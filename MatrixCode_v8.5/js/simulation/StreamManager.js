@@ -484,8 +484,9 @@ class StreamManager {
 
     _initializeEraserStream(stream, s) {
         stream.len = this.grid.rows + 5;
-        const scale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
-        stream.visibleLen = (this.grid.rows + 20) * scale; 
+        // Erasers should always finish their job of clearing the column.
+        // We ignore scale here to ensure they reach the bottom regardless of tracer settings.
+        stream.visibleLen = (stream.len + 2) * stream.tickInterval; 
         return stream;
     }
 
@@ -509,9 +510,10 @@ class StreamManager {
             stream.maxDecay = baseFade + additional;
         }
 
-        const travelDuration = stream.len // * stream.tickInterval;
+        const travelDuration = stream.len * stream.tickInterval;
         const scale = (s.streamVisibleLengthScale !== undefined) ? s.streamVisibleLengthScale : 1.0;
-        stream.visibleLen = (travelDuration + (this.grid.rows * 4)) * scale;
+        // visibleLen = Travel Time + small buffer (5 frames)
+        stream.visibleLen = (travelDuration + (5 * stream.tickInterval)) * scale;
 
         stream.isInverted = s.invertedTracerEnabled && Math.random() < s.invertedTracerChance;
         stream.isGradual = s.gradualColorStreams && (Math.random() * 100 < s.gradualColorStreamsFrequency);
@@ -527,6 +529,18 @@ class StreamManager {
             stream.mode = 'RAINBOW';
         }
         return stream;
+    }
+
+    injectStream(x, y, forceEraser) {
+        const s = this.config.state;
+        const stream = this._initializeStream(x, forceEraser, s);
+        stream.y = y;
+        // Approximate age based on Y
+        stream.age = Math.floor(Math.max(0, y * stream.tickInterval));
+        stream.tickTimer = Math.random() * stream.tickInterval;
+        
+        this.modes[stream.mode].spawn(stream);
+        this.addActiveStream(stream);
     }
 
     _writeHead(stream, frame) {
