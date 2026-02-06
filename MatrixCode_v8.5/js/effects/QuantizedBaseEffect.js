@@ -326,8 +326,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this._lastProcessedOpIndex = 0;
         
-        // Clear Line States to force fresh re-evaluation based on the new 'now'
-        this.lineStates.clear();
+        // Transition Line States instead of clearing
+        // All current visible lines should start fading out from the NEW 'now'
+        const jumpTime = stepIndex * 1000;
+        for (const [key, state] of this.lineStates) {
+            if (state.visible) {
+                state.visible = false;
+                state.deathFrame = jumpTime;
+                state.birthFrame = -1;
+            } else if (state.deathFrame !== -1 && jumpTime > state.deathFrame + (this.getConfig('FadeFrames') || 60)) {
+                // If the line was already fading and the jump is far enough in the future, remove it
+                this.lineStates.delete(key);
+            }
+        }
         
         const framesPerStep = 1000; // Use large buffer to ensure step isolation
 
@@ -410,7 +421,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
                         this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
                     } else {
-                        this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+                        this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
                         setLocalActive(dx, dy);
                     }
                 } else if (opCode === 2) { // rem(x, y, mask)
@@ -423,26 +434,26 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const nE = isActive(dx + 1, dy);
                         const nW = isActive(dx - 1, dy);
                         if (nN && nS && nE && nW) {
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
+                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
                         } else {
-                            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
+                            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
                             setLocalInactive(dx, dy);
                         }
                     } else {
-                        if (mask & 1) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
-                        if (mask & 2) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
-                        if (mask & 4) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
-                        if (mask & 8) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
+                        if (mask & 1) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
+                        if (mask & 2) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
+                        if (mask & 4) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
+                        if (mask & 8) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
                     }
                 } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
                     const dx1 = step[i++];
                     const dy1 = step[i++];
                     const dx2 = step[i++];
                     const dy2 = step[i++];
-                    this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now });
+                    this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase });
                     const minX = Math.min(cx + dx1, cx + dx2);
                     const maxX = Math.max(cx + dx1, cx + dx2);
                     const minY = Math.min(cy + dy1, cy + dy2);
@@ -472,18 +483,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                 } else if (opCode === 6) { // addSmart(x, y)
                     const dx = step[i++];
                     const dy = step[i++];
-                    this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now });
+                    this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
                     setLocalActive(dx, dy);
                 } else if (opCode === 7) { // removeBlock(x, y)
                     const dx = step[i++];
                     const dy = step[i++];
-                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now });
+                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
                     setLocalInactive(dx, dy);
                 } else if (opCode === 8) { // addLayered(x, y, layer)
                     const dx = step[i++];
                     const dy = step[i++];
                     const l = step[i++];
-                    this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, layer: l });
+                    this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
                     setLocalActive(dx, dy);
                     setLayerActive(dx, dy, l, now);
                 } else if (opCode === 9) { // addRectLayered(x1, y1, x2, y2, layer)
@@ -517,14 +528,19 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const l = step[i++];
                     this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: l });
                     setLocalInactive(dx, dy);
-                } else if (opCode === 12) { // nudge(dx, dy, w, h, layer)
+                } else if (opCode === 12) { // nudge(dx, dy, w, h, layer, faceMask)
                     const dx = step[i++];
                     const dy = step[i++];
                     const w = step[i++];
                     const h = step[i++];
                     const l = step[i++];
-                    
-                    this._executeNudge(dx, dy, w, h, l, ctx);
+
+                    // NEW: Optional faceMask
+                    const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
+                    const fMask = step[i++];
+                    const face = FACES_INV[fMask] || null;
+
+                    this._executeNudge(dx, dy, w, h, face, l, ctx);
                 }
             }
             return;
@@ -534,10 +550,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._executeSingleOp(opData, ctx);
         }
     }
-
     _executeSingleOp(opData, ctx) {
         const { cx, cy, now, getIdx, isActive, setLocalActive, setLocalInactive, setLayerActive, setLayerInactive } = ctx;
-        
+
         let op, args, layer;
         if (Array.isArray(opData)) {
             op = opData[0];
@@ -547,7 +562,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             args = opData.args;
             layer = opData.layer;
         }
-        
+
         if (op === 'group' && opData.ops) {
             for (const subOp of opData.ops) {
                 this._executeSingleOp(subOp, ctx);
@@ -628,31 +643,40 @@ class QuantizedBaseEffect extends AbstractEffect {
             setLocalInactive(dx, dy);
             setLayerInactive(dx, dy, layer);
         } else if (op === 'nudge') {
-            const [dx, dy, w, h] = args;
-            this._executeNudge(dx, dy, w, h, layer, ctx);
+            const [dx, dy, w, h, face] = args;
+            this._executeNudge(dx, dy, w, h, face, layer, ctx);
         }
     }
 
-    _executeNudge(dx, dy, w, h, layer, ctx) {
+    _executeNudge(dx, dy, w, h, face, layer, ctx) {
         const { cx, cy, now, getIdx, isActive, setLocalActive, setLocalInactive, setLayerActive, setLayerInactive } = ctx;
-        
-        if (dx === 0 && dy === 0) return;
-        if (Math.abs(dx) === Math.abs(dy)) return;
-        
+
         let axis = 'X';
         let dir = 1;
-        if (Math.abs(dy) > Math.abs(dx)) { axis = 'Y'; dir = Math.sign(dy); }
-        else { axis = 'X'; dir = Math.sign(dx); }
-        
+
+        if (face) {
+            const f = face.toUpperCase();
+            if (f === 'N') { axis = 'Y'; dir = -1; }
+            else if (f === 'S') { axis = 'Y'; dir = 1; }
+            else if (f === 'E') { axis = 'X'; dir = 1; }
+            else if (f === 'W') { axis = 'X'; dir = -1; }
+        } else {
+            // Fallback to "away from center"
+            if (dx === 0 && dy === 0) return;
+            if (Math.abs(dx) === Math.abs(dy)) return;
+            if (Math.abs(dy) > Math.abs(dx)) { axis = 'Y'; dir = Math.sign(dy); }
+            else { axis = 'X'; dir = Math.sign(dx); }
+        }
+
         const rangeW = this.logicGridW;
         const rangeH = this.logicGridH;
         const toRelX = (bx) => bx - cx;
         const toRelY = (by) => by - cy;
-        
+
         for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
             const grid = this.layerGrids[layerIdx];
             const edgeMap = (this._cachedEdgeMaps && this._cachedEdgeMaps[layerIdx]) ? this._cachedEdgeMaps[layerIdx] : null;
-            
+
             if (!grid) continue;
             const moves = [];
             for (let by = 0; by < rangeH; by++) {
@@ -664,9 +688,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                         let shouldMove = false;
                         if (axis === 'X') {
                             const laneMatch = (ry >= dy && ry < dy + h);
-                            const posMatch = (dir > 0) ? (rx >= dx) : (rx <= dx + w - 1); 
+                            const posMatch = (dir > 0) ? (rx >= dx) : (rx <= dx + w - 1);
                             if (laneMatch && posMatch) shouldMove = true;
-                        } else { 
+                        } else {
                             const laneMatch = (rx >= dx && rx < dx + w);
                             const posMatch = (dir > 0) ? (ry >= dy) : (ry <= dy + h - 1);
                             if (laneMatch && posMatch) shouldMove = true;
@@ -675,7 +699,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
             }
-            
+
             if (axis === 'X') {
                 if (dir > 0) moves.sort((a, b) => b.x - a.x);
                 else moves.sort((a, b) => a.x - b.x);
@@ -692,27 +716,27 @@ class QuantizedBaseEffect extends AbstractEffect {
                             let nx = m.x, ny = m.y;
                             if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                             const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
-                            this.maskOps.push({ 
+                            this.maskOps.push({
                                 type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false
                             });
                         }
                     };
                     copyLineOp('N', `H_${m.bx}_${m.by}`);
-                    copyLineOp('S', `H_${m.bx}_${m.by+1}`);
+                    copyLineOp('S', `H_${m.bx}_${m.by + 1}`);
                     copyLineOp('W', `V_${m.bx}_${m.by}`);
-                    copyLineOp('E', `V_${m.bx+1}_${m.by}`);
+                    copyLineOp('E', `V_${m.bx + 1}_${m.by}`);
                 }
 
                 this.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx, fade: false });
-                setLayerInactive(m.x, m.y, layerIdx); 
-                
+                setLayerInactive(m.x, m.y, layerIdx);
+
                 let nx = m.x, ny = m.y;
                 if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                 this.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layerIdx });
                 setLayerActive(nx, ny, layerIdx, m.start);
             }
         }
-        
+
         this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: (layer || 0) });
         for (let y = dy; y < dy + h; y++) {
             for (let x = dx; x < dx + w; x++) {
@@ -1642,6 +1666,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     render(ctx, d) {
+        if (this.debugMode) {
+            // console.log("QuantizedBaseEffect: render active:", this.active, "alpha:", this.alpha);
+        }
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
 
         // Ensure passive animations (like line fades) keep the mask dirty
@@ -1786,7 +1813,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const savedMaskOpsLen = this.maskOps.length;
             
             if (previewOp) {
-                this._executeStepOps([previewOp]);
+                this._executeStepOps([previewOp], this.animFrame);
             }
             
             if (typeof this._updateRenderGridLogic === 'function') {
@@ -2817,7 +2844,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     // Nudge suppression only applies to block removals, not merges
                     const isNudged = !isLayerMerge && this.suppressedFades.has(key);
                     
-                    if (!isNudged) {
+                    if (!isNudged && state.deathFrame === -1) {
                         state.deathFrame = now;
                     }
                 }

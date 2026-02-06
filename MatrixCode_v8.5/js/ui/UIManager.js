@@ -1756,6 +1756,7 @@ class UIManager {
 
             if (key === 'quantEditorEnabled' || key === 'ALL') {
                 const enabled = this.c.get('quantEditorEnabled');
+                console.log("UIManager: quantEditorEnabled refresh", enabled);
                 
                 // Force reload on user toggle to ensure clean state
                 if (key === 'quantEditorEnabled' && !isRecursive) {

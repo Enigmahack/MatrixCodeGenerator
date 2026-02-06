@@ -215,7 +215,10 @@ class QuantizedEffectEditor {
                         const w = step[i++];
                         const h = step[i++];
                         const l = step[i++];
-                        decodedStep.push({ op: 'nudge', args: [x, y, w, h], layer: l });
+                        const fMask = step[i++];
+                        const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
+                        const face = FACES_INV[fMask] || 'N';
+                        decodedStep.push({ op: 'nudge', args: [x, y, w, h, face], layer: l });
                         continue;
                     } else if (opCode === 2 || opCode === 4 || opCode === 5) {
                         const x = step[i++];
@@ -316,6 +319,7 @@ class QuantizedEffectEditor {
     }
 
     toggle(isActive) {
+        console.log("QuantizedEffectEditor: toggle", isActive);
         this.active = isActive;
 
         if (this.isStandalone) {
@@ -341,37 +345,39 @@ class QuantizedEffectEditor {
             this._createCanvas();
             this._attachListeners();
             
-            // Force re-trigger to ensure init logic runs (e.g. Shadow World)
-            this.effect.active = false;
-            const triggered = this.effect.trigger(true); 
-            
-            if (!triggered) {
-                console.warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
-                this.effect.active = true;
-                if (typeof this.effect._initLogicGrid === 'function') this.effect._initLogicGrid();
-                if (typeof this.effect._initShadowWorld === 'function') {
-                    this.effect._initShadowWorld();
-                } else if (typeof this.effect._initShadowWorldBase === 'function') {
-                    this.effect._initShadowWorldBase(false);
+            if (this.effect) {
+                // Force re-trigger to ensure init logic runs (e.g. Shadow World)
+                this.effect.active = false;
+                const triggered = this.effect.trigger(true); 
+                
+                if (!triggered) {
+                    console.warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
+                    this.effect.active = true;
+                    if (typeof this.effect._initLogicGrid === 'function') this.effect._initLogicGrid();
+                    if (typeof this.effect._initShadowWorld === 'function') {
+                        this.effect._initShadowWorld();
+                    } else if (typeof this.effect._initShadowWorldBase === 'function') {
+                        this.effect._initShadowWorldBase(false);
+                    }
                 }
+
+                if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
+                    this.effect.sequence = window.matrixPatterns[this.effect.name];
+                }
+
+                this.effect.sequence = this._decodeSequence(this.effect.sequence);
+                
+                this.effect.debugMode = true;
+                this.effect.manualStep = true; 
+                
+                // Start at the beginning as requested (Step 1)
+                this.effect.expansionPhase = Math.min(1, Math.max(0, this.effect.sequence.length - 1));
+
+                this.effect.refreshStep();
+                this._updateUI(); 
+                this.isDirty = true;
+                this._renderLoop();
             }
-
-            if ((!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
-                this.effect.sequence = window.matrixPatterns[this.effect.name];
-            }
-
-            this.effect.sequence = this._decodeSequence(this.effect.sequence);
-            
-            this.effect.debugMode = true;
-            this.effect.manualStep = true; 
-            
-            // Start at the beginning as requested (Step 1)
-            this.effect.expansionPhase = Math.min(1, Math.max(0, this.effect.sequence.length - 1));
-
-            this.effect.refreshStep();
-            this._updateUI(); 
-            this.isDirty = true;
-            this._renderLoop();
         } else {
             this._removeUI();
             this._removeCanvas();
@@ -511,6 +517,9 @@ class QuantizedEffectEditor {
                  this.effect.state = 'SUSTAIN';
                  this.effect.alpha = 1.0;
              }
+             // Increment frame to support line fading in editor
+             this.effect.animFrame++;
+             // console.log("QuantizedEffectEditor: loop frame", this.effect.animFrame);
         }
 
         this._render();
@@ -767,7 +776,7 @@ class QuantizedEffectEditor {
             } else {
                 if (typeof window.require !== 'undefined') {
                     try {
-                        const { ipcRenderer } = window.require('electron');
+                        const { ipcRenderer } = window.require('elec' + 'tron');
                         ipcRenderer.send('open-editor');
                     } catch (e) {
                         console.error("Electron Pop Out failed:", e);
@@ -1371,7 +1380,9 @@ class QuantizedEffectEditor {
             }
         }
 
-        this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length - 1}`;
+        if (this.effect && this.stepLabel) {
+            this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length - 1}`;
+        }
         for (const t in this.tools) {
             this.tools[t].style.background = (t === this.currentTool) ? '#00aa00' : '#333';
         }
@@ -1383,7 +1394,7 @@ class QuantizedEffectEditor {
             });
         }
 
-        const showFaces = (this.currentTool === 'addLine' || this.currentTool === 'removeLine');
+        const showFaces = (this.currentTool === 'addLine' || this.currentTool === 'removeLine' || this.currentTool === 'nudge');
         document.getElementById('face-controls').style.display = showFaces ? 'block' : 'none';
         if (showFaces) {
             for (const f in this.faceBtns) {
@@ -1398,24 +1409,19 @@ class QuantizedEffectEditor {
             return;
         }
         this.redoStack = [];
-        let newStep = this.effect.expansionPhase + delta;
+        
+        const oldStep = this.effect.expansionPhase;
+        let newStep = oldStep + delta;
         if (newStep < 0) newStep = 0;
         
-        // Procedural Generation Support:
-        // If we are at the end of the sequence (or it's a procedural effect) and stepping forward
+        // Procedural Generation Support
         if (delta > 0 && newStep >= this.effect.sequence.length) {
             if (this.effect.name === 'QuantizedBlockGenerator' || (this.effect.state === 'GENERATING' && typeof this.effect._attemptGrowth === 'function')) {
-                // Ensure we have a sequence slot for this step if we want to record it
                 if (!this.effect.sequence[this.effect.expansionPhase]) {
                     this.effect.sequence[this.effect.expansionPhase] = [];
                 }
-                
-                // Trigger one unit of growth
                 this.effect.expansionPhase = newStep;
                 this.effect._attemptGrowth();
-                
-                // If the effect supports recording (we'll implement this), the sequence will be populated.
-                // If not, it just adds to maskOps directly which is visible in the preview.
                 this._updateUI();
                 this.isDirty = true;
                 return;
@@ -1423,8 +1429,16 @@ class QuantizedEffectEditor {
         }
 
         if (newStep >= this.effect.sequence.length) newStep = this.effect.sequence.length - 1;
-        this.effect.expansionPhase = newStep;
-        this.effect.jumpToStep(newStep); 
+
+        if (delta === 1 && newStep === oldStep + 1) {
+            // Step Forward: Use natural animation process to trigger fades
+            this.effect._processAnimationStep();
+        } else {
+            // Step Back or Jump: Force immediate state sync
+            this.effect.expansionPhase = newStep;
+            this.effect.jumpToStep(newStep); 
+        }
+
         this._updateUI();
         this.isDirty = true;
     }
@@ -1610,9 +1624,21 @@ class QuantizedEffectEditor {
                     } else {
                          stepData.push(7, args[0], args[1]);
                     }
-                } else if (opCode === 12) { // nudge(x, y, w, h, layer)
-                    // OpCode 12 takes layer as last arg
-                    stepData.push(12, args[0], args[1], args[2], args[3], layer);
+                } else if (opCode === 12) { // nudge(x, y, w, h, face, layer)
+                    const dx = args[0];
+                    const dy = args[1];
+                    let face = args[4];
+
+                    // Refactor existing/missing directions to match "away from center" logic
+                    if (!face) {
+                         if (dx === 0 && dy === 0) face = 'N'; // Default
+                         else if (Math.abs(dy) > Math.abs(dx)) face = (dy > 0) ? 'S' : 'N';
+                         else face = (dx > 0) ? 'E' : 'W';
+                    }
+                    
+                    const fMask = FACES[face.toUpperCase()] || 0;
+                    // OpCode 12: [12, x, y, w, h, layer, faceMask]
+                    stepData.push(12, args[0], args[1], args[2], args[3], layer, fMask);
                 } else if (opCode === 2 || opCode === 4 || opCode === 5) {
                     // rem(2), addLine(4), remLine(5)
                     stepData.push(opCode, args[0], args[1]);
@@ -2017,6 +2043,7 @@ class QuantizedEffectEditor {
                 
                                 // If we deleted an 'add' op, trigger a transient fade event AFTER the grid is rebuilt
                                 if (deletedOp && (opName === 'add')) {
+                                    // console.log("QuantizedEffectEditor: triggering transient removal fade at frame", this.effect.animFrame);
                                     this.effect.maskOps.push({ 
                                         type: 'removeBlock', 
                                         x1: dx, y1: dy, x2: dx, y2: dy, 
@@ -2048,16 +2075,51 @@ class QuantizedEffectEditor {
                 } else if (this.currentTool === 'nudge') {
                     this.redoStack = [];
                     const step = this.effect.sequence[this.effect.expansionPhase];
-                    const x1 = Math.min(this.dragStart.x, hit.x);
-                    const y1 = Math.min(this.dragStart.y, hit.y);
-                    const x2 = Math.max(this.dragStart.x, hit.x);
-                    const y2 = Math.max(this.dragStart.y, hit.y);
-                    const w = x2 - x1 + 1;
-                    const h = y2 - y1 + 1;
                     
+                    let targetX, targetY, targetW, targetH;
+
+                    if (this.dragStart.x === hit.x && this.dragStart.y === hit.y) {
+                        // Click nudge. Check if we have an active selection.
+                        if (this.selectedBlocks.size > 0) {
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                            const cx = Math.floor(this.effect.logicGridW / 2);
+                            const cy = Math.floor(this.effect.logicGridH / 2);
+                            for (const key of this.selectedBlocks) {
+                                const [absX, absY] = key.split(',').map(Number);
+                                const rx = absX - cx;
+                                const ry = absY - cy;
+                                minX = Math.min(minX, rx);
+                                maxX = Math.max(maxX, rx);
+                                minY = Math.min(minY, ry);
+                                maxY = Math.max(maxY, ry);
+                            }
+                            targetX = minX; targetY = minY;
+                            targetW = maxX - minX + 1; targetH = maxY - minY + 1;
+                        } else if (this.selectionRect) {
+                            const cx = Math.floor(this.effect.logicGridW / 2);
+                            const cy = Math.floor(this.effect.logicGridH / 2);
+                            targetX = this.selectionRect.x - cx;
+                            targetY = this.selectionRect.y - cy;
+                            targetW = this.selectionRect.w + 1;
+                            targetH = this.selectionRect.h + 1;
+                        } else {
+                            // Single block nudge
+                            targetX = hit.x; targetY = hit.y;
+                            targetW = 1; targetH = 1;
+                        }
+                    } else {
+                        // Drag nudge
+                        targetX = Math.min(this.dragStart.x, hit.x);
+                        targetY = Math.min(this.dragStart.y, hit.y);
+                        const x2 = Math.max(this.dragStart.x, hit.x);
+                        const y2 = Math.max(this.dragStart.y, hit.y);
+                        targetW = x2 - targetX + 1;
+                        targetH = y2 - targetY + 1;
+                    }
+
                     step.push({ 
                         op: 'nudge', 
-                        args: [x1, y1, w, h],
+                        args: [targetX, targetY, targetW, targetH, this.currentFace],
                         layer: this.currentLayer
                     });
                     this.effect.refreshStep();
