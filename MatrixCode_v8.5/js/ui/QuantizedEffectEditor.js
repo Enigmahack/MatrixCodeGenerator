@@ -27,6 +27,7 @@ class QuantizedEffectEditor {
         this.ctx = null;
 
         this.selectionRect = null;
+        this.selectedBlocks = new Set(); // Set of "x,y" strings
         this.clipboard = null;
         this.redoStack = [];
         
@@ -124,12 +125,32 @@ class QuantizedEffectEditor {
             case 'redo': this._redo(); break;
             case 'merge':
                 if (this.effect) {
-                    if (msg.selection) {
-                        this.effect.mergeSelectionAtStep(msg.selection, this.effect.expansionPhase);
+                    this.redoStack = [];
+                    const step = this.effect.sequence[this.effect.expansionPhase];
+                    const originalOps = JSON.parse(JSON.stringify(step));
+
+                    let count = 0;
+                    if (msg.multiSelect && msg.selection) {
+                        count = this.effect.mergeBlocksAtStep(msg.selection, this.effect.expansionPhase);
+                    } else if (msg.selection) {
+                        count = this.effect.mergeSelectionAtStep(msg.selection, this.effect.expansionPhase);
                     } else {
                         const layersToMerge = [1, 2]; // Default
-                        this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
+                        count = this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
                     }
+
+                    if (count > 0) {
+                        const mergedOps = step.splice(0, step.length);
+                        step.push({ 
+                            op: 'group', 
+                            ops: mergedOps, 
+                            replacesStep: true, 
+                            originalOps: originalOps,
+                            label: 'Merge Layers (Remote)' 
+                        });
+                        this.ui.notifications.show(`${count} blocks merged into Layer 0 (Remote)`, 'success');
+                    }
+                    
                     this.effect.refreshStep();
                     this.isDirty = true;
                 }
@@ -220,6 +241,13 @@ class QuantizedEffectEditor {
                 for (const opObj of step) {
                     if (Array.isArray(opObj)) {
                         decodedStep.push({ op: opObj[0], args: opObj.slice(1) });
+                    } else if (opObj && opObj.op === 'group' && opObj.ops) {
+                        // Recursively decode group ops
+                        const decodedGroup = { op: 'group', ops: [] };
+                        // We wrap ops in a temporary step to reuse decode logic (shallow)
+                        const tempResult = this._decodeSequence([opObj.ops]);
+                        decodedGroup.ops = tempResult[0];
+                        decodedStep.push(decodedGroup);
                     } else {
                         decodedStep.push(opObj);
                     }
@@ -260,6 +288,8 @@ class QuantizedEffectEditor {
         }
 
         this.redoStack = [];
+        this.selectionRect = null;
+        this.selectedBlocks.clear();
         this.effect = newEffect;
         
         // Activate new effect logic
@@ -642,6 +672,34 @@ class QuantizedEffectEditor {
             ctx.restore();
         }
 
+        // Define shared variables needed for multi-block selection rendering
+        if (this.selectedBlocks.size > 0) {
+            ctx.save();
+            ctx.strokeStyle = '#0088FF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.fillStyle = 'rgba(0, 136, 255, 0.1)';
+
+            for (const key of this.selectedBlocks) {
+                const [absX, absY] = key.split(',').map(Number);
+                
+                const cellX = Math.round((absX - l.offX + l.userBlockOffX) * l.cellPitchX);
+                const cellY = Math.round((absY - l.offY + l.userBlockOffY) * l.cellPitchY);
+                
+                const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
+                const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                
+                const nextCellX = Math.round((absX + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                const nextCellY = Math.round((absY + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                const w = (nextCellX - cellX) * l.screenStepX;
+                const h = (nextCellY - cellY) * l.screenStepY;
+
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeRect(x, y, w, h);
+            }
+            ctx.restore();
+        }
+
         // 5. Render Tool Preview (Drag/Hover)
         // If we have an editorPreviewOp, visual feedback is handled by renderEditorPreview.
         // But for Paste, we draw manually.
@@ -999,7 +1057,126 @@ class QuantizedEffectEditor {
         colorToggle.append(checkbox, document.createTextNode(' Highlight Changes'));
         container.appendChild(colorToggle);
 
-        // ... (Layer controls removed for brevity in this replace call context) ...
+        // Layer Controls
+        const layerControls = document.createElement('div');
+        layerControls.style.marginTop = '10px';
+        layerControls.style.paddingTop = '10px';
+        layerControls.style.borderTop = '1px solid #555';
+        
+        const lblLayer = document.createElement('div');
+        lblLayer.textContent = 'Active Layer:';
+        lblLayer.style.marginBottom = '5px';
+        layerControls.appendChild(lblLayer);
+
+        const layerBtnGroup = document.createElement('div');
+        layerBtnGroup.style.display = 'flex';
+        layerBtnGroup.style.gap = '5px';
+        layerBtnGroup.style.marginBottom = '10px';
+
+        this.layerBtns = [];
+        [0, 1, 2].forEach(l => {
+            const btn = this._createBtn(`L${l}`, () => {
+                this.currentLayer = l;
+                this._updateUI();
+                if (this.isStandalone) this._sendRemote({ type: 'setLayer', layer: l });
+            });
+            btn.style.flex = '1';
+            btn.title = `Select Layer ${l} for drawing. L0 is base, L1/L2 are overlays.`;
+            layerBtnGroup.appendChild(btn);
+            this.layerBtns[l] = btn;
+        });
+        layerControls.appendChild(layerBtnGroup);
+
+        const btnMerge = this._createBtn('Merge All into L0', () => {
+            if (!this.effect) return;
+            this.redoStack = [];
+            const step = this.effect.sequence[this.effect.expansionPhase];
+            
+            // Snapshot before merge for undo support
+            const originalOps = JSON.parse(JSON.stringify(step));
+            
+            const layersToMerge = [1, 2];
+            const count = this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
+            
+            if (count > 0) {
+                // If anything changed, wrap the entire new state in a transformative group
+                const mergedOps = step.splice(0, step.length);
+                step.push({ 
+                    op: 'group', 
+                    ops: mergedOps, 
+                    replacesStep: true, 
+                    originalOps: originalOps,
+                    label: 'Merge All Layers'
+                });
+
+                this.effect.refreshStep();
+                this.isDirty = true;
+                this.ui.notifications.show(`${count} blocks merged into Layer 0`, 'success');
+                if (this.isStandalone) this._sendRemote({ type: 'merge' });
+            } else {
+                this.ui.notifications.show("No blocks to merge", "info");
+            }
+        });
+        btnMerge.style.width = '100%';
+        btnMerge.style.marginBottom = '5px';
+        btnMerge.title = "Move all blocks from L1 and L2 to L0 for this step.";
+        layerControls.appendChild(btnMerge);
+
+        const btnMergeSel = this._createBtn('Merge Selection to L0', () => {
+            if (!this.effect) return;
+            this.redoStack = [];
+            const step = this.effect.sequence[this.effect.expansionPhase];
+            
+            // Snapshot before merge for undo support
+            const originalOps = JSON.parse(JSON.stringify(step));
+            
+            let count = 0;
+            let remoteBlocks = null;
+            if (this.selectedBlocks.size > 0) {
+                remoteBlocks = Array.from(this.selectedBlocks).map(key => {
+                    const [x, y] = key.split(',').map(Number);
+                    return { x, y };
+                });
+                count = this.effect.mergeBlocksAtStep(remoteBlocks, this.effect.expansionPhase);
+                this.selectedBlocks.clear();
+            } else if (this.selectionRect) {
+                count = this.effect.mergeSelectionAtStep(this.selectionRect, this.effect.expansionPhase);
+            } else {
+                this.ui.notifications.show("No selection to merge", "info");
+                return;
+            }
+
+            if (count > 0) {
+                // Wrap the entire new state in a transformative group
+                const mergedOps = step.splice(0, step.length);
+                step.push({ 
+                    op: 'group', 
+                    ops: mergedOps, 
+                    replacesStep: true, 
+                    originalOps: originalOps,
+                    label: 'Merge Selected Blocks'
+                });
+
+                this.effect.refreshStep();
+                this.isDirty = true;
+                this.ui.notifications.show(`${count} blocks merged to Layer 0`, 'success');
+                
+                if (this.isStandalone) {
+                    if (remoteBlocks) {
+                         this._sendRemote({ type: 'merge', selection: remoteBlocks, multiSelect: true });
+                    } else {
+                         this._sendRemote({ type: 'merge', selection: this.selectionRect });
+                    }
+                }
+            } else {
+                this.ui.notifications.show("No blocks found in selection on Layers 1 or 2", "info");
+            }
+        });
+        btnMergeSel.style.width = '100%';
+        btnMergeSel.title = "Move only selected blocks from L1/L2 to L0.";
+        layerControls.appendChild(btnMergeSel);
+
+        container.appendChild(layerControls);
 
         const gridToggle = document.createElement('label');
         gridToggle.style.display = 'block';
@@ -1139,8 +1316,10 @@ class QuantizedEffectEditor {
         }
         this.currentTool = tool;
         this.selectionRect = null; 
+        this.selectedBlocks.clear();
         if (tool !== 'paste') this.clipboard = null; 
         this._updateUI();
+        this.isDirty = true;
     }
 
     _selectFace(face) { 
@@ -1196,6 +1375,14 @@ class QuantizedEffectEditor {
         for (const t in this.tools) {
             this.tools[t].style.background = (t === this.currentTool) ? '#00aa00' : '#333';
         }
+
+        // Update layer buttons
+        if (this.layerBtns) {
+            this.layerBtns.forEach((btn, l) => {
+                btn.style.background = (this.currentLayer === l) ? '#00aa00' : '#333';
+            });
+        }
+
         const showFaces = (this.currentTool === 'addLine' || this.currentTool === 'removeLine');
         document.getElementById('face-controls').style.display = showFaces ? 'block' : 'none';
         if (showFaces) {
@@ -1388,7 +1575,16 @@ class QuantizedEffectEditor {
                 }
 
                 const opCode = OPS[opName];
-                if (!opCode) continue;
+                if (!opCode) {
+                    if (opName === 'group' && opObj.ops) {
+                        // Recursively encode group ops
+                        const encodedGroup = { op: 'group', ops: [] };
+                        const tempResult = this._encodeSequence([opObj.ops]);
+                        encodedGroup.ops = tempResult[0];
+                        stepData.push(encodedGroup);
+                    }
+                    continue;
+                }
 
                 if (opCode === 1) { // add
                     if (layer > 0) {
@@ -1447,8 +1643,14 @@ class QuantizedEffectEditor {
         }
         const step = this.effect.sequence[this.effect.expansionPhase];
         if (step && step.length > 0) { 
-            const op = step.pop(); 
-            this.redoStack.push(op);
+            const action = step.pop(); 
+            
+            // Support for transformative operations (like merge) that snapshot the state
+            if (action.replacesStep && action.originalOps) {
+                step.splice(0, step.length, ...action.originalOps);
+            }
+            
+            this.redoStack.push(action);
             this.effect.refreshStep(); 
             this.isDirty = true;
         }
@@ -1461,8 +1663,8 @@ class QuantizedEffectEditor {
         }
         const step = this.effect.sequence[this.effect.expansionPhase];
         if (this.redoStack.length > 0) {
-            const op = this.redoStack.pop();
-            step.push(op);
+            const action = this.redoStack.pop();
+            step.push(action);
             this.effect.refreshStep();
             this.isDirty = true;
         }
@@ -1546,6 +1748,16 @@ class QuantizedEffectEditor {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         
         // Shortcuts
+        if (e.key === 'Escape') {
+            if (this.selectedBlocks.size > 0 || this.selectionRect) {
+                this.selectedBlocks.clear();
+                this.selectionRect = null;
+                this.isDirty = true;
+                e.preventDefault();
+                return;
+            }
+        }
+
         if ((e.ctrlKey || e.metaKey)) {
             if (e.key === 'c') { e.preventDefault(); this._copySelection(); return; }
             if (e.key === 'x') { e.preventDefault(); this._cutSelection(); return; }
@@ -1641,7 +1853,40 @@ class QuantizedEffectEditor {
         }
 
         const hit = this._getHitTest(e.clientX, e.clientY);
+
+        // Deselect previous on new select click (unless CTRL is held)
+        if (this.currentTool === 'select' && !e.ctrlKey) {
+            if (this.selectedBlocks.size > 0 || this.selectionRect) {
+                this.selectedBlocks.clear();
+                this.selectionRect = null;
+                this.isDirty = true;
+            }
+        }
+
         if (hit) {
+            // Multi-Select Toggle with CTRL
+            if (e.ctrlKey) {
+                // If we have a selectionRect, bake it into selectedBlocks first
+                if (this.selectionRect) {
+                    const r = this.selectionRect;
+                    for (let ry = r.y; ry <= r.y + r.h; ry++) {
+                        for (let rx = r.x; rx <= r.x + r.w; rx++) {
+                            this.selectedBlocks.add(`${rx},${ry}`);
+                        }
+                    }
+                    this.selectionRect = null;
+                }
+
+                const key = `${hit.absX},${hit.absY}`;
+                if (this.selectedBlocks.has(key)) {
+                    this.selectedBlocks.delete(key);
+                } else {
+                    this.selectedBlocks.add(key);
+                }
+                this.isDirty = true;
+                return;
+            }
+
             if (this.currentTool === 'paste') {
                 this._commitPaste(hit.x, hit.y);
                 return;
