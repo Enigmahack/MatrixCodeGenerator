@@ -126,17 +126,18 @@ class QuantizedEffectEditor {
             case 'merge':
                 if (this.effect) {
                     this.redoStack = [];
-                    const step = this.effect.sequence[this.effect.expansionPhase];
+                    const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                    const step = this.effect.sequence[targetIdx];
                     const originalOps = JSON.parse(JSON.stringify(step));
 
                     let count = 0;
                     if (msg.multiSelect && msg.selection) {
-                        count = this.effect.mergeBlocksAtStep(msg.selection, this.effect.expansionPhase);
+                        count = this.effect.mergeBlocksAtStep(msg.selection, targetIdx);
                     } else if (msg.selection) {
-                        count = this.effect.mergeSelectionAtStep(msg.selection, this.effect.expansionPhase);
+                        count = this.effect.mergeSelectionAtStep(msg.selection, targetIdx);
                     } else {
                         const layersToMerge = [1, 2]; // Default
-                        count = this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
+                        count = this.effect.flattenLayers(layersToMerge, null, targetIdx);
                     }
 
                     if (count > 0) {
@@ -1134,7 +1135,8 @@ class QuantizedEffectEditor {
         const btnMergeSel = this._createBtn('Merge Selection to L0', () => {
             if (!this.effect) return;
             this.redoStack = [];
-            const step = this.effect.sequence[this.effect.expansionPhase];
+            const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+            const step = this.effect.sequence[targetIdx];
             
             // Snapshot before merge for undo support
             const originalOps = JSON.parse(JSON.stringify(step));
@@ -1146,10 +1148,10 @@ class QuantizedEffectEditor {
                     const [x, y] = key.split(',').map(Number);
                     return { x, y };
                 });
-                count = this.effect.mergeBlocksAtStep(remoteBlocks, this.effect.expansionPhase);
+                count = this.effect.mergeBlocksAtStep(remoteBlocks, targetIdx);
                 this.selectedBlocks.clear();
             } else if (this.selectionRect) {
-                count = this.effect.mergeSelectionAtStep(this.selectionRect, this.effect.expansionPhase);
+                count = this.effect.mergeSelectionAtStep(this.selectionRect, targetIdx);
             } else {
                 this.ui.notifications.show("No selection to merge", "info");
                 return;
@@ -1430,14 +1432,9 @@ class QuantizedEffectEditor {
 
         if (newStep >= this.effect.sequence.length) newStep = this.effect.sequence.length - 1;
 
-        if (delta === 1 && newStep === oldStep + 1) {
-            // Step Forward: Use natural animation process to trigger fades
-            this.effect._processAnimationStep();
-        } else {
-            // Step Back or Jump: Force immediate state sync
-            this.effect.expansionPhase = newStep;
-            this.effect.jumpToStep(newStep); 
-        }
+        // Force jumpToStep for all changes to ensure immediate visibility (skip fades) and state parity
+        this.effect.expansionPhase = newStep;
+        this.effect.jumpToStep(newStep);
 
         this._updateUI();
         this.isDirty = true;
@@ -1667,7 +1664,8 @@ class QuantizedEffectEditor {
             this._sendRemote({ type: 'undo' });
             return;
         }
-        const step = this.effect.sequence[this.effect.expansionPhase];
+        const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+        const step = this.effect.sequence[targetIdx];
         if (step && step.length > 0) { 
             const action = step.pop(); 
             
@@ -1687,7 +1685,8 @@ class QuantizedEffectEditor {
             this._sendRemote({ type: 'redo' });
             return;
         }
-        const step = this.effect.sequence[this.effect.expansionPhase];
+        const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+        const step = this.effect.sequence[targetIdx];
         if (this.redoStack.length > 0) {
             const action = this.redoStack.pop();
             step.push(action);
@@ -1721,7 +1720,8 @@ class QuantizedEffectEditor {
     _deleteSelection() {
         if (!this.selectionRect) return;
         this.redoStack = [];
-        const step = this.effect.sequence[this.effect.expansionPhase];
+        const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+        const step = this.effect.sequence[targetIdx];
         const grid = this.effect.logicGrid;
         const w = this.effect.logicGridW;
         const cx = Math.floor(w / 2);
@@ -1740,6 +1740,7 @@ class QuantizedEffectEditor {
             }
         }
         if (count > 0) {
+            if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
             this.effect.refreshStep();
             this.isDirty = true;
         }
@@ -1759,10 +1760,12 @@ class QuantizedEffectEditor {
     _commitPaste(targetX, targetY) {
         if (!this.clipboard) return;
         this.redoStack = [];
-        const step = this.effect.sequence[this.effect.expansionPhase];
+        const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+        const step = this.effect.sequence[targetIdx];
         for (const pt of this.clipboard.data) {
             step.push({ op: 'add', args: [targetX + pt.x, targetY + pt.y] });
         }
+        if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
         this.effect.refreshStep();
         this.isDirty = true;
     }
@@ -1931,7 +1934,7 @@ class QuantizedEffectEditor {
             // Smart Line Toggle (Shared Edges)
             if (this.currentTool === 'addLine' || this.currentTool === 'removeLine') {
                 const cx = Math.floor(this.effect.logicGridW / 2);
-                const cy = Math.floor(this.effect.logicGridH / 2);
+                const cy = Math.floor(this.logicGridH / 2);
                 const absX = dx + cx; 
                 const absY = dy + cy;
                 const f = this.currentFace;
@@ -1945,7 +1948,11 @@ class QuantizedEffectEditor {
 
                 const key = `${type}_${u}_${v}`;
 
-                // 1. Clear ALL Overrides on this Edge in CURRENT STEP (Neighbor included)
+                // Target current visible step (N-1) or first step (0)
+                const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                const step = this.effect.sequence[targetIdx];
+
+                // 1. Clear ALL Overrides on this Edge in TARGET STEP
                 for (let i = step.length - 1; i >= 0; i--) {
                     const op = step[i];
                     let oName, oArgs;
@@ -1969,8 +1976,6 @@ class QuantizedEffectEditor {
                 }
 
                 // 2. Determine Current Visibility State
-                // Use the centralized visibility helper which accounts for manual overrides, 
-                // layer boundaries, and perimeters.
                 const isVisible = this.effect.getEdgeVisibility(absX, absY, f);
 
                 // 3. Apply Toggle Logic based on Desired vs Actual
@@ -1979,7 +1984,6 @@ class QuantizedEffectEditor {
                     if (!isVisible) {
                         step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });       
                     } else {
-                        // Toggle OFF: We push a transient removal to trigger fade.
                         transientOp = { 
                             type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: f, 
                             startFrame: this.effect.animFrame, layer: this.currentLayer 
@@ -1989,7 +1993,6 @@ class QuantizedEffectEditor {
                     if (isVisible) {
                         step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });       
                     } else {
-                        // Toggle OFF a removal (Restore line)
                         transientOp = { 
                             type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dx, face: f, 
                             startFrame: this.effect.animFrame, layer: this.currentLayer 
@@ -1997,63 +2000,63 @@ class QuantizedEffectEditor {
                     }
                 }
                 
-                                this.effect.refreshStep();
-                                if (transientOp) {
-                                    this.effect.maskOps.push(transientOp);
-                                }
-                                this.isDirty = true;
-                                return;
-                            }
+                if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
+                this.effect.refreshStep();
+                if (transientOp) {
+                    this.effect.maskOps.push(transientOp);
+                }
+                this.isDirty = true;
+                return;
+            }
+
+            // Basic Block Tools
+            let opName = null;
+            let args = null;
+
+            if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
+            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
+
+            if (opName) {
+                this.redoStack = [];
+                const argsMatch = (o, op, a) => {
+                    let oOp, oArgs;
+                    if (Array.isArray(o)) {
+                        oOp = o[0]; oArgs = o.slice(1);
+                    } else {
+                        oOp = o.op; oArgs = o.args;
+                    }
+                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
+                };
+
+                const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                const step = this.effect.sequence[targetIdx];
+                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
+                let deletedOp = null;
                 
-                            // Basic Block Tools
-                            let opName = null;
-                            let args = null;
-                
-                            if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
-                            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
-                
-                            if (opName) {
-                                this.redoStack = [];
-                                const argsMatch = (o, op, a) => {
-                                    let oOp, oArgs;
-                                    if (Array.isArray(o)) {
-                                        oOp = o[0]; oArgs = o.slice(1);
-                                    } else {
-                                        oOp = o.op; oArgs = o.args;
-                                    }
-                                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
-                                };
-                
-                                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
-                                let deletedOp = null;
-                                
-                                if (existingIdx !== -1) { 
-                                    deletedOp = step[existingIdx];
-                                    step.splice(existingIdx, 1); 
-                                } else { 
-                                    const newOp = { op: opName, args: args };
-                                    // Only add layer for additive ops
-                                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
-                                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
-                                    
-                                    step.push(newOp); 
-                                }
-                
-                                this.effect.refreshStep();
-                
-                                // If we deleted an 'add' op, trigger a transient fade event AFTER the grid is rebuilt
-                                if (deletedOp && (opName === 'add')) {
-                                    // console.log("QuantizedEffectEditor: triggering transient removal fade at frame", this.effect.animFrame);
-                                    this.effect.maskOps.push({ 
-                                        type: 'removeBlock', 
-                                        x1: dx, y1: dy, x2: dx, y2: dy, 
-                                        startFrame: this.effect.animFrame, 
-                                        layer: this.currentLayer 
-                                    });
-                                }
-                
-                                this.isDirty = true;
-                            }        }
+                if (existingIdx !== -1) { 
+                    deletedOp = step[existingIdx];
+                    step.splice(existingIdx, 1); 
+                } else { 
+                    const newOp = { op: opName, args: args };
+                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
+                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
+                    step.push(newOp); 
+                }
+
+                if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
+                this.effect.refreshStep();
+
+                if (deletedOp && (opName === 'add')) {
+                    this.effect.maskOps.push({ 
+                        type: 'removeBlock', 
+                        x1: dx, y1: dy, x2: dx, y2: dy, 
+                        startFrame: this.effect.animFrame, 
+                        layer: this.currentLayer 
+                    });
+                }
+
+                this.isDirty = true;
+            }        }
     }
 
     _onMouseUp(e) {
@@ -2062,19 +2065,21 @@ class QuantizedEffectEditor {
         if (this.dragStart) {
             const hit = this._getHitTest(e.clientX, e.clientY);
             if (hit) {
+                const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                const step = this.effect.sequence[targetIdx];
+
                 if (this.currentTool === 'addRect') {
                     this.redoStack = [];
-                    const step = this.effect.sequence[this.effect.expansionPhase];
                     step.push({ 
                         op: 'addRect', 
                         args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y],
                         layer: this.currentLayer
                     });
+                    if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                     this.effect.refreshStep();
                     this.isDirty = true;
                 } else if (this.currentTool === 'nudge') {
                     this.redoStack = [];
-                    const step = this.effect.sequence[this.effect.expansionPhase];
                     
                     let targetX, targetY, targetW, targetH;
 
@@ -2122,6 +2127,7 @@ class QuantizedEffectEditor {
                         args: [targetX, targetY, targetW, targetH, this.currentFace],
                         layer: this.currentLayer
                     });
+                    if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                     this.effect.refreshStep();
                     this.isDirty = true;
                 } else if (this.currentTool === 'select') {

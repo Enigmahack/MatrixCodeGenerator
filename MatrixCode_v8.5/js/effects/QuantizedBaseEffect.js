@@ -317,43 +317,39 @@ class QuantizedBaseEffect extends AbstractEffect {
         return null;
     }
 
-    jumpToStep(stepIndex) {
+    jumpToStep(targetStepsCompleted) {
         this.maskOps = [];
         this._initLogicGrid();
-        this.renderGrid.fill(-1);
+        if (this.renderGrid) this.renderGrid.fill(-1);
         for (let i = 0; i < 3; i++) {
             if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
         }
         this._lastProcessedOpIndex = 0;
         
         // Transition Line States instead of clearing
-        // All current visible lines should start fading out from the NEW 'now'
-        const jumpTime = stepIndex * 1000;
+        const jumpTime = targetStepsCompleted * 1000;
         for (const [key, state] of this.lineStates) {
             if (state.visible) {
                 state.visible = false;
                 state.deathFrame = jumpTime;
                 state.birthFrame = -1;
             } else if (state.deathFrame !== -1 && jumpTime > state.deathFrame + (this.getConfig('FadeFrames') || 60)) {
-                // If the line was already fading and the jump is far enough in the future, remove it
                 this.lineStates.delete(key);
             }
         }
         
-        const framesPerStep = 1000; // Use large buffer to ensure step isolation
+        const framesPerStep = 1000; 
 
-        for (let i = 0; i <= stepIndex; i++) {
-            this.expansionPhase = i; // Set phase for op tagging
+        for (let i = 0; i < targetStepsCompleted; i++) {
+            this.expansionPhase = i; 
             const step = this.sequence[i];
             if (step) {
                 const simFrame = i * framesPerStep;
                 this._executeStepOps(step, simFrame); 
             }
         }
-        this.expansionPhase = stepIndex; // Restore target phase
-        
-        // Sync animation frame to the current step's time so recent ops are "fresh"
-        this.animFrame = stepIndex * framesPerStep;
+        this.expansionPhase = targetStepsCompleted; 
+        this.animFrame = targetStepsCompleted * framesPerStep;
 
         this._maskDirty = true;
         this._edgeCacheDirty = true;
@@ -380,11 +376,26 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
         const setLocalActive = (dx, dy) => {
              const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 1;
+             if (idx >= 0) {
+                 this.logicGrid[idx] = 1;
+                 // Mark as revealed in the past during jumps so edges render
+                 if (this.renderGrid && startFrameOverride !== undefined) {
+                     if (this.renderGrid[idx] === -1) this.renderGrid[idx] = now;
+                 }
+             }
         };
         const setLocalInactive = (dx, dy) => {
              const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0) this.logicGrid[idx] = 0;
+             if (idx >= 0) {
+                 let stillActive = false;
+                 for (let i = 0; i < 3; i++) {
+                     if (this.layerGrids[i] && this.layerGrids[i][idx] !== -1) { stillActive = true; break; }
+                 }
+                 if (!stillActive) {
+                     this.logicGrid[idx] = 0;
+                     // We don't clear renderGrid here because removal triggers a fade in New World
+                 }
+             }
         };
         const setLayerActive = (dx, dy, l, frame) => {
              const idx = getIdx(cx + dx, cy + dy);
@@ -405,151 +416,167 @@ class QuantizedBaseEffect extends AbstractEffect {
             cx, cy, now, getIdx, isActive, setLocalActive, setLocalInactive, setLayerActive, setLayerInactive
         };
 
-        // --- COMPRESSED FORMAT DECODER ---
-        const isNumeric = step && step.length > 0 && typeof step[0] === 'number' && step.every(v => typeof v === 'number');
-        if (isNumeric) {
-            let i = 0;
-            while (i < step.length) {
-                const opCode = step[i++];
-                
-                if (opCode === 1) { // add(x, y)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    if (isActive(dx, dy)) {
-                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: this.expansionPhase });
-                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: this.expansionPhase });
-                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
-                        this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
-                    } else {
-                        this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
-                        setLocalActive(dx, dy);
-                    }
-                } else if (opCode === 2) { // rem(x, y, mask)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const mask = step[i++];
-                    if (mask === 0) {
-                        const nN = isActive(dx, dy - 1);
-                        const nS = isActive(dx, dy + 1);
-                        const nE = isActive(dx + 1, dy);
-                        const nW = isActive(dx - 1, dy);
-                        if (nN && nS && nE && nW) {
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
-                            this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
-                        } else {
-                            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
-                            setLocalInactive(dx, dy);
-                        }
-                    } else {
-                        if (mask & 1) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
-                        if (mask & 2) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
-                        if (mask & 4) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
-                        if (mask & 8) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
-                    }
-                } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
-                    const dx1 = step[i++];
-                    const dy1 = step[i++];
-                    const dx2 = step[i++];
-                    const dy2 = step[i++];
-                    this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase });
-                    const minX = Math.min(cx + dx1, cx + dx2);
-                    const maxX = Math.max(cx + dx1, cx + dx2);
-                    const minY = Math.min(cy + dy1, cy + dy2);
-                    const maxY = Math.max(cy + dy1, cy + dy2);
-                    for (let y = minY; y <= maxY; y++) {
-                        for (let x = minX; x <= maxX; x++) {
-                            const idx = getIdx(x, y);
-                            if (idx >= 0) this.logicGrid[idx] = 1;
-                        }
-                    }
-                } else if (opCode === 4) { // addLine(x, y, mask)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const mask = step[i++];
-                    if (mask & 1) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: this.expansionPhase });
-                    if (mask & 2) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: this.expansionPhase });
-                    if (mask & 4) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
-                    if (mask & 8) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
-                } else if (opCode === 5) { // remLine(x, y, mask)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const mask = step[i++];
-                    if (mask & 1) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now });
-                    if (mask & 2) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now });
-                    if (mask & 4) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now });
-                    if (mask & 8) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now });
-                } else if (opCode === 6) { // addSmart(x, y)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
-                    setLocalActive(dx, dy);
-                } else if (opCode === 7) { // removeBlock(x, y)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
-                    setLocalInactive(dx, dy);
-                } else if (opCode === 8) { // addLayered(x, y, layer)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const l = step[i++];
-                    this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                    setLocalActive(dx, dy);
-                    setLayerActive(dx, dy, l, now);
-                } else if (opCode === 9) { // addRectLayered(x1, y1, x2, y2, layer)
-                    const dx1 = step[i++];
-                    const dy1 = step[i++];
-                    const dx2 = step[i++];
-                    const dy2 = step[i++];
-                    const l = step[i++];
-                    this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                    const minX = Math.min(cx + dx1, cx + dx2);
-                    const maxX = Math.max(cx + dx1, cx + dx2);
-                    const minY = Math.min(cy + dy1, cy + dy2);
-                    const maxY = Math.max(cy + dy1, cy + dy2);
-                    for (let y = minY; y <= maxY; y++) {
-                        for (let x = minX; x <= maxX; x++) {
-                            const idx = getIdx(x, y);
-                            if (idx >= 0) this.logicGrid[idx] = 1;
-                            setLayerActive(x - cx, y - cy, l, now);
-                        }
-                    }
-                } else if (opCode === 10) { // addSmartLayered
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const l = step[i++];
-                    this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                    setLocalActive(dx, dy);
-                    setLayerActive(dx, dy, l, now);
-                } else if (opCode === 11) { // removeBlockLayered
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const l = step[i++];
-                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: l });
-                    setLocalInactive(dx, dy);
-                } else if (opCode === 12) { // nudge(dx, dy, w, h, layer, faceMask)
-                    const dx = step[i++];
-                    const dy = step[i++];
-                    const w = step[i++];
-                    const h = step[i++];
-                    const l = step[i++];
+        this._executeOps(step, ctx);
+    }
 
-                    // NEW: Optional faceMask
-                    const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
-                    const fMask = step[i++];
-                    const face = FACES_INV[fMask] || null;
-
-                    this._executeNudge(dx, dy, w, h, face, l, ctx);
-                }
+    _executeOps(ops, ctx) {
+        if (!ops) return;
+        let i = 0;
+        while (i < ops.length) {
+            const opData = ops[i];
+            if (typeof opData === 'number') {
+                i = this._decodeNumericOp(ops, i, ctx);
+            } else {
+                this._executeSingleOp(opData, ctx);
+                i++;
             }
-            return;
-        }
-
-        for (const opData of step) {
-            this._executeSingleOp(opData, ctx);
         }
     }
+
+    _decodeNumericOp(step, i, ctx) {
+        const { now } = ctx;
+        const opCode = step[i++];
+        
+        if (opCode === 1) { // add(x, y)
+            const dx = step[i++];
+            const dy = step[i++];
+            const alreadyActive = ctx.isActive(dx, dy);
+            
+            // State MUST always be updated for transitions/merges
+            ctx.setLocalActive(dx, dy);
+            ctx.setLayerActive(dx, dy, 0, now);
+
+            if (alreadyActive) {
+                // If already active, we just ensure perimeter lines are forced
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: this.expansionPhase });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: this.expansionPhase });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
+                this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
+            } else {
+                this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
+            }
+        } else if (opCode === 2) { // rem(x, y, mask)
+            // ... (rest of numeric decoder remains the same)
+            const dx = step[i++];
+            const dy = step[i++];
+            const mask = step[i++];
+            if (mask === 0) {
+                const nN = ctx.isActive(dx, dy - 1);
+                const nS = ctx.isActive(dx, dy + 1);
+                const nE = ctx.isActive(dx + 1, dy);
+                const nW = ctx.isActive(dx - 1, dy);
+                if (nN && nS && nE && nW) {
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
+                    this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
+                } else {
+                    this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
+                    ctx.setLayerInactive(dx, dy);
+                    ctx.setLocalInactive(dx, dy);
+                }
+            } else {
+                if (mask & 1) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
+                if (mask & 2) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
+                if (mask & 4) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
+                if (mask & 8) this.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
+            }
+        } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
+            const dx1 = step[i++];
+            const dy1 = step[i++];
+            const dx2 = step[i++];
+            const dy2 = step[i++];
+            this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase });
+            const minX = Math.min(ctx.cx + dx1, ctx.cx + dx2);
+            const maxX = Math.max(ctx.cx + dx1, ctx.cx + dx2);
+            const minY = Math.min(ctx.cy + dy1, ctx.cy + dy2);
+            const maxY = Math.max(ctx.cy + dy1, ctx.cy + dy2);
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    ctx.setLocalActive(x - ctx.cx, y - ctx.cy);
+                    ctx.setLayerActive(x - ctx.cx, y - ctx.cy, 0, now);
+                }
+            }
+        } else if (opCode === 4) { // addLine(x, y, mask)
+            const dx = step[i++];
+            const dy = step[i++];
+            const mask = step[i++];
+            if (mask & 1) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 2) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 4) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 8) this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
+        } else if (opCode === 5) { // remLine(x, y, mask)
+            const dx = step[i++];
+            const dy = step[i++];
+            const mask = step[i++];
+            if (mask & 1) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 2) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 4) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: this.expansionPhase });
+            if (mask & 8) this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
+        } else if (opCode === 6) { // addSmart(x, y)
+            const dx = step[i++];
+            const dy = step[i++];
+            ctx.setLocalActive(dx, dy);
+            ctx.setLayerActive(dx, dy, 0, now);
+            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase });
+        } else if (opCode === 7) { // removeBlock(x, y)
+            const dx = step[i++];
+            const dy = step[i++];
+            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase });
+            ctx.setLayerInactive(dx, dy);
+            ctx.setLocalInactive(dx, dy);
+        } else if (opCode === 8) { // addLayered(x, y, layer)
+            const dx = step[i++];
+            const dy = step[i++];
+            const l = step[i++];
+            ctx.setLocalActive(dx, dy);
+            ctx.setLayerActive(dx, dy, l, now);
+            this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
+        } else if (opCode === 9) { // addRectLayered(x1, y1, x2, y2, layer)
+            const dx1 = step[i++];
+            const dy1 = step[i++];
+            const dx2 = step[i++];
+            const dy2 = step[i++];
+            const l = step[i++];
+            this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
+            const minX = Math.min(ctx.cx + dx1, ctx.cx + dx2);
+            const maxX = Math.max(ctx.cx + dx1, ctx.cx + dx2);
+            const minY = Math.min(ctx.cy + dy1, ctx.cy + dy2);
+            const maxY = Math.max(ctx.cy + dy1, ctx.cy + dy2);
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    ctx.setLocalActive(x - ctx.cx, y - ctx.cy);
+                    ctx.setLayerActive(x - ctx.cx, y - ctx.cy, l, now);
+                }
+            }
+        } else if (opCode === 10) { // addSmartLayered
+            const dx = step[i++];
+            const dy = step[i++];
+            const l = step[i++];
+            ctx.setLocalActive(dx, dy);
+            ctx.setLayerActive(dx, dy, l, now);
+            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: l });
+        } else if (opCode === 11) { // removeBlockLayered
+            const dx = step[i++];
+            const dy = step[i++];
+            const l = step[i++];
+            this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: l });
+            ctx.setLayerInactive(dx, dy, l);
+            ctx.setLocalInactive(dx, dy);
+        } else if (opCode === 12) { // nudge(dx, dy, w, h, layer, faceMask)
+            const dx = step[i++];
+            const dy = step[i++];
+            const w = step[i++];
+            const h = step[i++];
+            const l = step[i++];
+            const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
+            const fMask = step[i++];
+            const face = FACES_INV[fMask] || null;
+            this._executeNudge(dx, dy, w, h, face, l, ctx);
+        }
+        return i;
+    }
+
     _executeSingleOp(opData, ctx) {
         const { cx, cy, now, getIdx, isActive, setLocalActive, setLocalInactive, setLayerActive, setLayerInactive } = ctx;
 
@@ -564,29 +591,33 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         if (op === 'group' && opData.ops) {
-            for (const subOp of opData.ops) {
-                this._executeSingleOp(subOp, ctx);
-            }
+            this._executeOps(opData.ops, ctx);
             return;
         }
 
         if (op === 'add') {
             const [dx, dy] = args;
-            if (isActive(dx, dy) && (!layer || layer === 0)) {
+            const targetLayer = layer !== undefined ? layer : 0;
+            const alreadyActive = isActive(dx, dy);
+            
+            // State MUST always be updated
+            setLocalActive(dx, dy);
+            setLayerActive(dx, dy, targetLayer, now);
+
+            if (alreadyActive && targetLayer === 0) {
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: this.expansionPhase });
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: this.expansionPhase });
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: this.expansionPhase });
                 this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: this.expansionPhase });
             } else {
                 this.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                setLocalActive(dx, dy);
-                setLayerActive(dx, dy, layer !== undefined ? layer : 0, now);
             }
         } else if (op === 'addSmart') {
             const [dx, dy] = args;
-            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
+            const targetLayer = layer !== undefined ? layer : 0;
             setLocalActive(dx, dy);
-            setLayerActive(dx, dy, layer !== undefined ? layer : 0, now);
+            setLayerActive(dx, dy, targetLayer, now);
+            this.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
         } else if (op === 'addRect') {
             const [dx1, dy1, dx2, dy2] = args;
             this.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer });
@@ -596,8 +627,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const maxY = Math.max(cy + dy1, cy + dy2);
             for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
-                    const idx = getIdx(x, y);
-                    if (idx >= 0) this.logicGrid[idx] = 1;
+                    setLocalActive(x - cx, y - cy);
                     setLayerActive(x - cx, y - cy, layer !== undefined ? layer : 0, now);
                 }
             }
@@ -617,15 +647,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: this.expansionPhase });
                 } else {
                     this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-                    setLocalInactive(dx, dy);
                     setLayerInactive(dx, dy, layer);
+                    setLocalInactive(dx, dy);
                 }
             }
         } else if (op === 'removeBlock') {
             const [dx, dy] = args;
             this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-            setLocalInactive(dx, dy);
             setLayerInactive(dx, dy, layer);
+            setLocalInactive(dx, dy);
         } else if (op === 'addLine') {
             const [dx, dy, face] = args;
             this.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now, startPhase: this.expansionPhase, layer: layer });
@@ -640,8 +670,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         } else if (op === 'removeBlockLayered') {
             const [dx, dy] = args;
             this.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: this.expansionPhase, layer: layer });
-            setLocalInactive(dx, dy);
             setLayerInactive(dx, dy, layer);
+            setLocalInactive(dx, dy);
         } else if (op === 'nudge') {
             const [dx, dy, w, h, face] = args;
             this._executeNudge(dx, dy, w, h, face, layer, ctx);
