@@ -33,7 +33,25 @@ function createWindows() {
 
 // IPC Handlers
 const fs = require('fs');
-const { ipcMain } = require('electron');
+const { ipcMain, BrowserWindow: ElectronBW } = require('electron');
+
+ipcMain.on('open-editor', (event) => {
+    const displays = screen.getAllDisplays();
+    const primary = screen.getPrimaryDisplay();
+    
+    let editorWindow = new ElectronBW({
+        width: 400,
+        height: 800,
+        title: "Matrix Quantized Editor",
+        alwaysOnTop: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+        }
+    });
+
+    editorWindow.loadFile('index.html', { query: { mode: 'editor' } });
+});
 
 ipcMain.on('save-patterns', (event, patterns) => {
     try {

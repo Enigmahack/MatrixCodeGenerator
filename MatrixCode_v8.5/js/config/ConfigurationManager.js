@@ -52,6 +52,15 @@ class ConfigurationManager {
 
         this._loadState();
         this.updateDerivedValues();
+
+        // Listen for changes from other windows (e.g. standalone editor)
+        window.addEventListener('storage', (e) => {
+            if (e.key === this.storageKey) {
+                this._loadState();
+                this.updateDerivedValues();
+                this.notify('ALL');
+            }
+        });
     }
 
     // ====================

@@ -547,3 +547,29 @@ textarea.char-input:focus { outline: none; border-color: var(--accent); }
     margin-top: 5px;
     min-height: 1.2em;
 }
+
+/* --- STANDALONE EDITOR MODE --- */
+.editor-window-mode {
+    background-color: #111;
+}
+.editor-window-mode #menuToggle,
+.editor-window-mode #settingsPanel,
+.editor-window-mode #fps-counter,
+.editor-window-mode #toast-container,
+.editor-window-mode canvas {
+    display: none !important;
+}
+
+#quant-editor-ui {
+    max-width: 100%;
+}
+.editor-window-mode #quant-editor-ui {
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #000 !important;
+    overflow-y: auto;
+}

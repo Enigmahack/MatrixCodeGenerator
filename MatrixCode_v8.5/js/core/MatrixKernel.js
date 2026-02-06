@@ -37,6 +37,41 @@ class MatrixKernel {
     }
 
     async initAsync() {
+        // Detect Editor-Only Mode
+        const params = new URLSearchParams(window.location.search);
+        this.isEditorWindow = params.get('mode') === 'editor';
+        
+        if (this.isEditorWindow) {
+            document.body.classList.add('editor-window-mode');
+            // Hide simulation canvases
+            const canvases = ['matrixCanvas', 'overlayCanvas'];
+            canvases.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            
+            // Minimal UI Init
+            this.fontMgr = new FontManager(this.config, this.notifications);
+            this.charSelector = new CharacterSelectorModal(this.config, this.fontMgr, this.notifications);
+            this.ui = new UIManager(this.config, this.effectRegistry, this.fontMgr, this.notifications, this.charSelector);
+            
+            await this.fontMgr.init();
+            
+            // Force open Quantized Editor in standalone mode
+            if (this.ui && typeof QuantizedEffectEditor !== 'undefined') {
+                this.ui.quantEditor = new QuantizedEffectEditor(this.effectRegistry, this.ui);
+                this.ui.quantEditor.isStandalone = true;
+                this.ui.quantEditor.toggle(true);
+            }
+
+            window.addEventListener('beforeunload', () => {
+                if (this.ui && this.ui.quantEditor) {
+                    this.ui.quantEditor.channel.postMessage({ type: 'bye' });
+                }
+            });
+            return;
+        }
+
         // Asynchronous initialization steps
         await this._loadPatterns();
         await this._initializeRendererAndUI();
