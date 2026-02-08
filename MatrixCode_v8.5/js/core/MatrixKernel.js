@@ -37,6 +37,9 @@ class MatrixKernel {
     }
 
     async initAsync() {
+        // Asynchronous initialization steps (Patterns are needed for editor too)
+        await this._loadPatterns();
+
         // Detect Editor-Only Mode
         const params = new URLSearchParams(window.location.search);
         this.isEditorWindow = params.get('mode') === 'editor';
@@ -72,8 +75,7 @@ class MatrixKernel {
             return;
         }
 
-        // Asynchronous initialization steps
-        await this._loadPatterns();
+        // Standard Application initialization
         await this._initializeRendererAndUI();
 
         // Perform the initial resize setup and start the loop

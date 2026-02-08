@@ -147,6 +147,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
+    _log(...args) {
+        if (this.c.state.logErrors) {
+            console.log(...args);
+        }
+    }
+
+    _warn(...args) {
+        if (this.c.state.logErrors) {
+            console.warn(...args);
+        }
+    }
+
+    _error(...args) {
+        if (this.c.state.logErrors) {
+            console.error(...args);
+        }
+    }
+
     getConfig(keySuffix) {
         // e.g. 'FadeInFrames' -> this.c.state.quantizedPulseFadeInFrames
         const key = this.configPrefix + keySuffix;
@@ -2256,8 +2274,14 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     mergeBlocksAtStep(blocks, stepIndex) {
-        if (!this.sequence || stepIndex < 0 || stepIndex >= this.sequence.length) return 0;
-        if (!blocks || blocks.length === 0) return 0;
+        if (!this.sequence || stepIndex < 0 || stepIndex >= this.sequence.length) {
+            this._error(`[BaseEffect] mergeBlocksAtStep failed: stepIndex ${stepIndex} out of bounds (0-${this.sequence.length-1})`);
+            return 0;
+        }
+        if (!blocks || blocks.length === 0) {
+            this._warn(`[BaseEffect] mergeBlocksAtStep: No blocks provided.`);
+            return 0;
+        }
         
         const step = this.sequence[stepIndex];
         const cx = Math.floor(this.logicGridW / 2);
@@ -2280,6 +2304,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const rx = x - cx;
                     const ry = y - cy;
                     
+                    this._log(`[BaseEffect] Merging block at ${x},${y} (Rel: ${rx},${ry}) from Layer ${l} to Layer 0`);
                     // Add Transition Ops
                     step.push({ op: 'removeBlock', args: [rx, ry], layer: l });
                     step.push({ op: 'add', args: [rx, ry], layer: 0 });
@@ -2287,11 +2312,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
+        if (count === 0) this._warn(`[BaseEffect] mergeBlocksAtStep: No blocks on L1/L2 were found in the provided list.`);
         return count;
     }
 
     mergeSelectionAtStep(selectionRect, stepIndex) {
-        if (!this.sequence || stepIndex < 0 || stepIndex >= this.sequence.length) return 0;
+        if (!this.sequence || stepIndex < 0 || stepIndex >= this.sequence.length) {
+            this._error(`[BaseEffect] mergeSelectionAtStep failed: stepIndex ${stepIndex} out of bounds (0-${this.sequence.length-1})`);
+            return 0;
+        }
         if (!selectionRect) return 0;
         
         const step = this.sequence[stepIndex];
@@ -2302,6 +2331,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const r = selectionRect;
         const w = this.logicGridW;
         
+        this._log(`[BaseEffect] mergeSelectionAtStep: Rect[x:${r.x}, y:${r.y}, w:${r.w}, h:${r.h}] at Step ${stepIndex}`);
+
         let count = 0;
         
         // Iterate selection
@@ -2320,6 +2351,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const rx = x - cx;
                         const ry = y - cy;
                         
+                        this._log(`[BaseEffect] Merging selection block at ${x},${y} from Layer ${l} to Layer 0`);
                         // Add Transition Ops
                         // 1. Remove from L(l)
                         step.push({ op: 'removeBlock', args: [rx, ry], layer: l });
@@ -2331,6 +2363,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
+        if (count === 0) this._warn(`[BaseEffect] mergeSelectionAtStep: No blocks on L1/L2 were found within the selection rectangle.`);
         return count;
     }
 

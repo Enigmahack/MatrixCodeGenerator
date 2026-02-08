@@ -7,7 +7,7 @@ class QuantizedEffectEditor {
         
         this.active = false;
         this.dom = null;
-        this.currentTool = 'add'; 
+        this.currentTool = 'select'; 
         this.currentFace = 'N'; 
         this.currentLayer = 0; // 0, 1, 2
         this.layerColors = ['#0f0', '#0af', '#f0c']; // Green, Blue, Magenta
@@ -36,20 +36,42 @@ class QuantizedEffectEditor {
         this.lastHoverHash = "";
 
         // Communication
+        const params = new URLSearchParams(window.location.search);
+        this.isStandalone = params.get('mode') === 'editor'; 
         this.channel = new BroadcastChannel('matrix-quant-editor');
-        this.isStandalone = false; // Set to true if running in a separate window
         this.isPoppedOut = false; // Set to true on main window if standalone is open
         this.channel.onmessage = (e) => this._onRemoteMessage(e.data);
 
         if (this.isStandalone) {
-            this._sendRemote({ type: 'requestSync' });
+            this._log("QuantizedEffectEditor: Running in Standalone Mode");
+            // Delay initial sync slightly to ensure MatrixKernel has finished async registry init
+            setTimeout(() => this._sendRemote({ type: 'requestSync' }), 100);
+        } else {
+            // Main window: check if an editor is already open
+            this._sendRemote({ type: 'ping' });
         }
     }
 
     _onRemoteMessage(msg) {
         if (this.isStandalone) {
+             if (msg.type === 'ping') {
+                 this._sendRemote({ type: 'hello' });
+                 this._sendRemote({ type: 'requestSync' });
+                 return;
+             }
              if (msg.type === 'sync') {
-                 if (msg.effectName) this._switchEffect(msg.effectName);
+                 this._log(`[Editor-Remote] Sync Received. Tool: ${msg.tool}, Phase: ${msg.phase}, Ops: ${msg.currentStepOps ? msg.currentStepOps.length : 0}`);
+                 if (msg.effectName) {
+                     // Only switch if different to avoid reset
+                     if (!this.effect || this.effect.name !== msg.effectName) {
+                         this._switchEffect(msg.effectName);
+                     }
+                     
+                     // Force sequence decoding if we have global data but the effect hasn't loaded it yet
+                     if (this.effect && (!this.effect.sequence || this.effect.sequence.length <= 1) && window.matrixPatterns && window.matrixPatterns[this.effect.name]) {
+                         this.effect.sequence = this._decodeSequence(window.matrixPatterns[this.effect.name]);
+                     }
+                 }
                  if (this.effect && msg.phase !== undefined) {
                      this.effect.expansionPhase = msg.phase;
                      this.effect.jumpToStep(msg.phase);
@@ -57,6 +79,26 @@ class QuantizedEffectEditor {
                  if (msg.tool) this.currentTool = msg.tool;
                  if (msg.face) this.currentFace = msg.face;
                  if (msg.layer !== undefined) this.currentLayer = msg.layer;
+                 
+                 if (msg.selectionRect) {
+                     this.selectionRect = msg.selectionRect;
+                 } else if (msg.selectionRect === null) {
+                     this.selectionRect = null;
+                 }
+
+                 if (msg.selectedBlocks) {
+                     this.selectedBlocks = new Set(msg.selectedBlocks);
+                 } else if (msg.selectedBlocks === null) {
+                     this.selectedBlocks.clear();
+                 }
+
+                 // Sync sequence data for current step if provided
+                 if (msg.currentStepOps && this.effect) {
+                     const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                     this.effect.sequence[targetIdx] = msg.currentStepOps;
+                     this.effect.refreshStep();
+                 }
+
                  this._updateUI();
                  this.isDirty = true;
              }
@@ -64,14 +106,33 @@ class QuantizedEffectEditor {
         }
         
         // Main Window receives messages
-        if (msg.type === 'requestSync') {
+        if (msg.type === 'ping') {
+            this.isPoppedOut = true;
+            this._removeUI();
             this._sendRemote({ 
                 type: 'sync', 
                 effectName: this.effect ? this.effect.name : null,
                 phase: this.effect ? this.effect.expansionPhase : 0,
                 tool: this.currentTool,
                 face: this.currentFace,
-                layer: this.currentLayer
+                layer: this.currentLayer,
+                selectionRect: this.selectionRect,
+                selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null
+            });
+            return;
+        }
+        if (msg.type === 'requestSync') {
+            this.isPoppedOut = true;
+            this._removeUI();
+            this._sendRemote({ 
+                type: 'sync', 
+                effectName: this.effect ? this.effect.name : null,
+                phase: this.effect ? this.effect.expansionPhase : 0,
+                tool: this.currentTool,
+                face: this.currentFace,
+                layer: this.currentLayer,
+                selectionRect: this.selectionRect,
+                selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null
             });
             return;
         }
@@ -86,8 +147,47 @@ class QuantizedEffectEditor {
             return;
         }
 
+        if (msg.type === 'sync') {
+            if (msg.phase !== undefined && this.effect) {
+                if (this.effect.expansionPhase !== msg.phase) {
+                    this._log(`[Editor-Main] Syncing Phase: ${this.effect.expansionPhase} -> ${msg.phase}`);
+                    this.effect.expansionPhase = msg.phase;
+                    this.effect.refreshStep();
+                }
+            }
+            if (msg.tool) this.currentTool = msg.tool;
+            if (msg.face) this.currentFace = msg.face;
+            if (msg.layer !== undefined) this.currentLayer = msg.layer;
+            
+            if (msg.selectionRect) {
+                this.selectionRect = msg.selectionRect;
+            } else if (msg.selectionRect === null) {
+                this.selectionRect = null;
+            }
+
+            if (msg.selectedBlocks) {
+                this.selectedBlocks = new Set(msg.selectedBlocks);
+            } else if (msg.selectedBlocks === null) {
+                this.selectedBlocks.clear();
+            }
+
+            // Sync sequence data for current step if provided
+            if (msg.currentStepOps && this.effect) {
+                const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+                // console.log(`[Editor-Main] Syncing currentStepOps for step ${targetIdx}`);
+                this.effect.sequence[targetIdx] = msg.currentStepOps;
+                this.effect.refreshStep();
+            }
+
+            this.isDirty = true;
+            return;
+        }
+
         switch (msg.type) {
-            case 'switchEffect': this._switchEffect(msg.effectName); break;
+            case 'switchEffect': 
+                this._log(`[Editor-Main] switchEffect: ${msg.effectName}`);
+                this._switchEffect(msg.effectName); 
+                break;
             case 'changeStep': this._changeStep(msg.delta); break;
             case 'addStep': this._addStep(); break;
             case 'delStep': this._delStep(); break;
@@ -125,20 +225,36 @@ class QuantizedEffectEditor {
             case 'redo': this._redo(); break;
             case 'merge':
                 if (this.effect) {
+                    this._log(`[Editor-Main] Merge Command Received. MultiSelect: ${!!msg.multiSelect}, HasSelection: ${!!msg.selection}`);
                     this.redoStack = [];
+
+                    // Ensure logic state is fully updated for this step before merge
+                    if (typeof this.effect._updateRenderGridLogic === 'function') {
+                        this.effect._updateRenderGridLogic();
+                    }
+
                     const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
                     const step = this.effect.sequence[targetIdx];
+                    if (!step) {
+                        this._error(`[Editor-Main] Merge failed: No step data found at targetIdx ${targetIdx}`);
+                        break;
+                    }
                     const originalOps = JSON.parse(JSON.stringify(step));
 
                     let count = 0;
                     if (msg.multiSelect && msg.selection) {
+                        this._log(`[Editor-Main] Performing mergeBlocksAtStep with ${msg.selection.length} blocks at index ${targetIdx}`);
                         count = this.effect.mergeBlocksAtStep(msg.selection, targetIdx);
                     } else if (msg.selection) {
+                        this._log(`[Editor-Main] Performing mergeSelectionAtStep with rect at index ${targetIdx}`);
                         count = this.effect.mergeSelectionAtStep(msg.selection, targetIdx);
                     } else {
+                        this._log(`[Editor-Main] Performing flattenLayers at index ${targetIdx}`);
                         const layersToMerge = [1, 2]; // Default
                         count = this.effect.flattenLayers(layersToMerge, null, targetIdx);
                     }
+
+                    this._log(`[Editor-Main] Merge complete. Blocks modified: ${count}`);
 
                     if (count > 0) {
                         const mergedOps = step.splice(0, step.length);
@@ -154,15 +270,53 @@ class QuantizedEffectEditor {
                     
                     this.effect.refreshStep();
                     this.isDirty = true;
+                    this._updateUI(); // Added to refresh step counter
+                    this._broadcastSync(); // Notify remote of updated sequence
                 }
                 break;
         }
     }
 
     _sendRemote(msg) {
-        if (this.isStandalone) {
-            this.channel.postMessage(msg);
+        this.channel.postMessage(msg);
+    }
+
+    _log(...args) {
+        if (this.ui.c.get('logErrors')) {
+            console.log(...args);
         }
+    }
+
+    _warn(...args) {
+        if (this.ui.c.get('logErrors')) {
+            console.warn(...args);
+        }
+    }
+
+    _error(...args) {
+        if (this.ui.c.get('logErrors')) {
+            console.error(...args);
+        }
+    }
+
+    _broadcastSync() {
+        if (!this.isStandalone && !this.isPoppedOut) return;
+        
+        const phase = this.effect ? this.effect.expansionPhase : 0;
+        const targetIdx = Math.max(0, phase - 1);
+        const currentStepOps = (this.effect && this.effect.sequence[targetIdx]) ? this.effect.sequence[targetIdx] : null;
+
+        this._sendRemote({ 
+            type: 'sync', 
+            effectName: this.effect ? this.effect.name : null,
+            phase: phase,
+            tool: this.currentTool,
+            face: this.currentFace,
+            layer: this.currentLayer,
+            selectionRect: this.selectionRect,
+            selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null,
+            currentStepOps: currentStepOps
+        });
     }
 
     _decodeSequence(sequence) {
@@ -309,18 +463,20 @@ class QuantizedEffectEditor {
             this.effect.sequence = this._decodeSequence(this.effect.sequence);
 
             this.effect.debugMode = true;
-            this.effect.manualStep = true; 
-            if (this.effect.expansionPhase >= this.effect.sequence.length) {
-                this.effect.expansionPhase = this.effect.sequence.length - 1;
-            }
+            this.effect.manualStep = false; 
+            
+            // Start at Step 1 if available
+            this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
+
             this.effect.refreshStep();
             this._updateUI(); 
             this.isDirty = true;
+            this._broadcastSync();
         }
     }
 
     toggle(isActive) {
-        console.log("QuantizedEffectEditor: toggle", isActive);
+        this._log("QuantizedEffectEditor: toggle", isActive);
         this.active = isActive;
 
         if (this.isStandalone) {
@@ -369,15 +525,16 @@ class QuantizedEffectEditor {
                 this.effect.sequence = this._decodeSequence(this.effect.sequence);
                 
                 this.effect.debugMode = true;
-                this.effect.manualStep = true; 
+                this.effect.manualStep = false; // DISABLED: Prevent auto-stepping on start
                 
-                // Start at the beginning as requested (Step 1)
-                this.effect.expansionPhase = Math.min(1, Math.max(0, this.effect.sequence.length - 1));
+                // Start at Step 1 if available
+                this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
 
                 this.effect.refreshStep();
                 this._updateUI(); 
                 this.isDirty = true;
                 this._renderLoop();
+                this._broadcastSync();
             }
         } else {
             this._removeUI();
@@ -477,6 +634,7 @@ class QuantizedEffectEditor {
         // Restore original state
         this.effect.jumpToStep(originalPhase);
         this.isDirty = true;
+        this._broadcastSync();
         
         if (totalCount > 0) {
             alert(`Cleaner: Added ${totalCount} removal operations to clean internal lines.`);
@@ -1049,6 +1207,7 @@ class QuantizedEffectEditor {
             this.faceBtns[f] = btn;
         });
         container.appendChild(faceControls);
+        this.faceControls = faceControls;
 
         const colorToggle = document.createElement('label');
         colorToggle.style.display = 'block';
@@ -1097,58 +1256,53 @@ class QuantizedEffectEditor {
         });
         layerControls.appendChild(layerBtnGroup);
 
-        const btnMerge = this._createBtn('Merge All into L0', () => {
-            if (!this.effect) return;
-            this.redoStack = [];
-            const step = this.effect.sequence[this.effect.expansionPhase];
-            
-            // Snapshot before merge for undo support
-            const originalOps = JSON.parse(JSON.stringify(step));
-            
-            const layersToMerge = [1, 2];
-            const count = this.effect.flattenLayers(layersToMerge, null, this.effect.expansionPhase);
-            
-            if (count > 0) {
-                // If anything changed, wrap the entire new state in a transformative group
-                const mergedOps = step.splice(0, step.length);
-                step.push({ 
-                    op: 'group', 
-                    ops: mergedOps, 
-                    replacesStep: true, 
-                    originalOps: originalOps,
-                    label: 'Merge All Layers'
-                });
-
-                this.effect.refreshStep();
-                this.isDirty = true;
-                this.ui.notifications.show(`${count} blocks merged into Layer 0`, 'success');
-                if (this.isStandalone) this._sendRemote({ type: 'merge' });
-            } else {
-                this.ui.notifications.show("No blocks to merge", "info");
-            }
-        });
-        btnMerge.style.width = '100%';
-        btnMerge.style.marginBottom = '5px';
-        btnMerge.title = "Move all blocks from L1 and L2 to L0 for this step.";
-        layerControls.appendChild(btnMerge);
-
         const btnMergeSel = this._createBtn('Merge Selection to L0', () => {
             if (!this.effect) return;
+            this._log(`[Editor] Merge Selection Button Clicked. Standalone: ${this.isStandalone}`);
             this.redoStack = [];
+
             const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
+
+            if (this.isStandalone) {
+                // In standalone mode, we DON'T check local state (which may be inaccurate/incomplete)
+                // We just send the selection to the main window and let IT perform the merge.
+                if (this.selectedBlocks.size > 0) {
+                    const blocks = Array.from(this.selectedBlocks).map(key => {
+                        const [x, y] = key.split(',').map(Number);
+                        return { x, y };
+                    });
+                    this._log(`[Editor] Sending Remote Merge (Multi-Select: ${blocks.length} blocks)`);
+                    this._sendRemote({ type: 'merge', selection: blocks, multiSelect: true });
+                    this.selectedBlocks.clear();
+                    this.isDirty = true;
+                } else if (this.selectionRect) {
+                    this._log(`[Editor] Sending Remote Merge (Rect: ${JSON.stringify(this.selectionRect)})`);
+                    this._sendRemote({ type: 'merge', selection: this.selectionRect });
+                } else {
+                    this.ui.notifications.show("No selection to merge", "info");
+                }
+                return;
+            }
+
+            // --- LOCAL EXECUTION (Main Window) ---
+            // Ensure logic state is fully updated for this step before merge
+            if (typeof this.effect._updateRenderGridLogic === 'function') {
+                this.effect._updateRenderGridLogic();
+            }
+
             const step = this.effect.sequence[targetIdx];
+            if (!step) return;
             
             // Snapshot before merge for undo support
             const originalOps = JSON.parse(JSON.stringify(step));
             
             let count = 0;
-            let remoteBlocks = null;
             if (this.selectedBlocks.size > 0) {
-                remoteBlocks = Array.from(this.selectedBlocks).map(key => {
+                const blocks = Array.from(this.selectedBlocks).map(key => {
                     const [x, y] = key.split(',').map(Number);
                     return { x, y };
                 });
-                count = this.effect.mergeBlocksAtStep(remoteBlocks, targetIdx);
+                count = this.effect.mergeBlocksAtStep(blocks, targetIdx);
                 this.selectedBlocks.clear();
             } else if (this.selectionRect) {
                 count = this.effect.mergeSelectionAtStep(this.selectionRect, targetIdx);
@@ -1171,14 +1325,7 @@ class QuantizedEffectEditor {
                 this.effect.refreshStep();
                 this.isDirty = true;
                 this.ui.notifications.show(`${count} blocks merged to Layer 0`, 'success');
-                
-                if (this.isStandalone) {
-                    if (remoteBlocks) {
-                         this._sendRemote({ type: 'merge', selection: remoteBlocks, multiSelect: true });
-                    } else {
-                         this._sendRemote({ type: 'merge', selection: this.selectionRect });
-                    }
-                }
+                this._broadcastSync();
             } else {
                 this.ui.notifications.show("No blocks found in selection on Layers 1 or 2", "info");
             }
@@ -1331,6 +1478,7 @@ class QuantizedEffectEditor {
         if (tool !== 'paste') this.clipboard = null; 
         this._updateUI();
         this.isDirty = true;
+        this._broadcastSync();
     }
 
     _selectFace(face) { 
@@ -1338,6 +1486,7 @@ class QuantizedEffectEditor {
             this._sendRemote({ type: 'selectFace', face });
         }
         this.currentFace = face; this._updateUI(); 
+        this._broadcastSync();
     }
 
     _changeBlockSize(w, h) {
@@ -1361,6 +1510,7 @@ class QuantizedEffectEditor {
         this.effect.jumpToStep(currentStep); 
         
         this.isDirty = true;
+        this._broadcastSync();
     }
 
     _updateUI() {
@@ -1383,7 +1533,7 @@ class QuantizedEffectEditor {
         }
 
         if (this.effect && this.stepLabel) {
-            this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length - 1}`;
+            this.stepLabel.textContent = `Step: ${this.effect.expansionPhase} / ${this.effect.sequence.length}`;
         }
         for (const t in this.tools) {
             this.tools[t].style.background = (t === this.currentTool) ? '#00aa00' : '#333';
@@ -1397,10 +1547,12 @@ class QuantizedEffectEditor {
         }
 
         const showFaces = (this.currentTool === 'addLine' || this.currentTool === 'removeLine' || this.currentTool === 'nudge');
-        document.getElementById('face-controls').style.display = showFaces ? 'block' : 'none';
-        if (showFaces) {
-            for (const f in this.faceBtns) {
-                this.faceBtns[f].style.background = (f === this.currentFace) ? '#00aa00' : '#333';
+        if (this.faceControls) {
+            this.faceControls.style.display = showFaces ? 'block' : 'none';
+            if (showFaces) {
+                for (const f in this.faceBtns) {
+                    this.faceBtns[f].style.background = (f === this.currentFace) ? '#00aa00' : '#333';
+                }
             }
         }
     }
@@ -1414,10 +1566,12 @@ class QuantizedEffectEditor {
         
         const oldStep = this.effect.expansionPhase;
         let newStep = oldStep + delta;
-        if (newStep < 0) newStep = 0;
         
-        // Procedural Generation Support
-        if (delta > 0 && newStep >= this.effect.sequence.length) {
+        // Clamp to minimum Step 1
+        if (newStep < 1) newStep = 1;
+        
+        // Procedural Generation Support (Only if attempting to go past the end)
+        if (delta > 0 && newStep > this.effect.sequence.length) {
             if (this.effect.name === 'QuantizedBlockGenerator' || (this.effect.state === 'GENERATING' && typeof this.effect._attemptGrowth === 'function')) {
                 if (!this.effect.sequence[this.effect.expansionPhase]) {
                     this.effect.sequence[this.effect.expansionPhase] = [];
@@ -1426,11 +1580,15 @@ class QuantizedEffectEditor {
                 this.effect._attemptGrowth();
                 this._updateUI();
                 this.isDirty = true;
+                this._broadcastSync();
                 return;
             }
         }
 
-        if (newStep >= this.effect.sequence.length) newStep = this.effect.sequence.length - 1;
+        // Limit to sequence length
+        if (newStep > this.effect.sequence.length) newStep = this.effect.sequence.length;
+
+        this._log(`[Editor] ChangeStep: ${oldStep} -> ${newStep} (Delta: ${delta}, Len: ${this.effect.sequence.length})`);
 
         // Force jumpToStep for all changes to ensure immediate visibility (skip fades) and state parity
         this.effect.expansionPhase = newStep;
@@ -1438,6 +1596,7 @@ class QuantizedEffectEditor {
 
         this._updateUI();
         this.isDirty = true;
+        this._broadcastSync();
     }
 
     _addStep() {
@@ -1446,8 +1605,13 @@ class QuantizedEffectEditor {
             return;
         }
         this.redoStack = [];
-        const newStepIdx = this.effect.expansionPhase + 1;
-        this.effect.sequence.splice(newStepIdx, 0, []); 
+        // Insert at the current phase index (between current state and next step)
+        const insertIdx = this.effect.expansionPhase;
+        this._log(`[Editor] Inserting new empty step at index ${insertIdx} (Current Phase: ${this.effect.expansionPhase})`);
+        
+        this.effect.sequence.splice(insertIdx, 0, []); 
+        
+        // Move into the new step
         this._changeStep(1);
     }
 
@@ -1456,10 +1620,23 @@ class QuantizedEffectEditor {
             this._sendRemote({ type: 'delStep' });
             return;
         }
-        if (this.effect.sequence.length <= 1) return;
+        // Foundation Bypass: Cannot delete if at Step 1 or Step 0, or if it's the last remaining step
+        if (this.effect.expansionPhase <= 1 || this.effect.sequence.length <= 1) {
+            this._warn("[Editor] Deletion blocked: Step 1 is a foundational step and cannot be removed.");
+            this.ui.notifications.show("Step 1 is foundational and cannot be deleted", "info");
+            return;
+        }
+        
         this.redoStack = [];
-        this.effect.sequence.splice(this.effect.expansionPhase, 1);
-        this._changeStep(0); 
+        
+        // The current step being viewed is at index (expansionPhase - 1)
+        const targetIdx = this.effect.expansionPhase - 1;
+        this._log(`[Editor] Deleting step at index ${targetIdx} (Phase was ${this.effect.expansionPhase})`);
+        
+        this.effect.sequence.splice(targetIdx, 1);
+        
+        // Step back so we are looking at the previous valid state
+        this._changeStep(-1);
     }
 
     _resetSteps() {
@@ -1472,7 +1649,7 @@ class QuantizedEffectEditor {
         
         this.redoStack = [];
         this.effect.sequence = [[]]; // Reset to single empty step
-        this.effect.expansionPhase = 0;
+        this.effect.expansionPhase = 1; // Default to Step 1
         
         // Clear transient mask operations
         if (this.effect.maskOps) this.effect.maskOps = [];
@@ -1486,7 +1663,8 @@ class QuantizedEffectEditor {
         this._updateUI();
         this.isDirty = true;
         
-        console.log("QuantizedEffectEditor: Steps reset for", this.effect.name);
+        this._log("QuantizedEffectEditor: Steps reset for", this.effect.name);
+        this._broadcastSync();
     }
 
     _exportData() {
@@ -1677,6 +1855,7 @@ class QuantizedEffectEditor {
             this.redoStack.push(action);
             this.effect.refreshStep(); 
             this.isDirty = true;
+            this._broadcastSync();
         }
     }
 
@@ -1692,6 +1871,7 @@ class QuantizedEffectEditor {
             step.push(action);
             this.effect.refreshStep();
             this.isDirty = true;
+            this._broadcastSync();
         }
     }
 
@@ -1713,7 +1893,7 @@ class QuantizedEffectEditor {
             }
         }
         this.clipboard = { w: r.w, h: r.h, data: data };
-        console.log("Copied", data.length, "blocks");
+        this._log("Copied", data.length, "blocks");
         alert(`Copied ${data.length} blocks!`);
     }
 
@@ -1743,6 +1923,7 @@ class QuantizedEffectEditor {
             if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
             this.effect.refreshStep();
             this.isDirty = true;
+            this._broadcastSync();
         }
     }
 
@@ -1755,6 +1936,7 @@ class QuantizedEffectEditor {
         if (!this.clipboard || this.clipboard.data.length === 0) { alert("Clipboard empty"); return; }
         this.currentTool = 'paste';
         this._updateUI();
+        this._broadcastSync();
     }
 
     _commitPaste(targetX, targetY) {
@@ -1768,6 +1950,7 @@ class QuantizedEffectEditor {
         if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
         this.effect.refreshStep();
         this.isDirty = true;
+        this._broadcastSync();
     }
 
     _onKeyDown(e) {
@@ -1875,7 +2058,7 @@ class QuantizedEffectEditor {
         
         const settingsPanel = document.getElementById('settingsPanel');
         const menuToggle = document.getElementById('menuToggle');
-        if (this.dom.contains(e.target) || 
+        if ((this.dom && this.dom.contains(e.target)) || 
             (settingsPanel && settingsPanel.contains(e.target)) ||
             (menuToggle && menuToggle.contains(e.target))) {
             return;
@@ -1913,6 +2096,7 @@ class QuantizedEffectEditor {
                     this.selectedBlocks.add(key);
                 }
                 this.isDirty = true;
+                this._broadcastSync();
                 return;
             }
 
@@ -1923,6 +2107,7 @@ class QuantizedEffectEditor {
 
             if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge') {
                 this.dragStart = hit;
+                this._broadcastSync();
                 return; // Wait for mouse up
             }
 
@@ -2006,6 +2191,7 @@ class QuantizedEffectEditor {
                     this.effect.maskOps.push(transientOp);
                 }
                 this.isDirty = true;
+                this._broadcastSync();
                 return;
             }
 
@@ -2056,6 +2242,7 @@ class QuantizedEffectEditor {
                 }
 
                 this.isDirty = true;
+                this._broadcastSync();
             }        }
     }
 
@@ -2152,6 +2339,7 @@ class QuantizedEffectEditor {
             this.dragStart = null;
             this.effect.editorPreviewOp = null;
             this.isDirty = true; // Ensure preview cleared
+            this._broadcastSync();
         }
     }
 
