@@ -225,38 +225,38 @@ class MatrixKernel {
             // Master Switch for Keybinds
             if (!this.config.state.enableKeybinds) return;
 
+            let matched = false;
             for (const [action, boundKey] of Object.entries(bindings)) {
                 if (boundKey && boundKey.toLowerCase() === key) {
+                    matched = true;
                     if (action === 'ToggleUI') {
                         this.ui.togglePanel();
                     } else if (action === 'BootSequence' || action === 'CrashSequence') { 
-                        // Allow forcing CrashSequence even if disabled in config
                         this.effectRegistry.trigger(action, true);
                         this.notifications.show(`${action} Triggered`, 'success');
                     }
                     else {
                         // Compatibility for renamed effect
                         let targetAction = action;
-                        if (action === 'QuantizedGenerateV2') targetAction = 'QuantizedBlockGenerator';
+                        if (action === 'QuantizedGenerateV2' || action === 'quantizedGenerateV2') {
+                            targetAction = 'QuantizedBlockGenerator';
+                        }
 
                         // Block quantized effects if editor is active
                         const isQuantized = targetAction.startsWith('Quantized');
                         const editorActive = this.ui && this.ui.quantEditor && this.ui.quantEditor.active;
                         
-                        if (isQuantized && editorActive) {
-                            return;
-                        }
-
-                        // Always force execution via keybind, overriding "Automatic Enabled" toggles
-                        if (this.effectRegistry.trigger(targetAction, true)) {
-                            this.notifications.show(`${targetAction} Triggered`, 'success');
+                        if (!(isQuantized && editorActive)) {
+                            // Always force execution via keybind, overriding "Automatic Enabled" toggles
+                            if (this.effectRegistry.trigger(targetAction, true)) {
+                                const label = targetAction.replace(/([A-Z])/g, ' $1').trim();
+                                this.notifications.show(`${label} Triggered`, 'success');
+                            }
                         }
                     }
-                    // Prevent default action only if we matched a binding
-                    e.preventDefault();
-                    return;
                 }
             }
+            if (matched) e.preventDefault();
         });
     }
 

@@ -157,10 +157,10 @@ class QuantizedRenderer {
                         }
                     }
                     if (!isFading) {
-                        const sx = Math.floor((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const ex = Math.ceil((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const sy = Math.floor((by - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        const ey = Math.ceil((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        const sx = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        const ex = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        const sy = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        const ey = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
                         const x = l.screenOriginX + (sx * l.screenStepX) + l.pixelOffX;
                         const y = l.screenOriginY + (sy * l.screenStepY) + l.pixelOffY;
                         const w = (ex - sx) * l.screenStepX;
@@ -185,10 +185,16 @@ class QuantizedRenderer {
         const offX = l.offX || 0;
         const offY = l.offY || 0;
 
-        const startX = Math.floor((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
-        const endX = Math.ceil((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        const startY = Math.floor((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
-        const endY = Math.ceil((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+        let startX = Math.round((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
+        let endX = Math.round((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+        let startY = Math.round((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
+        let endY = Math.round((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+
+        // Clamp to grid boundaries
+        startX = Math.max(0, Math.min(fx.g.cols, startX));
+        endX = Math.max(0, Math.min(fx.g.cols, endX));
+        startY = Math.max(0, Math.min(fx.g.rows, startY));
+        endY = Math.max(0, Math.min(fx.g.rows, endY));
 
         ctx.beginPath();
         const xPos = l.screenOriginX + (startX) * l.screenStepX + l.pixelOffX;
@@ -398,10 +404,16 @@ class QuantizedRenderer {
         const lwY = l.lineWidthY;
         
         // Use rect() on the path instead of ctx.rect()
-        const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
-        const endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        const startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
-        const endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+        let startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
+        let endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
+        let startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
+        let endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+
+        // Clamp to grid boundaries
+        startCellX = Math.max(0, Math.min(fx.g.cols, startCellX));
+        endCellX = Math.max(0, Math.min(fx.g.cols, endCellX));
+        startCellY = Math.max(0, Math.min(fx.g.rows, startCellY));
+        endCellY = Math.max(0, Math.min(fx.g.rows, endCellY));
 
         let drawX, drawY, drawW, drawH;
         

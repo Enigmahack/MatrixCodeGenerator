@@ -447,7 +447,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedZoomInnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedZoomEnabled' },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'quantizedGenerateV2', class: 'btn-warn' },
+            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'QuantizedBlockGenerator', class: 'btn-warn' },
             { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Block Generator' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Growth Logic', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableCyclic', type: 'checkbox', label: 'Enable Cyclic Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the 3-phase cyclic growth pattern (Layer 0 -> Layer 1 -> Merge)." },
@@ -1603,7 +1603,7 @@ class UIManager {
         if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
                 if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
-                if(action === 'quantizedGenerateV2') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
+                if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
                 if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
     }

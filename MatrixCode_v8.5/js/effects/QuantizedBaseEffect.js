@@ -487,7 +487,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             let charCode = 32;
             let i = -1;
             let useShadow = false;
-            if (shadowGrid && distMap && l) {
+            
+            // Only use shadow world for characters within the actual grid
+            const isInsideGrid = (x >= 0 && x < cols && y >= 0 && y < rows);
+            
+            if (isInsideGrid && shadowGrid && distMap && l) {
                 const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
                 const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
                 if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
@@ -495,7 +499,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (distMap[dIdx] <= 1) useShadow = true;
                 }
             }
-            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+            if (isInsideGrid) {
                 i = (y * cols) + x;
                 if (useShadow && shadowGrid.chars) {
                     charCode = shadowGrid.chars[i];
@@ -850,20 +854,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let bx = 0; bx <= blocksX; bx++) {
-            const cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+            let cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+            cellX = Math.max(0, Math.min(this.g.cols, cellX));
             const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + gridOffX;
             ctx.moveTo(x, 0);
             ctx.lineTo(x, height);
         }
         for (let by = 0; by <= blocksY; by++) {
-            const cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+            let cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+            cellY = Math.max(0, Math.min(this.g.rows, cellY));
             const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + gridOffY;
             ctx.moveTo(0, y);
             ctx.lineTo(width, y);
         }
         ctx.stroke();
-        const centerCellX = Math.round((cx - l.offX + l.userBlockOffX) * l.cellPitchX);
-        const centerCellY = Math.round((cy - l.offY + l.userBlockOffY) * l.cellPitchY);
+        let centerCellX = Math.round((cx - l.offX + l.userBlockOffX) * l.cellPitchX);
+        centerCellX = Math.max(0, Math.min(this.g.cols, centerCellX));
+        let centerCellY = Math.round((cy - l.offY + l.userBlockOffY) * l.cellPitchY);
+        centerCellY = Math.max(0, Math.min(this.g.rows, centerCellY));
         const centerX = l.screenOriginX + (centerCellX * l.screenStepX) + l.pixelOffX + gridOffX;
         const centerY = l.screenOriginY + (centerCellY * l.screenStepY) + l.pixelOffY + gridOffY;
         const bW = Math.round(l.cellPitchX) * l.screenStepX; 
@@ -894,12 +902,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (rGrid[idx] !== -1) {
                         const bx = idx % blocksX;
                         const by = Math.floor(idx / blocksX);
-                        const cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        let cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        let cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        cellX = Math.max(0, Math.min(this.g.cols, cellX));
+                        cellY = Math.max(0, Math.min(this.g.rows, cellY));
                         const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
                         const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
-                        const nextCellX = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const nextCellY = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        
+                        let nextCellX = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        let nextCellY = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        nextCellX = Math.max(0, Math.min(this.g.cols, nextCellX));
+                        nextCellY = Math.max(0, Math.min(this.g.rows, nextCellY));
+
                         const w = (nextCellX - cellX) * l.screenStepX;
                         const h = (nextCellY - cellY) * l.screenStepY;
                         ctx.fillRect(x, y, w, h); 
@@ -921,9 +935,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const activeR = (getVal(rGrid, x, y) !== -1);
                     if (!activeL && !activeR) continue;
                     if (activeL !== activeR) {
-                        const cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        const cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        cellX = Math.max(0, Math.min(this.g.cols, cellX));
+                        let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        let cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        cellY1 = Math.max(0, Math.min(this.g.rows, cellY1));
+                        cellY2 = Math.max(0, Math.min(this.g.rows, cellY2));
+
                         const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
                         const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
                         const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
@@ -938,9 +956,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const activeB = (getVal(rGrid, x, y) !== -1);
                     if (!activeT && !activeB) continue;
                     if (activeT !== activeB) {
-                        const cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        const cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        cellY = Math.max(0, Math.min(this.g.rows, cellY));
+                        let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
+                        cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
+
                         const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
                         const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
                         const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
@@ -959,12 +981,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (op.startPhase !== this.expansionPhase) continue;
                     const bx = cx + op.x1;
                     const by = cy + op.y1;
-                    const cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
-                    const cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                    let cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
+                    let cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
+                    cellX = Math.max(0, Math.min(this.g.cols, cellX));
+                    cellY = Math.max(0, Math.min(this.g.rows, cellY));
                     const x = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
                     const y = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
-                    const nextCellX = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                    const nextCellY = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                    
+                    let nextCellX = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                    let nextCellY = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                    nextCellX = Math.max(0, Math.min(this.g.cols, nextCellX));
+                    nextCellY = Math.max(0, Math.min(this.g.rows, nextCellY));
+
                     const w = (nextCellX - cellX) * l.screenStepX;
                     const h = (nextCellY - cellY) * l.screenStepY;
                     ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';

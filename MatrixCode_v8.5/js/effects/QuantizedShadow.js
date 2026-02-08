@@ -119,10 +119,10 @@ class QuantizedShadow {
                 
                 if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                 
-                const startCellX = Math.floor(destBx * pitchX);
-                const startCellY = Math.floor(destBy * pitchY);
-                const endCellX = Math.ceil((destBx + 1) * pitchX);
-                const endCellY = Math.ceil((destBy + 1) * pitchY);                
+                const startCellX = Math.round(destBx * pitchX);
+                const startCellY = Math.round(destBy * pitchY);
+                const endCellX = Math.round((destBx + 1) * pitchX);
+                const endCellY = Math.round((destBy + 1) * pitchY);                
                 for (let cy = startCellY; cy < endCellY; cy++) {
                     if (cy >= g.rows || cy < 0) continue;
                     for (let cx = startCellX; cx < endCellX; cx++) {
@@ -147,10 +147,10 @@ class QuantizedShadow {
                     
                     if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
                     
-                    const startCellX = Math.floor(destBx * pitchX);
-                    const startCellY = Math.floor(destBy * pitchY);
-                    const endCellX = Math.ceil((destBx + 1) * pitchX);
-                    const endCellY = Math.ceil((destBy + 1) * pitchY);                    
+                    const startCellX = Math.round(destBx * pitchX);
+                    const startCellY = Math.round(destBy * pitchY);
+                    const endCellX = Math.round((destBx + 1) * pitchX);
+                    const endCellY = Math.round((destBy + 1) * pitchY);                    
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         if (cy >= g.rows || cy < 0) continue;
                         for (let cx = startCellX; cx < endCellX; cx++) {

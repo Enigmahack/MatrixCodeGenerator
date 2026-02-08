@@ -357,7 +357,7 @@ class ConfigurationManager {
             "crashEnableFlash": true,
             "runBothInOrder": false,
             "enableKeybinds": true,
-            "keyBindings": {"Pulse": "p", "ClearPulse": "w", "MiniPulse": "e", "DejaVu": "r", "Superman": "t", "Firewall": "y", "ToggleUI": " ", "BootSequence": "b", "CrashSequence": "v", "BootCrashSequence": "b", "QuantizedPulse": "q", "QuantizedAdd": "a", "QuantizedRetract": "z", "QuantizedClimb": "c"},
+            "keyBindings": {"Pulse": "p", "ClearPulse": "w", "MiniPulse": "e", "DejaVu": "r", "Superman": "t", "Firewall": "y", "ToggleUI": " ", "BootSequence": "b", "CrashSequence": "v", "BootCrashSequence": "b", "QuantizedPulse": "q", "QuantizedAdd": "a", "QuantizedRetract": "z", "QuantizedClimb": "c", "QuantizedZoom": "x", "QuantizedBlockGenerator": "g"},
             "hideMenuIcon": true,
             "doubleClickToReset": true,
             "fontSettings": {"MatrixEmbedded": {"active": false, "useCustomChars": false, "customCharacters": "!\"*+-.012345789:<=>ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi|"}, "CustomFont_5e2697679380fc43": {"active": true, "useCustomChars": true, "customCharacters": "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", "useAllChars": false}},
