@@ -114,7 +114,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // 0. Update Shadow Simulation & Warmup
         if (!this.hasSwapped && !this.isSwapping) {
-            if (this._updateShadowSim()) return;
+            if (super._updateShadowSim()) return;
         } else if (this.isSwapping) {
             super.updateTransition(false);
         }
