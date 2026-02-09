@@ -246,6 +246,296 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._performHoleCleanup();
     }
 
+    _attemptLayerOverlap() {
+        // 1. Initial State: Start with a center square if unwritten (handled by _attemptGrowth seed)
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        if (this.logicGrid[cy * this.logicGridW + cx] === 0) return;
+
+        // Refresh outside map to ensure we know what is "external" vs "hole"
+        this.renderer.computeTrueOutside(this, this.logicGridW, this.logicGridH);
+
+        // 2. Loop Logic: Write, Write, Deletion?, Merge
+        const step = this.overlapState.step;
+        const cycleIndex = Math.floor(step / 4);
+        const cycleStep = step % 4;
+
+        // Scaling block count: 1 to 2 based on mass (activeBlocks.length)
+        const blockCount = Math.min(2, Math.max(1, Math.floor(this.activeBlocks.length / 50) + 1));
+
+        if (cycleStep === 0) {
+            // a) Write a Layer 1 block (or multiple)
+            for (let i = 0; i < blockCount; i++) {
+                this._spawnOnPerimeter(1, cycleIndex);
+            }
+        } else if (cycleStep === 1) {
+            // b) Write a Layer 0 block (or multiple)
+            for (let i = 0; i < blockCount; i++) {
+                this._spawnOnPerimeter(0);
+            }
+        } else if (cycleStep === 2) {
+            // c) Single 1x1 block deletion (1/3 of the time)
+            if (Math.random() < 0.33) {
+                this._deletePerimeterL1();
+            }
+        } else if (cycleStep === 3) {
+            // d) Merge the Layer 1 block
+            // merge automatically if after 2 complete cycles have passed
+            this._mergeLayer1(cycleIndex - 2);
+        }
+
+        this.overlapState.step++;
+    }
+
+    _deletePerimeterL1() {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+        const candidates = [];
+
+        for (let gy = 1; gy < h - 1; gy++) {
+            for (let gx = 1; gx < w - 1; gx++) {
+                const idx = gy * w + gx;
+                // Must be part of Layer 1
+                if (!this.layerGrids[1] || this.layerGrids[1][idx] === -1) continue;
+                // Must NOT be covered by Layer 0 (only visible Layer 1)
+                if (this.layerGrids[0] && this.layerGrids[0][idx] !== -1) continue;
+
+                // Must be on the outside perimeter (strictly at least 2 empty neighbors to avoid holes/pockets)
+                const emptyN = this.logicGrid[(gy - 1) * w + gx] === 0 ? 1 : 0;
+                const emptyS = this.logicGrid[(gy + 1) * w + gx] === 0 ? 1 : 0;
+                const emptyE = this.logicGrid[gy * w + gx + 1] === 0 ? 1 : 0;
+                const emptyW = this.logicGrid[gy * w + gx - 1] === 0 ? 1 : 0;
+                const totalEmpty = emptyN + emptyS + emptyE + emptyW;
+
+                if (totalEmpty >= 2) {
+                    // Exclude "bridges" or "thin lines" where only opposing edges touch (N/S or E/W)
+                    if (totalEmpty === 2) {
+                        const touchingOnlyNS = (emptyE === 1 && emptyW === 1); 
+                        const touchingOnlyEW = (emptyN === 1 && emptyS === 1);
+                        if (touchingOnlyNS || touchingOnlyEW) continue;
+                    }
+                    candidates.push({gx, gy});
+                }
+            }
+        }
+
+        if (candidates.length > 0) {
+            const target = candidates[Math.floor(Math.random() * candidates.length)];
+            const tx = target.gx - cx;
+            const ty = target.gy - cy;
+            const now = this.animFrame;
+
+            this.maskOps.push({
+                type: 'removeBlock',
+                x1: tx, y1: ty, x2: tx, y2: ty,
+                startFrame: now,
+                layer: 1,
+                fade: true
+            });
+
+            // Update grids
+            const idx = target.gy * w + target.gx;
+            if (this.layerGrids[1]) this.layerGrids[1][idx] = -1;
+            
+            // Clear logicGrid if no other layers are present
+            const l0 = this.layerGrids[0] && this.layerGrids[0][idx] !== -1;
+            const l2 = this.layerGrids[2] && this.layerGrids[2][idx] !== -1;
+            if (!l0 && !l2) {
+                this.logicGrid[idx] = 0;
+            }
+
+            this._lastProcessedOpIndex = 0;
+            this._maskDirty = true;
+        }
+    }
+
+    _findHoles() {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+        const holes = [];
+        if (!this._outsideMap) return holes;
+
+        for (let i = 0; i < w * h; i++) {
+            // A hole is a non-occupied cell that isn't reachable from the outside boundary
+            if (this.logicGrid[i] === 0 && this._outsideMap[i] === 0) {
+                const gx = i % w;
+                const gy = Math.floor(i / w);
+                const tx = gx - cx;
+                const ty = gy - cy;
+                holes.push({ tx, ty, d2: tx * tx + ty * ty });
+            }
+        }
+        return holes;
+    }
+
+    _spawnOnPerimeter(layer, spawnCycle = null) {
+        const blocks = this.activeBlocks;
+        if (blocks.length === 0) return;
+
+        const count = blocks.length;
+        const allShapes = [
+            {w:1, h:2}, {w:2, h:1}, // Rank 0
+            {w:1, h:3}, {w:3, h:1}, {w:2, h:2}, // Rank 1
+            {w:1, h:4}, {w:4, h:1} // Rank 2
+        ];
+
+        // Scaling: increase size as blob grows
+        let maxRank = 0;
+        if (count > 60) maxRank = 1;
+        if (count > 150) maxRank = 2;
+
+        const allowedShapes = [];
+        if (maxRank >= 0) allowedShapes.push(allShapes[0], allShapes[1]);
+        if (maxRank >= 1) allowedShapes.push(allShapes[2], allShapes[3], allShapes[4]);
+        if (maxRank >= 2) allowedShapes.push(allShapes[5], allShapes[6]);
+
+        // 1. Hole Filling Preference (Center-Outwards)
+        const holes = this._findHoles();
+        if (holes.length > 0) {
+            holes.sort((a, b) => a.d2 - b.d2);
+            for (let i = 0; i < Math.min(holes.length, 20); i++) {
+                const hole = holes[i];
+                const targetBlock = this._findValidBlockForCell(hole.tx, hole.ty, allowedShapes);
+                if (targetBlock) {
+                    if (this._isValidPerimeterPlacement(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, layer)) {
+                        const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, layer, false, false, 0, true, true);
+                        if (id !== -1 && spawnCycle !== null) {
+                            const b = this.activeBlocks.find(block => block.id === id);
+                            if (b) b.spawnCycle = spawnCycle;
+                        }
+                        this._updateLocalLogicGrid(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 1);
+                        this._outsideMapDirty = true;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 2. Normal Growth
+        const maxAttempts = 100;
+        for (let i = 0; i < maxAttempts; i++) {
+            const shape = allowedShapes[Math.floor(Math.random() * allowedShapes.length)];
+            const anchor = blocks[Math.floor(Math.random() * blocks.length)];
+            
+            const w = shape.w;
+            const h = shape.h;
+            
+            // Random offset relative to anchor
+            const tx = anchor.x + Math.floor(Math.random() * (anchor.w + w + 1)) - w;
+            const ty = anchor.y + Math.floor(Math.random() * (anchor.h + h + 1)) - h;
+            
+            if (this._isValidPerimeterPlacement(tx, ty, w, h, layer)) {
+                const id = this._spawnBlock(tx, ty, w, h, layer, false, false, 0, true, true);
+                if (id !== -1 && spawnCycle !== null) {
+                    const b = this.activeBlocks.find(block => block.id === id);
+                    if (b) b.spawnCycle = spawnCycle;
+                }
+                this._updateLocalLogicGrid(tx, ty, w, h, 1);
+                this._outsideMapDirty = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _isValidPerimeterPlacement(tx, ty, tw, th, targetLayer = 0) {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+
+        // Bounds check
+        if (tx + cx < 0 || tx + cx + tw > w || ty + cy < 0 || ty + cy + th > h) return false;
+
+        let occupiedByL0 = 0;
+        let emptyCount = 0;
+        let isTouching = false;
+        let totalOccupied = 0;
+        let hasOutsideCell = false;
+
+        for (let y = 0; y < th; y++) {
+            for (let x = 0; x < tw; x++) {
+                const gx = tx + cx + x;
+                const gy = ty + cy + y;
+                const idx = gy * w + gx;
+
+                const isL0 = (this.layerGrids[0] && this.layerGrids[0][idx] !== -1);
+                const isOccupied = (this.logicGrid[idx] === 1);
+                const isOutside = (this._outsideMap && this._outsideMap[idx] === 1);
+
+                if (isL0) occupiedByL0++;
+                if (isOccupied) totalOccupied++;
+
+                if (!isOccupied) {
+                    emptyCount++;
+                    if (isOutside) hasOutsideCell = true;
+
+                    // Adjacency check for cells that are empty
+                    if (!isTouching) {
+                        if (gx > 0 && this.logicGrid[gy * w + gx - 1] === 1) isTouching = true;
+                        else if (gx < w - 1 && this.logicGrid[gy * w + gx + 1] === 1) isTouching = true;
+                        else if (gy > 0 && this.logicGrid[(gy - 1) * w + gx] === 1) isTouching = true;
+                        else if (gy < h - 1 && this.logicGrid[(gy + 1) * w + gx] === 1) isTouching = true;
+                    }
+                }
+            }
+        }
+
+        const totalArea = tw * th;
+
+        // 1. Must add to the structure (emptyCount > 0)
+        if (emptyCount === 0) return false;
+
+        // 2. Must touch or add to the structure
+        if (totalOccupied === 0 && !isTouching) return false;
+
+        // 3. Ensure no new holes are created
+        // We only need to verify this if the proposed block connects to the external outside area.
+        // Filling existing holes (hasOutsideCell === false) does not create new ones.
+        if (hasOutsideCell && !this._checkNoHole(tx, ty, tw, th)) return false;
+
+        // 4. For L1 blocks: "never fully overlap existing L0 blocks"
+        if (targetLayer === 1 && occupiedByL0 === totalArea) {
+            return false;
+        }
+
+        return true;
+    }
+
+    _mergeLayer1(maxCycle = -1) {
+        const now = this.animFrame;
+        const blocksToMerge = this.activeBlocks.filter(b => 
+            b.layer === 1 && (maxCycle === -1 || b.spawnCycle === undefined || b.spawnCycle <= maxCycle)
+        );
+        
+        if (blocksToMerge.length === 0) return;
+
+        for (const b of blocksToMerge) {
+            // Add operations to transition visually
+            this.maskOps.push({ 
+                type: 'removeBlock', 
+                x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
+                startFrame: now, layer: 1, fade: false 
+            });
+            this.maskOps.push({ 
+                type: 'add', 
+                x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
+                startFrame: now, layer: 0, blockId: b.id 
+            });
+            
+            b.layer = 0;
+            this._writeToGrid(b.x, b.y, b.w, b.h, now, 0); // Write to L0
+            this._writeToGrid(b.x, b.y, b.w, b.h, -1, 1);  // Clear from L1
+        }
+
+        this._lastProcessedOpIndex = 0;
+        this._maskDirty = true;
+    }
+
     _getFrontier() {
         const w = this.logicGridW;
         const h = this.logicGridH;

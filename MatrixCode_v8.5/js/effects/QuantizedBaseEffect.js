@@ -608,8 +608,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         for (let idx = 0; idx < totalBlocks; idx++) {
             let val = -1;
             if (this.layerGrids[2][idx] !== -1) val = this.layerGrids[2][idx];
-            else if (this.layerGrids[1][idx] !== -1) val = this.layerGrids[1][idx];
             else if (this.layerGrids[0][idx] !== -1) val = this.layerGrids[0][idx];
+            else if (this.layerGrids[1][idx] !== -1) val = this.layerGrids[1][idx];
             this.renderGrid[idx] = val;
         }
         this._lastProcessedOpIndex = i;
