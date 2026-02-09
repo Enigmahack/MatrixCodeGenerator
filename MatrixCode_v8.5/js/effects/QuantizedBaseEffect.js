@@ -1072,8 +1072,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._initProceduralState();
 
         let totalTarget;
-        // Adjust ramp count if we are taking over from a manual sequence
-        // We probably already have blocks, so we can go straight to higher target
         totalTarget = (this.activeBlocks.length > 5) ? 10 : 3;
 
         const pool = [];

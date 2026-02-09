@@ -62,11 +62,6 @@ class QuantizedSequenceGenerator {
             for (const step of this.sequence) {
                 if (!step) continue;
                 
-                // Handle Compressed Steps (Number Array) - Simple skip or basic bounding box? 
-                // We assume Raw Ops for now as Generator produces Raw Ops.
-                // If we encounter compressed, we might need to skip or implement decoder. 
-                // For safety, only process Arrays of Arrays (Raw Ops).
-                
                 for (const opData of step) {
                     if (!Array.isArray(opData)) continue;
                     const op = opData[0];
@@ -117,29 +112,6 @@ class QuantizedSequenceGenerator {
                                 }
                             }
                         }
-                        /* Note: Line removal should be handled by explicit 'remLine' ops in the sequence.
-                    }   else if (op === 'remLine') {
-                        const x1 = this.cx + opData[1];
-                        const y1 = this.cy + opData[2];
-                        const x2 = this.cx + opData[3];
-                        const y2 = this.cy + opData[4];
-                        const minX = Math.min(x1, x2);
-                        const maxX = Math.max(x1, x2);
-                        const minY = Math.min(y1, y2);
-                        const maxY = Math.max(y1, y2);
-                        
-                        for(let y=minY; y<=maxY; y++) {
-                            for(let x=minX; x<=maxX; x++) {
-                                const idx = this._idx(x, y);
-                                if (idx !== -1 && this.grid[idx] === 1) {
-                                    this.grid[idx] = 0;
-
-
-                                    
-                                    filledCells--;
-                                }
-                            }
-                        }*/
                     }
                 }
             }
@@ -206,72 +178,12 @@ class QuantizedSequenceGenerator {
 
             // Only run expansion logic if grid isn't full
             if (!isFull) {
-                // 1. Redistribution (Mutation of existing structure)
-                /*
-                if (Math.random() < config.redistributeChance) {
-                    this._attemptRedistribution(stepOps, stepOccupancy);
-                }
-                */
-
-                // 2. Thickening (Reinforcing existing structure)
-                /*
-                if (Math.random() < config.thickenChance) {
-                    const added = this._attemptThickening(stepOps, stepOccupancy);
-                    filledCells += added;
-                }
-                */
-                
-                // 2.2 Line Thickening (Specific parallel spawning for long thin blocks)
-                /*
-                if (Math.random() < 0.15) { 
-                    const added = this._attemptLineThickening(stepOps, stepOccupancy);
-                    filledCells += added;
-                }
-                */
-
-                // 2.3 Tendril Generation (Perpendicular shots from cardinal arms)
-                // Boost probability significantly if the main cross is complete to fill quadrants
-                /*
-                const tendrilProb = crossComplete ? 0.60 : 0.20;
-                if (Math.random() < tendrilProb) { 
-                    const added = this._attemptTendril(s, stepOps, config.innerLineDuration, stepOccupancy); 
-                    filledCells += added;
-                }
-                */
-
-                // 2.4 Multi-Block Move (Perimeter Expansion Copy)
-                // Boost probability during fill phase to help progress general expansion
-                /*
-                const moveProb = crossComplete ? 0.70 : 0.35;
-                if (Math.random() < moveProb) {
-                     const added = this._attemptMultiBlockMove(s, stepOps, config.innerLineDuration, stepOccupancy);
-                     filledCells += added;
-                }
-                */
-
-                // 2.5 Erosion (Deleting blocks from frontier)
-                /*
-                if (Math.random() < config.erosionRate) { 
-                     const eroded = this._attemptErosion(stepOps, filledCells);
-                     filledCells -= eroded;
-                }
-                */
-
-                // 3. Expansion (Water Filling)
-                // const occupancyProgress = filledCells / totalCells;
-                
-                // Linear Growth Ramp: Start at 1, +1 per step, max 10
                 let currentBlocksPerStep = Math.min(7, Math.max(1, s));
-                
                 // Constraint: Until cross is complete, limit growth to maintain consistent cross formation
                 if (!crossComplete) {
                     currentBlocksPerStep = Math.min(4, Math.max(2, currentBlocksPerStep));
                 }
-                
-                // DYNAMIC BLOCK SIZING: Vary weights based on step 's'
-                // Stage 1: Initial Growth (1x1 Only) - Steps 1-5
-                // Stage 2: Early Expansion (Small Blocks) - Steps 6-15
-                // Stage 3: Late Expansion (Full Variety) - Steps 16+
+
                 let dynamicWeights = config.shapeWeights; 
                 
                 if (s <= 4) {
@@ -288,23 +200,6 @@ class QuantizedSequenceGenerator {
 
                 let massAdded = 0;
                 let attempts = 0;
-                /*
-                while (massAdded < currentBlocksPerStep && attempts < 20) {
-                    attempts++;
-                    let added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete); 
-                    
-                    // RESOLUTION 2: Fallback Mechanism
-                    // If weighted expansion fails (e.g. strict occupancy), force a single block to ensure forward progress.
-                    if (added === 0) {
-                        added = this._forceExpansion(s, stepOps, stepOccupancy, config.innerLineDuration);
-                    }
-
-                    if (added > 0) {
-                        massAdded++; 
-                        filledCells += added;
-                    }
-                }
-                */
             }
 
             if (stepOps.length > 0) {
@@ -314,25 +209,6 @@ class QuantizedSequenceGenerator {
                 if (!isFull) {
                     // Force expansion needs a temp stepOccupancy if one wasn't created (rare case logic flow)
                     const fallbackOccupancy = new Uint8Array(totalCells).fill(0);
-
-                    /*
-                    // Always add perimeter lines to ensure internal lines are generated
-                    let added = this._attemptExpansion(s, stepOps, config.shapeWeights, config.innerLineDuration, fallbackOccupancy, crossComplete);
-                    
-                    // If weighted expansion fails, force a 1x1 placement (guaranteed progress)
-                    if (added === 0) {
-                        added = this._forceExpansion(s, stepOps, fallbackOccupancy, config.innerLineDuration);
-                    }
-
-                    if (added > 0) {
-                        filledCells += added;
-                        this.sequence.push(stepOps);
-                    } else {
-                        // Truly stuck (frontier empty? should not happen if !isFull)
-                        if (this.scheduledOps.size === 0) break;
-                        this.sequence.push([]); 
-                    }
-                    */
                     this.sequence.push([]); 
                 } else {
                     // Full, just pumping empty frames for scheduled ops
@@ -573,9 +449,6 @@ class QuantizedSequenceGenerator {
 
         for (const origin of perimeterCandidates) {
             for (const shape of shapes) {
-                // To delete a shape at 'origin', 'origin' must be part of it.
-                // But simply placing the shape at 'origin' (top-left) covers it.
-                // We should check if the shape fits entirely within FILLED cells.
                 
                 let fits = true;
                 if (origin.x + shape.w > this.width || origin.y + shape.h > this.height) {

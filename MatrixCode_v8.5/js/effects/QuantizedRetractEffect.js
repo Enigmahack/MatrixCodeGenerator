@@ -62,11 +62,8 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         if (this.renderGrid) {
             this.renderGrid.fill(-1);
         }
-
         return true;
     }
-
-
 
     update() {
         const s = this.c.state;
@@ -74,7 +71,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
 
         if (!this.active) return;
 
-        // 0. Update Shadow Simulation & Warmup
+        // 1. Update Shadow Simulation & Warmup
         if (!this.hasSwapped && !this.isSwapping) {
             if (this._updateShadowSim()) return;
         } else if (this.isSwapping) {
@@ -83,7 +80,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
 
         this.animFrame++;
 
-        // 1. Animation Cycle (Grid Expansion) - Logic Update
+        // 2. Animation Cycle (Grid Expansion) - Logic Update
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const userSpeed = (s.quantizedRetractSpeed !== undefined) ? s.quantizedRetractSpeed : 5;
         // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
@@ -106,7 +103,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
             }
         }
 
-        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
+        // Update Render Grid Logic immediately 
         this._updateRenderGridLogic();
 
         // 3. Lifecycle State Machine
@@ -158,13 +155,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         this._checkDirtiness();
     }
 
-
-
     applyToGrid(grid) {
         // No grid overrides - we render directly to overlayCanvas
     }
 }
-
-
-
-

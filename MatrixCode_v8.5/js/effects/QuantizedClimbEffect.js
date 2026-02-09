@@ -42,8 +42,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this.alpha = 0.0;
         this.hasSwapped = false;
         this.isSwapping = false;
-
-                this.expansionPhase = 0;
+        this.expansionPhase = 0;
         this.cycleTimer = 0;
         this.cyclesCompleted = 0;
         this.manualStep = false;
@@ -72,43 +71,29 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         // 1. Animation Cycle
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const userSpeed = (s.quantizedClimbSpeed !== undefined) ? s.quantizedClimbSpeed : 5;
+
         // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
         const delayMult = 11 - userSpeed;
         const effectiveInterval = baseDuration * (delayMult / 4.0);
 
-                this.cycleTimer++;
+            this.cycleTimer++;
 
-        
+            if (this.cycleTimer >= effectiveInterval) {
+                if (!this.debugMode || this.manualStep) {
+                    this.cycleTimer = 0;
+                    this.cyclesCompleted++;
 
-                if (this.cycleTimer >= effectiveInterval) {
-
-                    if (!this.debugMode || this.manualStep) {
-
-                        this.cycleTimer = 0;
-
-                        this.cyclesCompleted++;
-
-                        
-
-                        if (this.expansionPhase < this.sequence.length) {
-
-                            this._processAnimationStep();
-
-                        } else if (this.getConfig('AutoGenerateRemaining')) {
-
-                            this._attemptGrowth();
-
-                        }
-
-                        this.manualStep = false;
-
+                    if (this.expansionPhase < this.sequence.length) {
+                        this._processAnimationStep();
+                    } else if (this.getConfig('AutoGenerateRemaining')) {
+                        this._attemptGrowth();
                     }
-
+                    this.manualStep = false;
                 }
-
+            }
         this._updateRenderGridLogic();
 
-        // 3. Lifecycle
+        // 2. Lifecycle
         const fadeInFrames = Math.max(1, (s.quantizedClimbFadeInFrames !== undefined) ? s.quantizedClimbFadeInFrames : 60);
         const fadeOutFrames = Math.max(1, (s.quantizedClimbFadeFrames !== undefined) ? s.quantizedClimbFadeFrames : 60);
         const durationFrames = (s.quantizedClimbDurationSeconds || 2) * fps;
@@ -152,7 +137,3 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this._checkDirtiness();
     }
 }
-
-
-
-

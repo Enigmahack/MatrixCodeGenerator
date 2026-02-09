@@ -74,7 +74,7 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
 
         if (!this.active) return;
 
-        // 0. Update Shadow Simulation & Warmup
+        // 1. Update Shadow Simulation & Warmup
         if (!this.hasSwapped && !this.isSwapping) {
             if (super._updateShadowSim()) return;
         } else if (this.isSwapping) {
@@ -83,7 +83,7 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
 
         this.animFrame++;
 
-        // 1. Animation Cycle (Grid Expansion) - Logic Update
+        // 2. Animation Cycle (Grid Expansion) - Logic Update
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const userSpeed = (s.quantizedPulseSpeed !== undefined) ? s.quantizedPulseSpeed : 5;
         // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
@@ -106,7 +106,7 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
             }
         }
 
-        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
+        // Update Render Grid Logic immediately
         this._updateRenderGridLogic();
 
         // 3. Lifecycle State Machine
@@ -158,13 +158,7 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
         this._checkDirtiness();
     }
 
-
-    // _updateMask removed to use Base implementation
-
-
-
     applyToGrid(grid) {
-        // No grid overrides - we render directly to overlayCanvas
     }
 }
 

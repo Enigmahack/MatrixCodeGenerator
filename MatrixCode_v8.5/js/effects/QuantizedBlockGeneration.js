@@ -210,9 +210,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 if (enSpine) this._attemptSpineGrowth();
                 break;
             case 'crawler':
-                // For direct crawler mode, we still use the base pool execution logic 
-                // but we limit it to just the crawler if that's what's intended, 
-                // or just call super._attemptGrowth() which already handles toggles.
                 super._attemptGrowth(); 
                 break;
             case 'shift':
@@ -478,11 +475,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // 2. Must touch or add to the structure
         if (totalOccupied === 0 && !isTouching) return false;
 
-        // 3. Ensure no new holes are created
-        // Removed strict _checkNoHole check to allow more organic overlapping growth
-        // if (hasOutsideCell && !this._checkNoHole(tx, ty, tw, th)) return false;
-
-        // 4. For L1 blocks: "never fully overlap existing L0 blocks"
+        // 3. For L1 blocks: Don't fully overlap existing L0 blocks
         if (targetLayer === 1 && occupiedByL0 === totalArea) {
             return false;
         }

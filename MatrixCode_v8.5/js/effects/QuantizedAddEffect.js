@@ -66,8 +66,6 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
         return true;
     }
 
-
-
     update() {
         const s = this.c.state;
         const fps = 60;
@@ -106,7 +104,6 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
             }
         }
 
-        // NEW: Update Render Grid Logic immediately (fixes 1-frame lag)
         this._updateRenderGridLogic();
 
         // 3. Lifecycle State Machine
@@ -157,14 +154,7 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
         // 4. Animation Transition Management (Dirtiness)
         this._checkDirtiness();
     }
-
-
-    // _updateMask removed to use Base implementation
-
-
-
     applyToGrid(grid) {
-        // No grid overrides - we render directly to overlayCanvas
     }
 }
 
