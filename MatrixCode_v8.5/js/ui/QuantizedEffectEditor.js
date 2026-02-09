@@ -998,6 +998,50 @@ class QuantizedEffectEditor {
             effectSelect.onchange = (e) => this._switchEffect(e.target.value);
             container.appendChild(effectSelect);
 
+            // Mode Selector (Specific to Block Generator)
+            const modeContainer = document.createElement('div');
+            modeContainer.id = 'editor-mode-container';
+            modeContainer.style.marginBottom = '10px';
+            modeContainer.style.display = (this.effect && this.effect.name === 'QuantizedBlockGenerator') ? 'block' : 'none';
+            
+            const modeLbl = document.createElement('span');
+            modeLbl.textContent = 'Mode: ';
+            
+            const modeSelect = document.createElement('select');
+            modeSelect.style.background = '#333';
+            modeSelect.style.color = '#0f0';
+            modeSelect.style.border = '1px solid #0f0';
+            modeSelect.style.width = '100px';
+            
+            ['default', 'unfold', 'cyclic', 'spine', 'crawler', 'shift', 'cluster', 'overlap', 'unfold_legacy'].forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                // Prettier labels
+                const labels = {
+                    'unfold': 'Unfold (Perimeter)',
+                    'unfold_legacy': 'Unfold (Legacy)',
+                    'default': 'Default (Pool)'
+                };
+                opt.textContent = labels[m] || m.charAt(0).toUpperCase() + m.slice(1);
+                modeSelect.appendChild(opt);
+            });
+            
+            modeSelect.onchange = (e) => {
+                if (this.effect) {
+                    this.effect.c.set(this.effect.configPrefix + 'Mode', e.target.value);
+                    // Re-trigger to apply new mode seeding if necessary
+                    this.effect.active = false;
+                    this.effect.trigger(true);
+                    this.effect.debugMode = true;
+                    this.effect.manualStep = true;
+                    this._updateUI();
+                }
+            };
+            this.modeSelect = modeSelect;
+            
+            modeContainer.append(modeLbl, modeSelect);
+            container.appendChild(modeContainer);
+
             const selectorSeparator = document.createElement('div');
             selectorSeparator.style.marginBottom = '10px';
             selectorSeparator.style.borderBottom = '1px solid #0f0';
@@ -1516,6 +1560,14 @@ class QuantizedEffectEditor {
     _updateUI() {
         if (!this.dom) return;
         
+        const isGenerator = (this.effect && this.effect.name === 'QuantizedBlockGenerator');
+        const modeContainer = document.getElementById('editor-mode-container');
+        if (modeContainer) modeContainer.style.display = isGenerator ? 'block' : 'none';
+        
+        if (isGenerator && this.modeSelect) {
+            this.modeSelect.value = this.effect.getConfig('Mode') || 'default';
+        }
+
         if (this.effect && this.inpBlockW && this.inpBlockH) {
             const bs = this.effect.getBlockSize();
             this.inpBlockW.value = bs.w;

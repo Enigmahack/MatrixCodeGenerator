@@ -280,6 +280,7 @@ class ConfigurationManager {
             "quantizedGenerateV2InnerThickness": 1,
             "quantizedGenerateV2PerimeterColor": "#FFD700",
             "quantizedGenerateV2InnerColor": "#FFD700",
+            "quantizedGenerateV2Mode": "default",
             "quantizedGenerateV2FadeInFrames": 0,
             "quantizedGenerateV2FadeFrames": 0,
             "quantizedGenerateV2SimultaneousSpawns": 3,

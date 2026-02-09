@@ -103,10 +103,22 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Seed Procedural State
         this._initProceduralState();
         
-        // Seed (L1)
-        this._spawnBlock(0, 0, 1, 1, 0); 
-        
         return true;
+    }
+
+    _updateLocalLogicGrid(tx, ty, tw, th, val) {
+        if (!this.logicGrid) return;
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        for (let y = ty; y < ty + th; y++) {
+            for (let x = tx; x < tx + tw; x++) {
+                const gx = cx + x;
+                const gy = cy + y;
+                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
+                    this.logicGrid[gy * this.logicGridW + gx] = val;
+                }
+            }
+        }
     }
 
     update() {
@@ -150,7 +162,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (this.genTimer >= interval) {
                 if (!this.debugMode || this.manualStep) {
                     this.genTimer = 0;
-                    this.expansionPhase++; // Unified with expansionPhase
+                    this.expansionPhase++;
                     
                     if (this.expansionPhase >= 1000) {
                         if (!this.hasSwapped && !this.isSwapping) {
@@ -166,15 +178,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
             
             this._updateRenderGridLogic();
-
-            // Check if all spines hit the edge
-            if (!this.debugMode && this._isProceduralFinished()) {
-                if (!this.hasSwapped && !this.isSwapping) {
-                    this.state = 'FADE_OUT';
-                    this.timer = 0;
-                    this._swapStates();
-                }
-            }
 
             if (!this.debugMode && this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
@@ -194,5 +197,256 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
         
         this._checkDirtiness();
+    }
+
+    _attemptGrowth() {
+        const mode = this.getConfig('Mode') || 'default';
+
+        // 1. Check for seed block if empty (required for most modes)
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        if (this.logicGrid[cy * this.logicGridW + cx] === 0) {
+             this._spawnBlock(0, 0, 1, 1, 0);
+             this._updateLocalLogicGrid(0, 0, 1, 1, 1);
+             if (mode !== 'default') return; 
+        }
+
+        // 2. Route to specific behavior
+        switch (mode) {
+            case 'unfold':
+                this._attemptUnfoldPerimeterGrowth();
+                break;
+            case 'cyclic':
+                this._attemptCyclicGrowth();
+                break;
+            case 'spine':
+                this._attemptSpineGrowth();
+                break;
+            case 'crawler':
+                this._attemptCrawlerGrowth();
+                break;
+            case 'shift':
+                this._attemptShiftGrowth();
+                break;
+            case 'cluster':
+                this._attemptClusterGrowth();
+                break;
+            case 'overlap':
+                this._attemptLayerOverlap();
+                break;
+            case 'unfold_legacy':
+                this._attemptUnfoldGrowth();
+                break;
+            default:
+                super._attemptGrowth(); 
+                break;
+        }
+
+        // 3. Post-growth cleanup
+        this._performHoleCleanup();
+    }
+
+    _getFrontier() {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+        const frontier = [];
+        
+        const bs = this.getBlockSize();
+        const visibleBlocksW = this.g.cols / bs.w;
+        const visibleBlocksH = this.g.rows / bs.h;
+        const buffer = 5;
+        const xLimit = (visibleBlocksW / 2) + buffer;
+        const yLimit = (visibleBlocksH / 2) + buffer;
+
+        for (let gy = 1; gy < h - 1; gy++) {
+            const ty = gy - cy;
+            if (ty < -yLimit || ty > yLimit) continue;
+            
+            for (let gx = 1; gx < w - 1; gx++) {
+                const tx = gx - cx;
+                if (tx < -xLimit || tx > xLimit) continue;
+
+                if (this.logicGrid[gy * w + gx] === 0) {
+                    const n = this.logicGrid[(gy - 1) * w + gx] === 1;
+                    const s = this.logicGrid[(gy + 1) * w + gx] === 1;
+                    const e = this.logicGrid[gy * w + gx + 1] === 1;
+                    const w_ = this.logicGrid[gy * w + gx - 1] === 1;
+                    
+                    if (n || s || e || w_) {
+                        frontier.push({ tx, ty, d2: tx*tx + ty*ty });
+                    }
+                }
+            }
+        }
+        return frontier;
+    }
+
+    _findValidBlockForCell(tx, ty, shapes) {
+        const shuffledShapes = [...shapes].sort(() => Math.random() - 0.5);
+        
+        for (const shape of shuffledShapes) {
+            const sw = shape.w;
+            const sh = shape.h;
+            const offsets = [];
+            for (let oy = 0; oy < sh; oy++) {
+                for (let ox = 0; ox < sw; ox++) {
+                    offsets.push({ox, oy});
+                }
+            }
+            offsets.sort(() => Math.random() - 0.5);
+            
+            for (const offset of offsets) {
+                const bx = tx - offset.ox;
+                const by = ty - offset.oy;
+                
+                if (this._checkNoOverlap(bx, by, sw, sh) && this._checkNoHole(bx, by, sw, sh)) {
+                    return { tx: bx, ty: by, w: sw, h: sh };
+                }
+            }
+        }
+        return null;
+    }
+
+    _attemptUnfoldPerimeterGrowth() {
+        this._initProceduralState();
+        
+        const l0Blocks = this.activeBlocks.filter(b => b.layer === 0);
+        if (l0Blocks.length === 0) return;
+
+        const totalTarget = Math.min(10, Math.max(1, Math.floor(l0Blocks.length / 8) + 1));
+        const shapes = [
+            {w: 1, h: 2}, {w: 2, h: 1},
+            {w: 1, h: 3}, {w: 3, h: 1},
+            {w: 2, h: 2}
+        ];
+
+        let spawnedCount = 0;
+        let attempts = 0;
+        const maxAttempts = totalTarget * 10;
+        
+        let frontier = this._getFrontier();
+        if (frontier.length === 0) return;
+
+        const biasChance = Math.min(0.85, 0.1 + (l0Blocks.length / 800));
+
+        while (spawnedCount < totalTarget && attempts < maxAttempts) {
+            attempts++;
+            if (frontier.length === 0) break;
+
+            const useCenterBias = (Math.random() < biasChance);
+            let targetBlock = null;
+
+            if (useCenterBias) {
+                frontier.sort((a, b) => a.d2 - b.d2);
+                const limit = Math.min(frontier.length, 100);
+                for (let i = 0; i < limit; i++) {
+                    const f = frontier[i];
+                    targetBlock = this._findValidBlockForCell(f.tx, f.ty, shapes);
+                    if (targetBlock) break;
+                }
+            } else {
+                const idx = Math.floor(Math.random() * frontier.length);
+                const f = frontier[idx];
+                targetBlock = this._findValidBlockForCell(f.tx, f.ty, shapes);
+            }
+
+            if (targetBlock) {
+                const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 0);
+                if (id !== -1) {
+                    spawnedCount++;
+                    this._updateLocalLogicGrid(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 1);
+                    frontier = this._getFrontier();
+                }
+            }
+        }
+    }
+
+    _checkNoOverlap(x, y, w, h) {
+        for (const b of this.activeBlocks) {
+            const ix = Math.max(x, b.x);
+            const iy = Math.max(y, b.y);
+            const iw = Math.min(x + w, b.x + b.w) - ix;
+            const ih = Math.min(y + h, b.y + b.h) - iy;
+            if (iw > 0 && ih > 0) return false;
+        }
+
+        const bs = this.getBlockSize();
+        const visibleBlocksW = this.g.cols / bs.w;
+        const visibleBlocksH = this.g.rows / bs.h;
+        const buffer = 5;
+        const xLimit = (visibleBlocksW / 2) + buffer;
+        const yLimit = (visibleBlocksH / 2) + buffer;
+
+        if (x + w < -xLimit || x > xLimit || y + h < -yLimit || y > yLimit) return false;
+
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        if (x + cx < 0 || x + cx + w > this.logicGridW || y + cy < 0 || y + cy + h > this.logicGridH) return false;
+        return true;
+    }
+
+    _checkNoHole(tx, ty, tw, th) {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+
+        const candidates = [];
+        for (let x = tx - 1; x <= tx + tw; x++) {
+            candidates.push([x, ty - 1]);
+            candidates.push([x, ty + th]);
+        }
+        for (let y = ty; y < ty + th; y++) {
+            candidates.push([tx - 1, y]);
+            candidates.push([tx + tw, y]);
+        }
+
+        for (const [nx, ny] of candidates) {
+            const gx = nx + cx;
+            const gy = ny + cy;
+            
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+            if (this.logicGrid[gy * w + gx] !== 0) continue;
+            if (nx >= tx && nx < tx + tw && ny >= ty && ny < ty + th) continue;
+
+            if (!this._canReachBoundary(nx, ny, tx, ty, tw, th)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    _canReachBoundary(startX, startY, px, py, pw, ph) {
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+        
+        const stack = [[startX, startY]];
+        const visited = new Set([`${startX},${startY}`]);
+        
+        while (stack.length > 0) {
+            const [x, y] = stack.pop();
+            if (x + cx <= 0 || x + cx >= w - 1 || y + cy <= 0 || y + cy >= h - 1) return true;
+            
+            const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
+            for (const [nx, ny] of neighbors) {
+                const gx = nx + cx;
+                const gy = ny + cy;
+                
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+                const key = `${nx},${ny}`;
+                if (visited.has(key)) continue;
+                if (nx >= px && nx < px + pw && ny >= py && ny < py + ph) continue;
+                if (this.logicGrid[gy * w + gx] !== 0) continue;
+                
+                visited.add(key);
+                stack.push([nx, ny]);
+                if (visited.size > 2000) return true; 
+            }
+        }
+        return false;
     }
 }
