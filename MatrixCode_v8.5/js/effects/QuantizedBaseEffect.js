@@ -1043,11 +1043,6 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptGrowth() {
-        // Default implementation for subclasses that don't implement procedural growth
-        // but are called by the base logic or UI when 'AutoGenerateRemaining' is enabled.
-    }
-
-    _attemptGrowthFull() {
         this._initProceduralState();
 
         let totalTarget;
@@ -1058,22 +1053,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         const pool = [];
         const s = this.c.state;
 
-        // Use global generation settings or defaults
-        const enCyclic = (s.quantizedGenerateV2EnableCyclic !== undefined) ? s.quantizedGenerateV2EnableCyclic : true;
-        const enSpine = (s.quantizedGenerateV2EnableSpine !== undefined) ? s.quantizedGenerateV2EnableSpine : true;
-        const enOverlap = (s.quantizedGenerateV2EnableOverlap !== undefined) ? s.quantizedGenerateV2EnableOverlap : true;
-        const enUnfold = (s.quantizedGenerateV2EnableUnfold !== undefined) ? s.quantizedGenerateV2EnableUnfold : true;
-        const enCrawler = (s.quantizedGenerateV2EnableCrawler !== undefined) ? s.quantizedGenerateV2EnableCrawler : true;
-        const enShift = (s.quantizedGenerateV2EnableShift !== undefined) ? s.quantizedGenerateV2EnableShift : false;
-        const enCluster = (s.quantizedGenerateV2EnableCluster !== undefined) ? s.quantizedGenerateV2EnableCluster : false;
+        // Use effect-specific settings or defaults from quantizedGenerateV2
+        const getGenConfig = (key) => {
+            const val = this.getConfig(key);
+            if (val !== undefined) return val;
+            return s['quantizedGenerateV2' + key];
+        };
+
+        const enCyclic = getGenConfig('EnableCyclic') !== false; // default true
+        const enSpine = getGenConfig('EnableSpine') !== false; // default true
+        const enOverlap = getGenConfig('EnableOverlap') !== false; // default true
+        const enUnfold = getGenConfig('EnableUnfold') !== false; // default true
+        const enCrawler = getGenConfig('EnableCrawler') !== false; // default true
+        const enShift = getGenConfig('EnableShift') === true; // default false
+        const enCluster = getGenConfig('EnableCluster') === true; // default false
 
         if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
         if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
         if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
-        if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
         if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
         if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
+        if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
 
         if (pool.length === 0) return;
 
@@ -1084,11 +1085,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // Process Existing Active Crawlers
+        let crawlerUpdated = false;
         if (this.crawlers) {
             for (let i = this.crawlers.length - 1; i >= 0; i--) {
                 const crawler = this.crawlers[i];
                 if (crawler.active) {
                     this._attemptCrawlerGrowth(crawler);
+                    crawlerUpdated = true;
                 } else {
                     this.crawlers.splice(i, 1);
                 }
@@ -1110,6 +1113,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Execute Remaining Quota
         for (let i = 0; i < totalTarget; i++) {
             const behavior = pool[i % pool.length];
+            
+            // Limit crawler spawning
+            if (behavior.toString().includes('_attemptCrawlerGrowth')) {
+                if (crawlerUpdated || (this.crawlers && this.crawlers.length >= 2)) continue;
+            }
+
             behavior();
         }
 
@@ -1119,7 +1128,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
         if (!skipConnectivity && this.activeBlocks.length > 0) {
              let connected = false;
-             let totalOverlap = 0;
+             let layerOverlap = 0;
              const area = w * h;
 
              for (const b of this.activeBlocks) {
@@ -1128,17 +1137,21 @@ class QuantizedBaseEffect extends AbstractEffect {
                  
                  if (xOverlap && yOverlap) {
                      connected = true;
-                     const ix = Math.max(x, b.x);
-                     const iy = Math.max(y, b.y);
-                     const iw = Math.min(x + w, b.x + b.w) - ix;
-                     const ih = Math.min(y + h, b.y + b.h) - iy;
-                     if (iw > 0 && ih > 0) {
-                         totalOverlap += (iw * ih);
+                     
+                     // Only count overlap for the SAME layer
+                     if (b.layer === layer) {
+                         const ix = Math.max(x, b.x);
+                         const iy = Math.max(y, b.y);
+                         const iw = Math.min(x + w, b.x + b.w) - ix;
+                         const ih = Math.min(y + h, b.y + b.h) - iy;
+                         if (iw > 0 && ih > 0) {
+                             layerOverlap += (iw * ih);
+                         }
                      }
                  }
              }
              if (!connected) return -1;
-             if (!isShifter && !allowInternal && totalOverlap >= area) return -1; 
+             if (!isShifter && !allowInternal && layerOverlap >= area) return -1; 
         }
 
         const id = this.nextBlockId++;
@@ -1449,6 +1462,93 @@ class QuantizedBaseEffect extends AbstractEffect {
         return -1;
     }
 
+    _nudge(x, y, w, h, face, layer = 0) {
+        const now = this.animFrame;
+        const op = { type: 'nudge', x, y, w, h, face, layer, startFrame: now };
+        this.maskOps.push(op);
+
+        if (this.manualStep && this.sequence) {
+            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+            this.sequence[this.expansionPhase].push({ op: 'nudge', args: [x, y, w, h, face], layer });
+        }
+
+        // 1. Update activeBlocks coordinates (Shift logic)
+        let axis = 'X', dir = 1;
+        if (face) {
+            const f = face.toUpperCase();
+            if (f === 'N') { axis = 'Y'; dir = -1; }
+            else if (f === 'S') { axis = 'Y'; dir = 1; }
+            else if (f === 'E') { axis = 'X'; dir = 1; }
+            else if (f === 'W') { axis = 'X'; dir = -1; }
+        }
+
+        const shiftAmt = (axis === 'X' ? w : h);
+        for (const b of this.activeBlocks) {
+            let shouldMove = false;
+            if (axis === 'X') {
+                const laneMatch = (b.y >= y && b.y < y + h);
+                const posMatch = (dir > 0) ? (b.x >= x) : (b.x <= x + w - 1);
+                if (laneMatch && posMatch) shouldMove = true;
+            } else {
+                const laneMatch = (b.x >= x && b.x < x + w);
+                const posMatch = (dir > 0) ? (b.y >= y) : (b.y <= y + h - 1);
+                if (laneMatch && posMatch) shouldMove = true;
+            }
+            if (shouldMove) {
+                if (axis === 'X') b.x += (dir * shiftAmt);
+                else b.y += (dir * shiftAmt);
+            }
+        }
+
+        // 2. Add the new nudge block to activeBlocks
+        const id = this.nextBlockId++;
+        this.activeBlocks.push({ x, y, w, h, startFrame: now, layer, id });
+
+        // 3. Execute Grid/Visual Nudge
+        if (window.matrix && window.matrix.sequenceProcessor) {
+            const ctx = {
+                cx: Math.floor(this.logicGridW / 2),
+                cy: Math.floor(this.logicGridH / 2),
+                now: now,
+                isActive: (dx, dy) => {
+                    const gx = Math.floor(this.logicGridW / 2) + dx;
+                    const gy = Math.floor(this.logicGridH / 2) + dy;
+                    if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
+                    return this.logicGrid[gy * this.logicGridW + gx] !== 0;
+                },
+                setLocalActive: (dx, dy) => {
+                    const gx = Math.floor(this.logicGridW / 2) + dx;
+                    const gy = Math.floor(this.logicGridH / 2) + dy;
+                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
+                        this.logicGrid[gy * this.logicGridW + gx] = 1;
+                    }
+                },
+                setLocalInactive: (dx, dy) => {
+                    const gx = Math.floor(this.logicGridW / 2) + dx;
+                    const gy = Math.floor(this.logicGridH / 2) + dy;
+                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
+                        this.logicGrid[gy * this.logicGridW + gx] = 0;
+                    }
+                },
+                setLayerActive: (dx, dy, l, frame) => {
+                    const gx = Math.floor(this.logicGridW / 2) + dx;
+                    const gy = Math.floor(this.logicGridH / 2) + dy;
+                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
+                        this.layerGrids[l][gy * this.logicGridW + gx] = frame;
+                    }
+                },
+                setLayerInactive: (dx, dy, l) => {
+                    const gx = Math.floor(this.logicGridW / 2) + dx;
+                    const gy = Math.floor(this.logicGridH / 2) + dy;
+                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
+                        this.layerGrids[l][gy * this.logicGridW + gx] = -1;
+                    }
+                }
+            };
+            window.matrix.sequenceProcessor._executeNudge(this, x, y, w, h, face, layer, ctx);
+        }
+    }
+
     _attemptCrawlerGrowth(existingState) {
         let s = existingState;
         if (!s) {
@@ -1460,57 +1560,127 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const dir = dirs[Math.floor(Math.random() * dirs.length)];
                 let tx = anchor.x, ty = anchor.y;
                 if (dir.dx === 1) tx = anchor.x + anchor.w;
-                else if (dir.dx === -1) tx = anchor.x - 2;
+                else if (dir.dx === -1) tx = anchor.x - 1;
                 else if (dir.dy === 1) ty = anchor.y + anchor.h;
                 else if (dir.dy === -1) ty = anchor.y - 1;
                 const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
-                if (tx + cx < 2 || tx + cx >= this.logicGridW - 2 || ty + cy < 2 || ty + cy >= this.logicGridH - 2) continue;
+                if (tx + cx < 4 || tx + cx >= this.logicGridW - 4 || ty + cy < 4 || ty + cy >= this.logicGridH - 4) continue;
+                
+                const tw = (dir.dx !== 0) ? 2 : 1;
+                const th = (dir.dy !== 0) ? 2 : 1;
                 let overlap = 0;
                 for (const b of this.activeBlocks) {
                     const ix = Math.max(tx, b.x), iy = Math.max(ty, b.y);
-                    const iw = Math.min(tx + 2, b.x + b.w) - ix, ih = Math.min(ty + 1, b.y + b.h) - iy;
+                    const iw = Math.min(tx + tw, b.x + b.w) - ix, ih = Math.min(ty + th, b.y + b.h) - iy;
                     if (iw > 0 && ih > 0) overlap += (iw * ih);
                 }
-                if (overlap < 2) { bestX = tx; bestY = ty; bestDX = dir.dx; bestDY = dir.dy; found = true; break; }
+                if (overlap < (tw * th)) { bestX = tx; bestY = ty; bestDX = dir.dx; bestDY = dir.dy; found = true; break; }
             }
             if (!found) return;
-            s = { active: true, step: 0, x: bestX, y: bestY, dx: bestDX, dy: bestDY, lastBlockId: -1 };
+            s = { active: true, step: 0, x: bestX, y: bestY, dx: bestDX, dy: bestDY, lastBlockIds: [] };
             this.crawlers.push(s); return;
         }
-        const cycle = (s.step % 3), now = this.animFrame;
-        let steps = [];
-        if (s.dx === 1) steps = [{x:0,y:0,w:2,h:1},{x:0,y:0,w:1,h:2},{x:0,y:0,w:2,h:2}];
-        else if (s.dy === 1) steps = [{x:0,y:0,w:1,h:2},{x:-1,y:0,w:2,h:1},{x:-1,y:0,w:2,h:2}];
-        else if (s.dx === -1) steps = [{x:-1,y:0,w:2,h:1},{x:0,y:-1,w:1,h:2},{x:-1,y:-1,w:2,h:2}];
-        else if (s.dy === -1) steps = [{x:0,y:-1,w:1,h:2},{x:0,y:0,w:2,h:1},{x:0,y:-1,w:2,h:2}];
-        const cfg = steps[cycle], targetX = s.x + cfg.x, targetY = s.y + cfg.y, targetW = cfg.w, targetH = cfg.h;
-        let collision = false;
-        for (const b of this.activeBlocks) {
-            if (b.id === s.lastBlockId) continue;
-            const ix = Math.max(targetX, b.x), iy = Math.max(targetY, b.y);
-            const iw = Math.min(targetX + targetW, b.x + b.w) - ix, ih = Math.min(targetY + targetH, b.y + b.h) - iy;
-            if (iw > 0 && ih > 0) { collision = true; break; }
-        }
-        if (collision) { s.active = false; return; }
-        if (cycle === 0) {
-            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, false, true);
-            if (s.lastBlockId === -1) { s.active = false; return; }
-        } else if (cycle === 1 || cycle === 2) {
-            if (s.lastBlockId !== -1) {
-                 const prev = steps[cycle - 1];
-                 const x1 = s.x + prev.x, y1 = s.y + prev.y;
-                 const x2 = x1 + prev.w - 1, y2 = y1 + prev.h - 1;
-                 this.maskOps.push({ type: 'removeBlock', x1: x1, y1: y1, x2: x2, y2: y2, startFrame: now });
-                 if (this.manualStep && this.sequence) {
-                     if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
-                     this.sequence[this.expansionPhase].push({ op: 'removeBlock', args: [x1, y1, x2, y2] });
-                 }
-                 this._writeToGrid(x1, y1, prev.w, prev.h, -1);
-                 this.activeBlocks = this.activeBlocks.filter(b => b.id !== s.lastBlockId);
+        
+        const cycle = (s.step % 6), now = this.animFrame;
+        const dx = s.dx, dy = s.dy;
+
+        // Helper to rotate local coordinates based on direction
+        const rotate = (lx, ly) => {
+            if (dy === -1) return { rx: s.x + lx, ry: s.y + ly }; // N
+            if (dy === 1)  return { rx: s.x - lx, ry: s.y - ly }; // S
+            if (dx === 1)  return { rx: s.x - ly, ry: s.y + lx }; // E
+            if (dx === -1) return { rx: s.x + ly, ry: s.y - lx }; // W
+            return { rx: s.x + lx, ry: s.y + ly };
+        };
+
+        const addL1 = (lx, ly) => {
+            const { rx, ry } = rotate(lx, ly);
+            const id = this._spawnBlock(rx, ry, 1, 1, 1, false, false, 0, true, true);
+            if (id !== -1) s.lastBlockIds.push(id);
+        };
+
+        const mergeL1ToL0 = (lx, ly) => {
+            const { rx, ry } = rotate(lx, ly);
+            const block = this.activeBlocks.find(b => b.x === rx && b.y === ry && b.layer === 1);
+            if (block) {
+                // Remove from Layer 1
+                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1, fade: false });
+                this._writeToGrid(rx, ry, 1, 1, -1, 1);
+                this.activeBlocks = this.activeBlocks.filter(b => b.id !== block.id);
+                s.lastBlockIds = s.lastBlockIds.filter(id => id !== block.id);
+                // Permanent Merge to Layer 0
+                this._spawnBlock(rx, ry, 1, 1, 0, true, false, 0, true, true);
             }
-            s.lastBlockId = this._spawnBlock(s.x + cfg.x, s.y + cfg.y, cfg.w, cfg.h, 0, false, false, 0, true, true);
-            if (cycle === 2) { s.x += s.dx * 2; s.y += s.dy * 2; }
+        };
+
+        const addRectL1 = (lx1, ly1, lx2, ly2) => {
+            const minX = Math.min(lx1, lx2), maxX = Math.max(lx1, lx2);
+            const minY = Math.min(ly1, ly2), maxY = Math.max(ly1, ly2);
+            for (let ly = minY; ly <= maxY; ly++) {
+                for (let lx = minX; lx <= maxX; lx++) {
+                    addL1(lx, ly);
+                }
+            }
+        };
+
+        const remL1 = (lx, ly) => {
+            const { rx, ry } = rotate(lx, ly);
+            const block = this.activeBlocks.find(b => b.x === rx && b.y === ry && b.layer === 1);
+            if (block) {
+                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1, fade: false });
+                this._writeToGrid(rx, ry, 1, 1, -1, 1);
+                this.activeBlocks = this.activeBlocks.filter(b => b.id !== block.id);
+                s.lastBlockIds = s.lastBlockIds.filter(id => id !== block.id);
+            }
+        };
+
+        const nudgeAction = (lx, ly, lw, lh, face) => {
+            const { rx, ry } = rotate(lx, ly);
+            let rFace = face;
+            const faces = ['N', 'E', 'S', 'W'];
+            let fIdx = faces.indexOf(face);
+            if (fIdx !== -1) {
+                let rot = 0;
+                if (dx === 1) rot = 1; else if (dy === 1) rot = 2; else if (dx === -1) rot = 3;
+                rFace = faces[(fIdx + rot) % 4];
+            }
+            let rw = lw, rh = lh;
+            if (dx !== 0) { rw = lh; rh = lw; }
+            this._nudge(rx, ry, rw, rh, rFace, 0);
+        };
+
+        // Pattern Mapping (6-step cycle)
+        if (cycle === 0) {
+            // [9,0,-1,0,0,1]
+            addRectL1(0, -1, 0, 0);
+        } else if (cycle === 1) {
+            // [9,0,-1,0,-1,1, 11,0,-1,1, 8,1,0,1]
+            remL1(0, -1);
+            addL1(1, 0);
+        } else if (cycle === 2) {
+            // [12,0,0,2,1,0,1, 11,1,-1,1, 11,0,-1,1]
+            // Cumulative Merge
+            mergeL1ToL0(0, 0);
+            mergeL1ToL0(1, 0);
+            nudgeAction(0, 0, 2, 1, 'N');
+            // Pattern cleanup (already handled by merge if we are cumulative)
+            remL1(1, -1);
+            remL1(0, -1);
+        } else if (cycle === 3) {
+            // [9,0,-2,0,-1,1]
+            addRectL1(0, -2, 0, -1);
+        } else if (cycle === 4) {
+            // [11,0,-2,1, 8,1,-1,1]
+            remL1(0, -2);
+            addL1(1, -1);
+        } else if (cycle === 5) {
+            // Final Merge
+            mergeL1ToL0(0, -1);
+            mergeL1ToL0(1, -1);
+            // Move origin for next loop
+            s.x += dx * 2; s.y += dy * 2;
         }
+
         s.step++;
     }
 

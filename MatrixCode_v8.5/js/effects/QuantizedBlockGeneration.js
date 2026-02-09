@@ -140,12 +140,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const durationFrames = (s.quantizedGenerateV2DurationSeconds || 5) * fps;
         
         if (this.state === 'GENERATING') {
-            if (this.manualStep) {
-                // In manual mode, we don't automatically grow.
-                // We also skip termination checks to stay in GENERATING state.
-                return;
-            }
-
             const baseDuration = Math.max(1, this.c.derived.cycleDuration);
             const userSpeed = (s.quantizedGenerateV2Speed !== undefined) ? s.quantizedGenerateV2Speed : 5;
             // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
@@ -154,22 +148,27 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             this.genTimer++;
             if (this.genTimer >= interval) {
-                this.genTimer = 0;
-                this.expansionPhase++; // Unified with expansionPhase
-                
-                if (this.expansionPhase >= 1000) {
-                    if (!this.hasSwapped && !this.isSwapping) {
-                        this.state = 'FADE_OUT';
-                        this.timer = 0;
-                        this._swapStates();
+                if (!this.debugMode || this.manualStep) {
+                    this.genTimer = 0;
+                    this.expansionPhase++; // Unified with expansionPhase
+                    
+                    if (this.expansionPhase >= 1000) {
+                        if (!this.hasSwapped && !this.isSwapping) {
+                            this.state = 'FADE_OUT';
+                            this.timer = 0;
+                            this._swapStates();
+                        }
+                    } else {
+                        this._attemptGrowth();
                     }
-                } else {
-                    this._attemptGrowth();
+                    this.manualStep = false;
                 }
             }
             
+            this._updateRenderGridLogic();
+
             // Check if all spines hit the edge
-            if (this._isProceduralFinished()) {
+            if (!this.debugMode && this._isProceduralFinished()) {
                 if (!this.hasSwapped && !this.isSwapping) {
                     this.state = 'FADE_OUT';
                     this.timer = 0;
@@ -177,7 +176,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 }
             }
 
-            if (this.timer >= durationFrames) {
+            if (!this.debugMode && this.timer >= durationFrames) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {

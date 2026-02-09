@@ -463,7 +463,7 @@ class QuantizedEffectEditor {
             this.effect.sequence = this._decodeSequence(this.effect.sequence);
 
             this.effect.debugMode = true;
-            this.effect.manualStep = false; 
+            this.effect.manualStep = true; 
             
             // Start at Step 1 if available
             this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
@@ -525,7 +525,7 @@ class QuantizedEffectEditor {
                 this.effect.sequence = this._decodeSequence(this.effect.sequence);
                 
                 this.effect.debugMode = true;
-                this.effect.manualStep = false; // DISABLED: Prevent auto-stepping on start
+                this.effect.manualStep = true; // ENABLED: Allow stepping one by one
                 
                 // Start at Step 1 if available
                 this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);

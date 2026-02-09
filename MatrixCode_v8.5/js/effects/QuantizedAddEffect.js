@@ -93,10 +93,10 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
         this.cycleTimer++;
 
         if (this.cycleTimer >= effectiveInterval) {
-            this.cycleTimer = 0;
-            this.cyclesCompleted++;
-            
             if (!this.debugMode || this.manualStep) {
+                this.cycleTimer = 0;
+                this.cyclesCompleted++;
+                
                 if (this.expansionPhase < this.sequence.length) {
                     this._processAnimationStep();
                 } else if (this.getConfig('AutoGenerateRemaining')) {

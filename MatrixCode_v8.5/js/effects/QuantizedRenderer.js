@@ -558,7 +558,7 @@ class QuantizedRenderer {
 
             if (fx.maskOps) {
                 for (const op of fx.maskOps) {
-                    if (op.type !== 'addLine' && op.type !== 'removeLine') continue;
+                    if (op.type !== 'addLine' && op.type !== 'removeLine' && op.type !== 'remLine') continue;
                     
                     const opLayer = (op.layer !== undefined) ? op.layer : 0;
                     if (opLayer !== layer) continue;

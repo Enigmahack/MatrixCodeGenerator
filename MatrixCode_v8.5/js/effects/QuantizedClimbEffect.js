@@ -76,20 +76,35 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         const delayMult = 11 - userSpeed;
         const effectiveInterval = baseDuration * (delayMult / 4.0);
 
-        this.cycleTimer++;
-        if (this.cycleTimer >= effectiveInterval) {
-            this.cycleTimer = 0;
-            this.cyclesCompleted++;
-            
-            if (!this.debugMode || this.manualStep) {
-                if (this.expansionPhase < this.sequence.length) {
-                    this._processAnimationStep();
-                } else if (this.getConfig('AutoGenerateRemaining')) {
-                    this._attemptGrowth();
+                this.cycleTimer++;
+
+        
+
+                if (this.cycleTimer >= effectiveInterval) {
+
+                    if (!this.debugMode || this.manualStep) {
+
+                        this.cycleTimer = 0;
+
+                        this.cyclesCompleted++;
+
+                        
+
+                        if (this.expansionPhase < this.sequence.length) {
+
+                            this._processAnimationStep();
+
+                        } else if (this.getConfig('AutoGenerateRemaining')) {
+
+                            this._attemptGrowth();
+
+                        }
+
+                        this.manualStep = false;
+
+                    }
+
                 }
-                this.manualStep = false;
-            }
-        }
 
         this._updateRenderGridLogic();
 
