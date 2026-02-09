@@ -1036,6 +1036,38 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.crawlers = [];
         this.unfoldSequences = [];
         this.cycleState = { step: 0, step1Block: null };
+
+        // Ensure we have at least one anchor if starting fresh
+        if (this.activeBlocks.length === 0) {
+            this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
+        }
+    }
+
+    _processActiveStatefulBehaviors() {
+        let crawlerUpdated = false;
+        if (this.crawlers) {
+            for (let i = this.crawlers.length - 1; i >= 0; i--) {
+                const crawler = this.crawlers[i];
+                if (crawler.active) {
+                    this._attemptCrawlerGrowth(crawler);
+                    crawlerUpdated = true;
+                } else {
+                    this.crawlers.splice(i, 1);
+                }
+            }
+        }
+
+        if (this.unfoldSequences) {
+            for (let i = this.unfoldSequences.length - 1; i >= 0; i--) {
+                const seq = this.unfoldSequences[i];
+                if (seq.active) {
+                    this._attemptUnfoldGrowth(seq);
+                } else {
+                    this.unfoldSequences.splice(i, 1);
+                }
+            }
+        }
+        return crawlerUpdated;
     }
 
     _attemptGrowth() {
@@ -1056,13 +1088,13 @@ class QuantizedBaseEffect extends AbstractEffect {
             return s['quantizedGenerateV2' + key];
         };
 
-        const enCyclic = getGenConfig('EnableCyclic') !== false; // default true
-        const enSpine = getGenConfig('EnableSpine') !== false; // default true
-        const enOverlap = getGenConfig('EnableOverlap') !== false; // default true
-        const enUnfold = getGenConfig('EnableUnfold') !== false; // default true
-        const enCrawler = getGenConfig('EnableCrawler') !== false; // default true
-        const enShift = getGenConfig('EnableShift') === true; // default false
-        const enCluster = getGenConfig('EnableCluster') === true; // default false
+        const enCyclic = getGenConfig('EnableCyclic') === true;
+        const enSpine = getGenConfig('EnableSpine') === true;
+        const enOverlap = getGenConfig('EnableOverlap') === true;
+        const enUnfold = getGenConfig('EnableUnfold') === true;
+        const enCrawler = getGenConfig('EnableCrawler') === true;
+        const enShift = getGenConfig('EnableShift') === true; 
+        const enCluster = getGenConfig('EnableCluster') === true;
 
         if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
@@ -1072,38 +1104,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
         if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
 
+        if (pool.length === 0 && (!this.crawlers || this.crawlers.length === 0) && (!this.unfoldSequences || this.unfoldSequences.length === 0)) return;
+
+        // Process Existing Active Crawlers/Unfolds
+        const crawlerUpdated = this._processActiveStatefulBehaviors();
+
         if (pool.length === 0) return;
 
         // Shuffle Pool
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
-        }
-
-        // Process Existing Active Crawlers
-        let crawlerUpdated = false;
-        if (this.crawlers) {
-            for (let i = this.crawlers.length - 1; i >= 0; i--) {
-                const crawler = this.crawlers[i];
-                if (crawler.active) {
-                    this._attemptCrawlerGrowth(crawler);
-                    crawlerUpdated = true;
-                } else {
-                    this.crawlers.splice(i, 1);
-                }
-            }
-        }
-
-        // Process Unfold Sequences
-        if (this.unfoldSequences) {
-            for (let i = this.unfoldSequences.length - 1; i >= 0; i--) {
-                const seq = this.unfoldSequences[i];
-                if (seq.active) {
-                    this._attemptUnfoldGrowth(seq);
-                } else {
-                    this.unfoldSequences.splice(i, 1);
-                }
-            }
         }
 
         // Execute Remaining Quota
@@ -1216,6 +1227,26 @@ class QuantizedBaseEffect extends AbstractEffect {
         for(let i=0; i<h; i++) addLine(x+w-1, y+i, 'E');
         
         this._writeToGrid(x, y, w, h, this.animFrame, layer);
+
+        // Update logic grid occupancy
+        if (this.logicGrid) {
+            const blocksX = this.logicGridW;
+            const blocksY = this.logicGridH;
+            const cx = Math.floor(blocksX / 2);
+            const cy = Math.floor(blocksY / 2);
+            const startX = cx + x;
+            const startY = cy + y;
+            const minX = Math.max(0, startX);
+            const maxX = Math.min(blocksX - 1, startX + w - 1);
+            const minY = Math.max(0, startY);
+            const maxY = Math.min(blocksY - 1, startY + h - 1);
+            for (let gy = minY; gy <= maxY; gy++) {
+                for (let gx = minX; gx <= maxX; gx++) {
+                    this.logicGrid[gy * blocksX + gx] = 1;
+                }
+            }
+        }
+
         return id;
     }
 

@@ -78,7 +78,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     trigger(force = false) {
         if (this.active && !force) return false;
-        
         if (!super.trigger(force)) return false;
 
         this.timer = 0;
@@ -90,35 +89,16 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.alpha = 1.0;
         this.state = 'GENERATING';
         
-        // Init Shadow World (Invisible background sim)
         this._initShadowWorld(); 
         
-        // Manually set _last dimensions to ensure updateShadowSim runs correctly on frame 0
         const bs = this.getBlockSize();
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
 
-        // Seed Procedural State
         this._initProceduralState();
-        
         return true;
-    }
-
-    _updateLocalLogicGrid(tx, ty, tw, th, val) {
-        if (!this.logicGrid) return;
-        const cx = Math.floor(this.logicGridW / 2);
-        const cy = Math.floor(this.logicGridH / 2);
-        for (let y = ty; y < ty + th; y++) {
-            for (let x = tx; x < tx + tw; x++) {
-                const gx = cx + x;
-                const gy = cy + y;
-                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
-                    this.logicGrid[gy * this.logicGridW + gx] = val;
-                }
-            }
-        }
     }
 
     update() {
@@ -201,41 +181,51 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _attemptGrowth() {
         const mode = this.getConfig('Mode') || 'default';
+        const s = this.c.state;
 
-        // 1. Check for seed block if empty (required for most modes)
-        const cx = Math.floor(this.logicGridW / 2);
-        const cy = Math.floor(this.logicGridH / 2);
-        if (this.logicGrid[cy * this.logicGridW + cx] === 0) {
-             this._spawnBlock(0, 0, 1, 1, 0);
-             this._updateLocalLogicGrid(0, 0, 1, 1, 1);
-             if (mode !== 'default') return; 
-        }
+        // Use effect-specific settings or defaults from quantizedGenerateV2
+        const getGenConfig = (key) => {
+            const val = this.getConfig(key);
+            if (val !== undefined) return val;
+            return s['quantizedGenerateV2' + key];
+        };
 
-        // 2. Route to specific behavior
+        const enCyclic = getGenConfig('EnableCyclic') === true;
+        const enSpine = getGenConfig('EnableSpine') === true;
+        const enOverlap = getGenConfig('EnableOverlap') === true;
+        const enUnfold = getGenConfig('EnableUnfold') === true;
+        const enCrawler = getGenConfig('EnableCrawler') === true;
+        const enShift = getGenConfig('EnableShift') === true;
+        const enCluster = getGenConfig('EnableCluster') === true;
+
+        // Route to specific behavior
         switch (mode) {
             case 'unfold':
-                this._attemptUnfoldPerimeterGrowth();
+                if (enUnfold) this._attemptUnfoldPerimeterGrowth();
                 break;
             case 'cyclic':
-                this._attemptCyclicGrowth();
+                if (enCyclic) this._attemptCyclicGrowth();
                 break;
             case 'spine':
-                this._attemptSpineGrowth();
+                if (enSpine) this._attemptSpineGrowth();
                 break;
             case 'crawler':
-                this._attemptCrawlerGrowth();
+                // For direct crawler mode, we still use the base pool execution logic 
+                // but we limit it to just the crawler if that's what's intended, 
+                // or just call super._attemptGrowth() which already handles toggles.
+                super._attemptGrowth(); 
                 break;
             case 'shift':
-                this._attemptShiftGrowth();
+                if (enShift) this._attemptShiftGrowth();
                 break;
             case 'cluster':
-                this._attemptClusterGrowth();
+                if (enCluster) this._attemptClusterGrowth();
                 break;
             case 'overlap':
-                this._attemptLayerOverlap();
+                if (enOverlap) this._attemptLayerOverlap();
                 break;
             case 'unfold_legacy':
-                this._attemptUnfoldGrowth();
+                if (enUnfold) this._attemptUnfoldGrowth();
                 break;
             default:
                 super._attemptGrowth(); 
@@ -243,15 +233,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         // 3. Post-growth cleanup
-        this._performHoleCleanup();
+        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap) {
+            this._performHoleCleanup();
+        }
     }
 
     _attemptLayerOverlap() {
-        // 1. Initial State: Start with a center square if unwritten (handled by _attemptGrowth seed)
-        const cx = Math.floor(this.logicGridW / 2);
-        const cy = Math.floor(this.logicGridH / 2);
-        if (this.logicGrid[cy * this.logicGridW + cx] === 0) return;
-
         // Refresh outside map to ensure we know what is "external" vs "hole"
         this.renderer.computeTrueOutside(this, this.logicGridW, this.logicGridH);
 
@@ -407,7 +394,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                             const b = this.activeBlocks.find(block => block.id === id);
                             if (b) b.spawnCycle = spawnCycle;
                         }
-                        this._updateLocalLogicGrid(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 1);
                         this._outsideMapDirty = true;
                         return true;
                     }
@@ -434,7 +420,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     const b = this.activeBlocks.find(block => block.id === id);
                     if (b) b.spawnCycle = spawnCycle;
                 }
-                this._updateLocalLogicGrid(tx, ty, w, h, 1);
                 this._outsideMapDirty = true;
                 return true;
             }
@@ -494,9 +479,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (totalOccupied === 0 && !isTouching) return false;
 
         // 3. Ensure no new holes are created
-        // We only need to verify this if the proposed block connects to the external outside area.
-        // Filling existing holes (hasOutsideCell === false) does not create new ones.
-        if (hasOutsideCell && !this._checkNoHole(tx, ty, tw, th)) return false;
+        // Removed strict _checkNoHole check to allow more organic overlapping growth
+        // if (hasOutsideCell && !this._checkNoHole(tx, ty, tw, th)) return false;
 
         // 4. For L1 blocks: "never fully overlap existing L0 blocks"
         if (targetLayer === 1 && occupiedByL0 === totalArea) {
@@ -646,7 +630,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 0);
                 if (id !== -1) {
                     spawnedCount++;
-                    this._updateLocalLogicGrid(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 1);
                     frontier = this._getFrontier();
                 }
             }
