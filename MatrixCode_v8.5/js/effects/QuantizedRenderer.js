@@ -131,7 +131,7 @@ class QuantizedRenderer {
         for (const op of fx.maskOps) {
             if (op.type !== 'removeBlock') continue;
             let opacity = 1.0;
-            if (now > op.startFrame && !fx.debugMode && fadeOutFrames > 0) {
+            if (now > op.startFrame && fadeOutFrames > 0) {
                 opacity = Math.min(1.0, (now - op.startFrame) / fadeOutFrames);
             }
             colorLayerCtx.globalAlpha = opacity;
@@ -176,7 +176,9 @@ class QuantizedRenderer {
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
         // Unified Shared Edge Rendering
-        this.renderEdges(fx, colorLayerCtx, now, blocksX, blocksY, l.offX, l.offY);
+        // Draw White lines to maskCanvas and perimeterMaskCanvas, Colored lines to lineMaskCanvas
+        this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
         
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
@@ -226,7 +228,7 @@ class QuantizedRenderer {
         return val;
     }
 
-    renderEdges(fx, ctx, now, blocksX, blocksY, offX, offY) {
+    renderEdges(fx, maskCtx, colorCtx, now, blocksX, blocksY, offX, offY) {
         if (this._edgeCacheDirty || !this._cachedEdgeMaps || this._cachedEdgeMaps.length === 0) {
             this.rebuildEdgeCache(fx, blocksX, blocksY);
             this._edgeCacheDirty = false;
@@ -237,13 +239,20 @@ class QuantizedRenderer {
         const fadeOutFrames = fx.getConfig('FadeFrames') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
-        // BATCHING: Map key="color|opacity" -> Path2D
+        // BATCHING: Map key="color|opacity" -> Path2D for colorCtx
         const batches = new Map();
+        // BATCHING: Map opacity -> Path2D for maskCtx (always White color)
+        const maskBatches = new Map();
         
         const getBatch = (c, o) => {
             const key = `${c}|${o.toFixed(3)}`;
             if (!batches.has(key)) batches.set(key, new Path2D());
             return batches.get(key);
+        };
+        const getMaskBatch = (o) => {
+            const key = o.toFixed(3);
+            if (!maskBatches.has(key)) maskBatches.set(key, new Path2D());
+            return maskBatches.get(key);
         };
 
         const getBlock = (grid, bx, by) => {
@@ -364,19 +373,22 @@ class QuantizedRenderer {
             }
 
             // Batched Rendering
+            const face = (type === 'V') ? 'W' : 'N';
             if (state.visible) {
                 const birth = getBirthState(state.birthFrame);
                 if (birth) {
-                    const face = (type === 'V') ? 'W' : 'N';
                     const path = getBatch(birth.c, birth.o);
+                    const mPath = getMaskBatch(birth.o);
                     this._addFaceToPath(path, fx, x, y, face);
+                    this._addFaceToPath(mPath, fx, x, y, face);
                 }
             } else if (state.deathFrame !== -1) {
                 const fade = getFadeState(state.deathFrame);
                 if (fade) {
-                    const face = (type === 'V') ? 'W' : 'N';
                     const path = getBatch(fade.c, fade.o);
+                    const mPath = getMaskBatch(fade.o);
                     this._addFaceToPath(path, fx, x, y, face);
+                    this._addFaceToPath(mPath, fx, x, y, face);
                 } else {
                     state.deathFrame = -1;
                 }
@@ -394,12 +406,19 @@ class QuantizedRenderer {
             }
         }
 
-        // Draw Batches
+        // Draw Batches to Color Context
         batches.forEach((path, key) => {
             const [c, oStr] = key.split('|');
-            ctx.fillStyle = c;
-            ctx.globalAlpha = parseFloat(oStr);
-            ctx.fill(path);
+            colorCtx.fillStyle = c;
+            colorCtx.globalAlpha = parseFloat(oStr);
+            colorCtx.fill(path);
+        });
+
+        // Draw Batches to Mask Context
+        maskCtx.fillStyle = "#FFFFFF";
+        maskBatches.forEach((path, oStr) => {
+            maskCtx.globalAlpha = parseFloat(oStr);
+            maskCtx.fill(path);
         });
     }
 

@@ -294,7 +294,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this._lastProcessedOpIndex = 0;
         
-        const jumpTime = targetStepsCompleted * 1000;
+        const framesPerStep = 60; // Standardize to 60 frames per step for consistent internal timing
+        const jumpTime = targetStepsCompleted * framesPerStep;
         for (const [key, state] of this.lineStates) {
             if (state.visible) {
                 state.visible = false;
@@ -305,7 +306,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        const framesPerStep = 1000; 
         for (let i = 0; i < targetStepsCompleted; i++) {
             this.expansionPhase = i; 
             const step = this.sequence[i];
@@ -460,10 +460,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const glowStrength = this.getConfig('BorderIllumination') || 0;
         const t = Math.min(1.0, glowStrength / 10.0);
         const intensity = Math.min(1.0, glowStrength / 1.0); 
-        const charR = Math.floor(255 * intensity);
-        const charG = Math.floor((204 + (255 - 204) * t) * intensity);
-        const charB = Math.floor((0 + (255 - 0) * t) * intensity);
-        const charColor = `rgb(${charR}, ${charG}, ${charB})`;
+        const charColor = '#FFFFFF';
         const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
         const style = s.italicEnabled ? 'italic ' : '';
         const weight = s.fontWeight;
@@ -697,7 +694,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 scratchCtx.clearRect(0, 0, width, height);
                 if (isSolid) {
                     scratchCtx.globalAlpha = this.alpha;
-                    scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
+                    scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
                 } else {
                     this._updateGridCache(width, height, s, d);
                     scratchCtx.globalAlpha = 1.0; 
@@ -705,15 +702,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                     scratchCtx.translate(srcOffX, srcOffY);
                     scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
                     scratchCtx.restore();
+                    
+                    // Mask the characters with the colored fading lines
+                    // Using source-in ensures characters take the line colors and alpha
                     scratchCtx.globalCompositeOperation = 'source-in';
                     scratchCtx.globalAlpha = this.alpha;
-                    scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
+                    scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
                 }
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighter'; 
                 const alphaMult = Math.min(1.0, glowStrength / 4.0); 
                 ctx.globalAlpha = alphaMult;
-                // Removed hardcoded yellow shadow logic to prevent global 'yellow line' artifacts
                 ctx.drawImage(this.scratchCanvas, 0, 0);
                 ctx.restore();
             }
@@ -742,7 +741,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
         scratchCtx.restore();
         scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.maskCanvas, 0, 0);
+        scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
         ctx.save();
         if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
             ctx.canvas.style.mixBlendMode = 'plus-lighter';
@@ -750,7 +749,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.globalCompositeOperation = 'lighter';
         const glowStrength = this.getConfig('BorderIllumination') || 4.0;
         ctx.globalAlpha = 1.0;
-        // Removed hardcoded yellow shadowColor
         ctx.shadowBlur = (glowStrength * 4.0);
         ctx.drawImage(this.scratchCanvas, 0, 0);
         ctx.restore();
@@ -802,7 +800,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         scratchCtx.clearRect(0, 0, width, height);
         if (isSolid) {
             scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
+            scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
         } else {
             this._updateGridCache(width, height, s, derived);
             scratchCtx.globalAlpha = 1.0;
@@ -812,7 +810,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             scratchCtx.restore();
             scratchCtx.globalCompositeOperation = 'source-in';
             scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.drawImage(this.perimeterMaskCanvas, 0, 0);
+            scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
         }
         ctx.save();
         ctx.globalCompositeOperation = 'lighter'; 
@@ -1495,8 +1493,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps.push(op);
 
         if (this.manualStep && this.sequence) {
-            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
-            this.sequence[this.expansionPhase].push({ op: 'nudge', args: [x, y, w, h, face], layer });
+            const seqIdx = Math.max(0, this.expansionPhase - 1);
+            if (!this.sequence[seqIdx]) this.sequence[seqIdx] = [];
+            this.sequence[seqIdx].push({ op: 'nudge', args: [x, y, w, h, face], layer });
         }
 
         // 1. Update activeBlocks coordinates (Shift logic)

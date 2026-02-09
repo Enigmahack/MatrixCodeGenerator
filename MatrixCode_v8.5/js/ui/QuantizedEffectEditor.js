@@ -503,6 +503,9 @@ class QuantizedEffectEditor {
             this._attachListeners();
             
             if (this.effect) {
+                this.effect.manualStep = true; 
+                this.effect.debugMode = true;
+
                 // Force re-trigger to ensure init logic runs (e.g. Shadow World)
                 this.effect.active = false;
                 const triggered = this.effect.trigger(true); 
@@ -523,9 +526,6 @@ class QuantizedEffectEditor {
                 }
 
                 this.effect.sequence = this._decodeSequence(this.effect.sequence);
-                
-                this.effect.debugMode = true;
-                this.effect.manualStep = true; // ENABLED: Allow stepping one by one
                 
                 // Start at Step 1 if available
                 this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
@@ -997,50 +997,6 @@ class QuantizedEffectEditor {
             });
             effectSelect.onchange = (e) => this._switchEffect(e.target.value);
             container.appendChild(effectSelect);
-
-            // Mode Selector (Specific to Block Generator)
-            const modeContainer = document.createElement('div');
-            modeContainer.id = 'editor-mode-container';
-            modeContainer.style.marginBottom = '10px';
-            modeContainer.style.display = (this.effect && this.effect.name === 'QuantizedBlockGenerator') ? 'block' : 'none';
-            
-            const modeLbl = document.createElement('span');
-            modeLbl.textContent = 'Mode: ';
-            
-            const modeSelect = document.createElement('select');
-            modeSelect.style.background = '#333';
-            modeSelect.style.color = '#0f0';
-            modeSelect.style.border = '1px solid #0f0';
-            modeSelect.style.width = '100px';
-            
-            ['default', 'unfold', 'cyclic', 'spine', 'crawler', 'shift', 'cluster', 'overlap', 'unfold_legacy'].forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                // Prettier labels
-                const labels = {
-                    'unfold': 'Unfold (Perimeter)',
-                    'unfold_legacy': 'Unfold (Legacy)',
-                    'default': 'Default (Pool)'
-                };
-                opt.textContent = labels[m] || m.charAt(0).toUpperCase() + m.slice(1);
-                modeSelect.appendChild(opt);
-            });
-            
-            modeSelect.onchange = (e) => {
-                if (this.effect) {
-                    this.effect.c.set(this.effect.configPrefix + 'Mode', e.target.value);
-                    // Re-trigger to apply new mode seeding if necessary
-                    this.effect.active = false;
-                    this.effect.trigger(true);
-                    this.effect.debugMode = true;
-                    this.effect.manualStep = true;
-                    this._updateUI();
-                }
-            };
-            this.modeSelect = modeSelect;
-            
-            modeContainer.append(modeLbl, modeSelect);
-            container.appendChild(modeContainer);
 
             const selectorSeparator = document.createElement('div');
             selectorSeparator.style.marginBottom = '10px';
@@ -1560,14 +1516,6 @@ class QuantizedEffectEditor {
     _updateUI() {
         if (!this.dom) return;
         
-        const isGenerator = (this.effect && this.effect.name === 'QuantizedBlockGenerator');
-        const modeContainer = document.getElementById('editor-mode-container');
-        if (modeContainer) modeContainer.style.display = isGenerator ? 'block' : 'none';
-        
-        if (isGenerator && this.modeSelect) {
-            this.modeSelect.value = this.effect.getConfig('Mode') || 'default';
-        }
-
         if (this.effect && this.inpBlockW && this.inpBlockH) {
             const bs = this.effect.getBlockSize();
             this.inpBlockW.value = bs.w;
@@ -1625,11 +1573,21 @@ class QuantizedEffectEditor {
         // Procedural Generation Support (Only if attempting to go past the end)
         if (delta > 0 && newStep > this.effect.sequence.length) {
             if (this.effect.name === 'QuantizedBlockGenerator' || (this.effect.state === 'GENERATING' && typeof this.effect._attemptGrowth === 'function')) {
-                if (!this.effect.sequence[this.effect.expansionPhase]) {
-                    this.effect.sequence[this.effect.expansionPhase] = [];
+                // Ensure we have an entry for the NEW step
+                if (!this.effect.sequence[newStep - 1]) {
+                    this.effect.sequence[newStep - 1] = [];
                 }
-                this.effect.expansionPhase = newStep;
+                
+                // Force manual recording for this growth attempt
+                this.effect.manualStep = true;
+                
+                // Keep expansionPhase at oldStep so _attemptGrowth writes to sequence[oldStep]
+                this.effect.expansionPhase = oldStep;
                 this.effect._attemptGrowth();
+                
+                // Now advance to the new step
+                this.effect.expansionPhase = newStep;
+                
                 this._updateUI();
                 this.isDirty = true;
                 this._broadcastSync();

@@ -142,7 +142,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (this.genTimer >= interval) {
                 if (!this.debugMode || this.manualStep) {
                     this.genTimer = 0;
-                    this.expansionPhase++;
                     
                     if (this.expansionPhase >= 1000) {
                         if (!this.hasSwapped && !this.isSwapping) {
@@ -152,6 +151,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                         }
                     } else {
                         this._attemptGrowth();
+                        this.expansionPhase++;
                     }
                     this.manualStep = false;
                 }
