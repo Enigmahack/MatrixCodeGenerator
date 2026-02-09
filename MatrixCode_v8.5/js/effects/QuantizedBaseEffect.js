@@ -56,6 +56,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.lineStates = new Map(); 
         this.suppressedFades = new Set(); 
         this.lastVisibilityChangeFrame = 0;
+        this.lastMaskUpdateFrame = 0;
         this.warmupRemaining = 0;
 
         // Procedural Generation State
@@ -174,8 +175,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (!this.renderGrid || this.renderGrid.length !== blocksX * blocksY) {
             this.renderGrid = new Int32Array(blocksX * blocksY);
-            this.renderGrid.fill(-1);
         }
+        this.renderGrid.fill(-1);
         
         for (let i = 0; i < 3; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== blocksX * blocksY) {
@@ -223,9 +224,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridCacheDirty = true;
         this.lastGridSeed = -1;
         
-        this.lineStates.clear();
+        this.lineStates = new Map();
         this.suppressedFades.clear();
         this.lastVisibilityChangeFrame = 0;
+        this.lastMaskUpdateFrame = 0;
         
         this.hasSwapped = false;
         this.isSwapping = false;
@@ -557,12 +559,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
         const startIndex = this._lastProcessedOpIndex || 0;
-        if (startIndex === 0) {
-            this.renderGrid.fill(-1);
-            for (let i = 0; i < 3; i++) {
-                this.layerGrids[i].fill(-1);
-            }
-        }
         let processed = 0;
         let i = startIndex;
         for (; i < this.maskOps.length; i++) {
@@ -1604,7 +1600,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const block = this.activeBlocks.find(b => b.x === rx && b.y === ry && b.layer === 1);
             if (block) {
                 // Remove from Layer 1
-                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1, fade: false });
+                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1 });
                 this._writeToGrid(rx, ry, 1, 1, -1, 1);
                 this.activeBlocks = this.activeBlocks.filter(b => b.id !== block.id);
                 s.lastBlockIds = s.lastBlockIds.filter(id => id !== block.id);
@@ -1627,7 +1623,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const { rx, ry } = rotate(lx, ly);
             const block = this.activeBlocks.find(b => b.x === rx && b.y === ry && b.layer === 1);
             if (block) {
-                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1, fade: false });
+                this.maskOps.push({ type: 'removeBlock', x1: rx, y1: ry, x2: rx, y2: ry, startFrame: now, layer: 1 });
                 this._writeToGrid(rx, ry, 1, 1, -1, 1);
                 this.activeBlocks = this.activeBlocks.filter(b => b.id !== block.id);
                 s.lastBlockIds = s.lastBlockIds.filter(id => id !== block.id);

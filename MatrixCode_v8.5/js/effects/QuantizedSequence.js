@@ -108,20 +108,20 @@ class QuantizedSequence {
                 const nE = ctx.isActive(dx + 1, dy);
                 const nW = ctx.isActive(dx - 1, dy);
                 if (nN && nS && nE && nW) {
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
                 } else {
-                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase });
+                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
                     ctx.setLayerInactive(dx, dy);
                     ctx.setLocalInactive(dx, dy);
                 }
             } else {
-                if (mask & 1) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                if (mask & 2) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                if (mask & 4) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                if (mask & 8) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase });
+                if (mask & 1) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                if (mask & 2) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                if (mask & 4) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                if (mask & 8) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
             }
         } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
             const dx1 = step[i++];
@@ -164,7 +164,7 @@ class QuantizedSequence {
         } else if (opCode === 7) { // removeBlock(x, y)
             const dx = step[i++];
             const dy = step[i++];
-            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase });
+            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
             ctx.setLayerInactive(dx, dy);
             ctx.setLocalInactive(dx, dy);
         } else if (opCode === 8) { // addLayered(x, y, layer)
@@ -202,7 +202,7 @@ class QuantizedSequence {
             const dx = step[i++];
             const dy = step[i++];
             const l = step[i++];
-            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: l });
+            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: l, fade: undefined });
             ctx.setLayerInactive(dx, dy, l);
             ctx.setLocalInactive(dx, dy);
         } else if (opCode === 12) { // nudge(dx, dy, w, h, layer, faceMask)
@@ -276,26 +276,26 @@ class QuantizedSequence {
         } else if (op === 'rem') {
             const [dx, dy, face] = args;
             if (face) {
-                fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase });
+                fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, fade: opData.fade });
             } else {
                 const nN = isActive(dx, dy - 1);
                 const nS = isActive(dx, dy + 1);
                 const nE = isActive(dx + 1, dy);
                 const nW = isActive(dx - 1, dy);
                 if (nN && nS && nE && nW) {
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: opData.fade });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: opData.fade });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: opData.fade });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: opData.fade });
                 } else {
-                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: opData.fade });
                     setLayerInactive(dx, dy, layer);
                     setLocalInactive(dx, dy);
                 }
             }
         } else if (op === 'removeBlock') {
             const [dx, dy] = args;
-            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: opData.fade });
             setLayerInactive(dx, dy, layer);
             setLocalInactive(dx, dy);
         } else if (op === 'addLine') {
@@ -303,7 +303,7 @@ class QuantizedSequence {
             fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
         } else if (op === 'remLine') {
             const [dx, dy, face] = args;
-            fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: opData.fade });
         } else if (op === 'addSmartLayered') {
             const [dx, dy] = args;
             fx.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
@@ -311,7 +311,7 @@ class QuantizedSequence {
             setLayerActive(dx, dy, layer !== undefined ? layer : 0, now);
         } else if (op === 'removeBlockLayered') {
             const [dx, dy] = args;
-            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: opData.fade });
             setLayerInactive(dx, dy, layer);
             setLocalInactive(dx, dy);
         } else if (op === 'nudge') {
@@ -389,7 +389,7 @@ class QuantizedSequence {
                             if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                             const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
                             fx.maskOps.push({
-                                type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx, fade: false
+                                type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx
                             });
                         }
                     };
@@ -399,7 +399,7 @@ class QuantizedSequence {
                     copyLineOp('E', `V_${m.bx + 1}_${m.by}`);
                 }
 
-                fx.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx, fade: false });
+                fx.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx });
                 setLayerInactive(m.x, m.y, layerIdx);
 
                 let nx = m.x, ny = m.y;

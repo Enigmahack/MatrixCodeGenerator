@@ -90,8 +90,11 @@ class QuantizedRenderer {
             const cx = Math.floor(blocksX / 2);
             const cy = Math.floor(blocksY / 2);
             const now = fx.animFrame;
+            const lastNow = fx.lastMaskUpdateFrame;
+
             for (const op of fx.maskOps) {
-                if (op.fade === false && op.startFrame === now) {
+                // Buffer check: Catch all suppressed fades that happened since last mask update
+                if (op.fade === false && op.startFrame > lastNow && op.startFrame <= now) {
                     if (op.type === 'removeBlock') {
                         const minX = Math.min(cx + op.x1, cx + op.x2);
                         const maxX = Math.max(cx + op.x1, cx + op.x2);
@@ -178,6 +181,7 @@ class QuantizedRenderer {
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
         
+        fx.lastMaskUpdateFrame = now;
         fx._snapSettings = null;
     }
 
@@ -349,8 +353,11 @@ class QuantizedRenderer {
                     state.visible = false;
                     fx.lastVisibilityChangeFrame = now;
                     state.birthFrame = -1;
+                    
                     const isNudged = !isLayerMerge && fx.suppressedFades.has(key);
-                    if (!isNudged && state.deathFrame === -1) {
+                    if (isNudged) {
+                        state.deathFrame = -1;
+                    } else if (state.deathFrame === -1) {
                         state.deathFrame = now;
                     }
                 }
