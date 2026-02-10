@@ -84,7 +84,7 @@
     "upwardTracerGlimmerGlow": 6,
     "upwardTracerGlimmerFlicker": 0.45,
     "rotatorEnabled": true,
-    "rotatorChance": 1,
+    "rotatorChance": 0.25,
     "rotatorSyncToTracer": false,
     "rotatorSyncMultiplier": 0.3,
     "rotatorCycleFactor": 16,

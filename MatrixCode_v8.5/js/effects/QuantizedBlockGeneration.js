@@ -89,6 +89,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.alpha = 1.0;
         this.state = 'GENERATING';
         
+        // Custom state for startup sequence
+        this.usedCardinalIndices = [];
+        this.nudgeAxisBalance = 0; // Negative = more X, Positive = more Y
+
         this._initShadowWorld(); 
         
         const bs = this.getBlockSize();
@@ -99,6 +103,61 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         this._initProceduralState();
         return true;
+    }
+
+    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        const useStaging = (this.expansionPhase < 4) || enNudge;
+
+        // Redirect Layer 0 spawns to Layer 1 for the staggered cycle (after initial seed)
+        if (useStaging && layer === 0 && this.expansionPhase >= 1) {
+            layer = 1;
+        }
+
+        const id = super._spawnBlock(x, y, w, h, layer, suppressLines, isShifter, expireFrames, skipConnectivity, allowInternal);
+        
+        if (id !== -1 && layer === 1) {
+            const b = this.activeBlocks.find(block => block.id === id);
+            if (b) b.spawnCycle = this.expansionPhase;
+        }
+        return id;
+    }
+
+    _nudge(x, y, w, h, face, layer = 0) {
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        const useStaging = (this.expansionPhase < 4) || enNudge;
+
+        // For Nudge Growth, we force Layer 1 staging to satisfy the Stage -> Merge cycle requirement
+        if (useStaging && layer === 0 && this.expansionPhase >= 1) {
+            layer = 1;
+        }
+        super._nudge(x, y, w, h, face, layer);
+        
+        const b = this.activeBlocks[this.activeBlocks.length - 1];
+        if (b && b.layer === 1) b.spawnCycle = this.expansionPhase;
+    }
+
+    _attemptClusterGrowth() {
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        if (enNudge) {
+            // Respect the 1-2 block staggered rhythm for Nudge mode
+            if (this.activeBlocks.length === 0) return;
+            const anchors = this.activeBlocks.filter(b => b.layer === 0);
+            if (anchors.length === 0) return;
+            const anchor = anchors[Math.floor(Math.random() * anchors.length)];
+            const axis = Math.random() < 0.5 ? 'V' : 'H';
+            let dir, startCoords;
+            if (axis === 'V') { 
+                dir = Math.random() < 0.5 ? 'N' : 'S'; 
+                startCoords = { x: anchor.x, y: 0 }; 
+            } else { 
+                dir = Math.random() < 0.5 ? 'E' : 'W'; 
+                startCoords = { x: 0, y: anchor.y }; 
+            }
+            this._blockShift(dir, Math.random() < 0.5 ? 1 : 2, startCoords);
+        } else {
+            super._attemptClusterGrowth();
+        }
     }
 
     update() {
@@ -134,7 +193,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (this.state === 'GENERATING') {
             const baseDuration = Math.max(1, this.c.derived.cycleDuration);
             const userSpeed = (s.quantizedGenerateV2Speed !== undefined) ? s.quantizedGenerateV2Speed : 5;
-            // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
             const delayMult = 11 - userSpeed;
             const interval = baseDuration * (delayMult / 4.0);
             
@@ -142,17 +200,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (this.genTimer >= interval) {
                 if (!this.debugMode || this.manualStep) {
                     this.genTimer = 0;
-                    
-                    if (this.expansionPhase >= 1000) {
-                        if (!this.hasSwapped && !this.isSwapping) {
-                            this.state = 'FADE_OUT';
-                            this.timer = 0;
-                            this._swapStates();
-                        }
-                    } else {
-                        this._attemptGrowth();
-                        this.expansionPhase++;
-                    }
+                    this._attemptGrowth();
+                    this.expansionPhase++;
                     this.manualStep = false;
                 }
             }
@@ -183,12 +232,60 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const mode = this.getConfig('Mode') || 'default';
         const s = this.c.state;
 
-        // Use effect-specific settings or defaults from quantizedGenerateV2
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
             if (val !== undefined) return val;
             return s['quantizedGenerateV2' + key];
         };
+
+        const enNudge = getGenConfig('EnableNudge') === true;
+        const useStaging = (this.expansionPhase < 4) || enNudge;
+
+        // Delayed Merge Logic: Stage L1 -> Merge L0
+        if (useStaging) {
+            this._mergeLayer1(this.expansionPhase - 1);
+        } else {
+            this._mergeLayer1(-1); // Commit any remaining L1 blocks instantly
+        }
+
+        // --- Startup Sequence (Phases 0-3) ---
+        if (this.expansionPhase === 0) {
+            this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
+            return;
+        }
+
+        const cardinals = [{x:0, y:-1}, {x:0, y:1}, {x:1, y:0}, {x:-1, y:0}];
+
+        if (this.expansionPhase === 1) {
+            const idx = Math.floor(Math.random() * 4);
+            this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
+            this.usedCardinalIndices = [idx];
+            return;
+        }
+
+        if (this.expansionPhase === 2) {
+            const available = [0, 1, 2, 3].filter(i => !this.usedCardinalIndices.includes(i));
+            for (let i = available.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [available[i], available[j]] = [available[j], available[i]];
+            }
+            const toAdd = available.slice(0, 2);
+            for (const idx of toAdd) {
+                this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
+                this.usedCardinalIndices.push(idx);
+            }
+            return;
+        }
+
+        if (this.expansionPhase === 3) {
+            const idx = [0, 1, 2, 3].find(i => !this.usedCardinalIndices.includes(i));
+            if (idx !== undefined) {
+                this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
+            }
+            return;
+        }
+
+        // --- Step 5+ (Phase 4+): Procedural Generation ---
 
         const enCyclic = getGenConfig('EnableCyclic') === true;
         const enSpine = getGenConfig('EnableSpine') === true;
@@ -198,289 +295,29 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const enShift = getGenConfig('EnableShift') === true;
         const enCluster = getGenConfig('EnableCluster') === true;
 
-        // Route to specific behavior
-        switch (mode) {
-            case 'unfold':
-                if (enUnfold) this._attemptUnfoldPerimeterGrowth();
-                break;
-            case 'cyclic':
-                if (enCyclic) this._attemptCyclicGrowth();
-                break;
-            case 'spine':
-                if (enSpine) this._attemptSpineGrowth();
-                break;
-            case 'crawler':
-                super._attemptGrowth(); 
-                break;
-            case 'shift':
-                if (enShift) this._attemptShiftGrowth();
-                break;
-            case 'cluster':
-                if (enCluster) this._attemptClusterGrowth();
-                break;
-            case 'overlap':
-                if (enOverlap) this._attemptLayerOverlap();
-                break;
-            case 'unfold_legacy':
-                if (enUnfold) this._attemptUnfoldGrowth();
-                break;
-            default:
-                super._attemptGrowth(); 
-                break;
+        if (enNudge) {
+            // Nudge Growth behavior: 1-2 strips per step, Stage -> Merge cycle
+            const count = Math.random() < 0.5 ? 1 : 2;
+            for (let i = 0; i < count; i++) this._attemptNudgeGrowth();
+        } else {
+            // Standard Growth behaviors: Original logic, instant L0
+            switch (mode) {
+                case 'unfold': if (enUnfold) this._attemptUnfoldPerimeterGrowth(); break;
+                case 'cyclic': if (enCyclic) this._attemptCyclicGrowth(); break;
+                case 'spine': if (enSpine) this._attemptSpineGrowth(); break;
+                case 'shift': if (enShift) this._attemptShiftGrowth(); break;
+                case 'cluster': if (enCluster) super._attemptClusterGrowth(); break;
+                case 'overlap': if (enOverlap) this._attemptLayerOverlap(); break;
+                case 'unfold_legacy': if (enUnfold) this._attemptUnfoldGrowth(); break;
+                case 'crawler': super._attemptGrowth(); break;
+                default: super._attemptGrowth(); break;
+            }
         }
 
         // 3. Post-growth cleanup
-        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap) {
+        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap || enNudge) {
             this._performHoleCleanup();
         }
-    }
-
-    _attemptLayerOverlap() {
-        // Refresh outside map to ensure we know what is "external" vs "hole"
-        this.renderer.computeTrueOutside(this, this.logicGridW, this.logicGridH);
-
-        // 2. Loop Logic: Write, Write, Deletion?, Merge
-        const step = this.overlapState.step;
-        const cycleIndex = Math.floor(step / 4);
-        const cycleStep = step % 4;
-
-        // Scaling block count: 1 to 2 based on mass (activeBlocks.length)
-        const blockCount = Math.min(2, Math.max(1, Math.floor(this.activeBlocks.length / 50) + 1));
-
-        if (cycleStep === 0) {
-            // a) Write a Layer 1 block (or multiple)
-            for (let i = 0; i < blockCount; i++) {
-                this._spawnOnPerimeter(1, cycleIndex);
-            }
-        } else if (cycleStep === 1) {
-            // b) Write a Layer 0 block (or multiple)
-            for (let i = 0; i < blockCount; i++) {
-                this._spawnOnPerimeter(0);
-            }
-        } else if (cycleStep === 2) {
-            // c) Single 1x1 block deletion (1/3 of the time)
-            if (Math.random() < 0.33) {
-                this._deletePerimeterL1();
-            }
-        } else if (cycleStep === 3) {
-            // d) Merge the Layer 1 block
-            // merge automatically if after 2 complete cycles have passed
-            this._mergeLayer1(cycleIndex - 2);
-        }
-
-        this.overlapState.step++;
-    }
-
-    _deletePerimeterL1() {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-        const candidates = [];
-
-        for (let gy = 1; gy < h - 1; gy++) {
-            for (let gx = 1; gx < w - 1; gx++) {
-                const idx = gy * w + gx;
-                // Must be part of Layer 1
-                if (!this.layerGrids[1] || this.layerGrids[1][idx] === -1) continue;
-                // Must NOT be covered by Layer 0 (only visible Layer 1)
-                if (this.layerGrids[0] && this.layerGrids[0][idx] !== -1) continue;
-
-                // Must be on the outside perimeter (strictly at least 2 empty neighbors to avoid holes/pockets)
-                const emptyN = this.logicGrid[(gy - 1) * w + gx] === 0 ? 1 : 0;
-                const emptyS = this.logicGrid[(gy + 1) * w + gx] === 0 ? 1 : 0;
-                const emptyE = this.logicGrid[gy * w + gx + 1] === 0 ? 1 : 0;
-                const emptyW = this.logicGrid[gy * w + gx - 1] === 0 ? 1 : 0;
-                const totalEmpty = emptyN + emptyS + emptyE + emptyW;
-
-                if (totalEmpty >= 2) {
-                    // Exclude "bridges" or "thin lines" where only opposing edges touch (N/S or E/W)
-                    if (totalEmpty === 2) {
-                        const touchingOnlyNS = (emptyE === 1 && emptyW === 1); 
-                        const touchingOnlyEW = (emptyN === 1 && emptyS === 1);
-                        if (touchingOnlyNS || touchingOnlyEW) continue;
-                    }
-                    candidates.push({gx, gy});
-                }
-            }
-        }
-
-        if (candidates.length > 0) {
-            const target = candidates[Math.floor(Math.random() * candidates.length)];
-            const tx = target.gx - cx;
-            const ty = target.gy - cy;
-            const now = this.animFrame;
-
-            this.maskOps.push({
-                type: 'removeBlock',
-                x1: tx, y1: ty, x2: tx, y2: ty,
-                startFrame: now,
-                layer: 1,
-                fade: true
-            });
-
-            // Update grids
-            const idx = target.gy * w + target.gx;
-            if (this.layerGrids[1]) this.layerGrids[1][idx] = -1;
-            
-            // Clear logicGrid if no other layers are present
-            const l0 = this.layerGrids[0] && this.layerGrids[0][idx] !== -1;
-            const l2 = this.layerGrids[2] && this.layerGrids[2][idx] !== -1;
-            if (!l0 && !l2) {
-                this.logicGrid[idx] = 0;
-            }
-
-            this._lastProcessedOpIndex = 0;
-            this._maskDirty = true;
-        }
-    }
-
-    _findHoles() {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-        const holes = [];
-        if (!this._outsideMap) return holes;
-
-        for (let i = 0; i < w * h; i++) {
-            // A hole is a non-occupied cell that isn't reachable from the outside boundary
-            if (this.logicGrid[i] === 0 && this._outsideMap[i] === 0) {
-                const gx = i % w;
-                const gy = Math.floor(i / w);
-                const tx = gx - cx;
-                const ty = gy - cy;
-                holes.push({ tx, ty, d2: tx * tx + ty * ty });
-            }
-        }
-        return holes;
-    }
-
-    _spawnOnPerimeter(layer, spawnCycle = null) {
-        const blocks = this.activeBlocks;
-        if (blocks.length === 0) return;
-
-        const count = blocks.length;
-        const allShapes = [
-            {w:1, h:2}, {w:2, h:1}, // Rank 0
-            {w:1, h:3}, {w:3, h:1}, {w:2, h:2}, // Rank 1
-            {w:1, h:4}, {w:4, h:1} // Rank 2
-        ];
-
-        // Scaling: increase size as blob grows
-        let maxRank = 0;
-        if (count > 60) maxRank = 1;
-        if (count > 150) maxRank = 2;
-
-        const allowedShapes = [];
-        if (maxRank >= 0) allowedShapes.push(allShapes[0], allShapes[1]);
-        if (maxRank >= 1) allowedShapes.push(allShapes[2], allShapes[3], allShapes[4]);
-        if (maxRank >= 2) allowedShapes.push(allShapes[5], allShapes[6]);
-
-        // 1. Hole Filling Preference (Center-Outwards)
-        const holes = this._findHoles();
-        if (holes.length > 0) {
-            holes.sort((a, b) => a.d2 - b.d2);
-            for (let i = 0; i < Math.min(holes.length, 20); i++) {
-                const hole = holes[i];
-                const targetBlock = this._findValidBlockForCell(hole.tx, hole.ty, allowedShapes);
-                if (targetBlock) {
-                    if (this._isValidPerimeterPlacement(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, layer)) {
-                        const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, layer, false, false, 0, true, true);
-                        if (id !== -1 && spawnCycle !== null) {
-                            const b = this.activeBlocks.find(block => block.id === id);
-                            if (b) b.spawnCycle = spawnCycle;
-                        }
-                        this._outsideMapDirty = true;
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // 2. Normal Growth
-        const maxAttempts = 100;
-        for (let i = 0; i < maxAttempts; i++) {
-            const shape = allowedShapes[Math.floor(Math.random() * allowedShapes.length)];
-            const anchor = blocks[Math.floor(Math.random() * blocks.length)];
-            
-            const w = shape.w;
-            const h = shape.h;
-            
-            // Random offset relative to anchor
-            const tx = anchor.x + Math.floor(Math.random() * (anchor.w + w + 1)) - w;
-            const ty = anchor.y + Math.floor(Math.random() * (anchor.h + h + 1)) - h;
-            
-            if (this._isValidPerimeterPlacement(tx, ty, w, h, layer)) {
-                const id = this._spawnBlock(tx, ty, w, h, layer, false, false, 0, true, true);
-                if (id !== -1 && spawnCycle !== null) {
-                    const b = this.activeBlocks.find(block => block.id === id);
-                    if (b) b.spawnCycle = spawnCycle;
-                }
-                this._outsideMapDirty = true;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    _isValidPerimeterPlacement(tx, ty, tw, th, targetLayer = 0) {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-
-        // Bounds check
-        if (tx + cx < 0 || tx + cx + tw > w || ty + cy < 0 || ty + cy + th > h) return false;
-
-        let occupiedByL0 = 0;
-        let emptyCount = 0;
-        let isTouching = false;
-        let totalOccupied = 0;
-        let hasOutsideCell = false;
-
-        for (let y = 0; y < th; y++) {
-            for (let x = 0; x < tw; x++) {
-                const gx = tx + cx + x;
-                const gy = ty + cy + y;
-                const idx = gy * w + gx;
-
-                const isL0 = (this.layerGrids[0] && this.layerGrids[0][idx] !== -1);
-                const isOccupied = (this.logicGrid[idx] === 1);
-                const isOutside = (this._outsideMap && this._outsideMap[idx] === 1);
-
-                if (isL0) occupiedByL0++;
-                if (isOccupied) totalOccupied++;
-
-                if (!isOccupied) {
-                    emptyCount++;
-                    if (isOutside) hasOutsideCell = true;
-
-                    // Adjacency check for cells that are empty
-                    if (!isTouching) {
-                        if (gx > 0 && this.logicGrid[gy * w + gx - 1] === 1) isTouching = true;
-                        else if (gx < w - 1 && this.logicGrid[gy * w + gx + 1] === 1) isTouching = true;
-                        else if (gy > 0 && this.logicGrid[(gy - 1) * w + gx] === 1) isTouching = true;
-                        else if (gy < h - 1 && this.logicGrid[(gy + 1) * w + gx] === 1) isTouching = true;
-                    }
-                }
-            }
-        }
-
-        const totalArea = tw * th;
-
-        // 1. Must add to the structure (emptyCount > 0)
-        if (emptyCount === 0) return false;
-
-        // 2. Must touch or add to the structure
-        if (totalOccupied === 0 && !isTouching) return false;
-
-        // 3. For L1 blocks: Don't fully overlap existing L0 blocks
-        if (targetLayer === 1 && occupiedByL0 === totalArea) {
-            return false;
-        }
-
-        return true;
     }
 
     _mergeLayer1(maxCycle = -1) {
@@ -492,7 +329,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (blocksToMerge.length === 0) return;
 
         for (const b of blocksToMerge) {
-            // Add operations to transition visually
             this.maskOps.push({ 
                 type: 'removeBlock', 
                 x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
@@ -513,76 +349,74 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._maskDirty = true;
     }
 
-    _getFrontier() {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-        const frontier = [];
-        
-        const bs = this.getBlockSize();
-        const visibleBlocksW = this.g.cols / bs.w;
-        const visibleBlocksH = this.g.rows / bs.h;
-        const buffer = 5;
-        const xLimit = (visibleBlocksW / 2) + buffer;
-        const yLimit = (visibleBlocksH / 2) + buffer;
+    _attemptNudgeGrowth() {
+        this._initProceduralState();
+        const targetBlocks = this.activeBlocks.filter(b => b.layer === 0);
+        if (targetBlocks.length === 0) return;
 
-        for (let gy = 1; gy < h - 1; gy++) {
-            const ty = gy - cy;
-            if (ty < -yLimit || ty > yLimit) continue;
-            
-            for (let gx = 1; gx < w - 1; gx++) {
-                const tx = gx - cx;
-                if (tx < -xLimit || tx > xLimit) continue;
+        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w/2), cy = Math.floor(h/2);
 
-                if (this.logicGrid[gy * w + gx] === 0) {
-                    const n = this.logicGrid[(gy - 1) * w + gx] === 1;
-                    const s = this.logicGrid[(gy + 1) * w + gx] === 1;
-                    const e = this.logicGrid[gy * w + gx + 1] === 1;
-                    const w_ = this.logicGrid[gy * w + gx - 1] === 1;
-                    
-                    if (n || s || e || w_) {
-                        frontier.push({ tx, ty, d2: tx*tx + ty*ty });
-                    }
-                }
-            }
+        // 1. Enforce Distribution: Decide target axis (X or Y)
+        let axis = 'X';
+        if (this.nudgeAxisBalance < 0) axis = 'Y';
+        else if (this.nudgeAxisBalance > 0) axis = 'X';
+        else axis = Math.random() < 0.5 ? 'X' : 'Y';
+
+        // 2. Check edges for the axes to determine if perpendicular growth is allowed
+        const reached = { N: false, S: false, E: false, W: false };
+        for (const b of targetBlocks) {
+            if (b.y + cy <= 0) reached.N = true;
+            if (b.y + cy + b.h >= h) reached.S = true;
+            if (b.x + cx + b.w >= w) reached.E = true;
+            if (b.x + cx <= 0) reached.W = true;
         }
-        return frontier;
-    }
 
-    _findValidBlockForCell(tx, ty, shapes) {
-        const shuffledShapes = [...shapes].sort(() => Math.random() - 0.5);
-        
-        for (const shape of shuffledShapes) {
-            const sw = shape.w;
-            const sh = shape.h;
-            const offsets = [];
-            for (let oy = 0; oy < sh; oy++) {
-                for (let ox = 0; ox < sw; ox++) {
-                    offsets.push({ox, oy});
-                }
+        const xReached = reached.E || reached.W;
+        const yReached = reached.N || reached.S;
+
+        // 3. Select anchor and direction
+        let anchor = { x: 0, y: 0, w: 1, h: 1 };
+        let face = '';
+        let nw = 1, nh = 1;
+
+        // Logic: Prioritize growing the spine from the center outward.
+        // If an axis has reached the perimeter, allow perpendicular growth from its spine.
+        if (axis === 'X') {
+            // Growing horizontal strips or pushing the horizontal spine
+            if (yReached && Math.random() < 0.6) {
+                // Perpendicular: Nudge East/West from the vertical spine
+                const verticalSpine = targetBlocks.filter(b => Math.abs(b.x) <= 1);
+                if (verticalSpine.length > 0) anchor = verticalSpine[Math.floor(Math.random() * verticalSpine.length)];
             }
-            offsets.sort(() => Math.random() - 0.5);
-            
-            for (const offset of offsets) {
-                const bx = tx - offset.ox;
-                const by = ty - offset.oy;
-                
-                if (this._checkNoOverlap(bx, by, sw, sh) && this._checkNoHole(bx, by, sw, sh)) {
-                    return { tx: bx, ty: by, w: sw, h: sh };
-                }
+            face = (anchor.x >= 0) ? 'E' : 'W';
+            nw = [1, 2, 3][Math.floor(Math.random() * 3)];
+            nh = 1;
+            this.nudgeAxisBalance++;
+        } else {
+            // Growing vertical strips or pushing the vertical spine
+            if (xReached && Math.random() < 0.6) {
+                // Perpendicular: Nudge North/South from the horizontal spine
+                const horizontalSpine = targetBlocks.filter(b => Math.abs(b.y) <= 1);
+                if (horizontalSpine.length > 0) anchor = horizontalSpine[Math.floor(Math.random() * horizontalSpine.length)];
             }
+            face = (anchor.y >= 0) ? 'S' : 'N';
+            nw = 1;
+            nh = [1, 2, 3][Math.floor(Math.random() * 3)];
+            this.nudgeAxisBalance--;
         }
-        return null;
+
+        // Perform the actual nudge. Targeting (anchor.x, anchor.y) with direction 'face'
+        // will push the entire arm/segment outward and insert the new blocks at the origin.
+        // This repeatedly happens at the source, pushing blocks toward the perimeter.
+        this._nudge(anchor.x, anchor.y, nw, nh, face, 0);
     }
 
     _attemptUnfoldPerimeterGrowth() {
         this._initProceduralState();
-        
         const l0Blocks = this.activeBlocks.filter(b => b.layer === 0);
         if (l0Blocks.length === 0) return;
 
-        const totalTarget = Math.min(10, Math.max(1, Math.floor(l0Blocks.length / 8) + 1));
+        const totalTarget = Math.random() < 0.5 ? 1 : 2;
         const shapes = [
             {w: 1, h: 2}, {w: 2, h: 1},
             {w: 1, h: 3}, {w: 3, h: 1},
@@ -592,7 +426,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         let spawnedCount = 0;
         let attempts = 0;
         const maxAttempts = totalTarget * 10;
-        
         let frontier = this._getFrontier();
         if (frontier.length === 0) return;
 
@@ -601,30 +434,22 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         while (spawnedCount < totalTarget && attempts < maxAttempts) {
             attempts++;
             if (frontier.length === 0) break;
-
             const useCenterBias = (Math.random() < biasChance);
             let targetBlock = null;
-
             if (useCenterBias) {
                 frontier.sort((a, b) => a.d2 - b.d2);
                 const limit = Math.min(frontier.length, 100);
                 for (let i = 0; i < limit; i++) {
-                    const f = frontier[i];
-                    targetBlock = this._findValidBlockForCell(f.tx, f.ty, shapes);
+                    targetBlock = this._findValidBlockForCell(frontier[i].tx, frontier[i].ty, shapes);
                     if (targetBlock) break;
                 }
             } else {
-                const idx = Math.floor(Math.random() * frontier.length);
-                const f = frontier[idx];
+                const f = frontier[Math.floor(Math.random() * frontier.length)];
                 targetBlock = this._findValidBlockForCell(f.tx, f.ty, shapes);
             }
-
             if (targetBlock) {
                 const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 0);
-                if (id !== -1) {
-                    spawnedCount++;
-                    frontier = this._getFrontier();
-                }
+                if (id !== -1) { spawnedCount++; frontier = this._getFrontier(); }
             }
         }
     }
@@ -637,79 +462,43 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const ih = Math.min(y + h, b.y + b.h) - iy;
             if (iw > 0 && ih > 0) return false;
         }
-
         const bs = this.getBlockSize();
-        const visibleBlocksW = this.g.cols / bs.w;
-        const visibleBlocksH = this.g.rows / bs.h;
-        const buffer = 5;
-        const xLimit = (visibleBlocksW / 2) + buffer;
-        const yLimit = (visibleBlocksH / 2) + buffer;
-
+        const xLimit = (this.g.cols / bs.w / 2) + 5;
+        const yLimit = (this.g.rows / bs.h / 2) + 5;
         if (x + w < -xLimit || x > xLimit || y + h < -yLimit || y > yLimit) return false;
-
-        const cx = Math.floor(this.logicGridW / 2);
-        const cy = Math.floor(this.logicGridH / 2);
+        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
         if (x + cx < 0 || x + cx + w > this.logicGridW || y + cy < 0 || y + cy + h > this.logicGridH) return false;
         return true;
     }
 
     _checkNoHole(tx, ty, tw, th) {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-
+        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
         const candidates = [];
-        for (let x = tx - 1; x <= tx + tw; x++) {
-            candidates.push([x, ty - 1]);
-            candidates.push([x, ty + th]);
-        }
-        for (let y = ty; y < ty + th; y++) {
-            candidates.push([tx - 1, y]);
-            candidates.push([tx + tw, y]);
-        }
-
+        for (let x = tx - 1; x <= tx + tw; x++) { candidates.push([x, ty - 1], [x, ty + th]); }
+        for (let y = ty; y < ty + th; y++) { candidates.push([tx - 1, y], [tx + tw, y]); }
         for (const [nx, ny] of candidates) {
-            const gx = nx + cx;
-            const gy = ny + cy;
-            
+            const gx = nx + cx, gy = ny + cy;
             if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
             if (this.logicGrid[gy * w + gx] !== 0) continue;
             if (nx >= tx && nx < tx + tw && ny >= ty && ny < ty + th) continue;
-
-            if (!this._canReachBoundary(nx, ny, tx, ty, tw, th)) {
-                return false;
-            }
+            if (!this._canReachBoundary(nx, ny, tx, ty, tw, th)) return false;
         }
         return true;
     }
 
     _canReachBoundary(startX, startY, px, py, pw, ph) {
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-        
-        const stack = [[startX, startY]];
-        const visited = new Set([`${startX},${startY}`]);
-        
+        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const stack = [[startX, startY]], visited = new Set([`${startX},${startY}`]);
         while (stack.length > 0) {
             const [x, y] = stack.pop();
             if (x + cx <= 0 || x + cx >= w - 1 || y + cy <= 0 || y + cy >= h - 1) return true;
-            
             const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
             for (const [nx, ny] of neighbors) {
-                const gx = nx + cx;
-                const gy = ny + cy;
-                
+                const gx = nx + cx, gy = ny + cy;
                 if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
                 const key = `${nx},${ny}`;
-                if (visited.has(key)) continue;
-                if (nx >= px && nx < px + pw && ny >= py && ny < py + ph) continue;
-                if (this.logicGrid[gy * w + gx] !== 0) continue;
-                
-                visited.add(key);
-                stack.push([nx, ny]);
+                if (visited.has(key) || (nx >= px && nx < px + pw && ny >= py && ny < py + ph) || this.logicGrid[gy * w + gx] !== 0) continue;
+                visited.add(key); stack.push([nx, ny]);
                 if (visited.size > 2000) return true; 
             }
         }

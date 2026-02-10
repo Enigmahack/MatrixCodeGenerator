@@ -1071,8 +1071,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     _attemptGrowth() {
         this._initProceduralState();
 
-        let totalTarget;
-        totalTarget = (this.activeBlocks.length > 5) ? 10 : 3;
+        // Limit to only 1 or 2 blocks added per step
+        let totalTarget = Math.random() < 0.5 ? 1 : 2;
 
         const pool = [];
         const s = this.c.state;
@@ -1357,8 +1357,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (candidates.length === 0) return;
         const arm = candidates[Math.floor(Math.random() * candidates.length)];
         const data = this.spineState[arm];
-        const breadth = Math.random() < 0.3 ? 2 : 1;
-        let length = (breadth === 1) ? (Math.random() < 0.25 ? 3 : 2) : 1;
+
+        // Fixed breadth of 1, length of 2 or 3 as requested for "1x2 and 1x3 (3x1, 2x1)"
+        const breadth = 1;
+        let length = Math.random() < 0.25 ? 3 : 2;
+
         const blocksX = this.logicGridW, blocksY = this.logicGridH;
         const cx = Math.floor(blocksX / 2), cy = Math.floor(blocksY / 2);
         let tx = 0, ty = 0, w = 0, h = 0;
@@ -1392,7 +1395,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (cx + tx < 0 || cx + tx + w > blocksX || cy + ty < 0 || cy + ty + h > blocksY) {
             data.finished = true; return;
         }
-        this._spawnBlock(tx, ty, w, h, 0);
+        // Use skipConnectivity=true and allowInternal=true for "latest" merging behavior
+        this._spawnBlock(tx, ty, w, h, 0, false, false, 0, true, true);
         data.len += length;
     }
 
@@ -1527,6 +1531,20 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 2. Add the new nudge block to activeBlocks
         const id = this.nextBlockId++;
         this.activeBlocks.push({ x, y, w, h, startFrame: now, layer, id });
+
+        // Update logic grid for the new block
+        if (this.logicGrid) {
+            const bx = this.logicGridW, by = this.logicGridH;
+            const cx = Math.floor(bx / 2), cy = Math.floor(by / 2);
+            for (let ly = 0; ly < h; ly++) {
+                for (let lx = 0; lx < w; lx++) {
+                    const gx = cx + x + lx, gy = cy + y + ly;
+                    if (gx >= 0 && gx < bx && gy >= 0 && gy < by) {
+                        this.logicGrid[gy * bx + gx] = 1;
+                    }
+                }
+            }
+        }
 
         // 3. Execute Grid/Visual Nudge
         if (window.matrix && window.matrix.sequenceProcessor) {

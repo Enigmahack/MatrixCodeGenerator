@@ -277,6 +277,7 @@ class ConfigurationManager {
             "quantizedGenerateV2EnableUnfold": false,
             "quantizedGenerateV2EnableCrawler": false,
             "quantizedGenerateV2EnableShift": false,
+            "quantizedGenerateV2EnableNudge": false,
             "quantizedGenerateV2FrequencySeconds": 240,
             "quantizedGenerateV2DurationSeconds": 7.6,
             "quantizedGenerateV2Speed": 1,
