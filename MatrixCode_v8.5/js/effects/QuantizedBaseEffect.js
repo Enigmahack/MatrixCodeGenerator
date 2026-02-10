@@ -1439,9 +1439,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 5. Layer Selection (Single layer per step, starting with Layer 1)
         let layer = (this.expansionPhase % 2 === 0) ? 1 : (Math.random() < 0.15 ? 1 : 0);
 
-        // 'Catch' logic: Ensure Layer 1 doesn't lead Layer 0 by more than 4 blocks
+        // 'Catch' logic: Ensure Layer 1 and Layer 0 don't drift too far apart (max 4 blocks)
         if (layer === 1 && state.l1Len >= state.l0Len + 4) {
             layer = 0; // Force Layer 0 to catch up
+        } else if (layer === 0 && state.l0Len >= state.l1Len + 4) {
+            layer = 1; // Force Layer 1 to catch up
         }
 
         // 6. Execute nudges
