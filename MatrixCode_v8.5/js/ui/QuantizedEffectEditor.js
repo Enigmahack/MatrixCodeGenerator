@@ -529,7 +529,7 @@ class QuantizedEffectEditor {
                 const triggered = this.effect.trigger(true); 
                 
                 if (!triggered) {
-                    console.warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
+                    this._warn("QuantizedEffectEditor: Forced trigger failed for", this.effect.name, "- Activating manually.");
                     this.effect.active = true;
                     if (typeof this.effect._initLogicGrid === 'function') this.effect._initLogicGrid();
                     if (typeof this.effect._initShadowWorld === 'function') {
@@ -956,7 +956,7 @@ class QuantizedEffectEditor {
                         const { ipcRenderer } = window.require('elec' + 'tron');
                         ipcRenderer.send('open-editor');
                     } catch (e) {
-                        console.error("Electron Pop Out failed:", e);
+                        this._error("Electron Pop Out failed:", e);
                     }
                 } else {
                     window.open(window.location.href + (window.location.href.includes('?') ? '&' : '?') + 'mode=editor', '_blank', 'width=400,height=800');
@@ -1788,7 +1788,7 @@ class QuantizedEffectEditor {
                 alert('Patterns saved to disk successfully!');
                 return;
             } catch (e) {
-                console.warn("IPC Save failed, falling back to download:", e);
+                this._warn("IPC Save failed, falling back to download:", e);
             }
         }
         

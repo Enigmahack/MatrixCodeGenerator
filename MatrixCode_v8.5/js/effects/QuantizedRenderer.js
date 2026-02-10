@@ -13,7 +13,7 @@ class QuantizedRenderer {
 
     updateMask(fx, w, h, s, d) {
         if (!fx.maskCtx || !fx.lineMaskCanvas) {
-            console.warn("[QuantizedRenderer] Canvas Context missing. Re-initializing.");
+            fx._warn("[QuantizedRenderer] Canvas Context missing. Re-initializing.");
             fx._ensureCanvases(w, h);
         }
 

@@ -81,7 +81,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (this.active && !force) return false;
         if (!super.trigger(force)) return false;
 
-        console.log("QuantizedBlockGenerator: Triggered");
+        this._log("QuantizedBlockGenerator: Triggered");
         this.timer = 0;
         this.genTimer = 0;
         this.animFrame = 0;
@@ -170,7 +170,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const timedOut = this.timer >= durationFrames;
 
             if (!this.debugMode && (timedOut || isCovered)) {
-                console.log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
+                this._log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {
@@ -181,7 +181,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const fadeFrames = s.quantizedGenerateV2FadeFrames || 60;
             this.alpha = Math.max(0, 1.0 - (this.timer / fadeFrames));
             if (this.timer >= fadeFrames) {
-                console.log("QuantizedBlockGenerator: Effect complete.");
+                this._log("QuantizedBlockGenerator: Effect complete.");
                 this.active = false;
                 this.state = 'IDLE';
                 this.g.clearAllOverrides();
@@ -244,7 +244,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         if (!success && !this._isCanvasFullyCovered()) {
-            console.warn("QuantizedBlockGenerator: Growth stalled - no safe move found for either layer.");
+            this._warn("QuantizedBlockGenerator: Growth stalled - no safe move found for either layer.");
         }
 
         this._performHoleCleanup();
