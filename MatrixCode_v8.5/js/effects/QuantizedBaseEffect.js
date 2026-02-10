@@ -240,6 +240,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.unfoldSequences = [];
         this.nextBlockId = 0;
         this.spineState = null;
+        this.nudgeState = null;
         this.overlapState = { step: 0 };
         this.cycleState = null;
         this.proceduralInitiated = false;
@@ -1063,6 +1064,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             E: { l0Len: 0, l1Len: 0, finished: false },
             W: { l0Len: 0, l1Len: 0, finished: false }
         };
+        this.nudgeState = {
+            dirCounts: { N: 0, S: 0, E: 0, W: 0 },
+            lanes: new Map() // Tracks {0: count, 1: count} per lane
+        };
         this.overlapState = { step: 0 };
         this.crawlers = [];
         this.unfoldSequences = [];
@@ -1113,39 +1118,19 @@ class QuantizedBaseEffect extends AbstractEffect {
     _attemptGrowth() {
         this._initProceduralState();
 
-        // Limit to only 1 or 2 blocks added per step
-        let totalTarget = Math.random() < 0.5 ? 1 : 2;
-
-        const pool = [];
         const s = this.c.state;
-
-        // Use effect-specific settings or defaults from quantizedGenerateV2
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
             if (val !== undefined) return val;
             return s['quantizedGenerateV2' + key];
         };
 
-        // const enCyclic = getGenConfig('EnableCyclic') === true;
         const enSpine = getGenConfig('EnableSpine') === true;
-        // const enOverlap = getGenConfig('EnableOverlap') === true;
-        // const enUnfold = getGenConfig('EnableUnfold') === true;
-        // const enCrawler = getGenConfig('EnableCrawler') === true;
-        // const enShift = getGenConfig('EnableShift') === true; 
-        // const enCluster = getGenConfig('EnableCluster') === true;
+        const enNudge = getGenConfig('EnableNudge') === true;
 
-        // if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
+        const pool = [];
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
-        // if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
-        // if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
-        // if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
-        // if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
-        // if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
-
-        if (pool.length === 0 && (!this.crawlers || this.crawlers.length === 0) && (!this.unfoldSequences || this.unfoldSequences.length === 0)) return;
-
-        // Process Existing Active Crawlers/Unfolds
-        // const crawlerUpdated = this._processActiveStatefulBehaviors();
+        if (enNudge) pool.push(this._attemptNudgeGrowth.bind(this));
 
         if (pool.length === 0) return;
 
@@ -1155,15 +1140,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             [pool[i], pool[j]] = [pool[j], pool[i]];
         }
 
+        // Limit to only 1 or 2 behavior actions per step
+        let totalTarget = Math.random() < 0.5 ? 1 : 2;
+
         // Execute Remaining Quota
         for (let i = 0; i < totalTarget; i++) {
             const behavior = pool[i % pool.length];
-            
-            // Limit crawler spawning
-            // if (behavior.toString().includes('_attemptCrawlerGrowth')) {
-            //     if (crawlerUpdated || (this.crawlers && this.crawlers.length >= 2)) continue;
-            // }
-
             behavior();
         }
 
@@ -1395,21 +1377,27 @@ class QuantizedBaseEffect extends AbstractEffect {
     */
 
     _attemptSpineGrowth() {
-        // 1. Aspect Ratio Bias
+        // 1. Get Block Size for proportional weighting
+        const seed = this.activeBlocks[0] || { w: 1, h: 1 };
+        const nw = seed.w;
+        const nh = seed.h;
+
+        // 2. Aspect Ratio Bias (Continuous)
+        // To reach all perimeters at the same time, growth probability must be 
+        // proportional to (Dimension / BlockSize) in that axis.
         const cols = this.g.cols;
         const rows = this.g.rows;
-        const ratio = cols / rows;
         
-        let weights = { N: 1, S: 1, E: 1, W: 1 };
-        if (ratio > 1.2) { // Wide canvas: Bias East/West
-            weights.E = 3; 
-            weights.W = 3;
-        } else if (ratio < 0.8) { // Tall canvas: Bias North/South
-            weights.N = 3; 
-            weights.S = 3;
-        }
+        // Weight = Dimension * (opposite axis block size) to normalize for rectangular blocks
+        // This ensures that (ProbX * nw) / cols = (ProbY * nh) / rows
+        let weights = { 
+            N: rows * nw, 
+            S: rows * nw, 
+            E: cols * nh, 
+            W: cols * nh 
+        };
         
-        // 2. Pick a single direction for this entire step to ensure consistent 'push'
+        // 3. Pick a single direction for this entire step to ensure consistent 'push'
         if (this._currentStepDirectionFrame !== this.animFrame) {
             const arms = ['N', 'S', 'E', 'W'];
             const totalWeight = arms.reduce((sum, a) => sum + weights[a], 0);
@@ -1426,15 +1414,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const direction = this._currentStepDirection;
         const state = this.spineState[direction];
 
-        // 3. Determine nudges per step based on current length (using Layer 0 as the anchor length)
+        // 4. Determine nudges per step based on current length (using Layer 0 as the anchor length)
         let count = 1;
         if (state.l0Len > 10) count = 3;
         else if (state.l0Len > 3) count = 2;
-
-        // 4. Use Initial Mass size (from first block)
-        const seed = this.activeBlocks[0] || { w: 1, h: 1 };
-        const nw = seed.w;
-        const nh = seed.h;
 
         // 5. Layer Selection (Single layer per step, starting with Layer 1)
         let layer = (this.expansionPhase % 2 === 0) ? 1 : (Math.random() < 0.15 ? 1 : 0);
@@ -1448,9 +1431,80 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // 6. Execute nudges
         for (let i = 0; i < count; i++) {
+            // Re-apply 'Catch' logic before every nudge to ensure strict synchronization
+            if (layer === 1 && state.l1Len >= state.l0Len + 4) {
+                layer = 0;
+            } else if (layer === 0 && state.l0Len >= state.l1Len + 4) {
+                layer = 1;
+            }
+
             this._nudge(0, 0, nw, nh, direction, layer);
             if (layer === 0) state.l0Len++;
             else state.l1Len++;
+        }
+    }
+
+    _attemptNudgeGrowth() {
+        if (this.activeBlocks.length === 0) return;
+        if (!this.nudgeState) {
+            this.nudgeState = { dirCounts: { N: 0, S: 0, E: 0, W: 0 }, lanes: new Map() };
+        }
+
+        // 1. Identify potential anchors on existing spines (only on X or Y axis)
+        const spineBlocks = this.activeBlocks.filter(b => b.x === 0 || b.y === 0);
+        if (spineBlocks.length === 0) return;
+
+        // 2. Pick direction with lowest usage to ensure even distribution among cardinals
+        const dirs = ['N', 'S', 'E', 'W'];
+        dirs.sort((a, b) => this.nudgeState.dirCounts[a] - this.nudgeState.dirCounts[b]);
+        
+        // Find a direction that has valid anchors on the correct axis
+        let chosenDir = null;
+        let validAnchors = [];
+        
+        for (const dir of dirs) {
+            if (dir === 'N' || dir === 'S') {
+                // North/South nudges must start from the X-axis (y=0)
+                validAnchors = spineBlocks.filter(b => b.y === 0);
+            } else {
+                // East/West nudges must start from the Y-axis (x=0)
+                validAnchors = spineBlocks.filter(b => b.x === 0);
+            }
+            if (validAnchors.length > 0) {
+                chosenDir = dir;
+                break;
+            }
+        }
+        
+        if (!chosenDir) return;
+        
+        const anchor = validAnchors[Math.floor(Math.random() * validAnchors.length)];
+        const laneKey = `${anchor.x},${anchor.y},${chosenDir}`;
+        if (!this.nudgeState.lanes.has(laneKey)) {
+            this.nudgeState.lanes.set(laneKey, { 0: 0, 1: 0 });
+        }
+        const lane = this.nudgeState.lanes.get(laneKey);
+
+        // 3. Cluster size: 1, 2, or 3 blocks
+        const clusterSize = Math.floor(Math.random() * 3) + 1;
+
+        for (let i = 0; i < clusterSize; i++) {
+            // 4. Layer Selection: Evenly between 0 and 1, starting with 1
+            let layer = (lane[0] + lane[1]) % 2 === 0 ? 1 : 0;
+            
+            // 5. Catch: ensure layers stay within 3 blocks of each other
+            if (layer === 1 && lane[1] >= lane[0] + 3) {
+                layer = 0; // Force Layer 0 to catch up
+            } else if (layer === 0 && lane[0] >= lane[1] + 3) {
+                layer = 1; // Force Layer 1 to catch up
+            }
+            
+            // 6. Execute Nudge
+            this._nudge(anchor.x, anchor.y, anchor.w, anchor.h, chosenDir, layer);
+            
+            // Update state
+            lane[layer]++;
+            this.nudgeState.dirCounts[chosenDir]++;
         }
     }
 

@@ -451,6 +451,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Block Generator' },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Growth Logic', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableSpine', type: 'checkbox', label: 'Enable Spine Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables vertical/horizontal spine structures." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableNudge', type: 'checkbox', label: 'Enable Nudge Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables multi-layer nudge behaviors adjacent to spines." },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Settings', dep: 'quantizedGenerateV2Enabled' },            { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },

@@ -123,7 +123,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return id;
     }
 
-    /*
     _nudge(x, y, w, h, face, layer = 0) {
         const enNudge = (this.getConfig('EnableNudge') === true);
         const useStaging = (this.expansionPhase < 4) || enNudge;
@@ -138,6 +137,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (b && b.layer === 1) b.spawnCycle = this.expansionPhase;
     }
 
+    /*
     _attemptClusterGrowth() {
         const enNudge = (this.getConfig('EnableNudge') === true);
         if (enNudge) {
@@ -236,9 +236,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptGrowth() {
         this._initProceduralState(); 
 
-        const mode = this.getConfig('Mode') || 'default';
         const s = this.c.state;
-
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
             if (val !== undefined) return val;
@@ -246,19 +244,32 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         };
 
         const enSpine = getGenConfig('EnableSpine') === true;
+        const enNudge = getGenConfig('EnableNudge') === true;
         
-        // If nothing is enabled, fall back to super or return
-        if (!enSpine) {
+        // If nothing specific is enabled, fall back to base logic
+        if (!enSpine && !enNudge) {
             super._attemptGrowth();
             return;
         }
 
-        // Limit to only 1 or 2 clusters added per step
+        const pool = [];
+        if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
+        if (enNudge) pool.push(this._attemptNudgeGrowth.bind(this));
+
+        if (pool.length === 0) return;
+
+        // Shuffle pool to avoid bias when selecting behaviors
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+
+        // Determine how many behavior "actions" to take this step (1 or 2)
         let totalTarget = Math.random() < 0.5 ? 1 : 2;
-        
-        // --- Standard Growth Behaviors ---
-        if (enSpine) {
-            this._attemptSpineGrowth();
+
+        for (let i = 0; i < totalTarget; i++) {
+            const behavior = pool[i % pool.length];
+            behavior();
         }
 
         // 3. Post-growth cleanup
