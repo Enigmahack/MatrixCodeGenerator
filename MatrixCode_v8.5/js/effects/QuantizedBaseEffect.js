@@ -290,6 +290,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps = [];
         this.activeBlocks = []; // Reset activeBlocks to prevent state desync during jumps
         this.nextBlockId = 0;
+        this.proceduralInitiated = false;
         this._initLogicGrid();
         if (this.renderGrid) this.renderGrid.fill(-1);
         for (let i = 0; i < 3; i++) {
@@ -309,9 +310,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        // Re-seed initial blocks if scrubbing back to start or beyond
-        this._initProceduralState();
-
         for (let i = 0; i < targetStepsCompleted; i++) {
             this.expansionPhase = i; 
             const step = this.sequence[i];
@@ -320,6 +318,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this._executeStepOps(step, simFrame); 
             }
         }
+        
+        // Re-seed initial blocks or reconstruct from maskOps
+        this._initProceduralState();
+
         this.expansionPhase = targetStepsCompleted; 
         this.animFrame = targetStepsCompleted * framesPerStep;
 
@@ -1052,6 +1054,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                         layer: op.layer || 0,
                         id: id
                     });
+                } else if (op.type === 'removeBlock') {
+                    const bx = op.x1, by = op.y1;
+                    const layer = op.layer || 0;
+                    this.activeBlocks = this.activeBlocks.filter(b => 
+                        !(b.x === bx && b.y === by && b.layer === layer)
+                    );
                 }
             }
         }
@@ -1607,9 +1615,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps.push(op);
 
         if (this.manualStep && this.sequence) {
-            const seqIdx = Math.max(0, this.expansionPhase - 1);
-            if (!this.sequence[seqIdx]) this.sequence[seqIdx] = [];
-            this.sequence[seqIdx].push({ op: 'addSmart', args: [x, y, x + w - 1, y + h - 1], layer });
+            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+            this.sequence[this.expansionPhase].push({ 
+                op: 'nudge', 
+                args: [x, y, w, h, face], 
+                layer: layer 
+            });
         }
 
         // 1. Update activeBlocks coordinates (Shift logic)

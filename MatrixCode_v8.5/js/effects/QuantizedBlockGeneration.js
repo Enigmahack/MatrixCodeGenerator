@@ -182,13 +182,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptGrowth() {
         this._initProceduralState(); 
 
-        const enNudge = (this.getConfig('EnableNudge') === true);
-        if (enNudge) {
-            this._attemptNudgeGrowth();
-            this._performHoleCleanup();
-            return;
-        }
-
         const s = this.c.state;
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
@@ -197,9 +190,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         };
 
         const enSpine = getGenConfig('EnableSpine') === true;
+        const enNudge = getGenConfig('EnableNudge') === true;
         
         const pool = [];
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
+        if (enNudge) pool.push(this._attemptNudgeGrowth.bind(this));
 
         if (pool.length === 0) {
             super._attemptGrowth();
