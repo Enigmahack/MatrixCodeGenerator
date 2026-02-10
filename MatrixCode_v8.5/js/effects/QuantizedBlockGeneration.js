@@ -123,6 +123,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return id;
     }
 
+    /*
     _nudge(x, y, w, h, face, layer = 0) {
         const enNudge = (this.getConfig('EnableNudge') === true);
         const useStaging = (this.expansionPhase < 4) || enNudge;
@@ -159,6 +160,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             super._attemptClusterGrowth();
         }
     }
+    */
 
     update() {
         if (!this.active) return;
@@ -232,6 +234,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _attemptGrowth() {
+        this._initProceduralState(); 
+
         const mode = this.getConfig('Mode') || 'default';
         const s = this.c.state;
 
@@ -241,88 +245,24 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             return s['quantizedGenerateV2' + key];
         };
 
-        const enNudge = getGenConfig('EnableNudge') === true;
-        const useStaging = (this.expansionPhase < 4) || enNudge;
-
-        // Delayed Merge Logic: Stage L1 -> Merge L0
-        if (useStaging) {
-            this._mergeLayer1(this.expansionPhase - 1);
-        } else {
-            this._mergeLayer1(-1); // Commit any remaining L1 blocks instantly
-        }
-
-        if (enNudge) {
-            // --- Nudge Growth Startup Sequence ---
-            if (this.expansionPhase === 0) {
-                // Step 1: Central block on Layer 0
-                this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
-                return;
-            }
-            if (this.expansionPhase === 1) {
-                // Step 2: Opposing wings on Layer 1 (N/S or E/W)
-                const axis = Math.random() < 0.5 ? 'V' : 'H';
-                this.nudgeStartupAxis = axis; 
-                if (axis === 'V') {
-                    this._spawnBlock(0, -1, 1, 1, 1, false, false, 0, true, true); // N
-                    this._spawnBlock(0, 1, 1, 1, 1, false, false, 0, true, true);  // S
-                } else {
-                    this._spawnBlock(-1, 0, 1, 1, 1, false, false, 0, true, true); // W
-                    this._spawnBlock(1, 0, 1, 1, 1, false, false, 0, true, true);  // E
-                }
-                return;
-            }
-            if (this.expansionPhase === 2) {
-                // Step 3: Opposite wings on Layer 1
-                // (Previous pair merges automatically via 'Delayed Merge Logic' above)
-                const prevAxis = this.nudgeStartupAxis || 'V';
-                const newAxis = (prevAxis === 'V') ? 'H' : 'V';
-                if (newAxis === 'V') {
-                    this._spawnBlock(0, -1, 1, 1, 1, false, false, 0, true, true);
-                    this._spawnBlock(0, 1, 1, 1, 1, false, false, 0, true, true);
-                } else {
-                    this._spawnBlock(-1, 0, 1, 1, 1, false, false, 0, true, true);
-                    this._spawnBlock(1, 0, 1, 1, 1, false, false, 0, true, true);
-                }
-                return;
-            }
-            if (this.expansionPhase === 3) {
-                // Step 4: Allow remaining Layer 1 blocks to merge (via Delayed Merge Logic in next step or now?)
-                // Actually Delayed Merge runs at START of step.
-                // So at start of Phase 3, it merges Phase 2 blocks (Cycle 2).
-                // We do nothing here to complete the startup.
-                return;
-            }
-
-            // Step 5+: Nudge Loop
-            this._attemptNudgeGrowth();
+        const enSpine = getGenConfig('EnableSpine') === true;
+        
+        // If nothing is enabled, fall back to super or return
+        if (!enSpine) {
+            super._attemptGrowth();
             return;
         }
 
+        // Limit to only 1 or 2 clusters added per step
+        let totalTarget = Math.random() < 0.5 ? 1 : 2;
+        
         // --- Standard Growth Behaviors ---
-        const enCyclic = getGenConfig('EnableCyclic') === true;
-        const enSpine = getGenConfig('EnableSpine') === true;
-        const enOverlap = getGenConfig('EnableOverlap') === true;
-        const enUnfold = getGenConfig('EnableUnfold') === true;
-        const enCrawler = getGenConfig('EnableCrawler') === true;
-        const enShift = getGenConfig('EnableShift') === true;
-        const enCluster = getGenConfig('EnableCluster') === true;
-
-        switch (mode) {
-            case 'unfold': if (enUnfold) this._attemptUnfoldPerimeterGrowth(); break;
-            case 'cyclic': if (enCyclic) this._attemptCyclicGrowth(); break;
-            case 'spine': if (enSpine) this._attemptSpineGrowth(); break;
-            case 'shift': if (enShift) this._attemptShiftGrowth(); break;
-            case 'cluster': if (enCluster) super._attemptClusterGrowth(); break;
-            case 'overlap': if (enOverlap) this._attemptLayerOverlap(); break;
-            case 'unfold_legacy': if (enUnfold) this._attemptUnfoldGrowth(); break;
-            case 'crawler': super._attemptGrowth(); break;
-            default: super._attemptGrowth(); break;
+        if (enSpine) {
+            this._attemptSpineGrowth();
         }
 
         // 3. Post-growth cleanup
-        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap) {
-            this._performHoleCleanup();
-        }
+        this._performHoleCleanup();
     }
 
     _mergeLayer1(maxCycle = -1) {
@@ -352,145 +292,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         this._lastProcessedOpIndex = 0;
         this._maskDirty = true;
-    }
-
-    _attemptNudgeGrowth() {
-        this._initProceduralState();
-        const targetBlocks = this.activeBlocks.filter(b => b.layer === 0);
-        if (targetBlocks.length === 0) return;
-
-        const w = this.logicGridW, h = this.logicGridH;
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        const ratio = (h > 0) ? w / h : 1;
-
-        // 1. Check if axes reached perimeter unbroken using activeBlocks positions
-        const isReached = (axis) => {
-            if (axis === 'X') {
-                let minX = 0, maxX = 0;
-                for (const b of targetBlocks) {
-                    if (b.y <= 0 && b.y + b.h > 0) { // Touching/spanning X-axis
-                        minX = Math.min(minX, b.x);
-                        maxX = Math.max(maxX, b.x + b.w - 1);
-                    }
-                }
-                return (minX <= -cx && maxX >= w - cx - 1);
-            }
-            if (axis === 'Y') {
-                let minY = 0, maxY = 0;
-                for (const b of targetBlocks) {
-                    if (b.x <= 0 && b.x + b.w > 0) { // Touching/spanning Y-axis
-                        minY = Math.min(minY, b.y);
-                        maxY = Math.max(maxY, b.y + b.h - 1);
-                    }
-                }
-                return (minY <= -cy && maxY >= h - cy - 1);
-            }
-            return false;
-        };
-
-        const xReached = isReached('X');
-        const yReached = isReached('Y');
-
-        // 2. Determine Preference based on Aspect Ratio
-        let preferredSpawn = 'equal';
-        if (ratio > 1.2) preferredSpawn = 'Y';
-        else if (ratio < 0.8) preferredSpawn = 'X';
-
-        let spawnAxis = Math.random() < 0.5 ? 'X' : 'Y';
-        if (preferredSpawn === 'Y' && Math.random() < 0.75) spawnAxis = 'Y';
-        if (preferredSpawn === 'X' && Math.random() < 0.75) spawnAxis = 'X';
-
-        // 3. Select Shape Length (1, 2, or 3)
-        const rand = Math.random();
-        let len = 1;
-        if (rand > 0.35) len = (Math.random() < 0.5) ? 2 : 3;
-
-        // Step 5a: 1x1 Preference (spawn at center)
-        if (len === 1) {
-            const face = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
-            this._nudge(0, 0, 1, 1, face, 0);
-            return;
-        }
-
-        // Steps 5b, 5c, 7: 2x1/3x1 or 1x2/1x3
-        let tx = 0, ty = 0;
-        let wBlock = 1, hBlock = 1;
-        let face = '';
-
-        if (spawnAxis === 'X') {
-            wBlock = len; hBlock = 1;
-            face = Math.random() < 0.5 ? 'N' : 'S';
-
-            if (xReached) {
-                // Step 7: Spawn along remainder of axis
-                tx = Math.floor(Math.random() * w) - cx;
-                ty = 0;
-            } else {
-                // Step 5b/5c: Connect to center block
-                const shift = Math.floor(Math.random() * len);
-                tx = -shift;
-                ty = 0;
-            }
-        } else {
-            wBlock = 1; hBlock = len;
-            face = Math.random() < 0.5 ? 'E' : 'W';
-
-            if (yReached) {
-                // Step 7: Spawn along remainder of axis
-                ty = Math.floor(Math.random() * h) - cy;
-                tx = 0;
-            } else {
-                // Connect to center
-                const shift = Math.floor(Math.random() * len);
-                ty = -shift;
-                tx = 0;
-            }
-        }
-
-        this._nudge(tx, ty, wBlock, hBlock, face, 0);
-    }
-
-    _attemptUnfoldPerimeterGrowth() {
-        this._initProceduralState();
-        const l0Blocks = this.activeBlocks.filter(b => b.layer === 0);
-        if (l0Blocks.length === 0) return;
-
-        const totalTarget = Math.random() < 0.5 ? 1 : 2;
-        const shapes = [
-            {w: 1, h: 2}, {w: 2, h: 1},
-            {w: 1, h: 3}, {w: 3, h: 1},
-            {w: 2, h: 2}
-        ];
-
-        let spawnedCount = 0;
-        let attempts = 0;
-        const maxAttempts = totalTarget * 10;
-        let frontier = this._getFrontier();
-        if (frontier.length === 0) return;
-
-        const biasChance = Math.min(0.85, 0.1 + (l0Blocks.length / 800));
-
-        while (spawnedCount < totalTarget && attempts < maxAttempts) {
-            attempts++;
-            if (frontier.length === 0) break;
-            const useCenterBias = (Math.random() < biasChance);
-            let targetBlock = null;
-            if (useCenterBias) {
-                frontier.sort((a, b) => a.d2 - b.d2);
-                const limit = Math.min(frontier.length, 100);
-                for (let i = 0; i < limit; i++) {
-                    targetBlock = this._findValidBlockForCell(frontier[i].tx, frontier[i].ty, shapes);
-                    if (targetBlock) break;
-                }
-            } else {
-                const f = frontier[Math.floor(Math.random() * frontier.length)];
-                targetBlock = this._findValidBlockForCell(f.tx, f.ty, shapes);
-            }
-            if (targetBlock) {
-                const id = this._spawnBlock(targetBlock.tx, targetBlock.ty, targetBlock.w, targetBlock.h, 0);
-                if (id !== -1) { spawnedCount++; frontier = this._getFrontier(); }
-            }
-        }
     }
 
     _checkNoOverlap(x, y, w, h) {

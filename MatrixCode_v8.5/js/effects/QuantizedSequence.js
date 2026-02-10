@@ -387,12 +387,12 @@ class QuantizedSequence {
 
                 let nx = m.x, ny = m.y;
                 if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                fx.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
+                fx.maskOps.push({ type: 'addSmart', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
                 setLayerActive(nx, ny, targetLayerIdx, m.start);
             }
         }
 
-        fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
+        fx.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
         for (let y = dy; y < dy + h; y++) {
             for (let x = dx; x < dx + w; x++) {
                 setLocalActive(x, y);

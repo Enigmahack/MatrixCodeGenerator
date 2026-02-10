@@ -288,6 +288,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     jumpToStep(targetStepsCompleted) {
         this.maskOps = [];
+        this.activeBlocks = []; // Reset activeBlocks to prevent state desync during jumps
+        this.nextBlockId = 0;
         this._initLogicGrid();
         if (this.renderGrid) this.renderGrid.fill(-1);
         for (let i = 0; i < 3; i++) {
@@ -307,6 +309,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
+        // Re-seed initial blocks if scrubbing back to start or beyond
+        this._initProceduralState();
+
         for (let i = 0; i < targetStepsCompleted; i++) {
             this.expansionPhase = i; 
             const step = this.sequence[i];
@@ -1053,10 +1058,10 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Initialize growth states
         this.spineState = {
-            N: { len: 0, finished: false },
-            S: { len: 0, finished: false },
-            E: { len: 0, finished: false },
-            W: { len: 0, finished: false }
+            N: { l0Len: 0, l1Len: 0, finished: false },
+            S: { l0Len: 0, l1Len: 0, finished: false },
+            E: { l0Len: 0, l1Len: 0, finished: false },
+            W: { l0Len: 0, l1Len: 0, finished: false }
         };
         this.overlapState = { step: 0 };
         this.crawlers = [];
@@ -1066,9 +1071,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Ensure we have at least one anchor if starting fresh
         if (this.activeBlocks.length === 0) {
             this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
+            this._spawnBlock(0, 0, 1, 1, 1, false, false, 0, true, true);
+            
+            // Explicitly set the seed blocks to addSmart type in maskOps if they were just added
+            if (this.maskOps.length >= 2) {
+                this.maskOps[this.maskOps.length - 2].type = 'addSmart';
+                this.maskOps[this.maskOps.length - 1].type = 'addSmart';
+            }
         }
     }
 
+    /*
     _processActiveStatefulBehaviors() {
         let crawlerUpdated = false;
         if (this.crawlers) {
@@ -1095,6 +1108,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         return crawlerUpdated;
     }
+    */
 
     _attemptGrowth() {
         this._initProceduralState();
@@ -1112,26 +1126,26 @@ class QuantizedBaseEffect extends AbstractEffect {
             return s['quantizedGenerateV2' + key];
         };
 
-        const enCyclic = getGenConfig('EnableCyclic') === true;
+        // const enCyclic = getGenConfig('EnableCyclic') === true;
         const enSpine = getGenConfig('EnableSpine') === true;
-        const enOverlap = getGenConfig('EnableOverlap') === true;
-        const enUnfold = getGenConfig('EnableUnfold') === true;
-        const enCrawler = getGenConfig('EnableCrawler') === true;
-        const enShift = getGenConfig('EnableShift') === true; 
-        const enCluster = getGenConfig('EnableCluster') === true;
+        // const enOverlap = getGenConfig('EnableOverlap') === true;
+        // const enUnfold = getGenConfig('EnableUnfold') === true;
+        // const enCrawler = getGenConfig('EnableCrawler') === true;
+        // const enShift = getGenConfig('EnableShift') === true; 
+        // const enCluster = getGenConfig('EnableCluster') === true;
 
-        if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
+        // if (enCyclic) pool.push(this._attemptCyclicGrowth.bind(this));
         if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
-        if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
-        if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
-        if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
-        if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
-        if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
+        // if (enOverlap) pool.push(this._attemptLayerOverlap.bind(this));
+        // if (enUnfold) pool.push(this._attemptUnfoldGrowth.bind(this));
+        // if (enShift) pool.push(this._attemptShiftGrowth.bind(this));
+        // if (enCluster) pool.push(this._attemptClusterGrowth.bind(this));
+        // if (enCrawler) pool.push(this._attemptCrawlerGrowth.bind(this));
 
         if (pool.length === 0 && (!this.crawlers || this.crawlers.length === 0) && (!this.unfoldSequences || this.unfoldSequences.length === 0)) return;
 
         // Process Existing Active Crawlers/Unfolds
-        const crawlerUpdated = this._processActiveStatefulBehaviors();
+        // const crawlerUpdated = this._processActiveStatefulBehaviors();
 
         if (pool.length === 0) return;
 
@@ -1146,9 +1160,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             const behavior = pool[i % pool.length];
             
             // Limit crawler spawning
-            if (behavior.toString().includes('_attemptCrawlerGrowth')) {
-                if (crawlerUpdated || (this.crawlers && this.crawlers.length >= 2)) continue;
-            }
+            // if (behavior.toString().includes('_attemptCrawlerGrowth')) {
+            //     if (crawlerUpdated || (this.crawlers && this.crawlers.length >= 2)) continue;
+            // }
 
             behavior();
         }
@@ -1308,6 +1322,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
+    /*
     _attemptCyclicGrowth() {
         const phase = this.cycleState.step % 3;
         const spawnSmart = (layer, mustOverlap, mustProtrude) => {
@@ -1377,57 +1392,68 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this.cycleState.step++;
     }
+    */
 
     _attemptSpineGrowth() {
-        if (!this.spineState) return;
-        const arms = ['N', 'S', 'E', 'W'];
-        const candidates = arms.filter(a => !this.spineState[a].finished);
-        if (candidates.length === 0) return;
-        const arm = candidates[Math.floor(Math.random() * candidates.length)];
-        const data = this.spineState[arm];
-
-        // Fixed breadth of 1, length of 2 or 3 as requested for "1x2 and 1x3 (3x1, 2x1)"
-        const breadth = 1;
-        let length = Math.random() < 0.25 ? 3 : 2;
-
-        const blocksX = this.logicGridW, blocksY = this.logicGridH;
-        const cx = Math.floor(blocksX / 2), cy = Math.floor(blocksY / 2);
-        let tx = 0, ty = 0, w = 0, h = 0;
-        if (arm === 'N') {
-            w = breadth; tx = -Math.floor(breadth/2);
-            const absTop = cy - (data.len + length);
-            if (absTop < 0) { length -= -absTop; data.finished = true; }
-            if (length <= 0) { data.finished = true; return; }
-            ty = -(data.len + length); h = length;
-        } else if (arm === 'S') {
-            w = breadth; tx = -Math.floor(breadth/2);
-            const startRel = data.len + 1;
-            const absBottom = cy + startRel + length;
-            if (absBottom > blocksY) { length -= (absBottom - blocksY); data.finished = true; }
-            if (length <= 0) { data.finished = true; return; }
-            ty = startRel; h = length;
-        } else if (arm === 'E') {
-            h = breadth; ty = -Math.floor(breadth/2);
-            const startRel = data.len + 1;
-            const absRight = cx + startRel + length;
-            if (absRight > blocksX) { length -= (absRight - blocksX); data.finished = true; }
-            if (length <= 0) { data.finished = true; return; }
-            tx = startRel; w = length;
-        } else if (arm === 'W') {
-            h = breadth; ty = -Math.floor(breadth/2);
-            const absLeft = cx - (data.len + length);
-            if (absLeft < 0) { length -= -absLeft; data.finished = true; }
-            if (length <= 0) { data.finished = true; return; }
-            tx = -(data.len + length); w = length;
+        // 1. Aspect Ratio Bias
+        const cols = this.g.cols;
+        const rows = this.g.rows;
+        const ratio = cols / rows;
+        
+        let weights = { N: 1, S: 1, E: 1, W: 1 };
+        if (ratio > 1.2) { // Wide canvas: Bias East/West
+            weights.E = 3; 
+            weights.W = 3;
+        } else if (ratio < 0.8) { // Tall canvas: Bias North/South
+            weights.N = 3; 
+            weights.S = 3;
         }
-        if (cx + tx < 0 || cx + tx + w > blocksX || cy + ty < 0 || cy + ty + h > blocksY) {
-            data.finished = true; return;
+        
+        // 2. Pick a single direction for this entire step to ensure consistent 'push'
+        if (this._currentStepDirectionFrame !== this.animFrame) {
+            const arms = ['N', 'S', 'E', 'W'];
+            const totalWeight = arms.reduce((sum, a) => sum + weights[a], 0);
+            let r = Math.random() * totalWeight;
+            let chosenDir = 'N';
+            for (const a of arms) {
+                r -= weights[a];
+                if (r <= 0) { chosenDir = a; break; }
+            }
+            this._currentStepDirection = chosenDir;
+            this._currentStepDirectionFrame = this.animFrame;
         }
-        // Use skipConnectivity=true and allowInternal=true for "latest" merging behavior
-        this._spawnBlock(tx, ty, w, h, 0, false, false, 0, true, true);
-        data.len += length;
+        
+        const direction = this._currentStepDirection;
+        const state = this.spineState[direction];
+
+        // 3. Determine nudges per step based on current length (using Layer 0 as the anchor length)
+        let count = 1;
+        if (state.l0Len > 10) count = 3;
+        else if (state.l0Len > 3) count = 2;
+
+        // 4. Use Initial Mass size (from first block)
+        const seed = this.activeBlocks[0] || { w: 1, h: 1 };
+        const nw = seed.w;
+        const nh = seed.h;
+
+        // 5. Layer Selection (Single layer per step, starting with Layer 1)
+        let layer = (this.expansionPhase % 2 === 0) ? 1 : (Math.random() < 0.15 ? 1 : 0);
+
+        // 'Catch' logic: Ensure Layer 1 doesn't lead Layer 0 by more than 4 blocks
+        if (layer === 1 && state.l1Len >= state.l0Len + 4) {
+            layer = 0; // Force Layer 0 to catch up
+        }
+
+        // 6. Execute nudges
+        for (let i = 0; i < count; i++) {
+            this._nudge(0, 0, nw, nh, direction, layer);
+            if (layer === 0) state.l0Len++;
+            else state.l1Len++;
+        }
     }
 
+    /*
+    /*
     _attemptLayerOverlap() {
         if (this.overlapState.step % 4 === 0) this._mergeLayers();
         const l1Blocks = this.activeBlocks.filter(b => b.layer === 1);
@@ -1465,7 +1491,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (val !== -1) { this.layerGrids[0][i] = val; this.layerGrids[1][i] = -1; }
         }
     }
+    */
 
+    /*
     _attemptUnfoldGrowth(sequence = null) {
         if (sequence && sequence.lastBlockId !== undefined) {
              if (sequence.count <= 0) { sequence.active = false; return; }
@@ -1516,16 +1544,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         return -1;
     }
+    */
 
     _nudge(x, y, w, h, face, layer = 0) {
         const now = this.animFrame;
-        const op = { type: 'nudge', x, y, w, h, face, layer, startFrame: now };
+        const op = { type: 'addSmart', x1: x, y1: y, x2: x + w - 1, y2: y + h - 1, ext: false, startFrame: now, startPhase: this.expansionPhase, layer: layer };
         this.maskOps.push(op);
 
         if (this.manualStep && this.sequence) {
             const seqIdx = Math.max(0, this.expansionPhase - 1);
             if (!this.sequence[seqIdx]) this.sequence[seqIdx] = [];
-            this.sequence[seqIdx].push({ op: 'nudge', args: [x, y, w, h, face], layer });
+            this.sequence[seqIdx].push({ op: 'addSmart', args: [x, y, x + w - 1, y + h - 1], layer });
         }
 
         // 1. Update activeBlocks coordinates (Shift logic)
@@ -1576,47 +1605,48 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // 3. Execute Grid/Visual Nudge
-        if (window.matrix && window.matrix.sequenceProcessor) {
-            const ctx = {
-                cx: Math.floor(this.logicGridW / 2),
-                cy: Math.floor(this.logicGridH / 2),
-                now: now,
-                isActive: (dx, dy) => {
-                    const gx = Math.floor(this.logicGridW / 2) + dx;
-                    const gy = Math.floor(this.logicGridH / 2) + dy;
-                    if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
-                    return this.logicGrid[gy * this.logicGridW + gx] !== 0;
-                },
-                setLocalActive: (dx, dy) => {
-                    const gx = Math.floor(this.logicGridW / 2) + dx;
-                    const gy = Math.floor(this.logicGridH / 2) + dy;
-                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
-                        this.logicGrid[gy * this.logicGridW + gx] = 1;
-                    }
-                },
-                setLocalInactive: (dx, dy) => {
-                    const gx = Math.floor(this.logicGridW / 2) + dx;
-                    const gy = Math.floor(this.logicGridH / 2) + dy;
-                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
-                        this.logicGrid[gy * this.logicGridW + gx] = 0;
-                    }
-                },
-                setLayerActive: (dx, dy, l, frame) => {
-                    const gx = Math.floor(this.logicGridW / 2) + dx;
-                    const gy = Math.floor(this.logicGridH / 2) + dy;
-                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
-                        this.layerGrids[l][gy * this.logicGridW + gx] = frame;
-                    }
-                },
-                setLayerInactive: (dx, dy, l) => {
-                    const gx = Math.floor(this.logicGridW / 2) + dx;
-                    const gy = Math.floor(this.logicGridH / 2) + dy;
-                    if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
-                        this.layerGrids[l][gy * this.logicGridW + gx] = -1;
-                    }
+        const ctx = {
+            cx: Math.floor(this.logicGridW / 2),
+            cy: Math.floor(this.logicGridH / 2),
+            now: now,
+            isActive: (dx, dy) => {
+                const gx = Math.floor(this.logicGridW / 2) + dx;
+                const gy = Math.floor(this.logicGridH / 2) + dy;
+                if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
+                return this.logicGrid[gy * this.logicGridW + gx] !== 0;
+            },
+            setLocalActive: (dx, dy) => {
+                const gx = Math.floor(this.logicGridW / 2) + dx;
+                const gy = Math.floor(this.logicGridH / 2) + dy;
+                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
+                    this.logicGrid[gy * this.logicGridW + gx] = 1;
                 }
-            };
-            window.matrix.sequenceProcessor._executeNudge(this, x, y, w, h, face, layer, ctx);
+            },
+            setLocalInactive: (dx, dy) => {
+                const gx = Math.floor(this.logicGridW / 2) + dx;
+                const gy = Math.floor(this.logicGridH / 2) + dy;
+                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH) {
+                    this.logicGrid[gy * this.logicGridW + gx] = 0;
+                }
+            },
+            setLayerActive: (dx, dy, l, frame) => {
+                const gx = Math.floor(this.logicGridW / 2) + dx;
+                const gy = Math.floor(this.logicGridH / 2) + dy;
+                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
+                    this.layerGrids[l][gy * this.logicGridW + gx] = frame;
+                }
+            },
+            setLayerInactive: (dx, dy, l) => {
+                const gx = Math.floor(this.logicGridW / 2) + dx;
+                const gy = Math.floor(this.logicGridH / 2) + dy;
+                if (gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && this.layerGrids[l]) {
+                    this.layerGrids[l][gy * this.logicGridW + gx] = -1;
+                }
+            }
+        };
+        
+        if (this.sequenceManager && this.sequenceManager._executeNudge) {
+            this.sequenceManager._executeNudge(this, x, y, w, h, face, layer, ctx);
         }
     }
 
