@@ -7,6 +7,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         
         this.timer = 0;
         this.genTimer = 0;
+        this.logicScale = 1.5; // Allow expansion 50% past screen edges to prevent border stalls
     }
 
     _initShadowWorld() {
@@ -80,6 +81,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (this.active && !force) return false;
         if (!super.trigger(force)) return false;
 
+        console.log("QuantizedBlockGenerator: Triggered");
         this.timer = 0;
         this.genTimer = 0;
         this.animFrame = 0;
@@ -107,6 +109,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _initProceduralState() {
         super._initProceduralState();
+        const total = this.logicGridW * this.logicGridH;
+        if (!this._sharedGrid || this._sharedGrid.length !== total) {
+            this._sharedGrid = new Uint8Array(total);
+            this._sharedVisited = new Uint8Array(total);
+        }
     }
 
     update() {
@@ -159,7 +166,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             this._updateRenderGridLogic();
 
-            if (!this.debugMode && this.timer >= durationFrames) {
+            const isCovered = this._isCanvasFullyCovered();
+            const timedOut = this.timer >= durationFrames;
+
+            if (!this.debugMode && (timedOut || isCovered)) {
+                console.log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {
@@ -170,6 +181,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const fadeFrames = s.quantizedGenerateV2FadeFrames || 60;
             this.alpha = Math.max(0, 1.0 - (this.timer / fadeFrames));
             if (this.timer >= fadeFrames) {
+                console.log("QuantizedBlockGenerator: Effect complete.");
                 this.active = false;
                 this.state = 'IDLE';
                 this.g.clearAllOverrides();
@@ -201,30 +213,146 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             return;
         }
 
-        // Shuffle pool
-        for (let i = pool.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [pool[i], pool[j]] = [pool[j], pool[i]];
+        // Optimized growth loop: attempt behaviors until success or quota met
+        let success = false;
+        const maxRetries = 5; 
+        for (let r = 0; r < maxRetries; r++) {
+            // Reset spine direction frame to allow re-selection per retry if stalled
+            this._currentStepDirectionFrame = -1;
+
+            // Shuffle pool
+            for (let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+
+            let totalTarget = Math.random() < 0.5 ? 1 : 2;
+            for (let i = 0; i < totalTarget; i++) {
+                const behavior = pool[i % pool.length];
+                if (behavior()) {
+                    success = true;
+                }
+            }
+            if (success) break;
         }
 
-        let totalTarget = Math.random() < 0.5 ? 1 : 2;
-        for (let i = 0; i < totalTarget; i++) {
-            const behavior = pool[i % pool.length];
-            behavior();
+        // Emergency "Force Fill" if primary behaviors stalled but canvas isn't covered
+        if (!success) {
+            if (this._attemptForceFill()) {
+                success = true;
+            }
+        }
+
+        if (!success && !this._isCanvasFullyCovered()) {
+            console.warn("QuantizedBlockGenerator: Growth stalled - no safe move found for either layer.");
         }
 
         this._performHoleCleanup();
+
+        // Final Logic Grid Sync
+        const w = this.logicGridW, h = this.logicGridH;
+        this.logicGrid.fill(0);
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        for (const b of this.activeBlocks) {
+            const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
+            const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
+            for (let gy = y1; gy <= y2; gy++) {
+                const rowOff = gy * w;
+                for (let gx = x1; gx <= x2; gx++) this.logicGrid[rowOff + gx] = 1;
+            }
+        }
+    }
+
+    _attemptForceFill() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return false;
+        
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        
+        // Find empty spots in Layer 0 or Layer 1
+        for (let l = 0; l <= 1; l++) {
+            const grid = this.layerGrids[l];
+            if (!grid) continue;
+            
+            // Try to find a cell that's empty but has a neighbor
+            for (let gy = 0; gy < h; gy++) {
+                for (let gx = 0; gx < w; gx++) {
+                    const idx = gy * w + gx;
+                    if (grid[idx] === -1) {
+                        const hasNeighbor = 
+                            (gx > 0 && grid[idx - 1] !== -1) ||
+                            (gx < w - 1 && grid[idx + 1] !== -1) ||
+                            (gy > 0 && grid[idx - w] !== -1) ||
+                            (gy < h - 1 && grid[idx + w] !== -1);
+                        
+                        if (hasNeighbor) {
+                            const bx = gx - cx, by = gy - cy;
+                            if (this._validateAdditionSafety(bx, by, l)) {
+                                this._spawnBlock(bx, by, 1, 1, l, true, false, 0, true, true);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    _validateAdditionSafety(bx, by, layer) {
+        const nextBlocks = this.activeBlocks.map(b => ({...b}));
+        nextBlocks.push({ x: bx, y: by, w: 1, h: 1, layer });
+        return this._checkEnvelopeDrift(nextBlocks);
+    }
+
+    _isCanvasFullyCovered() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return false;
+        
+        const bs = this.getBlockSize();
+        // Compute the visible logic boundaries relative to the oversized logic grid
+        const { offX, offY } = this._computeCenteredOffset(w, h, bs.w, bs.h);
+        const visibleW = Math.ceil(this.g.cols / bs.w);
+        const visibleH = Math.ceil(this.g.rows / bs.h);
+        
+        const startX = Math.max(0, Math.floor(offX));
+        const endX = Math.min(w, startX + visibleW);
+        const startY = Math.max(0, Math.floor(offY));
+        const endY = Math.min(h, startY + visibleH);
+
+        for (let l = 0; l <= 1; l++) {
+            const grid = this.layerGrids[l];
+            if (!grid) return false;
+            for (let gy = startY; gy < endY; gy++) {
+                const rowOff = gy * w;
+                for (let gx = startX; gx < endX; gx++) {
+                    if (grid[rowOff + gx] === -1) return false;
+                }
+            }
+        }
+        return true;
     }
 
     _attemptNudgeGrowth() {
-        if (!this.logicGridW || !this.logicGridH) return;
+        if (!this.logicGridW || !this.logicGridH) return false;
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
         const minLX = -cx, maxLX = this.logicGridW - 1 - cx;
         const minLY = -cy, maxLY = this.logicGridH - 1 - cy;
 
-        // Select axis and execute nudge
-        for (let attempt = 0; attempt < 40; attempt++) {
+        const bs = this.getBlockSize();
+        const { offX, offY } = this._computeCenteredOffset(this.logicGridW, this.logicGridH, bs.w, bs.h);
+        const visibleW = Math.ceil(this.g.cols / bs.w);
+        const visibleH = Math.ceil(this.g.rows / bs.h);
+        const pStatus = this._getPerimeterStatus(offX, offY, visibleW, visibleH);
+
+        // Optimization: Pre-allocate lane bounds to avoid object creation in loop
+        if (!this._laneMin0 || this._laneMin0.length < 8) {
+            this._laneMin0 = new Float32Array(8); this._laneMax0 = new Float32Array(8);
+            this._laneMin1 = new Float32Array(8); this._laneMax1 = new Float32Array(8);
+        }
+
+        for (let attempt = 0; attempt < 50; attempt++) {
             const axis = Math.random() < 0.5 ? 'X' : 'Y';
             const size = Math.floor(Math.random() * 3) + 1;
             const targetLayer = Math.random() < 0.5 ? 0 : 1;
@@ -232,74 +360,175 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             let x, y, w, h, dir, units;
             if (axis === 'X') {
-                w = size; h = 1; x = Math.floor(Math.random() * (this.logicGridW - w + 1)) + minLX; y = 0;
-                dir = Math.random() < 0.5 ? 'N' : 'S';
-                units = w;
+                w = size; h = 1;
+                x = this._getBiasedCoordinate(minLX, maxLX, w, pStatus, 'X');
+                y = 0;
+                dir = Math.random() < 0.5 ? 'N' : 'S'; units = w;
             } else {
-                w = 1; h = size; x = 0; y = Math.floor(Math.random() * (this.logicGridH - h + 1)) + minLY;
-                dir = Math.random() < 0.5 ? 'E' : 'W';
-                units = h;
+                w = 1; h = size;
+                x = 0;
+                y = this._getBiasedCoordinate(minLY, maxLY, h, pStatus, 'Y');
+                dir = Math.random() < 0.5 ? 'E' : 'W'; units = h;
             }
 
-            const laneEdges = { 
-                0: Array(units).fill(null).map(() => ({ min: Infinity, max: -Infinity })),
-                1: Array(units).fill(null).map(() => ({ min: Infinity, max: -Infinity }))
-            };
+            this._laneMin0.fill(Infinity); this._laneMax0.fill(-Infinity);
+            this._laneMin1.fill(Infinity); this._laneMax1.fill(-Infinity);
 
-            for (const b of this.activeBlocks) {
+            for (let i = 0; i < this.activeBlocks.length; i++) {
+                const b = this.activeBlocks[i];
                 const overlapStart = Math.max(axis === 'X' ? x : y, axis === 'X' ? b.x : b.y);
                 const overlapEnd = Math.min((axis === 'X' ? x + w : y + h), (axis === 'X' ? b.x + b.w : b.y + b.h));
                 if (overlapStart < overlapEnd) {
-                    const m = laneEdges[b.layer];
+                    const lMin = b.layer === 0 ? this._laneMin0 : this._laneMin1;
+                    const lMax = b.layer === 0 ? this._laneMax0 : this._laneMax1;
                     for (let k = overlapStart; k < overlapEnd; k++) {
                         const idx = k - (axis === 'X' ? x : y);
                         const valMin = axis === 'X' ? b.y : b.x;
                         const valMax = axis === 'X' ? (b.y + b.h - 1) : (b.x + b.w - 1);
-                        m[idx].min = Math.min(m[idx].min, valMin);
-                        m[idx].max = Math.max(m[idx].max, valMax);
+                        lMin[idx] = Math.min(lMin[idx], valMin);
+                        lMax[idx] = Math.max(lMax[idx], valMax);
                     }
                 }
             }
 
-            // VALIDATION: Must have blocks in the target lane to nudge
-            let laneHasTarget = false;
-            for (let i = 0; i < units; i++) {
-                if (laneEdges[targetLayer][i].min !== Infinity) {
-                    laneHasTarget = true;
-                    break;
-                }
-            }
-            if (!laneHasTarget) continue;
+            const checkLane = (layer) => {
+                const minArr = layer === 0 ? this._laneMin0 : this._laneMin1;
+                for (let i = 0; i < units; i++) if (minArr[i] !== Infinity) return true;
+                return false;
+            };
+            if (!checkLane(targetLayer)) continue;
+
+            const tLaneMin = targetLayer === 0 ? this._laneMin0 : this._laneMin1;
+            const tLaneMax = targetLayer === 0 ? this._laneMax0 : this._laneMax1;
+            const oLaneMin = otherLayer === 0 ? this._laneMin0 : this._laneMin1;
+            const oLaneMax = otherLayer === 0 ? this._laneMax0 : this._laneMax1;
 
             let pullOther = false;
             for (let i = 0; i < units; i++) {
-                const t = laneEdges[targetLayer][i], o = laneEdges[otherLayer][i];
-                if (o.min === Infinity) continue; // Nothing to pull in this column/row
-                if (dir === 'N' || dir === 'W') {
-                    if (t.min <= o.min - 2) pullOther = true;
-                } else {
-                    if (t.max >= o.max + 2) pullOther = true;
+                const tm = tLaneMin[i];
+                const om = oLaneMin[i];
+                const oM = oLaneMax[i];
+                if (om === Infinity) continue;
+                if (dir === 'N' || dir === 'W') { if (tm <= om - 2) pullOther = true; }
+                else { 
+                    const tM = tLaneMax[i];
+                    if (tM >= oM + 2) pullOther = true; 
                 }
                 if (pullOther) break;
             }
 
             const minBound = (axis === 'X') ? minLY : minLX;
             const maxBound = (axis === 'X') ? maxLY : maxLX;
-            let canNudge = true;
-            const checkBound = (m, d) => {
-                if (d === 'N' || d === 'W') return !m.some(e => e.min !== Infinity && e.min <= minBound);
-                return !m.some(e => e.max !== -Infinity && e.max >= maxBound);
+
+            const checkBound = (mMin, mMax, d) => {
+                if (d === 'N' || d === 'W') {
+                    for (let i = 0; i < units; i++) if (mMin[i] !== Infinity && mMin[i] <= minBound) return false;
+                } else {
+                    for (let i = 0; i < units; i++) if (mMax[i] !== -Infinity && mMax[i] >= maxBound) return false;
+                }
+                return true;
             };
 
-            if (!checkBound(laneEdges[targetLayer], dir)) canNudge = false;
-            if (canNudge && pullOther && !checkBound(laneEdges[otherLayer], dir)) canNudge = false;
+            let canNudge = checkBound(tLaneMin, tLaneMax, dir);
+            if (canNudge && pullOther && !checkBound(oLaneMin, oLaneMax, dir)) canNudge = false;
 
             if (canNudge) {
                 super._nudge(x, y, w, h, dir, targetLayer);
                 if (pullOther) super._nudge(x, y, w, h, dir, otherLayer);
-                return;
+                return true;
             }
         }
+        return false;
+    }
+
+    _getBiasedCoordinate(minL, maxL, size, pStatus, axis) {
+        // Priority: within 2 blocks of center if perimeter not reached
+        const centerReached = (axis === 'X') ? (pStatus.E && pStatus.W) : (pStatus.N && pStatus.S);
+        
+        if (!centerReached && Math.random() < 0.8) {
+            const range = 2;
+            const low = Math.max(minL, -range);
+            const high = Math.min(maxL - size, range);
+            return Math.floor(Math.random() * (high - low + 1)) + low;
+        }
+        
+        // Perimeter reached or 20% random: pick anywhere
+        return Math.floor(Math.random() * (maxL - size - minL + 1)) + minL;
+    }
+
+    _getPerimeterStatus(offX, offY, visibleW, visibleH) {
+        const w = this.logicGridW, h = this.logicGridH;
+        const startX = Math.max(0, Math.floor(offX));
+        const endX = Math.min(w, startX + visibleW);
+        const startY = Math.max(0, Math.floor(offY));
+        const endY = Math.min(h, startY + visibleH);
+
+        const status = { N: true, S: true, E: true, W: true };
+        
+        const check = (layer) => {
+            const grid = this.layerGrids[layer];
+            if (!grid) return;
+            // North perimeter (top row of visible)
+            for (let x = startX; x < endX; x++) if (grid[startY * w + x] === -1) status.N = false;
+            // South perimeter (bottom row of visible)
+            const lastY = endY - 1;
+            for (let x = startX; x < endX; x++) if (grid[lastY * w + x] === -1) status.S = false;
+            // West perimeter (left col of visible)
+            for (let y = startY; y < endY; y++) if (grid[y * w + startX] === -1) status.W = false;
+            // East perimeter (right col of visible)
+            const lastX = endX - 1;
+            for (let y = startY; y < endY; y++) if (grid[y * w + lastX] === -1) status.E = false;
+        };
+
+        check(0); check(1);
+        return status;
+    }
+
+    _validateNudgeSafety(x, y, w, h, face, targetLayer, pullOther) {
+        if (!this.activeBlocks || this.activeBlocks.length === 0) return true;
+        const nextBlocks = this.activeBlocks.map(b => ({...b}));
+        const uf = face.toUpperCase();
+        const axis = (uf === 'N' || uf === 'S') ? 'Y' : 'X';
+        const dSign = (uf === 'N' || uf === 'W') ? -1 : 1;
+        const shiftAmt = (axis === 'X' ? w : h);
+
+        const apply = (l) => {
+            for (let i = 0; i < nextBlocks.length; i++) {
+                const b = nextBlocks[i];
+                if (b.layer !== l) continue;
+                let move = false;
+                if (axis === 'X') { if (b.y >= y && b.y < y + h && ((dSign > 0 && b.x >= x) || (dSign < 0 && b.x <= x + w - 1))) move = true; }
+                else { if (b.x >= x && b.x < x + w && ((dSign > 0 && b.y >= y) || (dSign < 0 && b.y <= y + h - 1))) move = true; }
+                if (move) { if (axis === 'X') b.x += (dSign * shiftAmt); else b.y += (dSign * shiftAmt); }
+            }
+            nextBlocks.push({ x, y, w, h, layer: l });
+        };
+
+        apply(targetLayer);
+        if (pullOther) apply(1 - targetLayer);
+
+        return this._checkEnvelopeDrift(nextBlocks);
+    }
+
+    _checkEnvelopeDrift(blocks) {
+        const lgW = this.logicGridW, lgH = this.logicGridH;
+        const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
+        const colMin0 = new Int32Array(lgW).fill(10000), colMax0 = new Int32Array(lgW).fill(-10000);
+        const colMin1 = new Int32Array(lgW).fill(10000), colMax1 = new Int32Array(lgW).fill(-10000);
+        const rowMin0 = new Int32Array(lgH).fill(10000), rowMax0 = new Int32Array(lgH).fill(-10000);
+        const rowMin1 = new Int32Array(lgH).fill(10000), rowMax1 = new Int32Array(lgH).fill(-10000);
+
+        for (let i = 0; i < blocks.length; i++) {
+            const b = blocks[i];
+            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
+            const targetMinCol = b.layer === 0 ? colMin0 : colMin1, targetMaxCol = b.layer === 0 ? colMax0 : colMax1;
+            const targetMinRow = b.layer === 0 ? rowMin0 : rowMin1, targetMaxRow = b.layer === 0 ? rowMax0 : rowMax1;
+            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { targetMinCol[x] = Math.min(targetMinCol[x], by1); targetMaxCol[x] = Math.max(targetMaxCol[x], by2); }
+            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { targetMinRow[y] = Math.min(targetMinRow[y], bx1); targetMaxRow[y] = Math.max(targetMaxRow[y], bx2); }
+        }
+        for (let x = 0; x < lgW; x++) if (colMin0[x] !== 10000 && colMin1[x] !== 10000) if (Math.abs(colMin0[x] - colMin1[x]) > 3 || Math.abs(colMax0[x] - colMax1[x]) > 3) return false;
+        for (let y = 0; y < lgH; y++) if (rowMin0[y] !== 10000 && rowMin1[y] !== 10000) if (Math.abs(rowMin0[y] - rowMin1[y]) > 3 || Math.abs(rowMax0[y] - rowMax1[y]) > 3) return false;
+        return true;
     }
 
     _mergeLayer1(maxCycle = -1) {

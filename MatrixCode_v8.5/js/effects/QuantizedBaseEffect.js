@@ -72,7 +72,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _checkDirtiness() {
-        if (this._maskDirty) return; 
+        if (this._maskDirty || this._previewActive) return; 
 
         const fadeIn = Math.max(1, this.getConfig('FadeInFrames') || 0);
         const fadeOut = Math.max(1, this.getConfig('FadeFrames') || 0);
@@ -107,14 +107,28 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         for (let i = 0; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
+            
+            // Never prune ops that haven't been processed yet
             if (i >= processedLimit) {
                 newOps.push(op);
                 continue;
             }
+
+            // Never prune permanent structural ops (needed for Editor reconstruction)
+            if (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock') {
+                if (!op.expireFrame) {
+                    newOps.push(op);
+                    continue;
+                }
+            }
+
+            // Always keep line ops (they handle their own fading)
             if (op.type === 'addLine' || op.type === 'removeLine' || op.type === 'remLine') {
                 newOps.push(op);
                 continue;
             }
+
+            // Prune transient ops if they are old enough
             if ((op.startFrame || 0) > cutoff) {
                 newOps.push(op);
             } else {
@@ -771,12 +785,15 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (previewOp) {
                 this._executeStepOps([previewOp], this.animFrame);
             }
+            
+            const opsAdded = this.maskOps.length - savedMaskOpsLen;
             if (typeof this._updateRenderGridLogic === 'function') {
                 this._updateRenderGridLogic();
             }
             this._maskDirty = true; 
             this._lastPreviewSavedLogic = savedLogicGrid;
             this._lastPreviewSavedOpsLen = savedMaskOpsLen;
+            this._lastPreviewOpsAddedCount = opsAdded;
             this._lastPreviewStateHash = stateHash;
             this._previewActive = true;
         }
@@ -825,7 +842,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.drawImage(this.scratchCanvas, 0, 0);
         ctx.restore();
         if (this._previewActive) {
-            this.maskOps.length = this._lastPreviewSavedOpsLen;
+            // Surgically remove exactly the number of ops we added for the preview
+            if (this._lastPreviewOpsAddedCount > 0) {
+                this.maskOps.splice(this._lastPreviewSavedOpsLen, this._lastPreviewOpsAddedCount);
+            }
             this.logicGrid.set(this._lastPreviewSavedLogic);
             this.renderGrid.fill(-1);
             for (let i = 0; i < 3; i++) {
@@ -1055,11 +1075,25 @@ class QuantizedBaseEffect extends AbstractEffect {
                         id: id
                     });
                 } else if (op.type === 'removeBlock') {
-                    const bx = op.x1, by = op.y1;
-                    const layer = op.layer || 0;
-                    this.activeBlocks = this.activeBlocks.filter(b => 
-                        !(b.x === bx && b.y === by && b.layer === layer)
-                    );
+                    const bx1 = op.x1, by1 = op.y1;
+                    const bx2 = (op.x2 !== undefined) ? op.x2 : bx1;
+                    const by2 = (op.y2 !== undefined) ? op.y2 : by1;
+                    const layer = op.layer; // can be undefined
+
+                    this.activeBlocks = this.activeBlocks.filter(b => {
+                        // If layer is specified, only remove from that layer
+                        if (layer !== undefined && b.layer !== layer) return true;
+                        
+                        // Check if block b is within or overlaps with removal rect (bx1, by1) to (bx2, by2)
+                        // For structural blocks, we usually want to remove it if its anchor (top-left) matches,
+                        // or if it's fully contained. Let's use anchor match for simplicity as most ops are 1x1 removals of larger blocks.
+                        // Actually, let's check if the block's area overlaps with the removal area.
+                        const b_x2 = b.x + b.w - 1;
+                        const b_y2 = b.y + b.h - 1;
+                        
+                        const overlap = !(b.x > bx2 || b_x2 < bx1 || b.y > by2 || b_y2 < by1);
+                        return !overlap;
+                    });
                 }
             }
         }
@@ -1296,11 +1330,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (let gx = minX; gx <= maxX; gx++) {
                 const idx = gy * blocksX + gx;
                 if (layer === 0) {
-                    if (!this.layerGrids[0]) return;
-                    this.layerGrids[0][idx] = value;
+                    if (this.layerGrids[0]) this.layerGrids[0][idx] = value;
                 } else if (layer === 1) {
-                    if (!this.layerGrids[1]) return;
-                    this.layerGrids[1][idx] = value;
+                    if (this.layerGrids[1]) this.layerGrids[1][idx] = value;
+                } else if (layer === 2) {
+                    if (this.layerGrids[2]) this.layerGrids[2][idx] = value;
                 }
                 
                 const l0 = this.layerGrids[0] ? this.layerGrids[0][idx] : -1;
@@ -1437,6 +1471,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // 6. Execute nudges
+        let anySuccess = false;
         for (let i = 0; i < count; i++) {
             // Re-apply 'Catch' logic before every nudge to ensure strict synchronization
             if (layer === 1 && state.l1Len >= state.l0Len + 4) {
@@ -1445,10 +1480,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                 layer = 1;
             }
 
-            this._nudge(0, 0, nw, nh, direction, layer);
-            if (layer === 0) state.l0Len++;
-            else state.l1Len++;
+            if (this._nudge(0, 0, nw, nh, direction, layer)) {
+                if (layer === 0) state.l0Len++;
+                else state.l1Len++;
+                anySuccess = true;
+            }
         }
+        return anySuccess;
     }
 
     _attemptNudgeGrowth() {
@@ -1714,6 +1752,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (this.sequenceManager && this.sequenceManager._executeNudge) {
             this.sequenceManager._executeNudge(this, x, y, w, h, face, layer, ctx);
         }
+        return true;
     }
 
     _attemptCrawlerGrowth(existingState) {

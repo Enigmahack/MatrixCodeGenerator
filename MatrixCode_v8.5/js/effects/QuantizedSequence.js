@@ -384,11 +384,13 @@ class QuantizedSequence {
 
                 fx.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
                 setLayerInactive(m.x, m.y, targetLayerIdx);
+                setLocalInactive(m.x, m.y); // Sync logicGrid
 
                 let nx = m.x, ny = m.y;
                 if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                fx.maskOps.push({ type: 'addSmart', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
+                fx.maskOps.push({ type: 'addSmart', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: m.start, startPhase: fx.expansionPhase, layer: targetLayerIdx });
                 setLayerActive(nx, ny, targetLayerIdx, m.start);
+                setLocalActive(nx, ny); // Sync logicGrid (already relative)
             }
         }
 
