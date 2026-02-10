@@ -82,21 +82,12 @@ class QuantizedSequence {
         if (opCode === 1) { // add(x, y)
             const dx = step[i++];
             const dy = step[i++];
-            const alreadyActive = ctx.isActive(dx, dy);
             
             // State MUST always be updated for transitions/merges
             ctx.setLocalActive(dx, dy);
             ctx.setLayerActive(dx, dy, 0, now);
 
-            if (alreadyActive) {
-                // If already active, we just ensure perimeter lines are forced
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: fx.expansionPhase });
-            } else {
-                fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase });
-            }
+            fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase });
         } else if (opCode === 2) { // rem(x, y, mask)
             // ... (rest of numeric decoder remains the same)
             const dx = step[i++];
@@ -240,20 +231,12 @@ class QuantizedSequence {
         if (op === 'add') {
             const [dx, dy] = args;
             const targetLayer = layer !== undefined ? layer : 0;
-            const alreadyActive = isActive(dx, dy);
             
             // State MUST always be updated
             setLocalActive(dx, dy);
             setLayerActive(dx, dy, targetLayer, now);
 
-            if (alreadyActive && targetLayer === 0) {
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: fx.expansionPhase });
-                fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: fx.expansionPhase });
-            } else {
-                fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
-            }
+            fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayer });
         } else if (op === 'addSmart') {
             const [dx, dy] = args;
             const targetLayer = layer !== undefined ? layer : 0;
@@ -345,11 +328,11 @@ class QuantizedSequence {
         const toRelX = (bx) => bx - cx;
         const toRelY = (by) => by - cy;
 
-        for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
-            const grid = fx.layerGrids[layerIdx];
-            const edgeMap = (fx._cachedEdgeMaps && fx._cachedEdgeMaps[layerIdx]) ? fx._cachedEdgeMaps[layerIdx] : null;
+        const targetLayerIdx = (layer !== undefined) ? layer : 0;
+        const grid = fx.layerGrids[targetLayerIdx];
+        const edgeMap = (fx._cachedEdgeMaps && fx._cachedEdgeMaps[targetLayerIdx]) ? fx._cachedEdgeMaps[targetLayerIdx] : null;
 
-            if (!grid) continue;
+        if (grid) {
             const moves = [];
             for (let by = 0; by < rangeH; by++) {
                 for (let bx = 0; bx < rangeW; bx++) {
@@ -389,7 +372,7 @@ class QuantizedSequence {
                             if (axis === 'X') nx += (dir * w); else ny += (dir * h);
                             const type = (entry.type === 'add') ? 'addLine' : 'removeLine';
                             fx.maskOps.push({
-                                type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx
+                                type: type, x1: nx, y1: ny, x2: nx, y2: ny, face: face, force: true, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx
                             });
                         }
                     };
@@ -399,21 +382,21 @@ class QuantizedSequence {
                     copyLineOp('E', `V_${m.bx + 1}_${m.by}`);
                 }
 
-                fx.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx });
-                setLayerInactive(m.x, m.y, layerIdx);
+                fx.maskOps.push({ type: 'removeBlock', x1: m.x, y1: m.y, x2: m.x, y2: m.y, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
+                setLayerInactive(m.x, m.y, targetLayerIdx);
 
                 let nx = m.x, ny = m.y;
                 if (axis === 'X') nx += (dir * w); else ny += (dir * h);
-                fx.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: layerIdx });
-                setLayerActive(nx, ny, layerIdx, m.start);
+                fx.maskOps.push({ type: 'add', x1: nx, y1: ny, x2: nx, y2: ny, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
+                setLayerActive(nx, ny, targetLayerIdx, m.start);
             }
         }
 
-        fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: (layer || 0) });
+        fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx + w - 1, y2: dy + h - 1, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayerIdx });
         for (let y = dy; y < dy + h; y++) {
             for (let x = dx; x < dx + w; x++) {
                 setLocalActive(x, y);
-                setLayerActive(x, y, (layer || 0), now);
+                setLayerActive(x, y, targetLayerIdx, now);
             }
         }
     }

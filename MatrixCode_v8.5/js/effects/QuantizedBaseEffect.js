@@ -64,6 +64,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.activeBlocks = [];
         this.crawlers = [];
         this.unfoldSequences = [];
+        this.visibleLayers = [true, true, true];
         this.nextBlockId = 0;
         this.spineState = null;
         this.overlapState = { step: 0 };
@@ -604,9 +605,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         for (let idx = 0; idx < totalBlocks; idx++) {
             let val = -1;
-            if (this.layerGrids[2][idx] !== -1) val = this.layerGrids[2][idx];
-            else if (this.layerGrids[0][idx] !== -1) val = this.layerGrids[0][idx];
+            if (this.layerGrids[0][idx] !== -1) val = this.layerGrids[0][idx];
             else if (this.layerGrids[1][idx] !== -1) val = this.layerGrids[1][idx];
+            else if (this.layerGrids[2][idx] !== -1) val = this.layerGrids[2][idx];
             this.renderGrid[idx] = val;
         }
         this._lastProcessedOpIndex = i;
@@ -888,7 +889,9 @@ class QuantizedBaseEffect extends AbstractEffect {
          ctx.save();
         const layerColors = ['rgba(0, 255, 0, 0.15)', 'rgba(0, 200, 255, 0.15)', 'rgba(255, 0, 200, 0.15)'];
         const layerLines = ['rgba(0, 255, 0, 0.8)', 'rgba(0, 200, 255, 0.8)', 'rgba(255, 0, 200, 0.8)'];
-        for (let i = 0; i < 3; i++) {
+        // Draw Fills in order 2 -> 1 -> 0 so Layer 0 is on top
+        for (let i = 2; i >= 0; i--) {
+            if (this.visibleLayers && this.visibleLayers[i] === false) continue;
             const rGrid = this.layerGrids[i];
             if (rGrid) {
                 ctx.fillStyle = layerColors[i];
@@ -919,7 +922,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
             return grid[by * blocksX + bx];
         };
-        for (let i = 0; i < 3; i++) {
+
+        // Draw Lines in order 2 -> 1 -> 0 so Layer 0 is on top
+        for (let i = 2; i >= 0; i--) {
+            if (this.visibleLayers && this.visibleLayers[i] === false) continue;
             const rGrid = this.layerGrids[i];
             if (!rGrid) continue;
             const pSolid = new Path2D();
@@ -927,20 +933,31 @@ class QuantizedBaseEffect extends AbstractEffect {
                 for (let y = 0; y < blocksY; y++) {
                     const activeL = (getVal(rGrid, x - 1, y) !== -1);
                     const activeR = (getVal(rGrid, x, y) !== -1);
-                    if (!activeL && !activeR) continue;
                     if (activeL !== activeR) {
-                        let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        cellX = Math.max(0, Math.min(this.g.cols, cellX));
-                        let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        let cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        cellY1 = Math.max(0, Math.min(this.g.rows, cellY1));
-                        cellY2 = Math.max(0, Math.min(this.g.rows, cellY2));
+                        // Perimeter of Layer i. Is it obscured by any Layer j < i?
+                        let obscured = false;
+                        for (let j = 0; j < i; j++) {
+                            // Only obscure if the higher layer is also VISIBLE in the editor
+                            if (this.visibleLayers && this.visibleLayers[j] === false) continue;
+                            if (getVal(this.layerGrids[j], x - 1, y) !== -1 || getVal(this.layerGrids[j], x, y) !== -1) {
+                                obscured = true;
+                                break;
+                            }
+                        }
+                        if (!obscured) {
+                            let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                            cellX = Math.max(0, Math.min(this.g.cols, cellX));
+                            let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                            let cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                            cellY1 = Math.max(0, Math.min(this.g.rows, cellY1));
+                            cellY2 = Math.max(0, Math.min(this.g.rows, cellY2));
 
-                        const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
-                        const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
-                        const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
-                        pSolid.moveTo(px, py1);
-                        pSolid.lineTo(px, py2);
+                            const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
+                            const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
+                            const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
+                            pSolid.moveTo(px, py1);
+                            pSolid.lineTo(px, py2);
+                        }
                     }
                 }
             }
@@ -948,20 +965,31 @@ class QuantizedBaseEffect extends AbstractEffect {
                 for (let x = 0; x < blocksX; x++) {
                     const activeT = (getVal(rGrid, x, y - 1) !== -1);
                     const activeB = (getVal(rGrid, x, y) !== -1);
-                    if (!activeT && !activeB) continue;
                     if (activeT !== activeB) {
-                        let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        cellY = Math.max(0, Math.min(this.g.rows, cellY));
-                        let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
-                        cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
+                        // Perimeter of Layer i. Is it obscured by any Layer j < i?
+                        let obscured = false;
+                        for (let j = 0; j < i; j++) {
+                            // Only obscure if the higher layer is also VISIBLE in the editor
+                            if (this.visibleLayers && this.visibleLayers[j] === false) continue;
+                            if (getVal(this.layerGrids[j], x, y - 1) !== -1 || getVal(this.layerGrids[j], x, y) !== -1) {
+                                obscured = true;
+                                break;
+                            }
+                        }
+                        if (!obscured) {
+                            let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                            cellY = Math.max(0, Math.min(this.g.rows, cellY));
+                            let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                            let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                            cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
+                            cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
 
-                        const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
-                        const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
-                        const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
-                        pSolid.moveTo(px1, py);
-                        pSolid.lineTo(px2, py);
+                            const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                            const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
+                            const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
+                            pSolid.moveTo(px1, py);
+                            pSolid.lineTo(px2, py);
+                        }
                     }
                 }
             }
@@ -1275,7 +1303,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const l0 = this.layerGrids[0] ? this.layerGrids[0][idx] : -1;
                 const l1 = this.layerGrids[1] ? this.layerGrids[1][idx] : -1;
                 const l2 = this.layerGrids[2] ? this.layerGrids[2][idx] : -1;
-                this.renderGrid[idx] = (l2 !== -1) ? l2 : (l1 !== -1 ? l1 : l0);
+                this.renderGrid[idx] = (l0 !== -1) ? l0 : (l1 !== -1 ? l1 : l2);
             }
         }
     }
@@ -1512,6 +1540,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const shiftAmt = (axis === 'X' ? w : h);
         for (const b of this.activeBlocks) {
+            if (b.layer !== layer) continue;
             let shouldMove = false;
             if (axis === 'X') {
                 const laneMatch = (b.y >= y && b.y < y + h);

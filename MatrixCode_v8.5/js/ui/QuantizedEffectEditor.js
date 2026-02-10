@@ -10,6 +10,7 @@ class QuantizedEffectEditor {
         this.currentTool = 'select'; 
         this.currentFace = 'N'; 
         this.currentLayer = 0; // 0, 1, 2
+        this.visibleLayers = [true, true, true];
         this.layerColors = ['#0f0', '#0af', '#f0c']; // Green, Blue, Magenta
         this.hoverBlock = null;
 
@@ -79,6 +80,10 @@ class QuantizedEffectEditor {
                  if (msg.tool) this.currentTool = msg.tool;
                  if (msg.face) this.currentFace = msg.face;
                  if (msg.layer !== undefined) this.currentLayer = msg.layer;
+                 if (msg.visibleLayers) {
+                     this.visibleLayers = [...msg.visibleLayers];
+                     if (this.effect) this.effect.visibleLayers = [...msg.visibleLayers];
+                 }
                  
                  if (msg.selectionRect) {
                      this.selectionRect = msg.selectionRect;
@@ -116,6 +121,7 @@ class QuantizedEffectEditor {
                 tool: this.currentTool,
                 face: this.currentFace,
                 layer: this.currentLayer,
+                visibleLayers: this.visibleLayers,
                 selectionRect: this.selectionRect,
                 selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null
             });
@@ -131,6 +137,7 @@ class QuantizedEffectEditor {
                 tool: this.currentTool,
                 face: this.currentFace,
                 layer: this.currentLayer,
+                visibleLayers: this.visibleLayers,
                 selectionRect: this.selectionRect,
                 selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null
             });
@@ -158,6 +165,10 @@ class QuantizedEffectEditor {
             if (msg.tool) this.currentTool = msg.tool;
             if (msg.face) this.currentFace = msg.face;
             if (msg.layer !== undefined) this.currentLayer = msg.layer;
+            if (msg.visibleLayers) {
+                this.visibleLayers = [...msg.visibleLayers];
+                if (this.effect) this.effect.visibleLayers = [...msg.visibleLayers];
+            }
             
             if (msg.selectionRect) {
                 this.selectionRect = msg.selectionRect;
@@ -209,6 +220,12 @@ class QuantizedEffectEditor {
                 break;
             case 'setLayer': this.currentLayer = msg.layer; this.isDirty = true; this._updateUI(); break;
             case 'toggleHighlight': this.highlightChanges = msg.val; this.isDirty = true; break;
+            case 'toggleLayerVisibility':
+                this.visibleLayers[msg.layer] = msg.val;
+                if (this.effect) this.effect.visibleLayers[msg.layer] = msg.val;
+                this.isDirty = true;
+                this._updateUI(); // Refresh checkboxes if local
+                break;
             case 'toggleGrid': this.showGrid = msg.val; this.isDirty = true; break;
             case 'toggleShadow': 
                 if (this.effect) this.effect.c.set('layerEnableShadowWorld', msg.val); 
@@ -315,6 +332,7 @@ class QuantizedEffectEditor {
             layer: this.currentLayer,
             selectionRect: this.selectionRect,
             selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null,
+            visibleLayers: this.visibleLayers,
             currentStepOps: currentStepOps
         });
     }
@@ -1333,6 +1351,42 @@ class QuantizedEffectEditor {
         btnMergeSel.style.width = '100%';
         btnMergeSel.title = "Move only selected blocks from L1/L2 to L0.";
         layerControls.appendChild(btnMergeSel);
+
+        // Show layer toggles
+        const showLayerTitle = document.createElement('div');
+        showLayerTitle.textContent = 'Show layer:';
+        showLayerTitle.style.marginTop = '10px';
+        showLayerTitle.style.marginBottom = '5px';
+        showLayerTitle.style.fontSize = '12px';
+        layerControls.appendChild(showLayerTitle);
+
+        const showLayerGroup = document.createElement('div');
+        showLayerGroup.style.display = 'flex';
+        showLayerGroup.style.flexDirection = 'column';
+        showLayerGroup.style.gap = '2px';
+        
+        [0, 1, 2].forEach(l => {
+            const lbl = document.createElement('label');
+            lbl.style.display = 'flex';
+            lbl.style.alignItems = 'center';
+            lbl.style.fontSize = '12px';
+            lbl.style.cursor = 'pointer';
+            
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.checked = this.visibleLayers[l];
+            chk.style.marginRight = '5px';
+            chk.onchange = (e) => {
+                this.visibleLayers[l] = e.target.checked;
+                if (this.effect) this.effect.visibleLayers[l] = e.target.checked;
+                this.isDirty = true;
+                if (this.isStandalone) this._sendRemote({ type: 'toggleLayerVisibility', layer: l, val: e.target.checked });
+            };
+            
+            lbl.append(chk, `Layer ${l}`);
+            showLayerGroup.appendChild(lbl);
+        });
+        layerControls.appendChild(showLayerGroup);
 
         container.appendChild(layerControls);
 

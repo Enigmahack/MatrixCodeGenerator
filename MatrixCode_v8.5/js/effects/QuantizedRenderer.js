@@ -262,10 +262,11 @@ class QuantizedRenderer {
 
         const getLayerForBlock = (bx, by) => {
             const idx = by * blocksX + bx;
-            for (let i = 2; i >= 0; i--) {
+            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
+            for (let i = 0; i < 3; i++) {
                 if (fx.layerGrids[i] && fx.layerGrids[i][idx] !== -1) return i;
             }
-            return 0;
+            return -1;
         };
 
         const getFadeState = (deathFrame) => {
@@ -302,12 +303,16 @@ class QuantizedRenderer {
 
             const activeA = (getBlock(fx.renderGrid, ax, ay) !== -1);
             const activeB = (getBlock(fx.renderGrid, bx, by) !== -1);
+            const globalPerimeter = (activeA !== activeB);
 
             let isVisibleNow = false;
+            let edgeBirthFrame = -1;
 
             const key = `${type}_${x}_${y}`;
+            
+            // Check manual edge overrides (addLine/remLine)
             let manualOp = null;
-            for (let i = 2; i >= 0; i--) {
+            for (let i = 0; i < 3; i++) {
                 const em = this._cachedEdgeMaps[i];
                 if (em && em.has(key)) {
                     manualOp = em.get(key);
@@ -316,19 +321,37 @@ class QuantizedRenderer {
             }
 
             if (manualOp) {
-                if (manualOp.type === 'add') isVisibleNow = true;
-                else if (manualOp.type === 'rem') isVisibleNow = false;
-            }
-
-            let isLayerMerge = false;
-            if (!manualOp) {
-                if (activeA && activeB) {
-                    const layerA = getLayerForBlock(ax, ay);
-                    const layerB = getLayerForBlock(bx, by);
-                    if (layerA !== layerB) isVisibleNow = true;
-                    else isLayerMerge = true;
-                } else if (activeA !== activeB) {
+                if (manualOp.type === 'add') {
                     isVisibleNow = true;
+                    edgeBirthFrame = manualOp.op.startFrame || now;
+                } else if (manualOp.type === 'rem') {
+                    isVisibleNow = false;
+                }
+            } else {
+                // Layering Logic
+                for (let L = 0; L < 3; L++) {
+                    const grid = fx.layerGrids[L];
+                    const aL = (getBlock(grid, ax, ay) !== -1);
+                    const bL = (getBlock(grid, bx, by) !== -1);
+
+                    if (aL !== bL) {
+                        // Perimeter of Layer L. Is it obscured?
+                        let obscured = false;
+                        for (let M = 0; M < L; M++) {
+                            if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
+                                obscured = true;
+                                break;
+                            }
+                        }
+                        if (!obscured) {
+                            isVisibleNow = true;
+                            // Use the start frame of the blocks to determine birth frame
+                            const fA = getBlock(grid, ax, ay);
+                            const fB = getBlock(grid, bx, by);
+                            edgeBirthFrame = Math.max(fA, fB);
+                            break; 
+                        }
+                    }
                 }
             }
 
@@ -343,19 +366,7 @@ class QuantizedRenderer {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    let trueBirthFrame = now;
-                    if (manualOp && manualOp.op && manualOp.op.startFrame !== undefined) {
-                        trueBirthFrame = manualOp.op.startFrame;
-                    } else if (activeA && activeB) {
-                        const fA = getBlock(fx.renderGrid, ax, ay);
-                        const fB = getBlock(fx.renderGrid, bx, by);
-                        trueBirthFrame = Math.max(fA, fB);
-                    } else if (activeA) {
-                        trueBirthFrame = getBlock(fx.renderGrid, ax, ay);
-                    } else if (activeB) {
-                        trueBirthFrame = getBlock(fx.renderGrid, bx, by);
-                    }
-                    state.birthFrame = trueBirthFrame;
+                    state.birthFrame = (edgeBirthFrame !== -1) ? edgeBirthFrame : now;
                 }
             } else {
                 if (state.visible) {
@@ -363,7 +374,7 @@ class QuantizedRenderer {
                     fx.lastVisibilityChangeFrame = now;
                     state.birthFrame = -1;
                     
-                    const isNudged = !isLayerMerge && fx.suppressedFades.has(key);
+                    const isNudged = globalPerimeter && fx.suppressedFades.has(key);
                     if (isNudged) {
                         state.deathFrame = -1;
                     } else if (state.deathFrame === -1) {

@@ -194,7 +194,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const baseDuration = Math.max(1, this.c.derived.cycleDuration);
             const userSpeed = (s.quantizedGenerateV2Speed !== undefined) ? s.quantizedGenerateV2Speed : 5;
             const delayMult = 11 - userSpeed;
-            const interval = baseDuration * (delayMult / 4.0);
+            
+            const enNudge = (this.getConfig('EnableNudge') === true);
+            const intervalMult = enNudge ? 0.15 : 0.25; // Nudge mode runs faster (0.15 vs 0.25)
+            const interval = Math.max(1, baseDuration * (delayMult * intervalMult));
             
             this.genTimer++;
             if (this.genTimer >= interval) {
@@ -248,45 +251,54 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             this._mergeLayer1(-1); // Commit any remaining L1 blocks instantly
         }
 
-        // --- Startup Sequence (Phases 0-3) ---
-        if (this.expansionPhase === 0) {
-            this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
-            return;
-        }
-
-        const cardinals = [{x:0, y:-1}, {x:0, y:1}, {x:1, y:0}, {x:-1, y:0}];
-
-        if (this.expansionPhase === 1) {
-            const idx = Math.floor(Math.random() * 4);
-            this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
-            this.usedCardinalIndices = [idx];
-            return;
-        }
-
-        if (this.expansionPhase === 2) {
-            const available = [0, 1, 2, 3].filter(i => !this.usedCardinalIndices.includes(i));
-            for (let i = available.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [available[i], available[j]] = [available[j], available[i]];
+        if (enNudge) {
+            // --- Nudge Growth Startup Sequence ---
+            if (this.expansionPhase === 0) {
+                // Step 1: Central block on Layer 0
+                this._spawnBlock(0, 0, 1, 1, 0, false, false, 0, true, true);
+                return;
             }
-            const toAdd = available.slice(0, 2);
-            for (const idx of toAdd) {
-                this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
-                this.usedCardinalIndices.push(idx);
+            if (this.expansionPhase === 1) {
+                // Step 2: Opposing wings on Layer 1 (N/S or E/W)
+                const axis = Math.random() < 0.5 ? 'V' : 'H';
+                this.nudgeStartupAxis = axis; 
+                if (axis === 'V') {
+                    this._spawnBlock(0, -1, 1, 1, 1, false, false, 0, true, true); // N
+                    this._spawnBlock(0, 1, 1, 1, 1, false, false, 0, true, true);  // S
+                } else {
+                    this._spawnBlock(-1, 0, 1, 1, 1, false, false, 0, true, true); // W
+                    this._spawnBlock(1, 0, 1, 1, 1, false, false, 0, true, true);  // E
+                }
+                return;
             }
+            if (this.expansionPhase === 2) {
+                // Step 3: Opposite wings on Layer 1
+                // (Previous pair merges automatically via 'Delayed Merge Logic' above)
+                const prevAxis = this.nudgeStartupAxis || 'V';
+                const newAxis = (prevAxis === 'V') ? 'H' : 'V';
+                if (newAxis === 'V') {
+                    this._spawnBlock(0, -1, 1, 1, 1, false, false, 0, true, true);
+                    this._spawnBlock(0, 1, 1, 1, 1, false, false, 0, true, true);
+                } else {
+                    this._spawnBlock(-1, 0, 1, 1, 1, false, false, 0, true, true);
+                    this._spawnBlock(1, 0, 1, 1, 1, false, false, 0, true, true);
+                }
+                return;
+            }
+            if (this.expansionPhase === 3) {
+                // Step 4: Allow remaining Layer 1 blocks to merge (via Delayed Merge Logic in next step or now?)
+                // Actually Delayed Merge runs at START of step.
+                // So at start of Phase 3, it merges Phase 2 blocks (Cycle 2).
+                // We do nothing here to complete the startup.
+                return;
+            }
+
+            // Step 5+: Nudge Loop
+            this._attemptNudgeGrowth();
             return;
         }
 
-        if (this.expansionPhase === 3) {
-            const idx = [0, 1, 2, 3].find(i => !this.usedCardinalIndices.includes(i));
-            if (idx !== undefined) {
-                this._spawnBlock(cardinals[idx].x, cardinals[idx].y, 1, 1, 1, false, false, 0, true, true);
-            }
-            return;
-        }
-
-        // --- Step 5+ (Phase 4+): Procedural Generation ---
-
+        // --- Standard Growth Behaviors ---
         const enCyclic = getGenConfig('EnableCyclic') === true;
         const enSpine = getGenConfig('EnableSpine') === true;
         const enOverlap = getGenConfig('EnableOverlap') === true;
@@ -295,27 +307,20 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const enShift = getGenConfig('EnableShift') === true;
         const enCluster = getGenConfig('EnableCluster') === true;
 
-        if (enNudge) {
-            // Nudge Growth behavior: 1-2 strips per step, Stage -> Merge cycle
-            const count = Math.random() < 0.5 ? 1 : 2;
-            for (let i = 0; i < count; i++) this._attemptNudgeGrowth();
-        } else {
-            // Standard Growth behaviors: Original logic, instant L0
-            switch (mode) {
-                case 'unfold': if (enUnfold) this._attemptUnfoldPerimeterGrowth(); break;
-                case 'cyclic': if (enCyclic) this._attemptCyclicGrowth(); break;
-                case 'spine': if (enSpine) this._attemptSpineGrowth(); break;
-                case 'shift': if (enShift) this._attemptShiftGrowth(); break;
-                case 'cluster': if (enCluster) super._attemptClusterGrowth(); break;
-                case 'overlap': if (enOverlap) this._attemptLayerOverlap(); break;
-                case 'unfold_legacy': if (enUnfold) this._attemptUnfoldGrowth(); break;
-                case 'crawler': super._attemptGrowth(); break;
-                default: super._attemptGrowth(); break;
-            }
+        switch (mode) {
+            case 'unfold': if (enUnfold) this._attemptUnfoldPerimeterGrowth(); break;
+            case 'cyclic': if (enCyclic) this._attemptCyclicGrowth(); break;
+            case 'spine': if (enSpine) this._attemptSpineGrowth(); break;
+            case 'shift': if (enShift) this._attemptShiftGrowth(); break;
+            case 'cluster': if (enCluster) super._attemptClusterGrowth(); break;
+            case 'overlap': if (enOverlap) this._attemptLayerOverlap(); break;
+            case 'unfold_legacy': if (enUnfold) this._attemptUnfoldGrowth(); break;
+            case 'crawler': super._attemptGrowth(); break;
+            default: super._attemptGrowth(); break;
         }
 
         // 3. Post-growth cleanup
-        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap || enNudge) {
+        if (enCyclic || enSpine || enUnfold || enCrawler || enShift || enCluster || enOverlap) {
             this._performHoleCleanup();
         }
     }
@@ -354,61 +359,95 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const targetBlocks = this.activeBlocks.filter(b => b.layer === 0);
         if (targetBlocks.length === 0) return;
 
-        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w/2), cy = Math.floor(h/2);
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const ratio = (h > 0) ? w / h : 1;
 
-        // 1. Enforce Distribution: Decide target axis (X or Y)
-        let axis = 'X';
-        if (this.nudgeAxisBalance < 0) axis = 'Y';
-        else if (this.nudgeAxisBalance > 0) axis = 'X';
-        else axis = Math.random() < 0.5 ? 'X' : 'Y';
+        // 1. Check if axes reached perimeter unbroken using activeBlocks positions
+        const isReached = (axis) => {
+            if (axis === 'X') {
+                let minX = 0, maxX = 0;
+                for (const b of targetBlocks) {
+                    if (b.y <= 0 && b.y + b.h > 0) { // Touching/spanning X-axis
+                        minX = Math.min(minX, b.x);
+                        maxX = Math.max(maxX, b.x + b.w - 1);
+                    }
+                }
+                return (minX <= -cx && maxX >= w - cx - 1);
+            }
+            if (axis === 'Y') {
+                let minY = 0, maxY = 0;
+                for (const b of targetBlocks) {
+                    if (b.x <= 0 && b.x + b.w > 0) { // Touching/spanning Y-axis
+                        minY = Math.min(minY, b.y);
+                        maxY = Math.max(maxY, b.y + b.h - 1);
+                    }
+                }
+                return (minY <= -cy && maxY >= h - cy - 1);
+            }
+            return false;
+        };
 
-        // 2. Check edges for the axes to determine if perpendicular growth is allowed
-        const reached = { N: false, S: false, E: false, W: false };
-        for (const b of targetBlocks) {
-            if (b.y + cy <= 0) reached.N = true;
-            if (b.y + cy + b.h >= h) reached.S = true;
-            if (b.x + cx + b.w >= w) reached.E = true;
-            if (b.x + cx <= 0) reached.W = true;
+        const xReached = isReached('X');
+        const yReached = isReached('Y');
+
+        // 2. Determine Preference based on Aspect Ratio
+        let preferredSpawn = 'equal';
+        if (ratio > 1.2) preferredSpawn = 'Y';
+        else if (ratio < 0.8) preferredSpawn = 'X';
+
+        let spawnAxis = Math.random() < 0.5 ? 'X' : 'Y';
+        if (preferredSpawn === 'Y' && Math.random() < 0.75) spawnAxis = 'Y';
+        if (preferredSpawn === 'X' && Math.random() < 0.75) spawnAxis = 'X';
+
+        // 3. Select Shape Length (1, 2, or 3)
+        const rand = Math.random();
+        let len = 1;
+        if (rand > 0.35) len = (Math.random() < 0.5) ? 2 : 3;
+
+        // Step 5a: 1x1 Preference (spawn at center)
+        if (len === 1) {
+            const face = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+            this._nudge(0, 0, 1, 1, face, 0);
+            return;
         }
 
-        const xReached = reached.E || reached.W;
-        const yReached = reached.N || reached.S;
-
-        // 3. Select anchor and direction
-        let anchor = { x: 0, y: 0, w: 1, h: 1 };
+        // Steps 5b, 5c, 7: 2x1/3x1 or 1x2/1x3
+        let tx = 0, ty = 0;
+        let wBlock = 1, hBlock = 1;
         let face = '';
-        let nw = 1, nh = 1;
 
-        // Logic: Prioritize growing the spine from the center outward.
-        // If an axis has reached the perimeter, allow perpendicular growth from its spine.
-        if (axis === 'X') {
-            // Growing horizontal strips or pushing the horizontal spine
-            if (yReached && Math.random() < 0.6) {
-                // Perpendicular: Nudge East/West from the vertical spine
-                const verticalSpine = targetBlocks.filter(b => Math.abs(b.x) <= 1);
-                if (verticalSpine.length > 0) anchor = verticalSpine[Math.floor(Math.random() * verticalSpine.length)];
+        if (spawnAxis === 'X') {
+            wBlock = len; hBlock = 1;
+            face = Math.random() < 0.5 ? 'N' : 'S';
+
+            if (xReached) {
+                // Step 7: Spawn along remainder of axis
+                tx = Math.floor(Math.random() * w) - cx;
+                ty = 0;
+            } else {
+                // Step 5b/5c: Connect to center block
+                const shift = Math.floor(Math.random() * len);
+                tx = -shift;
+                ty = 0;
             }
-            face = (anchor.x >= 0) ? 'E' : 'W';
-            nw = [1, 2, 3][Math.floor(Math.random() * 3)];
-            nh = 1;
-            this.nudgeAxisBalance++;
         } else {
-            // Growing vertical strips or pushing the vertical spine
-            if (xReached && Math.random() < 0.6) {
-                // Perpendicular: Nudge North/South from the horizontal spine
-                const horizontalSpine = targetBlocks.filter(b => Math.abs(b.y) <= 1);
-                if (horizontalSpine.length > 0) anchor = horizontalSpine[Math.floor(Math.random() * horizontalSpine.length)];
+            wBlock = 1; hBlock = len;
+            face = Math.random() < 0.5 ? 'E' : 'W';
+
+            if (yReached) {
+                // Step 7: Spawn along remainder of axis
+                ty = Math.floor(Math.random() * h) - cy;
+                tx = 0;
+            } else {
+                // Connect to center
+                const shift = Math.floor(Math.random() * len);
+                ty = -shift;
+                tx = 0;
             }
-            face = (anchor.y >= 0) ? 'S' : 'N';
-            nw = 1;
-            nh = [1, 2, 3][Math.floor(Math.random() * 3)];
-            this.nudgeAxisBalance--;
         }
 
-        // Perform the actual nudge. Targeting (anchor.x, anchor.y) with direction 'face'
-        // will push the entire arm/segment outward and insert the new blocks at the origin.
-        // This repeatedly happens at the source, pushing blocks toward the perimeter.
-        this._nudge(anchor.x, anchor.y, nw, nh, face, 0);
+        this._nudge(tx, ty, wBlock, hBlock, face, 0);
     }
 
     _attemptUnfoldPerimeterGrowth() {
