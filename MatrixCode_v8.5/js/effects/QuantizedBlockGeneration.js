@@ -105,62 +105,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return true;
     }
 
-    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
-        const enNudge = (this.getConfig('EnableNudge') === true);
-        const useStaging = (this.expansionPhase < 4) || enNudge;
-
-        // Redirect Layer 0 spawns to Layer 1 for the staggered cycle (after initial seed)
-        if (useStaging && layer === 0 && this.expansionPhase >= 1) {
-            layer = 1;
-        }
-
-        const id = super._spawnBlock(x, y, w, h, layer, suppressLines, isShifter, expireFrames, skipConnectivity, allowInternal);
-        
-        if (id !== -1 && layer === 1) {
-            const b = this.activeBlocks.find(block => block.id === id);
-            if (b) b.spawnCycle = this.expansionPhase;
-        }
-        return id;
+    _initProceduralState() {
+        super._initProceduralState();
     }
-
-    _nudge(x, y, w, h, face, layer = 0) {
-        const enNudge = (this.getConfig('EnableNudge') === true);
-        const useStaging = (this.expansionPhase < 4) || enNudge;
-
-        // For Nudge Growth, we force Layer 1 staging to satisfy the Stage -> Merge cycle requirement
-        if (useStaging && layer === 0 && this.expansionPhase >= 1) {
-            layer = 1;
-        }
-        super._nudge(x, y, w, h, face, layer);
-        
-        const b = this.activeBlocks[this.activeBlocks.length - 1];
-        if (b && b.layer === 1) b.spawnCycle = this.expansionPhase;
-    }
-
-    /*
-    _attemptClusterGrowth() {
-        const enNudge = (this.getConfig('EnableNudge') === true);
-        if (enNudge) {
-            // Respect the 1-2 block staggered rhythm for Nudge mode
-            if (this.activeBlocks.length === 0) return;
-            const anchors = this.activeBlocks.filter(b => b.layer === 0);
-            if (anchors.length === 0) return;
-            const anchor = anchors[Math.floor(Math.random() * anchors.length)];
-            const axis = Math.random() < 0.5 ? 'V' : 'H';
-            let dir, startCoords;
-            if (axis === 'V') { 
-                dir = Math.random() < 0.5 ? 'N' : 'S'; 
-                startCoords = { x: anchor.x, y: 0 }; 
-            } else { 
-                dir = Math.random() < 0.5 ? 'E' : 'W'; 
-                startCoords = { x: 0, y: anchor.y }; 
-            }
-            this._blockShift(dir, Math.random() < 0.5 ? 1 : 2, startCoords);
-        } else {
-            super._attemptClusterGrowth();
-        }
-    }
-    */
 
     update() {
         if (!this.active) return;
@@ -198,16 +145,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const delayMult = 11 - userSpeed;
             
             const enNudge = (this.getConfig('EnableNudge') === true);
-            const intervalMult = enNudge ? 0.15 : 0.25; // Nudge mode runs faster (0.15 vs 0.25)
+            const intervalMult = enNudge ? 0.15 : 0.25; 
             const interval = Math.max(1, baseDuration * (delayMult * intervalMult));
             
-            this.genTimer++;
-            if (this.genTimer >= interval) {
-                if (!this.debugMode || this.manualStep) {
+            if (!this.debugMode) {
+                this.genTimer++;
+                if (this.genTimer >= interval) {
                     this.genTimer = 0;
                     this._attemptGrowth();
                     this.expansionPhase++;
-                    this.manualStep = false;
                 }
             }
             
@@ -236,6 +182,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptGrowth() {
         this._initProceduralState(); 
 
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        if (enNudge) {
+            this._attemptNudgeGrowth();
+            this._performHoleCleanup();
+            return;
+        }
+
         const s = this.c.state;
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
@@ -244,36 +197,114 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         };
 
         const enSpine = getGenConfig('EnableSpine') === true;
-        const enNudge = getGenConfig('EnableNudge') === true;
         
-        // If nothing specific is enabled, fall back to base logic
-        if (!enSpine && !enNudge) {
+        const pool = [];
+        if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
+
+        if (pool.length === 0) {
             super._attemptGrowth();
             return;
         }
 
-        const pool = [];
-        if (enSpine) pool.push(this._attemptSpineGrowth.bind(this));
-        if (enNudge) pool.push(this._attemptNudgeGrowth.bind(this));
-
-        if (pool.length === 0) return;
-
-        // Shuffle pool to avoid bias when selecting behaviors
+        // Shuffle pool
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
         }
 
-        // Determine how many behavior "actions" to take this step (1 or 2)
         let totalTarget = Math.random() < 0.5 ? 1 : 2;
-
         for (let i = 0; i < totalTarget; i++) {
             const behavior = pool[i % pool.length];
             behavior();
         }
 
-        // 3. Post-growth cleanup
         this._performHoleCleanup();
+    }
+
+    _attemptNudgeGrowth() {
+        if (!this.logicGridW || !this.logicGridH) return;
+        const cx = Math.floor(this.logicGridW / 2);
+        const cy = Math.floor(this.logicGridH / 2);
+        const minLX = -cx, maxLX = this.logicGridW - 1 - cx;
+        const minLY = -cy, maxLY = this.logicGridH - 1 - cy;
+
+        // Select axis and execute nudge
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const axis = Math.random() < 0.5 ? 'X' : 'Y';
+            const size = Math.floor(Math.random() * 3) + 1;
+            const targetLayer = Math.random() < 0.5 ? 0 : 1;
+            const otherLayer = 1 - targetLayer;
+            
+            let x, y, w, h, dir, units;
+            if (axis === 'X') {
+                w = size; h = 1; x = Math.floor(Math.random() * (this.logicGridW - w + 1)) + minLX; y = 0;
+                dir = Math.random() < 0.5 ? 'N' : 'S';
+                units = w;
+            } else {
+                w = 1; h = size; x = 0; y = Math.floor(Math.random() * (this.logicGridH - h + 1)) + minLY;
+                dir = Math.random() < 0.5 ? 'E' : 'W';
+                units = h;
+            }
+
+            const laneEdges = { 
+                0: Array(units).fill(null).map(() => ({ min: Infinity, max: -Infinity })),
+                1: Array(units).fill(null).map(() => ({ min: Infinity, max: -Infinity }))
+            };
+
+            for (const b of this.activeBlocks) {
+                const overlapStart = Math.max(axis === 'X' ? x : y, axis === 'X' ? b.x : b.y);
+                const overlapEnd = Math.min((axis === 'X' ? x + w : y + h), (axis === 'X' ? b.x + b.w : b.y + b.h));
+                if (overlapStart < overlapEnd) {
+                    const m = laneEdges[b.layer];
+                    for (let k = overlapStart; k < overlapEnd; k++) {
+                        const idx = k - (axis === 'X' ? x : y);
+                        const valMin = axis === 'X' ? b.y : b.x;
+                        const valMax = axis === 'X' ? (b.y + b.h - 1) : (b.x + b.w - 1);
+                        m[idx].min = Math.min(m[idx].min, valMin);
+                        m[idx].max = Math.max(m[idx].max, valMax);
+                    }
+                }
+            }
+
+            // VALIDATION: Must have blocks in the target lane to nudge
+            let laneHasTarget = false;
+            for (let i = 0; i < units; i++) {
+                if (laneEdges[targetLayer][i].min !== Infinity) {
+                    laneHasTarget = true;
+                    break;
+                }
+            }
+            if (!laneHasTarget) continue;
+
+            let pullOther = false;
+            for (let i = 0; i < units; i++) {
+                const t = laneEdges[targetLayer][i], o = laneEdges[otherLayer][i];
+                if (o.min === Infinity) continue; // Nothing to pull in this column/row
+                if (dir === 'N' || dir === 'W') {
+                    if (t.min <= o.min - 2) pullOther = true;
+                } else {
+                    if (t.max >= o.max + 2) pullOther = true;
+                }
+                if (pullOther) break;
+            }
+
+            const minBound = (axis === 'X') ? minLY : minLX;
+            const maxBound = (axis === 'X') ? maxLY : maxLX;
+            let canNudge = true;
+            const checkBound = (m, d) => {
+                if (d === 'N' || d === 'W') return !m.some(e => e.min !== Infinity && e.min <= minBound);
+                return !m.some(e => e.max !== -Infinity && e.max >= maxBound);
+            };
+
+            if (!checkBound(laneEdges[targetLayer], dir)) canNudge = false;
+            if (canNudge && pullOther && !checkBound(laneEdges[otherLayer], dir)) canNudge = false;
+
+            if (canNudge) {
+                super._nudge(x, y, w, h, dir, targetLayer);
+                if (pullOther) super._nudge(x, y, w, h, dir, otherLayer);
+                return;
+            }
+        }
     }
 
     _mergeLayer1(maxCycle = -1) {
@@ -297,8 +328,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             });
             
             b.layer = 0;
-            this._writeToGrid(b.x, b.y, b.w, b.h, now, 0); // Write to L0
-            this._writeToGrid(b.x, b.y, b.w, b.h, -1, 1);  // Clear from L1
+            this._writeToGrid(b.x, b.y, b.w, b.h, now, 0); 
+            this._writeToGrid(b.x, b.y, b.w, b.h, -1, 1);  
         }
 
         this._lastProcessedOpIndex = 0;

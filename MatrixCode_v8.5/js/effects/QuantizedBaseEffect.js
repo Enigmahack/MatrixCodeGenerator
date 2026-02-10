@@ -248,8 +248,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._initLogicGrid();
 
         if (this.debugMode) {
-            window.removeEventListener('keydown', this._boundDebugHandler);
-            window.addEventListener('keydown', this._boundDebugHandler);
+            // Keydown handling for stepping is managed by the Editor when active
         }
 
         return true;

@@ -481,7 +481,7 @@ class QuantizedEffectEditor {
             this.effect.sequence = this._decodeSequence(this.effect.sequence);
 
             this.effect.debugMode = true;
-            this.effect.manualStep = true; 
+            this.effect.manualStep = false; 
             
             // Start at Step 1 if available
             this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
@@ -521,7 +521,7 @@ class QuantizedEffectEditor {
             this._attachListeners();
             
             if (this.effect) {
-                this.effect.manualStep = true; 
+                this.effect.manualStep = false; 
                 this.effect.debugMode = true;
 
                 // Force re-trigger to ensure init logic runs (e.g. Shadow World)
@@ -2045,7 +2045,7 @@ class QuantizedEffectEditor {
             e.preventDefault(); this._deleteSelection(); return; 
         }
 
-        if (e.key === 'ArrowRight') this._changeStep(1);
+        if (e.key === 'ArrowRight' || e.key === '.' || e.key === '>') this._changeStep(1);
         if (e.key === 'ArrowLeft') this._changeStep(-1);
     }
 
