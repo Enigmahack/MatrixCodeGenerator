@@ -9,9 +9,9 @@ class QuantizedEffectEditor {
         this.dom = null;
         this.currentTool = 'select'; 
         this.currentFace = 'N'; 
-        this.currentLayer = 0; // 0, 1, 2
-        this.visibleLayers = [true, true, true];
-        this.layerColors = ['#0f0', '#0af', '#f0c']; // Green, Blue, Magenta
+        this.currentLayer = 0; // 0, 1, 2, 3, 4
+        this.visibleLayers = [true, true, true, true, true];
+        this.layerColors = ['#0f0', '#0af', '#f0c', '#ff0', '#f80']; // Green, Blue, Magenta, Yellow, Orange
         this.hoverBlock = null;
 
         this._boundMouseDown = this._onMouseDown.bind(this);
@@ -267,7 +267,7 @@ class QuantizedEffectEditor {
                         count = this.effect.mergeSelectionAtStep(msg.selection, targetIdx);
                     } else {
                         this._log(`[Editor-Main] Performing flattenLayers at index ${targetIdx}`);
-                        const layersToMerge = [1, 2]; // Default
+                        const layersToMerge = [1, 2, 3, 4]; // Default
                         count = this.effect.flattenLayers(layersToMerge, null, targetIdx);
                     }
 
@@ -399,7 +399,7 @@ class QuantizedEffectEditor {
                         let mask = step[i++];
                         
                         // Unpack Layer
-                        const l = (mask >> 4) & 0x3; // Extract 2 bits
+                        const l = (mask >> 4) & 0x7; // Extract 3 bits
                         mask = mask & 0xF; // Clear layer bits
                         
                         if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'], layer: l });
@@ -614,7 +614,7 @@ class QuantizedEffectEditor {
             const stepRemovals = [];
             
             // Iterate all active edges in the cache across all layers
-            for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
+            for (let layerIdx = 0; layerIdx < 5; layerIdx++) {
                 const edgeMap = edgeMaps[layerIdx];
                 if (!edgeMap) continue;
 
@@ -1261,14 +1261,14 @@ class QuantizedEffectEditor {
         layerBtnGroup.style.marginBottom = '10px';
 
         this.layerBtns = [];
-        [0, 1, 2].forEach(l => {
+        [0, 1, 2, 3, 4].forEach(l => {
             const btn = this._createBtn(`L${l}`, () => {
                 this.currentLayer = l;
                 this._updateUI();
                 if (this.isStandalone) this._sendRemote({ type: 'setLayer', layer: l });
             });
             btn.style.flex = '1';
-            btn.title = `Select Layer ${l} for drawing. L0 is base, L1/L2 are overlays.`;
+            btn.title = `Select Layer ${l} for drawing. L0 is base, L1-L4 are overlays.`;
             layerBtnGroup.appendChild(btn);
             this.layerBtns[l] = btn;
         });
@@ -1365,7 +1365,7 @@ class QuantizedEffectEditor {
         showLayerGroup.style.flexDirection = 'column';
         showLayerGroup.style.gap = '2px';
         
-        [0, 1, 2].forEach(l => {
+        [0, 1, 2, 3, 4].forEach(l => {
             const lbl = document.createElement('label');
             lbl.style.display = 'flex';
             lbl.style.alignItems = 'center';
@@ -1888,7 +1888,7 @@ class QuantizedEffectEditor {
                          mask = args[2];
                     }
                     
-                    // Pack Layer into Mask (Bits 4-5) to avoid stream ambiguity
+                    // Pack Layer into Mask (Bits 4-6) to avoid stream ambiguity
                     if (layer > 0) {
                         mask = mask | (layer << 4);
                     }

@@ -30,7 +30,7 @@ class QuantizedSequence {
              const idx = getIdx(cx + dx, cy + dy);
              if (idx >= 0) {
                  let stillActive = false;
-                 for (let i = 0; i < 3; i++) {
+                 for (let i = 0; i < 5; i++) {
                      if (fx.layerGrids[i] && fx.layerGrids[i][idx] !== -1) { stillActive = true; break; }
                  }
                  if (!stillActive) {
@@ -41,7 +41,10 @@ class QuantizedSequence {
         };
         const setLayerActive = (dx, dy, l, frame) => {
              const idx = getIdx(cx + dx, cy + dy);
-             if (idx >= 0 && fx.layerGrids[l]) fx.layerGrids[l][idx] = frame;
+             if (idx >= 0 && fx.layerGrids[l]) {
+                 fx.layerGrids[l][idx] = frame;
+                 if (l !== 0) fx._updateLayerOrder(l);
+             }
         };
         const setLayerInactive = (dx, dy, l) => {
              const idx = getIdx(cx + dx, cy + dy);
@@ -49,7 +52,7 @@ class QuantizedSequence {
                  if (l !== undefined && fx.layerGrids[l]) {
                      fx.layerGrids[l][idx] = -1;
                  } else {
-                     for(let i=0; i<3; i++) if (fx.layerGrids[i]) fx.layerGrids[i][idx] = -1;
+                     for(let i=0; i<5; i++) if (fx.layerGrids[i]) fx.layerGrids[i][idx] = -1;
                  }
              }
         };
@@ -89,30 +92,32 @@ class QuantizedSequence {
 
             fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase });
         } else if (opCode === 2) { // rem(x, y, mask)
-            // ... (rest of numeric decoder remains the same)
             const dx = step[i++];
             const dy = step[i++];
-            const mask = step[i++];
+            let mask = step[i++];
+            const layer = (mask >> 4) & 0x7;
+            mask = mask & 0xF;
+
             if (mask === 0) {
                 const nN = ctx.isActive(dx, dy - 1);
                 const nS = ctx.isActive(dx, dy + 1);
                 const nE = ctx.isActive(dx + 1, dy);
                 const nW = ctx.isActive(dx - 1, dy);
                 if (nN && nS && nE && nW) {
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                    fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
                 } else {
-                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                    ctx.setLayerInactive(dx, dy);
+                    fx.maskOps.push({ type: 'removeBlock', x1: dx, y1: dy, x2: dx, y2: dy, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                    ctx.setLayerInactive(dx, dy, layer);
                     ctx.setLocalInactive(dx, dy);
                 }
             } else {
-                if (mask & 1) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                if (mask & 2) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                if (mask & 4) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
-                if (mask & 8) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, fade: undefined });
+                if (mask & 1) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                if (mask & 2) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                if (mask & 4) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
+                if (mask & 8) fx.maskOps.push({ type: 'remove', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer, fade: undefined });
             }
         } else if (opCode === 3) { // addRect(x1, y1, x2, y2)
             const dx1 = step[i++];
@@ -133,19 +138,25 @@ class QuantizedSequence {
         } else if (opCode === 4) { // addLine(x, y, mask)
             const dx = step[i++];
             const dy = step[i++];
-            const mask = step[i++];
-            if (mask & 1) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 2) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 4) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 8) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: fx.expansionPhase });
+            let mask = step[i++];
+            const layer = (mask >> 4) & 0x7;
+            mask = mask & 0xF;
+
+            if (mask & 1) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 2) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 4) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 8) fx.maskOps.push({ type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', startFrame: now, startPhase: fx.expansionPhase, layer: layer });
         } else if (opCode === 5) { // remLine(x, y, mask)
             const dx = step[i++];
             const dy = step[i++];
-            const mask = step[i++];
-            if (mask & 1) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 2) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 4) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase });
-            if (mask & 8) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase });
+            let mask = step[i++];
+            const layer = (mask >> 4) & 0x7;
+            mask = mask & 0xF;
+
+            if (mask & 1) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'N', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 2) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'S', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 4) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'E', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
+            if (mask & 8) fx.maskOps.push({ type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: 'W', force: true, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
         } else if (opCode === 6) { // addSmart(x, y)
             const dx = step[i++];
             const dy = step[i++];

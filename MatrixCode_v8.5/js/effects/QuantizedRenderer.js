@@ -152,7 +152,7 @@ class QuantizedRenderer {
                 if (fx.renderGrid[idx] === -1) {
                     let isFading = false;
                     if (fadeOutFrames > 0) {
-                        for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
+                        for (let layerIdx = 0; layerIdx < 5; layerIdx++) {
                             const rGrid = fx.removalGrids[layerIdx];
                             if (rGrid && rGrid[idx] !== -1 && now < rGrid[idx] + fadeOutFrames) {
                                 isFading = true; break;
@@ -263,7 +263,7 @@ class QuantizedRenderer {
         const getLayerForBlock = (bx, by) => {
             const idx = by * blocksX + bx;
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
-            for (let i = 0; i < 3; i++) {
+            for (const i of fx.layerOrder) {
                 if (fx.layerGrids[i] && fx.layerGrids[i][idx] !== -1) return i;
             }
             return -1;
@@ -312,7 +312,7 @@ class QuantizedRenderer {
             
             // Check manual edge overrides (addLine/remLine)
             let manualOp = null;
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 5; i++) {
                 const em = this._cachedEdgeMaps[i];
                 if (em && em.has(key)) {
                     manualOp = em.get(key);
@@ -328,16 +328,22 @@ class QuantizedRenderer {
                     isVisibleNow = false;
                 }
             } else {
-                // Layering Logic
-                for (let L = 0; L < 3; L++) {
+                // Layering Logic: Layers 0, 1, 2 always visible; 3 and 4 alternate.
+                const last3or4 = fx.layerOrder.find(l => l === 3 || l === 4);
+                const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2 || l === last3or4);
+
+                for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
+                    const L = visibleLayerIndices[iOrder];
                     const grid = fx.layerGrids[L];
+                    if (!grid) continue;
                     const aL = (getBlock(grid, ax, ay) !== -1);
                     const bL = (getBlock(grid, bx, by) !== -1);
 
                     if (aL !== bL) {
                         // Perimeter of Layer L. Is it obscured?
                         let obscured = false;
-                        for (let M = 0; M < L; M++) {
+                        for (let m = 0; m < iOrder; m++) {
+                            const M = visibleLayerIndices[m];
                             if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
                                 obscured = true;
                                 break;
@@ -583,7 +589,7 @@ class QuantizedRenderer {
 
         this._cachedEdgeMaps = [];
 
-        for (let layer = 0; layer < 3; layer++) {
+        for (let layer = 0; layer < 5; layer++) {
             const edgeMap = new Map();
             const currentGrid = fx.layerGrids[layer];
 

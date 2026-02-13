@@ -162,6 +162,19 @@ const Utils = {
     },
 
     /**
+     * Shuffles an array in place using the Fisher-Yates algorithm.
+     * @param {Array} array - The array to shuffle.
+     * @returns {Array} The shuffled array.
+     */
+    shuffle: (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    },
+
+    /**
      * Computes the SHA-256 hash of an ArrayBuffer.
      * @param {ArrayBuffer} buffer - The input buffer.
      * @returns {Promise<string>} The hex string of the hash.
