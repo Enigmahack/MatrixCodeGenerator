@@ -275,6 +275,7 @@ class ConfigurationManager {
             "quantizedGenerateV2EnablePulseGrowth": true,
             "quantizedGenerateV2EnableNudge": false,
             "quantizedGenerateV2EnableRearrange": false,
+            "quantizedGenerateV2EnableRNGGrowth": false,
             "quantizedGenerateV2FrequencySeconds": 240,
             "quantizedGenerateV2DurationSeconds": 7.6,
             "quantizedGenerateV2Speed": 1,

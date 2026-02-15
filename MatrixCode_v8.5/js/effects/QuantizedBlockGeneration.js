@@ -215,6 +215,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const enPulse = getGenConfig('EnablePulseGrowth') === true;
         const enNudge = getGenConfig('EnableNudge') === true;
         const enRearrange = getGenConfig('EnableRearrange') === true;
+        const enRNGGrowth = getGenConfig('EnableRNGGrowth') === true;
         const quota = getGenConfig('SimultaneousSpawns') || 1;
         const maxLayer = getGenConfig('LayerCount') || 1;
 
@@ -225,6 +226,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (enUnfold) pool.push(() => this._attemptUnfoldGrowth());
         if (enCrawler) pool.push(() => this._attemptCrawlerGrowth());
         if (enRearrange) pool.push(() => this._attemptRearrangeGrowth());
+        if (enRNGGrowth) pool.push(() => this._attemptRNGGenerativeGrowth());
         if (enPulse) {
             pool.push(() => {
                 const minW = getGenConfig('MinBlockWidth') || 1;

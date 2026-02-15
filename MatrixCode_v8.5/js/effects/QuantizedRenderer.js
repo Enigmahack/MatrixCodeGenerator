@@ -312,10 +312,12 @@ class QuantizedRenderer {
             
             // Check manual edge overrides (addLine/remLine)
             let manualOp = null;
+            let suppressFade = false;
             for (let i = 0; i < 5; i++) {
                 const em = this._cachedEdgeMaps[i];
                 if (em && em.has(key)) {
                     manualOp = em.get(key);
+                    if (manualOp.op && manualOp.op.fade === false) suppressFade = true;
                     break;
                 }
             }
@@ -341,14 +343,18 @@ class QuantizedRenderer {
 
                     if (aL !== bL) {
                         // Perimeter of Layer L. Is it obscured?
+                        // SPECIAL CASE: Layers 1 and 2 are NEVER obscured (always peek through)
                         let obscured = false;
-                        for (let m = 0; m < iOrder; m++) {
-                            const M = visibleLayerIndices[m];
-                            if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
-                                obscured = true;
-                                break;
+                        if (L !== 1 && L !== 2) {
+                            for (let m = 0; m < iOrder; m++) {
+                                const M = visibleLayerIndices[m];
+                                if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
+                                    obscured = true;
+                                    break;
+                                }
                             }
                         }
+
                         if (!obscured) {
                             isVisibleNow = true;
                             // Use the start frame of the blocks to determine birth frame
@@ -372,7 +378,11 @@ class QuantizedRenderer {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    state.birthFrame = (edgeBirthFrame !== -1) ? edgeBirthFrame : now;
+                    
+                    // CRITICAL FIX: Only trigger birth-fade if the edge is brand new (created this frame)
+                    // and suppression is not active. If revealed (old frame) or suppressed, use instant reveal (-1).
+                    const isNew = (edgeBirthFrame === now);
+                    state.birthFrame = (isNew && !suppressFade) ? now : -1;
                 }
             } else {
                 if (state.visible) {
@@ -381,7 +391,7 @@ class QuantizedRenderer {
                     state.birthFrame = -1;
                     
                     const isNudged = globalPerimeter && fx.suppressedFades.has(key);
-                    if (isNudged) {
+                    if (isNudged || suppressFade) {
                         state.deathFrame = -1;
                     } else if (state.deathFrame === -1) {
                         state.deathFrame = now;

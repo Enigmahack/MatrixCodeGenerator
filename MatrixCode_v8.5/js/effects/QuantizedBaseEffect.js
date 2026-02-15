@@ -1453,7 +1453,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
-    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false) {
+    _spawnBlock(x, y, w, h, layer = 0, suppressLines = false, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false) {
         if (!skipConnectivity && this.activeBlocks.length > 0) {
              let connected = false;
              let layerOverlap = 0;
@@ -1493,7 +1493,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
             layer: layer,
             blockId: id,
-            isShifter: isShifter
+            isShifter: isShifter,
+            fade: !suppressFades
         };
         this.maskOps.push(op);
 
@@ -1527,7 +1528,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 expireFrame: this.animFrame + durationFrames, 
                 startPhase: this.expansionPhase,
                 layer: layer,
-                blockId: id
+                blockId: id,
+                fade: !suppressFades
             };
             this.maskOps.push(op);
 
@@ -2526,6 +2528,391 @@ class QuantizedBaseEffect extends AbstractEffect {
             success = true;
         }
         return success;
+    }
+
+    _attemptRNGGenerativeGrowth() {
+        const s = this.c.state;
+        const phase = this.expansionPhase || 0;
+        const targetLayer = this.proceduralLayerIndex || 0;
+        const progress = Math.min(1.0, (this.timer || 0) / ((s.quantizedGenerateV2DurationSeconds || 5) * 60));
+
+        // Update block ages and perimeter status
+        for (const b of this.activeBlocks) {
+            b.age = (b.age || 0) + 1;
+            b.isPerimeter = this._checkIsPerimeter(b);
+        }
+
+        const completion = this._checkCardinalCompletion();
+
+        // 1. COORDINATED TURN LOGIC: Synchronize growth patterns across all layers
+        // We use 3 vertical turns for every 1 horizontal turn to emphasize the N/S axis.
+        const turnCycle = phase % 4;
+        const isVerticalTurn = (turnCycle !== 2); // 0, 1, 3 are Vertical/Expansion focus
+
+        // 2. COORDINATED NUDGING: Push mass away from center to make space
+        const nudgeSuccess = this._performAxisNudging(completion);
+
+        // 3. CENTERED GROWTH: Add new thin strips at the central axes
+        // Restrict sizes to small rects (1x2 to 1x5)
+        if (turnCycle < 3) {
+            const maxLen = progress < 0.4 ? 3 : 5;
+            const added = this._performCenterBiasedGrowth(maxLen, targetLayer, isVerticalTurn);
+            if (added) return true;
+        }
+
+        // 4. EXPANSION: Sub-layers strictly grow their current strips
+        if (targetLayer > 0 || turnCycle === 3) {
+            return this._performBlockExpansion(5, true);
+        }
+
+        return nudgeSuccess;
+    }
+
+    _performCenterBiasedGrowth(maxLen, layer, isVertical) {
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const grid = this.layerGrids[layer];
+        if (!grid) return false;
+
+        const candidates = [];
+        const searchRange = 10; 
+
+        for (let gy = cy - searchRange; gy <= cy + searchRange; gy++) {
+            for (let gx = cx - searchRange; gx <= cx + searchRange; gx++) {
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+                if (grid[gy * w + gx] !== -1) continue;
+
+                const lx = gx - cx, ly = gy - cy;
+                
+                // Strict Cardinal Axis focus: only spawn ON the center lines
+                const onNS = Math.abs(lx) <= 0;
+                const onEW = Math.abs(ly) <= 0;
+                
+                if (isVertical && !onNS) continue;
+                if (!isVertical && !onEW) continue;
+
+                const hasNeighbor = 
+                    (gy > 0 && grid[(gy-1)*w+gx] !== -1) || (gy < h-1 && grid[(gy+1)*w+gx] !== -1) ||
+                    (gx > 0 && grid[gy*w+gx-1] !== -1) || (gx < w-1 && grid[gy*w+gx+1] !== -1);
+                
+                if (hasNeighbor || (lx === 0 && ly === 0)) {
+                    candidates.push({ gx, gy, dist: Math.abs(lx) + Math.abs(ly) });
+                }
+            }
+        }
+
+        if (candidates.length === 0) return false;
+        
+        candidates.sort((a, b) => a.dist - b.dist);
+        const best = candidates.slice(0, 3);
+        const winner = best[Math.floor(Math.random() * best.length)];
+
+        // Force thin strips (max width 2 for vertical, max height 2 for horizontal)
+        let bw = 1, bh = 1;
+        if (isVertical) {
+            bh = Math.min(maxLen, 2 + Math.floor(Math.random() * 3));
+            bw = (Math.random() < 0.15) ? 2 : 1; 
+        } else {
+            bw = Math.min(maxLen, 2 + Math.floor(Math.random() * 3));
+            bh = (Math.random() < 0.15) ? 2 : 1;
+        }
+
+        const bx = winner.gx - cx, by = winner.gy - cy;
+        let fx = bx, fy = by;
+        if (bw > 1) fx -= Math.floor(bw / 2);
+        if (bh > 1) fy -= Math.floor(bh / 2);
+
+        if (this._checkNoOverlap(fx, fy, bw, bh, layer)) {
+            this._spawnBlock(fx, fy, bw, bh, layer, false, false, 0, true, true, false);
+            return true;
+        }
+        return false;
+    }
+
+    _checkCardinalCompletion() {
+        const w = this.logicGridW, h = this.logicGridH;
+        const grid = this.layerGrids[0];
+        if (!grid) return { ns: false, ew: false };
+
+        let n = false, s = false, e = false, w_ = false;
+        // North/South check (Top/Bottom rows of logic grid)
+        for (let x = 0; x < w; x++) {
+            if (grid[x] !== -1) n = true;
+            if (grid[(h - 1) * w + x] !== -1) s = true;
+        }
+        // East/West check (Left/Right columns)
+        for (let y = 0; y < h; y++) {
+            if (grid[y * w] !== -1) w_ = true;
+            if (grid[y * w + (w - 1)] !== -1) e = true;
+        }
+        return { ns: n && s, ew: e && w_ };
+    }
+
+    _performAxisNudging(completion) {
+        const targetLayer = this.proceduralLayerIndex || 0;
+        const candidates = this.activeBlocks.filter(b => b.layer === targetLayer && b.isPerimeter);
+        if (candidates.length === 0) return false;
+
+        Utils.shuffle(candidates);
+        for (const b of candidates) {
+            let dx = 0, dy = 0;
+            
+            // 10% Special case: expansion nudge towards nearest canvas edge
+            if (Math.random() < 0.1) {
+                const distN = b.y + (this.logicGridH / 2);
+                const distS = (this.logicGridH / 2) - b.y;
+                const distW = b.x + (this.logicGridW / 2);
+                const distE = (this.logicGridW / 2) - b.x;
+                const minDist = Math.min(distN, distS, distW, distE);
+                
+                if (minDist === distN) dy = -1;
+                else if (minDist === distS) dy = 1;
+                else if (minDist === distW) dx = -1;
+                else if (minDist === distE) dx = 1;
+            } else {
+                // Nudge along axis of completion
+                if (completion.ns) {
+                    // N/S reached -> Nudge E/W to fill width
+                    dx = b.x >= 0 ? 1 : -1;
+                } else if (completion.ew) {
+                    // E/W reached -> Nudge N/S to fill height
+                    dy = b.y >= 0 ? 1 : -1;
+                } else {
+                    // Expanding away from center
+                    dx = b.x === 0 ? 0 : (b.x > 0 ? 1 : -1);
+                    dy = b.y === 0 ? 0 : (b.y > 0 ? 1 : -1);
+                }
+            }
+
+            if ((dx !== 0 || dy !== 0) && this._nudgeBlock(b, dx, dy)) {
+                b.age = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _checkIsPerimeter(b) {
+        const w = this.logicGridW, cx = Math.floor(w / 2), cy = Math.floor(this.logicGridH / 2);
+        const grid = this.layerGrids[b.layer];
+        if (!grid) return false;
+
+        let openSides = 0;
+        const checks = [
+            {x: b.x - 1, y: b.y, w: 1, h: b.h}, // West
+            {x: b.x + b.w, y: b.y, w: 1, h: b.h}, // East
+            {x: b.x, y: b.y - 1, w: b.w, h: 1}, // North
+            {x: b.x, y: b.y + b.h, w: b.w, h: 1}  // South
+        ];
+
+        for (const c of checks) {
+            let occupied = false;
+            for (let ly = 0; ly < c.h; ly++) {
+                for (let lx = 0; lx < c.w; lx++) {
+                    const gx = cx + c.x + lx, gy = cy + c.y + ly;
+                    if (gx >= 0 && gx < w && gy >= 0 && gy < this.logicGridH && grid[gy * w + gx] !== -1) {
+                        occupied = true;
+                        break;
+                    }
+                }
+                if (occupied) break;
+            }
+            if (!occupied) openSides++;
+        }
+        return openSides >= 1;
+    }
+
+    _performBlockMaintenance(block, maxLen) {
+        const action = Math.random();
+        if (action < 0.3) {
+            // Transformation: Flip 5x1 to 1x5 or similar
+            this.maskOps.push({ type: 'removeBlock', x1: block.x, y1: block.y, x2: block.x + block.w - 1, y2: block.y + block.h - 1, startFrame: this.animFrame, layer: block.layer, fade: false });
+            this._clearAreaLines(block.x, block.y, block.w, block.h, this.animFrame);
+            this._writeToGrid(block.x, block.y, block.w, block.h, -1, block.layer);
+            
+            const nw = block.h, nh = block.w; 
+            if (this._checkNoOverlap(block.x, block.y, nw, nh, block.layer)) {
+                this._spawnBlock(block.x, block.y, nw, nh, block.layer, false, false, 0, true, true, true);
+                const idx = this.activeBlocks.indexOf(block);
+                if (idx !== -1) this.activeBlocks.splice(idx, 1);
+                return true;
+            }
+        } else {
+            // Nudge outwards
+            const dx = block.x === 0 ? 0 : (block.x > 0 ? 1 : -1);
+            const dy = block.y === 0 ? 0 : (block.y > 0 ? 1 : -1);
+            if (this._nudgeBlock(block, dx, dy)) {
+                block.age = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    _performBlockExpansion(maxLen, prioritizeLength = true) {
+        if (this.activeBlocks.length === 0) return false;
+        
+        // Expansion logic now favors creating strips (e.g. 1x5)
+        const candidates = this.activeBlocks.filter(b => b.isPerimeter && (b.w < maxLen || b.h < maxLen));
+        if (prioritizeLength) {
+            // Prefer expanding blocks that are already thin strips
+            candidates.sort((a, b) => {
+                const aRatio = Math.max(a.w, a.h);
+                const bRatio = Math.max(b.w, b.h);
+                return bRatio - aRatio;
+            });
+        }
+        
+        if (candidates.length === 0) return false;
+        
+        for (const b of candidates) {
+            const dirs = ['N', 'S', 'E', 'W'];
+            Utils.shuffle(dirs);
+            
+            for (const dir of dirs) {
+                let nw = b.w, nh = b.h, nx = b.x, ny = b.y;
+                // Strict strip growth: only expand in the dimension that is already dominant
+                // or if it's a 1x1 block.
+                const isVertical = b.h > b.w;
+                const isHorizontal = b.w > b.h;
+
+                if (isVertical && (dir === 'E' || dir === 'W')) continue;
+                if (isHorizontal && (dir === 'N' || dir === 'S')) continue;
+                
+                if ((dir === 'N' || dir === 'S') && b.h >= maxLen) continue;
+                if ((dir === 'E' || dir === 'W') && b.w >= maxLen) continue;
+
+                if (dir === 'N') { ny--; nh++; }
+                else if (dir === 'S') { nh++; }
+                else if (dir === 'W') { nx--; nw++; }
+                else if (dir === 'E') { nw++; }
+
+                let extX = b.x, extY = b.y, extW = 1, extH = 1;
+                if (dir === 'N') { extX = b.x; extY = b.y - 1; extW = b.w; extH = 1; }
+                else if (dir === 'S') { extX = b.x; extY = b.y + b.h; extW = b.w; extH = 1; }
+                else if (dir === 'W') { extX = b.x - 1; extY = b.y; extW = 1; extH = b.h; }
+                else if (dir === 'E') { extX = b.x + b.w; extY = b.y; extW = 1; extH = b.h; }
+
+                if (this._checkNoOverlap(extX, extY, extW, extH, b.layer) && this._checkNoHole(extX, extY, extW, extH)) {
+                    this._spawnBlock(extX, extY, extW, extH, b.layer, false, false, 0, true, true, true);
+                    b.x = nx; b.y = ny; b.w = nw; b.h = nh; b.age = 0;
+                    this._writeToGrid(nx, ny, nw, nh, 1, b.layer);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    _performCardinalGrowth(maxLen, mode = 'ANY') {
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const targetLayer = this.proceduralLayerIndex || 0;
+        const grid = this.layerGrids[targetLayer];
+        if (!grid) return false;
+
+        const frontier = [];
+        for (let gy = 1; gy < h - 1; gy++) {
+            for (let gx = 1; gx < w - 1; gx++) {
+                if (grid[gy * w + gx] !== -1) continue;
+                const hasNeighbor = grid[(gy - 1) * w + gx] !== -1 || grid[(gy + 1) * w + gx] !== -1 || grid[gy * w + gx - 1] !== -1 || grid[gy * w + gx + 1] !== -1;
+                if (hasNeighbor) {
+                    const lx = gx - cx, ly = gy - cy;
+                    const dist = Math.sqrt(lx * lx + ly * ly);
+                    const isNS = Math.abs(lx) <= 1;
+                    const isEW = Math.abs(ly) <= 1;
+                    
+                    let score = 100 - dist;
+                    if (mode === 'VERTICAL' && isNS) score += 200;
+                    else if (mode === 'HORIZONTAL' && isEW) score += 200;
+                    
+                    // Prioritize frontier cells that are already at the "tips" of the arms
+                    if (isNS && Math.abs(ly) > 5) score += 50;
+                    if (isEW && Math.abs(lx) > 5) score += 50;
+
+                    let neighbors = 0;
+                    if (grid[(gy-1)*w+gx] !== -1) neighbors++;
+                    if (grid[(gy+1)*w+gx] !== -1) neighbors++;
+                    if (grid[gy*w+gx-1] !== -1) neighbors++;
+                    if (grid[gy*w+gx+1] !== -1) neighbors++;
+                    if (neighbors >= 3) score -= 400; // Penalize filling inward, keep it branching
+
+                    frontier.push({ gx, gy, score });
+                }
+            }
+        }
+
+        if (frontier.length === 0) {
+            if (grid[cy * w + cx] === -1) {
+                this._spawnBlock(0, 0, 1, 1, targetLayer, true, false, 0, true, true, false);
+                return true;
+            }
+            return false;
+        }
+
+        frontier.sort((a, b) => b.score - a.score);
+        const winners = frontier.slice(0, 3);
+        const winner = winners[Math.floor(Math.random() * winners.length)];
+
+        // Favor 1xN strips for cardinal growth
+        let bw = 1, bh = 1;
+        if (mode === 'VERTICAL') { 
+            bh = Math.min(maxLen, 2 + Math.floor(Math.random() * 4)); 
+            bw = 1;
+        } else if (mode === 'HORIZONTAL') { 
+            bw = Math.min(maxLen, 2 + Math.floor(Math.random() * 4)); 
+            bh = 1;
+        }
+
+        let bx = winner.gx - cx, by = winner.gy - cy;
+        if (bw > 1) bx -= Math.floor(bw / 2);
+        if (bh > 1) by -= Math.floor(bh / 2);
+
+        if (this._checkNoOverlap(bx, by, bw, bh, targetLayer)) {
+            if (targetLayer === 0) this._shoveOtherLayers(bx, by, bw, bh);
+            this._spawnBlock(bx, by, bw, bh, targetLayer, false, false, 0, true, true, false);
+            return true;
+        }
+        return false;
+    }
+
+    _shoveOtherLayers(x, y, w, h) {
+        // Simple shoving: if a block in Layer 1 overlaps, nudge it
+        const l1 = this.layerGrids[1];
+        if (!l1) return;
+
+        const lgW = this.logicGridW;
+        const cx = Math.floor(lgW / 2), cy = Math.floor(this.logicGridH / 2);
+
+        for (let ly = 0; ly < h; ly++) {
+            for (let lx = 0; lx < w; lx++) {
+                const gx = cx + x + lx, gy = cy + y + ly;
+                if (l1[gy * lgW + gx] !== -1) {
+                    // Conflict found. Find the block in Layer 1 and nudge it.
+                    const block = this.activeBlocks.find(b => b.layer === 1 && 
+                        gx >= cx + b.x && gx < cx + b.x + b.w && 
+                        gy >= cy + b.y && gy < cy + b.y + b.h);
+                    
+                    if (block) {
+                        // Nudge outwards from center
+                        const dx = block.x > 0 ? 1 : -1;
+                        const dy = block.y > 0 ? 1 : -1;
+                        
+                        // Pick the axis with more momentum
+                        if (Math.abs(block.x) > Math.abs(block.y)) {
+                            this._nudgeBlock(block, dx, 0);
+                        } else {
+                            this._nudgeBlock(block, 0, dy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    _attemptRNGGenerativeGrowth() {
+        // Placeholder for experimental generative growth algorithm
+        return false;
     }
 
     _performAutoActions() {
