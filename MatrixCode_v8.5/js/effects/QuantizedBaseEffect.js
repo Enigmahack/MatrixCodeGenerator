@@ -647,14 +647,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
+        const last3or4 = this.layerOrder.find(l => l === 3 || l === 4);
+        const visibleIndices = this.layerOrder.filter(l => l <= 2 || l === last3or4);
+        const layerGrids = this.layerGrids;
+
         for (let idx = 0; idx < totalBlocks; idx++) {
             let val = -1;
-            const last3or4 = this.layerOrder.find(l => l === 3 || l === 4);
-            const visibleIndices = this.layerOrder.filter(l => l <= 2 || l === last3or4);
-
-            for (const lIdx of visibleIndices) {
-                if (this.layerGrids[lIdx] && this.layerGrids[lIdx][idx] !== -1) {
-                    val = this.layerGrids[lIdx][idx];
+            for (let j = 0; j < visibleIndices.length; j++) {
+                const lIdx = visibleIndices[j];
+                const grid = layerGrids[lIdx];
+                if (grid && grid[idx] !== -1) {
+                    val = grid[idx];
                     break;
                 }
             }
@@ -1370,13 +1373,15 @@ class QuantizedBaseEffect extends AbstractEffect {
             let x, y, w, h, dir, units;
             if (axis === 'X') {
                 w = wInput; h = hInput;
-                x = this._getBiasedCoordinate(minLX, maxLX, w, pStatus, 'X');
+                // Restrict x to -1, 0, or 1 to ensure it stays close to the center column
+                x = Math.floor(Math.random() * 3) - 1;
                 y = 0;
                 dir = Math.random() < 0.5 ? 'N' : 'S'; units = w;
             } else {
                 w = wInput; h = hInput;
                 x = 0;
-                y = this._getBiasedCoordinate(minLY, maxLY, h, pStatus, 'Y');
+                // Restrict y to -1, 0, or 1 to ensure it stays close to the center row
+                y = Math.floor(Math.random() * 3) - 1;
                 dir = Math.random() < 0.5 ? 'E' : 'W'; units = h;
             }
 
@@ -2198,13 +2203,15 @@ class QuantizedBaseEffect extends AbstractEffect {
             let x, y, w, h, dir, units;
             if (axis === 'X') {
                 w = size; h = 1;
-                x = this._getBiasedCoordinate(minLX, maxLX, w, pStatus, 'X');
+                // Restrict x to -1, 0, or 1 to ensure it stays close to the center column
+                x = Math.floor(Math.random() * 3) - 1;
                 y = 0;
                 dir = Math.random() < 0.5 ? 'N' : 'S'; units = w;
             } else {
                 w = 1; h = size;
                 x = 0;
-                y = this._getBiasedCoordinate(minLY, maxLY, h, pStatus, 'Y');
+                // Restrict y to -1, 0, or 1 to ensure it stays close to the center row
+                y = Math.floor(Math.random() * 3) - 1;
                 dir = Math.random() < 0.5 ? 'E' : 'W'; units = h;
             }
 
@@ -3070,7 +3077,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _isCanvasFullyCovered() {
         const w = this.logicGridW, h = this.logicGridH;
-        if (!w || !h) return false;
+        if (!w || !h || !this.renderGrid) return false;
         const bs = this.getBlockSize();
         const { offX, offY } = this._computeCenteredOffset(w, h, bs.w, bs.h);
         const visibleW = Math.ceil(this.g.cols / bs.w);
@@ -3079,14 +3086,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         const endX = Math.min(w, startX + visibleW);
         const startY = Math.max(0, Math.floor(offY));
         const endY = Math.min(h, startY + visibleH);
-        for (let l = 0; l < 5; l++) {
-            const grid = this.layerGrids[l];
-            if (!grid) continue;
-            for (let gy = startY; gy < endY; gy++) {
-                const rowOff = gy * w;
-                for (let gx = startX; gx < endX; gx++) {
-                    if (grid[rowOff + gx] === -1) return false;
-                }
+
+        for (let gy = startY; gy < endY; gy++) {
+            const rowOff = gy * w;
+            for (let gx = startX; gx < endX; gx++) {
+                if (this.renderGrid[rowOff + gx] === -1) return false;
             }
         }
         return true;

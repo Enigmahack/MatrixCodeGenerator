@@ -23,10 +23,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const eraserChance = totalSpawns > 0 ? (s.eraserSpawnCount / totalSpawns) : 0;
 
         const columns = Array.from({length: cols}, (_, i) => i);
-        for (let i = columns.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [columns[i], columns[j]] = [columns[j], columns[i]];
-        }
+        Utils.shuffle(columns);
 
         let spawned = 0;
         let colIdx = 0;
@@ -133,7 +130,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // Perform cleanup of expired ops
         const fadeOutFrames = this.getConfig('FadeFrames') || 0;
-        if (this.maskOps.length > 0) {
+        if (this.maskOps.length > 0 && this.animFrame % 60 === 0) {
              const oldLen = this.maskOps.length;
              this.maskOps = this.maskOps.filter(op => {
                  if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOutFrames) return false;
@@ -227,7 +224,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (enCrawler) pool.push(() => this._attemptCrawlerGrowth());
         if (enRearrange) pool.push(() => this._attemptRearrangeGrowth());
         if (enRNGGrowth) pool.push(() => this._attemptRNGGenerativeGrowth());
-        if (enPulse) {
+        
+        const addSizedBehavior = (behaviorFunc) => {
             pool.push(() => {
                 const minW = getGenConfig('MinBlockWidth') || 1;
                 const maxW = getGenConfig('MaxBlockWidth') || 3;
@@ -235,20 +233,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const maxH = getGenConfig('MaxBlockHeight') || 3;
                 const w = Math.floor(Math.random() * (maxW - minW + 1)) + minW;
                 const h = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
-                return this._attemptPulseGrowthWithParams(targetLayer, w, h);
+                return behaviorFunc(targetLayer, w, h);
             });
-        }
-        if (enNudge) {
-            pool.push(() => {
-                const minW = getGenConfig('MinBlockWidth') || 1;
-                const maxW = getGenConfig('MaxBlockWidth') || 3;
-                const minH = getGenConfig('MinBlockHeight') || 1;
-                const maxH = getGenConfig('MaxBlockHeight') || 3;
-                const w = Math.floor(Math.random() * (maxW - minW + 1)) + minW;
-                const h = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
-                return this._attemptNudgeGrowthWithParams(targetLayer, w, h);
-            });
-        }
+        };
+
+        if (enPulse) addSizedBehavior((l, w, h) => this._attemptPulseGrowthWithParams(l, w, h));
+        if (enNudge) addSizedBehavior((l, w, h) => this._attemptNudgeGrowthWithParams(l, w, h));
 
         let success = false;
         let actionsPerformed = 0;
@@ -288,13 +278,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         this._performAutoActions();
+        
+        // Global behavior: Sync Layer 0 blocks to all sub-layers
+        this._syncSubLayers(maxLayer);
 
         // Final Logic Grid Sync
         const w = this.logicGridW, h = this.logicGridH;
         this.logicGrid.fill(0);
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
         
-        for (const b of this.activeBlocks) {
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
             const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
             const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
             for (let gy = y1; gy <= y2; gy++) {
@@ -306,6 +300,38 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
         }
     }
+
+    _syncSubLayers(maxLayer) {
+        if (maxLayer < 1) return;
+
+        // 1. Identify all blocks in Layer 0
+        const l0Blocks = this.activeBlocks.filter(b => b.layer === 0);
+        if (l0Blocks.length === 0) return;
+
+        // 2. Identify blocks in sub-layers for quick lookup
+        const subLayerBlocks = new Array(maxLayer + 1).fill(0).map(() => new Set());
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            if (b.layer > 0 && b.layer <= maxLayer) {
+                // Key format: x,y,w,h
+                subLayerBlocks[b.layer].add(`${b.x},${b.y},${b.w},${b.h}`);
+            }
+        }
+
+        // 3. Sync Layer 0 blocks to sub-layers
+        for (let i = 0; i < l0Blocks.length; i++) {
+            const b0 = l0Blocks[i];
+            for (let l = 1; l <= maxLayer; l++) {
+                const key = `${b0.x},${b0.y},${b0.w},${b0.h}`;
+                if (!subLayerBlocks[l].has(key)) {
+                    // Spawn the block in sub-layer l
+                    // Use skipConnectivity=true, allowInternal=true, suppressFades=true as this is a sync operation
+                    this._spawnBlock(b0.x, b0.y, b0.w, b0.h, l, true, false, 0, true, true, true);
+                }
+            }
+        }
+    }
+
 
     stop() {
         super.stop();
