@@ -237,7 +237,6 @@ class QuantizedEffectEditor {
                 break;
             case 'export': this._exportData(); break;
             case 'save': this._savePattern(); break;
-            case 'clean': this._cleanInternalSequence(); break;
             case 'undo': this._undo(); break;
             case 'redo': this._redo(); break;
             case 'merge':
@@ -340,7 +339,7 @@ class QuantizedEffectEditor {
     _decodeSequence(sequence) {
         if (!sequence || sequence.length === 0) return [[]];
         
-        const OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 4: 'addLine', 5: 'remLine', 6: 'addSmart', 7: 'removeBlock' };
+        const OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 6: 'addSmart', 7: 'removeBlock' };
         
         const decodedSeq = [];
         for (const step of sequence) {
@@ -393,22 +392,14 @@ class QuantizedEffectEditor {
                         const face = FACES_INV[fMask] || 'N';
                         decodedStep.push({ op: 'nudge', args: [x, y, w, h, face], layer: l });
                         continue;
-                    } else if (opCode === 2 || opCode === 4 || opCode === 5) {
+                    } else if (opCode === 2) {
                         const x = step[i++];
                         const y = step[i++];
                         let mask = step[i++];
                         
                         // Unpack Layer
-                        const l = (mask >> 4) & 0x7; // Extract 3 bits
-                        mask = mask & 0xF; // Clear layer bits
-                        
-                        if (mask & 1) decodedStep.push({ op: opName, args: [x, y, 'N'], layer: l });
-                        if (mask & 2) decodedStep.push({ op: opName, args: [x, y, 'S'], layer: l });
-                        if (mask & 4) decodedStep.push({ op: opName, args: [x, y, 'E'], layer: l });
-                        if (mask & 8) decodedStep.push({ op: opName, args: [x, y, 'W'], layer: l });
-                        if (mask === 0 && opCode === 2) {
-                             decodedStep.push({ op: 'rem', args: [x, y], layer: l });
-                        }
+                        const l = (mask >> 4) & 0x7; 
+                        decodedStep.push({ op: 'rem', args: [x, y], layer: l });
                         continue; 
                     }
                     decodedStep.push({ op: opName, args: args });
@@ -567,97 +558,6 @@ class QuantizedEffectEditor {
             }
             this.selectionRect = null;
             this.redoStack = [];
-        }
-    }
-
-    _cleanInternalSequence() {
-        if (this.isStandalone) {
-            this._sendRemote({ type: 'clean' });
-            return;
-        }
-        if (!this.effect) return;
-        const threshVal = this.effect.getConfig('CleanInnerDistance');
-        const thresh = (threshVal !== undefined) ? threshVal : 4;
-
-        const sequence = this.effect.sequence;
-        
-        // Save current state
-        const originalPhase = this.effect.expansionPhase;
-        this.redoStack = [];
-        let totalCount = 0;
-
-        // Iterate steps to find lines that become internal
-        for (let i = 0; i < sequence.length; i++) {
-            this.effect.jumpToStep(i);
-            
-            // Ensure logic state is fully updated for this step
-            if (typeof this.effect._updateRenderGridLogic === 'function') {
-                this.effect._updateRenderGridLogic();
-            }
-            
-            // Force rebuild of edge cache to get current line state and distance map
-            const w = this.effect.logicGridW;
-            const h = this.effect.logicGridH;
-            
-            // We must call private method to ensure cache is built for this exact step state
-            if (typeof this.effect._rebuildEdgeCache === 'function') {
-                this.effect._rebuildEdgeCache(w, h);
-            }
-            
-            const distMap = this.effect._distMap;
-            const edgeMaps = this.effect._cachedEdgeMaps;
-            
-            if (!distMap || !edgeMaps) continue;
-
-            const cx = Math.floor(w / 2);
-            const cy = Math.floor(h / 2);
-            const stepRemovals = [];
-            
-            // Iterate all active edges in the cache across all layers
-            for (let layerIdx = 0; layerIdx < 5; layerIdx++) {
-                const edgeMap = edgeMaps[layerIdx];
-                if (!edgeMap) continue;
-
-                for (const [key, value] of edgeMap) {
-                    // value = { type: 'add'|'rem', op: ... }
-                    if (value.type !== 'add') continue;
-
-                    const op = value.op;
-                    // Get coordinates from the operation that created the line
-                    // addLine ops store x1, y1 (block coords relative to center)
-                    const dx = op.x1;
-                    const dy = op.y1;
-                    const bx = cx + dx;
-                    const by = cy + dy;
-
-                    if (bx < 0 || bx >= w || by < 0 || by >= h) continue;
-
-                    const idx = by * w + bx;
-                    
-                    // Check if this block is deep inside
-                    if (distMap[idx] > thresh) {
-                        // Use the face from the original op to target the removal correctly
-                        const face = op.face || 'N'; 
-                        stepRemovals.push({ op: 'remLine', args: [dx, dy, face], layer: layerIdx });
-                    }
-                }
-            }
-            
-            if (stepRemovals.length > 0) {
-                sequence[i].push(...stepRemovals);
-                totalCount += stepRemovals.length;
-            }
-        }
-
-        // Restore original state
-        this.effect.jumpToStep(originalPhase);
-        this.isDirty = true;
-        this._broadcastSync();
-        
-        if (totalCount > 0) {
-            alert(`Cleaner: Added ${totalCount} removal operations to clean internal lines.`);
-        } else {
-            alert("Cleaner: No deep internal lines found to remove.");
         }
     }
 
@@ -1206,8 +1106,6 @@ class QuantizedEffectEditor {
         addTool('add', 'Add Block', "Click to toggle block existence");
         addTool('nudge', 'Nudge Block', "Drag to shift existing blocks");
         addTool('removeBlock', 'Rem Block', "Click to force remove block");
-        addTool('addLine', 'Add Line', "Click block edges to force line visibility");
-        addTool('removeLine', 'Rem Line', "Click block edges to hide lines");
         addTool('addRect', 'Add Rect', "Drag to add multiple blocks");
         
         container.appendChild(toolControls);
@@ -1458,17 +1356,11 @@ class QuantizedEffectEditor {
 
         const btnSave = this._createBtn('Save Pattern', () => this._savePattern());
         btnSave.title = "Save all patterns to QuantizedPatterns.js";
-        btnSave.style.width = '32%';
+        btnSave.style.width = '48%';
         btnSave.style.marginRight = '0';
-
-        const btnClean = this._createBtn('Clean Internal', () => this._cleanInternalSequence());
-        btnClean.title = "Remove lines more than 3 blocks from the perimeter across all steps";
-        btnClean.style.width = '32%';
-        btnClean.style.marginRight = '0';
         
         exportControls.appendChild(btnExport);
         exportControls.appendChild(btnSave);
-        exportControls.appendChild(btnClean);
         container.appendChild(exportControls);
 
         const legend = document.createElement('div');
@@ -1600,7 +1492,7 @@ class QuantizedEffectEditor {
             });
         }
 
-        const showFaces = (this.currentTool === 'addLine' || this.currentTool === 'removeLine' || this.currentTool === 'nudge');
+        const showFaces = (this.currentTool === 'nudge');
         if (this.faceControls) {
             this.faceControls.style.display = showFaces ? 'block' : 'none';
             if (showFaces) {
@@ -1805,7 +1697,7 @@ class QuantizedEffectEditor {
     }
 
     _encodeSequence(sequence) {
-        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addLine': 4, 'remLine': 5, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12 };
+        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12 };
         const FACES = { 'N': 1, 'n': 1, 'S': 2, 's': 2, 'E': 4, 'e': 4, 'W': 8, 'w': 8 };
         
         const packedSequence = [];
@@ -1820,7 +1712,6 @@ class QuantizedEffectEditor {
                     }
                     opName = opObj[0];
                     args = opObj.slice(1);
-                    // Legacy array format likely doesn't have layer
                 } else {
                     opName = opObj.op;
                     args = opObj.args;
@@ -1830,7 +1721,6 @@ class QuantizedEffectEditor {
                 const opCode = OPS[opName];
                 if (!opCode) {
                     if (opName === 'group' && opObj.ops) {
-                        // Recursively encode group ops
                         const encodedGroup = { op: 'group', ops: [] };
                         const tempResult = this._encodeSequence([opObj.ops]);
                         encodedGroup.ops = tempResult[0];
@@ -1841,56 +1731,46 @@ class QuantizedEffectEditor {
 
                 if (opCode === 1) { // add
                     if (layer > 0) {
-                        stepData.push(8, args[0], args[1], layer); // 8: addLayered
+                        stepData.push(8, args[0], args[1], layer); 
                     } else {
                         stepData.push(1, args[0], args[1]);
                     }
                 } else if (opCode === 3) { // addRect
                     if (layer > 0) {
-                        stepData.push(9, args[0], args[1], args[2], args[3], layer); // 9: addRectLayered
+                        stepData.push(9, args[0], args[1], args[2], args[3], layer); 
                     } else {
                         stepData.push(3, args[0], args[1], args[2], args[3]);
                     }
                 } else if (opCode === 6) { // addSmart
                     if (layer > 0) {
-                         stepData.push(10, args[0], args[1], layer); // 10: addSmartLayered
+                         stepData.push(10, args[0], args[1], layer); 
                     } else {
                          stepData.push(6, args[0], args[1]);
                     }
                 } else if (opCode === 7) { // removeBlock
                     if (layer > 0) {
-                         stepData.push(11, args[0], args[1], layer); // 11: removeBlockLayered
+                         stepData.push(11, args[0], args[1], layer); 
                     } else {
                          stepData.push(7, args[0], args[1]);
                     }
-                } else if (opCode === 12) { // nudge(x, y, w, h, face, layer)
+                } else if (opCode === 12) { // nudge
                     const dx = args[0];
                     const dy = args[1];
                     let face = args[4];
 
-                    // Refactor existing/missing directions to match "away from center" logic
                     if (!face) {
-                         if (dx === 0 && dy === 0) face = 'N'; // Default
+                         if (dx === 0 && dy === 0) face = 'N'; 
                          else if (Math.abs(dy) > Math.abs(dx)) face = (dy > 0) ? 'S' : 'N';
                          else face = (dx > 0) ? 'E' : 'W';
                     }
                     
                     const fMask = FACES[face.toUpperCase()] || 0;
-                    // OpCode 12: [12, x, y, w, h, layer, faceMask]
                     stepData.push(12, args[0], args[1], args[2], args[3], layer, fMask);
-                } else if (opCode === 2 || opCode === 4 || opCode === 5) {
-                    // rem(2), addLine(4), remLine(5)
-                    stepData.push(opCode, args[0], args[1]);
+                } else if (opCode === 2) { // rem
+                    stepData.push(2, args[0], args[1]);
                     let mask = 0;
-                    if (args.length > 2 && typeof args[2] === 'string') {
-                        mask = FACES[args[2].toUpperCase()] || 0;
-                    } else if (typeof args[2] === 'number') {
-                         mask = args[2];
-                    }
-                    
-                    // Pack Layer into Mask (Bits 4-6) to avoid stream ambiguity
                     if (layer > 0) {
-                        mask = mask | (layer << 4);
+                        mask = (layer << 4);
                     }
                     stepData.push(mask);
                 }
@@ -1966,29 +1846,22 @@ class QuantizedEffectEditor {
         this.redoStack = [];
         const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
         const step = this.effect.sequence[targetIdx];
-        const grid = this.effect.logicGrid;
         const w = this.effect.logicGridW;
         const cx = Math.floor(w / 2);
         const cy = Math.floor(this.effect.logicGridH / 2);
         const r = this.selectionRect; // Absolute
 
-        let count = 0;
-        for (let y = r.y; y <= r.y + r.h; y++) {
-            for (let x = r.x; x <= r.x + r.w; x++) {
-                const idx = y * w + x;
-                if (grid[idx] === 1) {
-                    // Convert absolute back to relative for removeBlock args
-                    step.push({ op: 'removeBlock', args: [x - cx, y - cy], layer: this.currentLayer });
-                    count++;
-                }
-            }
-        }
-        if (count > 0) {
-            if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
-            this.effect.refreshStep();
-            this.isDirty = true;
-            this._broadcastSync();
-        }
+        // Push a single rectangular removal op for efficiency
+        step.push({ 
+            op: 'removeBlock', 
+            args: [r.x - cx, r.y - cy, r.x + r.w - cx, r.y + r.h - cy], 
+            layer: this.currentLayer 
+        });
+
+        if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
+        this.effect.refreshStep();
+        this.isDirty = true;
+        this._broadcastSync();
     }
 
     _cutSelection() {
@@ -2175,96 +2048,12 @@ class QuantizedEffectEditor {
                 return; // Wait for mouse up
             }
 
-            // Apply Tool (Immediate tools) with Toggle Logic
-            const dx = hit.x;
-            const dy = hit.y;
-            const step = this.effect.sequence[this.effect.expansionPhase];
-            
-            // Smart Line Toggle (Shared Edges)
-            if (this.currentTool === 'addLine' || this.currentTool === 'removeLine') {
-                const cx = Math.floor(this.effect.logicGridW / 2);
-                const cy = Math.floor(this.logicGridH / 2);
-                const absX = dx + cx; 
-                const absY = dy + cy;
-                const f = this.currentFace;
-
-                // Determine Canonical Key
-                let u=0, v=0, type='';
-                if (f === 'N') { u = absX; v = absY; type = 'H'; }
-                else if (f === 'S') { u = absX; v = absY + 1; type = 'H'; }
-                else if (f === 'W') { u = absX; v = absY; type = 'V'; }
-                else if (f === 'E') { u = absX + 1; v = absY; type = 'V'; }
-
-                const key = `${type}_${u}_${v}`;
-
-                // Target current visible step (N-1) or first step (0)
-                const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
-                const step = this.effect.sequence[targetIdx];
-
-                // 1. Clear ALL Overrides on this Edge in TARGET STEP
-                for (let i = step.length - 1; i >= 0; i--) {
-                    const op = step[i];
-                    let oName, oArgs;
-                    if (Array.isArray(op)) { oName = op[0]; oArgs = op.slice(1); }
-                    else { oName = op.op; oArgs = op.args; }
-
-                    if (oName === 'addLine' || oName === 'remLine') {
-                        const ox = oArgs[0] + cx;
-                        const oy = oArgs[1] + cy;
-                        const oface = oArgs[2];
-                        let ou=0, ov=0, otype='';
-                        if (oface === 'N') { ou = ox; ov = oy; otype = 'H'; }
-                        else if (oface === 'S') { ou = ox; ov = oy + 1; otype = 'H'; }
-                        else if (oface === 'W') { ou = ox; ov = oy; otype = 'V'; }
-                        else if (oface === 'E') { ou = ox + 1; ov = oy; otype = 'V'; }
-
-                        if (ou === u && ov === v && otype === type) {
-                            step.splice(i, 1);
-                        }
-                    }
-                }
-
-                // 2. Determine Current Visibility State
-                const isVisible = this.effect.getEdgeVisibility(absX, absY, f);
-
-                // 3. Apply Toggle Logic based on Desired vs Actual
-                let transientOp = null;
-                if (this.currentTool === 'addLine') {
-                    if (!isVisible) {
-                        step.push({ op: 'addLine', args: [dx, dy, f], layer: this.currentLayer });       
-                    } else {
-                        transientOp = { 
-                            type: 'removeLine', x1: dx, y1: dy, x2: dx, y2: dy, face: f, 
-                            startFrame: this.effect.animFrame, layer: this.currentLayer 
-                        };
-                    }
-                } else if (this.currentTool === 'removeLine') {
-                    if (isVisible) {
-                        step.push({ op: 'remLine', args: [dx, dy, f], layer: this.currentLayer });       
-                    } else {
-                        transientOp = { 
-                            type: 'addLine', x1: dx, y1: dy, x2: dx, y2: dx, face: f, 
-                            startFrame: this.effect.animFrame, layer: this.currentLayer 
-                        };
-                    }
-                }
-                
-                if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
-                this.effect.refreshStep();
-                if (transientOp) {
-                    this.effect.maskOps.push(transientOp);
-                }
-                this.isDirty = true;
-                this._broadcastSync();
-                return;
-            }
-
             // Basic Block Tools
             let opName = null;
             let args = null;
 
-            if (this.currentTool === 'add') { opName = 'add'; args = [dx, dy]; } 
-            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [dx, dy]; } 
+            if (this.currentTool === 'add') { opName = 'add'; args = [hit.x, hit.y]; } 
+            else if (this.currentTool === 'removeBlock') { opName = 'removeBlock'; args = [hit.x, hit.y]; } 
 
             if (opName) {
                 this.redoStack = [];
@@ -2281,29 +2070,26 @@ class QuantizedEffectEditor {
                 const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
                 const step = this.effect.sequence[targetIdx];
                 const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
-                let deletedOp = null;
                 
                 if (existingIdx !== -1) { 
-                    deletedOp = step[existingIdx];
                     step.splice(existingIdx, 1); 
                 } else { 
-                    const newOp = { op: opName, args: args };
-                    if (opName === 'add' || opName === 'nudge') newOp.layer = this.currentLayer;
-                    if (opName === 'removeBlock') newOp.layer = this.currentLayer;
-                    step.push(newOp); 
+                    if (opName === 'add') {
+                        // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
+                        const oldManual = this.effect.manualStep;
+                        this.effect.manualStep = true;
+                        this.effect._spawnBlock(hit.x, hit.y, 1, 1, this.currentLayer);
+                        this.effect.manualStep = oldManual;
+                    } else {
+                        const newOp = { op: opName, args: args };
+                        if (opName === 'nudge') newOp.layer = this.currentLayer;
+                        if (opName === 'removeBlock') newOp.layer = this.currentLayer;
+                        step.push(newOp); 
+                    }
                 }
 
                 if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                 this.effect.refreshStep();
-
-                if (deletedOp && (opName === 'add')) {
-                    this.effect.maskOps.push({ 
-                        type: 'removeBlock', 
-                        x1: dx, y1: dy, x2: dx, y2: dy, 
-                        startFrame: this.effect.animFrame, 
-                        layer: this.currentLayer 
-                    });
-                }
 
                 this.isDirty = true;
                 this._broadcastSync();
@@ -2321,11 +2107,24 @@ class QuantizedEffectEditor {
 
                 if (this.currentTool === 'addRect') {
                     this.redoStack = [];
-                    step.push({ 
-                        op: 'addRect', 
-                        args: [this.dragStart.x, this.dragStart.y, hit.x, hit.y],
-                        layer: this.currentLayer
-                    });
+                    const x1 = this.dragStart.x;
+                    const y1 = this.dragStart.y;
+                    const x2 = hit.x;
+                    const y2 = hit.y;
+                    
+                    const minX = Math.min(x1, x2);
+                    const maxX = Math.max(x1, x2);
+                    const minY = Math.min(y1, y2);
+                    const maxY = Math.max(y1, y2);
+                    const w = maxX - minX + 1;
+                    const h = maxY - minY + 1;
+
+                    // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
+                    const oldManual = this.effect.manualStep;
+                    this.effect.manualStep = true;
+                    this.effect._spawnBlock(minX, minY, w, h, this.currentLayer);
+                    this.effect.manualStep = oldManual;
+
                     if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                     this.effect.refreshStep();
                     this.isDirty = true;

@@ -10,8 +10,6 @@ const OPS = {
     'add': 1,
     'rem': 2,
     'addRect': 3,
-    'addLine': 4,
-    'remLine': 5,
     'addSmart': 6,
     'removeBlock': 7
 };
@@ -60,7 +58,7 @@ function encodeSequence(sequence) {
             } else if (opCode === 3) {
                 // 4 Args: x1, y1, x2, y2
                 stepData.push(args[0], args[1], args[2], args[3]);
-            } else if (opCode === 2 || opCode === 4 || opCode === 5) {
+            } else if (opCode === 2) {
                 // 3 Args: x, y, face(string)
                 stepData.push(args[0], args[1]);
                 let mask = 0;

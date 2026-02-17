@@ -183,7 +183,7 @@ SUPPORTING MODULES
 * QuantizedPatterns.js
   - Purpose: Data file containing binary-encoded steps for "Quantized" animations.
   - Format: [OpCode, x1, y1, x2, y2, mask] sequences. 
-  - Ops: add(1), rem(2), addRect(3), addLine(4), remLine(5), addSmart(6), remBlock(7).
+  - Ops: add(1), rem(2), addRect(3), addSmart(6), remBlock(7).
 
 * QuantizedSequenceGenerator.js
   - Purpose: Algorithm for procedural growth. 

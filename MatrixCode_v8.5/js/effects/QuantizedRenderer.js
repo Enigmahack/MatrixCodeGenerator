@@ -1,8 +1,6 @@
 class QuantizedRenderer {
     constructor() {
         this._bfsQueue = new Int32Array(65536);
-        this._cachedEdgeMaps = [];
-        this._edgeCacheDirty = true;
         this._distMap = null;
         this._distMapWidth = 0;
         this._distMapHeight = 0;
@@ -79,50 +77,9 @@ class QuantizedRenderer {
         const snapThreshY = screenStepY * 1.0;
         fx._snapSettings = { w, h, tx: snapThreshX, ty: snapThreshY };
 
-        if (!fx.maskOps || fx.maskOps.length === 0) {
-            fx._snapSettings = null;
-            return;
-        }
-
         // Populate Suppressed Fades (Keys to ignore for fading this frame)
         fx.suppressedFades.clear();
-        if (fx.maskOps) {
-            const cx = Math.floor(blocksX / 2);
-            const cy = Math.floor(blocksY / 2);
-            const now = fx.animFrame;
-            const lastNow = fx.lastMaskUpdateFrame;
-
-            for (const op of fx.maskOps) {
-                // Buffer check: Catch all suppressed fades that happened since last mask update
-                if (op.fade === false && op.startFrame > lastNow && op.startFrame <= now) {
-                    if (op.type === 'removeBlock') {
-                        const minX = Math.min(cx + op.x1, cx + op.x2);
-                        const maxX = Math.max(cx + op.x1, cx + op.x2);
-                        const minY = Math.min(cy + op.y1, cy + op.y2);
-                        const maxY = Math.max(cy + op.y1, cy + op.y2);
-                        for (let y = minY; y <= maxY; y++) {
-                            for (let x = minX; x <= maxX; x++) {
-                                fx.suppressedFades.add(`H_${x}_${y}`);
-                                fx.suppressedFades.add(`H_${x}_${y+1}`);
-                                fx.suppressedFades.add(`V_${x}_${y}`);
-                                fx.suppressedFades.add(`V_${x+1}_${y}`);
-                            }
-                        }
-                    } else if (op.type === 'removeLine' || op.type === 'remove' || op.type === 'remLine') {
-                         const bx = cx + op.x1;
-                         const by = cy + op.y1;
-                         if (op.face) {
-                             const f = op.face.toUpperCase();
-                             if (f === 'N') fx.suppressedFades.add(`H_${bx}_${by}`);
-                             else if (f === 'S') fx.suppressedFades.add(`H_${bx}_${by+1}`);
-                             else if (f === 'W') fx.suppressedFades.add(`V_${bx}_${by}`);
-                             else if (f === 'E') fx.suppressedFades.add(`V_${bx+1}_${by}`);
-                         }
-                    }
-                }
-            }
-        }
-
+        
         // Block Erasure Pass
         colorLayerCtx.globalCompositeOperation = 'destination-out';
         const now = fx.animFrame;
@@ -137,11 +94,25 @@ class QuantizedRenderer {
             colorLayerCtx.globalAlpha = opacity;
             const cx = Math.floor(blocksX / 2);
             const cy = Math.floor(blocksY / 2);
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
             
-            // Draw directly to colorLayerCtx
-            this._addBlockToCtx(fx, colorLayerCtx, l, start, end);
+            const x1 = Math.min(op.x1, op.x2);
+            const x2 = Math.max(op.x1, op.x2);
+            const y1 = Math.min(op.y1, op.y2);
+            const y2 = Math.max(op.y1, op.y2);
+
+            for (let by_rel = y1; by_rel <= y2; by_rel++) {
+                for (let bx_rel = x1; bx_rel <= x2; bx_rel++) {
+                    const gx = cx + bx_rel;
+                    const gy = cy + by_rel;
+                    if (gx < 0 || gx >= blocksX || gy < 0 || gy >= blocksY) continue;
+                    
+                    const idx = gy * blocksX + gx;
+                    // Only erase if this cell is NOT occupied by ANY visible layer in the final composition
+                    if (fx.renderGrid[idx] === -1) {
+                        this._addBlockToCtx(fx, colorLayerCtx, l, {x: gx, y: gy}, {x: gx, y: gy});
+                    }
+                }
+            }
         }
 
         // Global Fade Check for Removal Grids
@@ -176,7 +147,6 @@ class QuantizedRenderer {
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
         // Unified Shared Edge Rendering
-        // Draw White lines to maskCanvas and perimeterMaskCanvas, Colored lines to lineMaskCanvas
         this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
         this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
         
@@ -196,7 +166,6 @@ class QuantizedRenderer {
         let startY = Math.round((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
         let endY = Math.round((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
 
-        // Clamp to grid boundaries
         startX = Math.max(0, Math.min(fx.g.cols, startX));
         endX = Math.max(0, Math.min(fx.g.cols, endX));
         startY = Math.max(0, Math.min(fx.g.rows, startY));
@@ -208,7 +177,6 @@ class QuantizedRenderer {
         const w = (endX - startX) * l.screenStepX;
         const h = (endY - startY) * l.screenStepY;
         
-        // Snap
         const sLeft = this._getSnap(fx, xPos, 'x');
         const sTop = this._getSnap(fx, yPos, 'y');
         const sRight = this._getSnap(fx, xPos + w, 'x');
@@ -229,19 +197,12 @@ class QuantizedRenderer {
     }
 
     renderEdges(fx, maskCtx, colorCtx, now, blocksX, blocksY, offX, offY) {
-        if (this._edgeCacheDirty || !this._cachedEdgeMaps || this._cachedEdgeMaps.length === 0) {
-            this.rebuildEdgeCache(fx, blocksX, blocksY);
-            this._edgeCacheDirty = false;
-        }
-        
         const color = fx.getConfig('PerimeterColor') || "#FFD700";
         const fadeColor = fx.getConfig('PerimeterFadeColor') || (fx.getConfig('InnerColor') || "#FFD700");
         const fadeOutFrames = fx.getConfig('FadeFrames') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
-        // BATCHING: Map key="color|opacity" -> Path2D for colorCtx
         const batches = new Map();
-        // BATCHING: Map opacity -> Path2D for maskCtx (always White color)
         const maskBatches = new Map();
         
         const getBatch = (c, o) => {
@@ -258,15 +219,6 @@ class QuantizedRenderer {
         const getBlock = (grid, bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
             return grid[by * blocksX + bx];
-        };
-
-        const getLayerForBlock = (bx, by) => {
-            const idx = by * blocksX + bx;
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
-            for (const i of fx.layerOrder) {
-                if (fx.layerGrids[i] && fx.layerGrids[i][idx] !== -1) return i;
-            }
-            return -1;
         };
 
         const getFadeState = (deathFrame) => {
@@ -310,59 +262,34 @@ class QuantizedRenderer {
 
             const key = `${type}_${x}_${y}`;
             
-            // Check manual edge overrides (addLine/remLine)
-            let manualOp = null;
-            let suppressFade = false;
-            for (let i = 0; i < 5; i++) {
-                const em = this._cachedEdgeMaps[i];
-                if (em && em.has(key)) {
-                    manualOp = em.get(key);
-                    if (manualOp.op && manualOp.op.fade === false) suppressFade = true;
-                    break;
-                }
-            }
+            // Layering Logic: Layers 0, 1, 2 always visible; 3 and 4 alternate.
+            const last3or4 = fx.layerOrder.find(l => l === 3 || l === 4);
+            const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2 || l === last3or4);
 
-            if (manualOp) {
-                if (manualOp.type === 'add') {
-                    isVisibleNow = true;
-                    edgeBirthFrame = manualOp.op.startFrame || now;
-                } else if (manualOp.type === 'rem') {
-                    isVisibleNow = false;
-                }
-            } else {
-                // Layering Logic: Layers 0, 1, 2 always visible; 3 and 4 alternate.
-                const last3or4 = fx.layerOrder.find(l => l === 3 || l === 4);
-                const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2 || l === last3or4);
+            for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
+                const L = visibleLayerIndices[iOrder];
+                const grid = fx.layerGrids[L];
+                if (!grid) continue;
+                const aL = (getBlock(grid, ax, ay) !== -1);
+                const bL = (getBlock(grid, bx, by) !== -1);
 
-                for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
-                    const L = visibleLayerIndices[iOrder];
-                    const grid = fx.layerGrids[L];
-                    if (!grid) continue;
-                    const aL = (getBlock(grid, ax, ay) !== -1);
-                    const bL = (getBlock(grid, bx, by) !== -1);
-
-                    if (aL !== bL) {
-                        // Perimeter of Layer L. Is it obscured?
-                        // SPECIAL CASE: Layers 1 and 2 are NEVER obscured (always peek through)
-                        let obscured = false;
-                        if (L !== 1 && L !== 2) {
-                            for (let m = 0; m < iOrder; m++) {
-                                const M = visibleLayerIndices[m];
-                                if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
-                                    obscured = true;
-                                    break;
-                                }
-                            }
+                if (aL !== bL) {
+                    // Perimeter of Layer L. Is it obscured?
+                    let obscured = false;
+                    for (let m = 0; m < iOrder; m++) {
+                        const M = visibleLayerIndices[m];
+                        if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
+                            obscured = true;
+                            break;
                         }
+                    }
 
-                        if (!obscured) {
-                            isVisibleNow = true;
-                            // Use the start frame of the blocks to determine birth frame
-                            const fA = getBlock(grid, ax, ay);
-                            const fB = getBlock(grid, bx, by);
-                            edgeBirthFrame = Math.max(fA, fB);
-                            break; 
-                        }
+                    if (!obscured) {
+                        isVisibleNow = true;
+                        const fA = getBlock(grid, ax, ay);
+                        const fB = getBlock(grid, bx, by);
+                        edgeBirthFrame = Math.max(fA, fB);
+                        break; 
                     }
                 }
             }
@@ -378,28 +305,20 @@ class QuantizedRenderer {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    
-                    // CRITICAL FIX: Only trigger birth-fade if the edge is brand new (created this frame)
-                    // and suppression is not active. If revealed (old frame) or suppressed, use instant reveal (-1).
                     const isNew = (edgeBirthFrame === now);
-                    state.birthFrame = (isNew && !suppressFade) ? now : -1;
+                    state.birthFrame = (isNew) ? now : -1;
                 }
             } else {
                 if (state.visible) {
                     state.visible = false;
                     fx.lastVisibilityChangeFrame = now;
                     state.birthFrame = -1;
-                    
-                    const isNudged = globalPerimeter && fx.suppressedFades.has(key);
-                    if (isNudged || suppressFade) {
-                        state.deathFrame = -1;
-                    } else if (state.deathFrame === -1) {
+                    if (state.deathFrame === -1) {
                         state.deathFrame = now;
                     }
                 }
             }
 
-            // Batched Rendering
             const face = (type === 'V') ? 'W' : 'N';
             if (state.visible) {
                 const birth = getBirthState(state.birthFrame);
@@ -433,7 +352,6 @@ class QuantizedRenderer {
             }
         }
 
-        // Draw Batches to Color Context
         batches.forEach((path, key) => {
             const [c, oStr] = key.split('|');
             colorCtx.fillStyle = c;
@@ -441,7 +359,6 @@ class QuantizedRenderer {
             colorCtx.fill(path);
         });
 
-        // Draw Batches to Mask Context
         maskCtx.fillStyle = "#FFFFFF";
         maskBatches.forEach((path, oStr) => {
             maskCtx.globalAlpha = parseFloat(oStr);
@@ -456,13 +373,11 @@ class QuantizedRenderer {
         const lwX = l.lineWidthX;
         const lwY = l.lineWidthY;
         
-        // Use rect() on the path instead of ctx.rect()
         let startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
         let endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
         let startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
         let endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
 
-        // Clamp to grid boundaries
         startCellX = Math.max(0, Math.min(fx.g.cols, startCellX));
         endCellX = Math.max(0, Math.min(fx.g.cols, endCellX));
         startCellY = Math.max(0, Math.min(fx.g.rows, startCellY));
@@ -498,62 +413,7 @@ class QuantizedRenderer {
     }
 
     _renderCornerCleanup(fx, ctx, now) {
-        const blocksX = fx.logicGridW;
-        const blocksY = fx.logicGridH;
-        const cx = Math.floor(blocksX / 2);
-        const cy = Math.floor(blocksY / 2);
-        
-        const cornerMap = new Map(); 
-        const activeRemovals = fx.maskOps.filter(op => {
-            if (op.type !== 'remove' && op.type !== 'removeLine') return false;
-            if (!op.startFrame) return false;
-            return (now >= op.startFrame);
-        });
-
-        if (activeRemovals.length === 0) return;
-
-        for (const op of activeRemovals) {
-            if (!op.face) continue;
-            const start = { x: cx + op.x1, y: cy + op.y1 };
-            const end = { x: cx + op.x2, y: cy + op.y2 };
-            const minX = Math.min(start.x, end.x);
-            const maxX = Math.max(start.x, end.x);
-            const minY = Math.min(start.y, end.y);
-            const maxY = Math.max(start.y, end.y);
-            const f = op.face.toUpperCase();
-            const force = op.force;
-
-            for (let by = minY; by <= maxY; by++) {
-                for (let bx = minX; bx <= maxX; bx++) {
-                    if (!force) {
-                        if (f === 'N' && by === minY) continue;
-                        if (f === 'S' && by === maxY) continue;
-                        if (f === 'W' && bx === minX) continue;
-                        if (f === 'E' && bx === maxX) continue;
-                    }
-                    const idx = by * blocksX + bx;
-                    let mask = cornerMap.get(idx) || 0;
-                    if (f === 'N') mask |= 1;
-                    else if (f === 'S') mask |= 2;
-                    else if (f === 'E') mask |= 4;
-                    else if (f === 'W') mask |= 8;
-                    cornerMap.set(idx, mask);
-                }
-            }
-        }
-
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.globalAlpha = 1.0; 
-        
-        for (const [idx, mask] of cornerMap) {
-            const bx = idx % blocksX;
-            const by = (idx / blocksX) | 0;
-            if ((mask & 1) && (mask & 8)) this._removeBlockCorner(fx, ctx, bx, by, 'NW');
-            if ((mask & 1) && (mask & 4)) this._removeBlockCorner(fx, ctx, bx, by, 'NE');
-            if ((mask & 2) && (mask & 8)) this._removeBlockCorner(fx, ctx, bx, by, 'SW');
-            if ((mask & 2) && (mask & 4)) this._removeBlockCorner(fx, ctx, bx, by, 'SE');
-        }
-        ctx.globalCompositeOperation = 'source-over';
+        // Corner cleanup no longer needs manual removal tracking
     }
 
     _removeBlockCorner(fx, ctx, bx, by, corner) {
@@ -588,61 +448,6 @@ class QuantizedRenderer {
         ctx.beginPath();
         ctx.rect(cx - l.halfLineX - inflate, cy - l.halfLineY - inflate, l.lineWidthX + (inflate*2), l.lineWidthY + (inflate*2));
         ctx.fill();
-    }
-
-    rebuildEdgeCache(fx, scaledW, scaledH) {
-        const cx = Math.floor(fx.logicGridW / 2);
-        const cy = Math.floor(fx.logicGridH / 2);
-        const distMap = this.computeDistanceField(fx, scaledW, scaledH);
-        const cleanDistVal = fx.getConfig('CleanInnerDistance');
-        const cleanDist = (cleanDistVal !== undefined) ? cleanDistVal : 4;
-
-        this._cachedEdgeMaps = [];
-
-        for (let layer = 0; layer < 5; layer++) {
-            const edgeMap = new Map();
-            const currentGrid = fx.layerGrids[layer];
-
-            const isRenderActive = (bx, by) => {
-                if (bx < 0 || bx >= scaledW || by < 0 || by >= scaledH) return false;
-                const idx = by * scaledW + bx;
-                return (currentGrid && currentGrid[idx] !== -1);
-            };
-
-            if (fx.maskOps) {
-                for (const op of fx.maskOps) {
-                    if (op.type !== 'addLine' && op.type !== 'removeLine' && op.type !== 'remLine') continue;
-                    
-                    const opLayer = (op.layer !== undefined) ? op.layer : 0;
-                    if (opLayer !== layer) continue;
-
-                    const start = { x: cx + op.x1, y: cy + op.y1 };
-                    const end = { x: cx + op.x2, y: cy + op.y2 };
-                    const minX = Math.min(start.x, end.x), maxX = Math.max(start.x, end.x);
-                    const minY = Math.min(start.y, end.y), maxY = Math.max(start.y, end.y);
-                    const f = op.face ? op.face.toUpperCase() : 'N';
-                    
-                    const type = (op.type === 'addLine' ? 'add' : 'rem');
-
-                    for (let by = minY; by <= maxY; by++) {
-                        for (let bx = minX; bx <= maxX; bx++) {
-                            const idx = by * scaledW + bx;
-                            if (type === 'add' && !isRenderActive(bx, by)) continue;
-                            if (type === 'add' && distMap[idx] > cleanDist) continue;
-                            
-                            let key = '';
-                            if (f === 'N') key = `H_${bx}_${by}`;     
-                            else if (f === 'S') key = `H_${bx}_${by+1}`; 
-                            else if (f === 'W') key = `V_${bx}_${by}`;   
-                            else if (f === 'E') key = `V_${bx+1}_${by}`; 
-                            
-                            edgeMap.set(key, { type, op });
-                        }
-                    }
-                }
-            }
-            this._cachedEdgeMaps.push(edgeMap);
-        }
     }
 
     computeTrueOutside(fx, blocksX, blocksY) {

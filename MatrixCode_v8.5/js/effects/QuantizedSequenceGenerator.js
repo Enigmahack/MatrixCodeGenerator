@@ -122,10 +122,10 @@ class QuantizedSequenceGenerator {
             if (centerIdx !== -1) {
                 this.grid[centerIdx] = 1;
                 filledCells = 1;
-                // Initial step: Add seed relative to geometric center
-                const seedStepOps = [['add', seedX - this.cx, seedY - this.cy]];
-                // Add lines for the seed block so it matches the rest
-                this._addPerimeterLines(0, seedX, seedY, 1, 1, config.innerLineDuration, seedStepOps);
+                // Initial step: Add seed relative to geometric center.
+                // Use 'addSmart' to ensure it respects the natural perimeter logic.
+                const seedStepOps = [['addSmart', seedX - this.cx, seedY - this.cy]];
+                // REMOVED: this._addPerimeterLines call. We want the seed to have no persistent internal lines.
                 this.sequence.push(seedStepOps);
             } else {
                 console.warn("QuantizedSequenceGenerator: Invalid seed position", seedX, seedY);
@@ -133,8 +133,8 @@ class QuantizedSequenceGenerator {
                 const fallbackIdx = this._idx(this.cx, this.cy);
                 this.grid[fallbackIdx] = 1;
                 filledCells = 1;
-                const seedStepOps = [['add', 0, 0]];
-                this._addPerimeterLines(0, this.cx, this.cy, 1, 1, config.innerLineDuration, seedStepOps);
+                const seedStepOps = [['addSmart', 0, 0]];
+                // REMOVED: this._addPerimeterLines call.
                 this.sequence.push(seedStepOps);
             }
         }
@@ -238,7 +238,6 @@ class QuantizedSequenceGenerator {
         if (stepOccupancy) stepOccupancy[gridIdx] = 1;
 
         stepOps.push(['add', origin.x - this.cx, origin.y - this.cy]);
-        this._addPerimeterLines(s, origin.x, origin.y, 1, 1, innerDuration, stepOps);
         return 1;
     }
 
@@ -292,58 +291,7 @@ class QuantizedSequenceGenerator {
     }
 
     _clearAreaLines(x, y, w, h, stepOps) {
-        for (let by = 0; by < h; by++) {
-            for (let bx = 0; bx < w; bx++) {
-                const dx = x + bx - this.cx;
-                const dy = y + by - this.cy;
-                stepOps.push(['remLine', dx, dy, 'N']);
-                stepOps.push(['remLine', dx, dy, 'S']);
-                stepOps.push(['remLine', dx, dy, 'E']);
-                stepOps.push(['remLine', dx, dy, 'W']);
-            }
-        }
-    }
-
-    _addPerimeterLines(s, x, y, w, h, duration, stepOps) {
-        if (duration <= 0) return;
-
-        // Force ALL faces to ensure internal lines are always drawn at boundaries
-        const selectedFaces = ['N', 'S', 'E', 'W'];
-        
-        // Ensure lines appear immediately (co-located with block)
-        const delay = 0; 
-        
-        const startStep = s + delay;
-        // const endStep = startStep + duration; // Lifetime now handled by renderer
-        
-        const schedule = (step, op) => {
-            if (delay === 0 && stepOps) {
-                stepOps.push(op);
-            } else {
-                if (!this.scheduledOps.has(step)) this.scheduledOps.set(step, []);
-                this.scheduledOps.get(step).push(op);
-            }
-        };
-
-        for (const f of selectedFaces) {
-            if (f === 'N') {
-                for (let bx = 0; bx < w; bx++) {
-                    schedule(startStep, ['addLine', (x + bx) - this.cx, y - this.cy, 'N']);
-                }
-            } else if (f === 'S') {
-                for (let bx = 0; bx < w; bx++) {
-                    schedule(startStep, ['addLine', (x + bx) - this.cx, (y + h - 1) - this.cy, 'S']);
-                }
-            } else if (f === 'W') {
-                for (let by = 0; by < h; by++) {
-                    schedule(startStep, ['addLine', x - this.cx, (y + by) - this.cy, 'W']);
-                }
-            } else if (f === 'E') {
-                for (let by = 0; by < h; by++) {
-                    schedule(startStep, ['addLine', (x + w - 1) - this.cx, (y + by) - this.cy, 'E']);
-                }
-            }
-        }
+        // No manual line management needed, relying on renderer's perimeter logic.
     }
 
     _getFrontier() {
@@ -642,8 +590,6 @@ class QuantizedSequenceGenerator {
                 }
                 stepOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + tw - 1) - this.cx, (ty + th - 1) - this.cy]);
                 
-                this._addPerimeterLines(s, tx, ty, tw, th, innerDuration, stepOps);
-                
                 totalAdded += (tw * th) - overwriteCount;
             }
         }
@@ -818,8 +764,6 @@ class QuantizedSequenceGenerator {
                 } else {
                      currentOps.push(['addRect', tx - this.cx, ty - this.cy, (tx + shape.w - 1) - this.cx, (ty + shape.h - 1) - this.cy]);
                 }
-                
-                this._addPerimeterLines(targetStep, tx, ty, shape.w, shape.h, innerDuration, currentOps);
             }
         }
         
@@ -1064,9 +1008,6 @@ class QuantizedSequenceGenerator {
                 ]);
             }
             
-            // Always add perimeter lines to ensure internal lines are generated
-            this._addPerimeterLines(s, origin.x, origin.y, safeW, safeH, innerDuration, stepOps);
-            
             return actualAdded;
         }
         
@@ -1180,9 +1121,9 @@ class QuantizedSequenceGenerator {
             stepOccupancy[idx] = 1;
             
             this._clearAreaLines(tx, ty, 1, 1, stepOps);
-            // console.log(`[QGen] StartCross Adding at ${tx}, ${ty}. Step: ${s}`);
-            stepOps.push(['add', tx - this.cx, ty - this.cy]);
-            this._addPerimeterLines(s, tx, ty, 1, 1, innerDuration, stepOps);
+            // Use 'addSmart' for cross arms to avoid persistent internal lines at the center intersection
+            stepOps.push(['addSmart', tx - this.cx, ty - this.cy]);
+            // REMOVED: this._addPerimeterLines(s, tx, ty, 1, 1, innerDuration, stepOps);
             return 1;
         }
         
