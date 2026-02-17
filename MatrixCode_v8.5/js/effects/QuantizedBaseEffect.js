@@ -75,6 +75,23 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.overlapState = { step: 0 };
         this.cycleState = null;
         this.isReconstructing = false;
+
+        // Buffer Pool for high-frequency operations
+        this._bufferPool = {
+            combined: null,
+            connectedMap: null,
+            queue: null,
+            syncGrid: null,
+            stepOccupancy: null
+        };
+        this._gridsDirty = true;
+    }
+
+    _getBuffer(key, length, type = Uint8Array) {
+        if (!this._bufferPool[key] || this._bufferPool[key].length !== length) {
+            this._bufferPool[key] = new type(length);
+        }
+        return this._bufferPool[key];
     }
 
     _checkDirtiness() {
@@ -151,6 +168,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this.logicGridW = blocksX;
         this.logicGridH = blocksY;
+        this._gridsDirty = true;
 
         if (!this.renderGrid || this.renderGrid.length !== blocksX * blocksY) {
             this.renderGrid = new Int32Array(blocksX * blocksY);
@@ -206,6 +224,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._lastProcessedOpIndex = 0;
         this.animFrame = 0;
         this._maskDirty = true;
+        this._gridsDirty = true;
         
         // Reset Render Cache
         this.renderer._edgeCacheDirty = true;
@@ -284,11 +303,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.proceduralInitiated = false;
         
         // Fully reset procedural state machine
-        this.spineState = null;
+        this.spineState = Array.from({ length: 5 }, () => ({
+            N: { len: 0, finished: false, fieldExpansion: 0 },
+            S: { len: 0, finished: false, fieldExpansion: 0 },
+            E: { len: 0, finished: false, fieldExpansion: 0 },
+            W: { len: 0, finished: false, fieldExpansion: 0 }
+        }));
         this.crawlers = [];
         this.unfoldSequences = Array.from({ length: 5 }, () => []);
         this.nudgeState = null;
         this.cycleState = null;
+        this.centeredState = null;
 
         this._initLogicGrid();
         if (this.renderGrid) this.renderGrid.fill(-1);
@@ -554,11 +579,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
             this.renderGrid = new Int32Array(totalBlocks);
             this.renderGrid.fill(-1);
+            this._gridsDirty = true;
         }
         for (let i = 0; i < 5; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
                 this.layerGrids[i].fill(-1);
+                this._gridsDirty = true;
             }
         }
         if (!this.maskOps) return;
@@ -576,6 +603,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             
             if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
                 this._updateLayerOrder(layerIdx);
+                this._gridsDirty = true;
             }
 
             if (op.type === 'add' || op.type === 'addSmart') {
@@ -586,8 +614,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const minY = Math.max(0, Math.min(start.y, end.y));
                 const maxY = Math.min(this.logicGridH - 1, Math.max(start.y, end.y));
                 for (let by = minY; by <= maxY; by++) {
+                    const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
-                        const idx = by * this.logicGridW + bx;
+                        const idx = rowOff + bx;
                         targetGrid[idx] = op.startFrame || 0;
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
@@ -600,8 +629,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const minY = Math.max(0, Math.min(start.y, end.y));
                 const maxY = Math.min(this.logicGridH - 1, Math.max(start.y, end.y));
                 for (let by = minY; by <= maxY; by++) {
+                    const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
-                        const idx = by * this.logicGridW + bx;
+                        const idx = rowOff + bx;
                         const remFrame = op.startFrame || 0;
                         if (op.layer !== undefined) {
                             targetGrid[idx] = -1;
@@ -616,6 +646,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
+        
+        // Skip full re-composite if nothing changed
+        if (processed === 0 && !this._gridsDirty) {
+            this._lastProcessedOpIndex = i;
+            return;
+        }
+
         const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 4);
         const layerGrids = this.layerGrids;
 
@@ -634,6 +671,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
         }
         this._lastProcessedOpIndex = i;
+        this._gridsDirty = false;
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
         const bs = this.getBlockSize();
@@ -1109,19 +1147,21 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Initialize growth states
         this.spineState = Array.from({ length: 5 }, () => ({
-            N: { len: 0, finished: false },
-            S: { len: 0, finished: false },
-            E: { len: 0, finished: false },
-            W: { len: 0, finished: false }
+            N: { len: 0, finished: false, fieldExpansion: 0 },
+            S: { len: 0, finished: false, fieldExpansion: 0 },
+            E: { len: 0, finished: false, fieldExpansion: 0 },
+            W: { len: 0, finished: false, fieldExpansion: 0 }
         }));
         this.unfoldSequences = Array.from({ length: 5 }, () => []);
         this.nudgeState = {
             dirCounts: { N: 0, S: 0, E: 0, W: 0 },
+            fieldExpansion: { N: 0, S: 0, E: 0, W: 0 },
             lanes: new Map() // Tracks {0: count, 1: count} per lane
         };
         this.overlapState = { step: 0 };
         this.crawlers = [];
         this.cycleState = { step: 0, step1Block: null };
+        this.centeredState = null;
         this.rearrangePool = Array.from({ length: 5 }, () => 0);
 
         // Ensure we have at least one anchor if starting fresh
@@ -1130,8 +1170,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Seed the center block on all active layers to ensure they have an initial anchor.
             const maxLayer = this.getConfig('LayerCount') || 0;
             for (let l = 0; l <= maxLayer; l++) {
-                // Use skipConnectivity=true for the initial seed
-                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true);
+                // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
+                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, false, false, true);
             }
         }
     }
@@ -1142,8 +1182,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (let i = this.crawlers.length - 1; i >= 0; i--) {
                 const crawler = this.crawlers[i];
                 if (crawler.active) {
-                    this._attemptCrawlerGrowth(crawler, targetLayer);
-                    crawlerUpdated = true;
+                    // Only update crawlers belonging to THIS layer
+                    if (crawler.layer === targetLayer) {
+                        this._attemptCrawlerGrowth(crawler, targetLayer);
+                        crawlerUpdated = true;
+                    }
                 } else {
                     this.crawlers.splice(i, 1);
                 }
@@ -1268,13 +1311,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         const bx = this.logicGridW, by = this.logicGridH;
         const cx = Math.floor(bx / 2), cy = Math.floor(by / 2);
 
+        // Visible boundary limits (Canvas + 1 block)
+        const bs = this.getBlockSize();
+        const visW = Math.ceil(this.g.cols / bs.w);
+        const visH = Math.ceil(this.g.rows / bs.h);
+        const xLimit = Math.floor(visW / 2) + 1;
+        const yLimit = Math.floor(visH / 2) + 1;
+
         const isLaneFull = (rx, ry, dx, dy) => {
-            // Check if the chain is unbroken from current point to the LOGIC GRID edge
+            // Check if the chain is unbroken from current point to the VISIBLE boundary
             let tx = rx, ty = ry;
             while (true) {
-                const gx = cx + tx, gy = cy + ty;
+                // If we hit the boundary of the visible area, this lane is "full"
+                if (tx < -xLimit || tx > xLimit || ty < -yLimit || ty > yLimit) break;
                 
-                // If we hit the boundary of the logic grid, this lane is "full"
+                const gx = cx + tx, gy = cy + ty;
                 if (gx < 0 || gx >= bx || gy < 0 || gy >= by) break;
                 
                 if (grid[gy * bx + gx] === -1) return false; // Gap found, not full
@@ -1301,110 +1352,191 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptNudgeGrowthWithParams(targetLayer, w, h) {
-        if (!this.logicGridW || !this.logicGridH) return false;
+        if (!this.logicGridW || !this.logicGridH || !this.nudgeState) return false;
         
-        // 1. Select a Nudge Origin: center (0,0) or adjacent (±1, ±1)
-        const ox = Math.floor(Math.random() * 3) - 1;
-        const oy = Math.floor(Math.random() * 3) - 1;
+        // 1. Pick a Cardinal Face (Direction)
+        const faces = ['N', 'S', 'E', 'W'];
+        Utils.shuffle(faces);
         
-        // 2. Determine Direction (Away from Center)
-        const choices = [];
-        if (ox > 0) choices.push('E');
-        if (ox < 0) choices.push('W');
-        if (oy > 0) choices.push('S');
-        if (oy < 0) choices.push('N');
-
-        let face = 'N';
-        if (choices.length > 0) {
-            face = choices[Math.floor(Math.random() * choices.length)];
-        } else {
-            // ox == 0, oy == 0: Pick a random cardinal direction
-            const faces = ['N', 'S', 'E', 'W'];
-            face = faces[Math.floor(Math.random() * faces.length)];
-        }
-
-        // 3. Connectivity Check
-        // To prevent islands, the origin block must be adjacent to existing mass on the target layer
-        // Or it's the very first block (which should already be center-seeded)
-        const grid = this.layerGrids[targetLayer];
-        if (grid) {
-            const cx = Math.floor(this.logicGridW / 2);
-            const cy = Math.floor(this.logicGridH / 2);
+        for (const face of faces) {
+            // 2. Determine Spawning Field Range for this Face
+            const expansionLevel = this.nudgeState.fieldExpansion[face] || 0;
+            const primaryRange = 1; // Initial range [-1, 1]
+            const totalRange = primaryRange + (expansionLevel * 3); // Expand by 3 on each side per level
             
-            let hasNeighbor = false;
-            const check = (rx, ry) => {
-                const gx = cx + rx, gy = cy + ry;
-                if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
-                return grid[gy * this.logicGridW + gx] !== -1;
-            };
+            // 3. Sample potential lanes in the current range
+            let foundLane = false;
+            let ox = 0, oy = 0;
+            const attempts = 15;
+            
+            for (let i = 0; i < attempts; i++) {
+                // For N/S nudge (Y-axis growth), origin expands on X-axis
+                // For E/W nudge (X-axis growth), origin expands on Y-axis
+                if (face === 'N' || face === 'S') {
+                    ox = Math.floor(Math.random() * (totalRange * 2 + 1)) - totalRange;
+                    oy = Math.floor(Math.random() * 3) - 1; // Restricted Y center
+                } else {
+                    ox = Math.floor(Math.random() * 3) - 1; // Restricted X center
+                    oy = Math.floor(Math.random() * (totalRange * 2 + 1)) - totalRange;
+                }
 
-            // Check neighbors of the proposed nudge origin span
-            for (let ly = 0; ly < h; ly++) {
-                for (let lx = 0; lx < w; lx++) {
-                    const tx = ox + lx, ty = oy + ly;
-                    if (check(tx, ty) || check(tx-1, ty) || check(tx+1, ty) || check(tx, ty-1) || check(tx, ty+1)) {
-                        hasNeighbor = true; break;
+                // Check lane fullness against VISIBLE boundary
+                if (!this._isNudgePathFull(ox, oy, w, h, face, targetLayer)) {
+                    // Connectivity Check: proposal must be adjacent to existing mass on the target layer
+                    const grid = this.layerGrids[targetLayer];
+                    if (grid) {
+                        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
+                        let hasNeighbor = false;
+                        const check = (rx, ry) => {
+                            const gx = cx + rx, gy = cy + ry;
+                            if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
+                            return grid[gy * this.logicGridW + gx] !== -1;
+                        };
+
+                        for (let ly = 0; ly < h; ly++) {
+                            for (let lx = 0; lx < w; lx++) {
+                                const tx = ox + lx, ty = oy + ly;
+                                if (check(tx, ty) || check(tx-1, ty) || check(tx+1, ty) || check(tx, ty-1) || check(tx, ty+1)) {
+                                    hasNeighbor = true; break;
+                                }
+                            }
+                            if (hasNeighbor) break;
+                        }
+                        
+                        // Center-seed check
+                        const activeOnLayer = this.activeBlocks.filter(b => b.layer === targetLayer).length;
+                        if (hasNeighbor || activeOnLayer === 0) {
+                            foundLane = true;
+                            break;
+                        }
+                    } else {
+                        foundLane = true;
+                        break;
                     }
                 }
-                if (hasNeighbor) break;
             }
-            if (!hasNeighbor && this.activeBlocks.filter(b => b.layer === targetLayer).length > 0) return false;
+
+            // 4. Adaptive Expansion: If all sampled lanes are full, expand the field for this direction
+            if (!foundLane) {
+                // Only expand if we haven't reached logical limits
+                if (totalRange < Math.max(this.logicGridW, this.logicGridH)) {
+                    this.nudgeState.fieldExpansion[face]++;
+                    this._log(`[Nudge] Field expanded for ${face} to level ${this.nudgeState.fieldExpansion[face]}`);
+                    // Optional: immediately retry this direction with new range?
+                    // Let's just return false and let the next attempt handle it for better pacing
+                }
+                continue; 
+            }
+
+            // 5. Perform the Nudge
+            return this._nudge(ox, oy, w, h, face, targetLayer);
         }
 
-        // 4. Perimeter Check: Stop if the row/column is already full to the edge
-        if (this._isNudgePathFull(ox, oy, w, h, face, targetLayer)) return false;
-
-        // 5. Perform the Nudge
-        // _nudge handles shifting existing blocks and spawning the new anchor at the origin
-        return this._nudge(ox, oy, w, h, face, targetLayer);
+        return false;
     }
 
     _spawnBlock(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
         const bs = this.getBlockSize();
-        
-        // 1. Prevent Offscreen Behaviors (Final Guard)
-        if (this.getConfig('PreventOffscreen') === true) {
-            const xLimit = (this.g.cols / bs.w / 2);
-            const yLimit = (this.g.rows / bs.h / 2);
-            if (x < -xLimit - 0.5 || x + w > xLimit + 0.5 || y < -yLimit - 0.5 || y + h > yLimit + 0.5) return -1;
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        if (!blocksX || !blocksY) return -1;
+
+        // 0. Safety Limits
+        if (this.maskOps.length > 50000 || this.activeBlocks.length > 50000) {
+            this._warn("QuantizedBlockGenerator: maskOps/activeBlocks limit reached, stopping growth.");
+            return -1;
         }
 
-        // 2. Enforce Strict Layer-Specific Connectivity
-        // A block must touch at least one other block on the SAME layer to be added.
+        const cx = Math.floor(blocksX / 2);
+        const cy = Math.floor(blocksY / 2);
+
+        // 1. Grid Boundary Constraint: Canvas + 1 block
+        // Visible width in blocks
+        const visW = Math.ceil(this.g.cols / bs.w);
+        const visH = Math.ceil(this.g.rows / bs.h);
+        const xLimit = Math.floor(visW / 2) + 1;
+        const yLimit = Math.floor(visH / 2) + 1;
+
+        if (x < -xLimit || x + w > xLimit || y < -yLimit || y + h > yLimit) {
+            // Allow nudge/mirror to push things slightly further, but restrict procedural growth
+            if (!isShifter && !isMirroredSpawn) return -1;
+        }
+
+        const startX = cx + x;
+        const startY = cy + y;
+        const minX = Math.max(0, startX);
+        const maxX = Math.min(blocksX - 1, startX + w - 1);
+        const minY = Math.max(0, startY);
+        const maxY = Math.min(blocksY - 1, startY + h - 1);
+
+        if (minX > maxX || minY > maxY) return -1; // Out of logic grid entirely
+
+        // 2. Enforce Strict Layer-Specific Connectivity (Grid-Based Optimization)
         if (!skipConnectivity) {
              let connected = false;
-             let sameLayerOverlap = 0;
-             const area = w * h;
-
-             for (const b of this.activeBlocks) {
-                 if (b.layer !== layer) continue;
-
-                 // Check for adjacency (touching edges) or overlap
-                 const xMatch = (x <= b.x + b.w) && (x + w >= b.x);
-                 const yMatch = (y <= b.y + b.h) && (y + h >= b.y);
-                 
-                 if (xMatch && yMatch) {
-                     connected = true;
+             let overlapArea = 0;
+             const targetGrid = this.layerGrids[layer];
+             
+             if (targetGrid) {
+                 // Check overlap and adjacency in one pass (O(area) instead of O(N_blocks))
+                 // Expand search by 1 unit for adjacency
+                 search: for (let gy = minY - 1; gy <= maxY + 1; gy++) {
+                     if (gy < 0 || gy >= blocksY) continue;
+                     const rowOff = gy * blocksX;
+                     const isEdgeY = (gy < minY || gy > maxY);
                      
-                     // Calculate exact pixel overlap area
-                     const ix = Math.max(x, b.x);
-                     const iy = Math.max(y, b.y);
-                     const iw = Math.min(x + w, b.x + b.w) - ix;
-                     const ih = Math.min(y + h, b.y + b.h) - iy;
-                     if (iw > 0 && ih > 0) {
-                         sameLayerOverlap += (iw * ih);
+                     for (let gx = minX - 1; gx <= maxX + 1; gx++) {
+                         if (gx < 0 || gx >= blocksX) continue;
+                         const isEdgeX = (gx < minX || gx > maxX);
+                         
+                         if (targetGrid[rowOff + gx] !== -1) {
+                             if (isEdgeX || isEdgeY) {
+                                 connected = true;
+                             } else {
+                                 overlapArea++;
+                                 connected = true; // Overlap also implies connectivity
+                             }
+                             // If we found connectivity and don't need accurate overlapArea yet, we could break
+                             // But we need overlapArea for the internal stacking check
+                         }
                      }
                  }
              }
 
-             if (!connected) return -1; // Must be attached to the main body of THIS layer
+             if (!connected) return -1; 
              
              // Prevent internal stacking if not allowed
-             if (!isShifter && !allowInternal && sameLayerOverlap >= area) return -1; 
+             if (!isShifter && !allowInternal && overlapArea >= (w * h)) return -1; 
         }
 
-        // 3. Optional: Sub-Layer Anchoring (Still useful if layers shouldn't drift TOO far from base)
+        // 3. Optional: Sub-Layer Anchoring
         if (!this._isAnchored(x, y, w, h, layer)) return -1;
+
+        // 4. Occupancy and Logic Grid Update (Merged Loops)
+        if (this._stepOccupancy && !bypassOccupancy) {
+            for (let gy = minY; gy <= maxY; gy++) {
+                const rowOff = gy * blocksX;
+                for (let gx = minX; gx <= maxX; gx++) {
+                    if (this._stepOccupancy[rowOff + gx] === 1) return -1;
+                }
+            }
+            // Mark occupancy
+            for (let gy = minY; gy <= maxY; gy++) {
+                const rowOff = gy * blocksX;
+                for (let gx = minX; gx <= maxX; gx++) {
+                    this._stepOccupancy[rowOff + gx] = 1;
+                }
+            }
+        }
+
+        if (this.logicGrid) {
+            for (let gy = minY; gy <= maxY; gy++) {
+                const rowOff = gy * blocksX;
+                for (let gx = minX; gx <= maxX; gx++) {
+                    this.logicGrid[rowOff + gx] = 1;
+                }
+            }
+        }
 
         const id = this.nextBlockId++;
         const b = { x, y, w, h, startFrame: this.animFrame, startPhase: this.expansionPhase, layer, id, isShifter };
@@ -1412,55 +1544,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.activeBlocks.push(b);
         
         if (layer !== 0) this._updateLayerOrder(layer);
-        
-        // Update logic grid occupancy and step occupancy
-        if (this.logicGrid) {
-            const blocksX = this.logicGridW;
-            const blocksY = this.logicGridH;
-            const cx = Math.floor(blocksX / 2);
-            const cy = Math.floor(blocksY / 2);
-            const startX = cx + x;
-            const startY = cy + y;
-            const minX = Math.max(0, startX);
-            const maxX = Math.min(blocksX - 1, startX + w - 1);
-            const minY = Math.max(0, startY);
-            const maxY = Math.min(blocksY - 1, startY + h - 1);
-
-            // Step Occupancy Check: Prevent accumulation in the same spot in a single step
-            if (this._stepOccupancy && !bypassOccupancy) {
-                let stepOverlap = false;
-                for (let gy = minY; gy <= maxY; gy++) {
-                    const rowOff = gy * blocksX;
-                    for (let gx = minX; gx <= maxX; gx++) {
-                        if (this._stepOccupancy[rowOff + gx] === 1) {
-                            stepOverlap = true;
-                            break;
-                        }
-                    }
-                    if (stepOverlap) break;
-                }
-                if (stepOverlap) {
-                    this.activeBlocks.pop(); // Revert activeBlocks addition
-                    return -1;
-                }
-                // Mark as occupied for this step
-                for (let gy = minY; gy <= maxY; gy++) {
-                    const rowOff = gy * blocksX;
-                    for (let gx = minX; gx <= maxX; gx++) {
-                        this._stepOccupancy[rowOff + gx] = 1;
-                    }
-                }
-            }
-
-            for (let gy = minY; gy <= maxY; gy++) {
-                for (let gx = minX; gx <= maxX; gx++) {
-                    this.logicGrid[gy * blocksX + gx] = 1;
-                }
-            }
-        }
 
         const op = {
-            type: 'addSmart', // Use addSmart by default for natural perimeter
+            type: 'addSmart', 
             x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
             startFrame: this.animFrame,
             expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
@@ -1470,6 +1556,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             fade: !suppressFades
         };
         this.maskOps.push(op);
+        this._gridsDirty = true;
 
         // Record to sequence for Editor/Step support
         if (this.manualStep && this.sequence && !this.isReconstructing) {
@@ -1602,22 +1689,26 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
         
         // 1. Build a grid of all active blocks FOR THIS LAYER ONLY
-        const combined = new Int8Array(w * h).fill(-1);
         const layerBlocks = this.activeBlocks.filter(b => b.layer === layer);
         if (layerBlocks.length === 0) return;
+
+        const combined = this._getBuffer('combined', w * h, Int8Array);
+        combined.fill(-1);
 
         for (const b of layerBlocks) {
             const x1 = cx + b.x, y1 = cy + b.y, x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
             for (let gy = Math.max(0, y1); gy <= Math.min(h - 1, y2); gy++) {
+                const rowOff = gy * w;
                 for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) {
-                    combined[gy * w + gx] = 1;
+                    combined[rowOff + gx] = 1;
                 }
             }
         }
 
         // 2. BFS from Center to find the "Mainland"
-        const connectedMap = new Uint8Array(w * h);
-        const queue = new Int32Array(w * h);
+        const connectedMap = this._getBuffer('connectedMap', w * h, Uint8Array);
+        connectedMap.fill(0);
+        const queue = this._getBuffer('queue', w * h, Int32Array);
         let head = 0, tail = 0;
         
         const startIdx = cy * w + cx;
@@ -1630,7 +1721,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             let bestDist = Infinity, seedIdx = -1;
             for (let i = 0; i < w * h; i++) {
                 if (combined[i] === 1) {
-                    const dist = Math.abs((i % w) - cx) + Math.abs(Math.floor(i / w) - cy);
+                    const gx = i % w, gy = (i / w) | 0;
+                    const dist = Math.abs(gx - cx) + Math.abs(gy - cy);
                     if (dist < bestDist) { bestDist = dist; seedIdx = i; }
                 }
             }
@@ -1660,8 +1752,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const toRemove = layerBlocks.filter(b => {
             const x1 = cx + b.x, y1 = cy + b.y, x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
             for (let gy = Math.max(0, y1); gy <= Math.min(h - 1, y2); gy++) {
+                const rowOff = gy * w;
                 for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) {
-                    if (connectedMap[gy * w + gx] === 1) return false;
+                    if (connectedMap[rowOff + gx] === 1) return false;
                 }
             }
             return true;
@@ -1689,6 +1782,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 
                 // Update Grids
                 this._writeToGrid(b.x, b.y, b.w, b.h, -1, layer);
+                this._gridsDirty = true;
                 
                 // Update activeBlocks
                 const idx = this.activeBlocks.indexOf(b);
@@ -2177,44 +2271,151 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _validateNudgeSafety(x, y, w, h, face, targetLayer, pullOther) {
         if (!this.activeBlocks || this.activeBlocks.length === 0) return true;
-        const nextBlocks = this.activeBlocks.map(b => ({...b}));
+        
         const uf = face.toUpperCase();
         const axis = (uf === 'N' || uf === 'S') ? 'Y' : 'X';
         const dSign = (uf === 'N' || uf === 'W') ? -1 : 1;
         const shiftAmt = (axis === 'X' ? w : h);
-        const apply = (l) => {
-            for (let i = 0; i < nextBlocks.length; i++) {
-                const b = nextBlocks[i];
-                if (b.layer !== l) continue;
-                let move = false;
-                if (axis === 'X') { if (b.y >= y && b.y < y + h && ((dSign > 0 && b.x >= x) || (dSign < 0 && b.x <= x + w - 1))) move = true; }
-                else { if (b.x >= x && b.x < x + w && ((dSign > 0 && b.y >= y) || (dSign < 0 && b.y <= y + h - 1))) move = true; }
-                if (move) { if (axis === 'X') b.x += (dSign * shiftAmt); else b.y += (dSign * shiftAmt); }
+
+        // Virtual view of activeBlocks with projected moves
+        const virtualBlocks = {
+            length: this.activeBlocks.length + (pullOther ? 2 : 1),
+            getItem: (i) => {
+                if (i < this.activeBlocks.length) {
+                    const b = this.activeBlocks[i];
+                    // Check if it's moved
+                    let l = b.layer;
+                    if (l === targetLayer || (pullOther && l === 1 - targetLayer)) {
+                        let move = false;
+                        if (axis === 'X') { if (b.y >= y && b.y < y + h && ((dSign > 0 && b.x >= x) || (dSign < 0 && b.x <= x + w - 1))) move = true; }
+                        else { if (b.x >= x && b.x < x + w && ((dSign > 0 && b.y >= y) || (dSign < 0 && b.y <= y + h - 1))) move = true; }
+                        if (move) {
+                            const nb = { ...b };
+                            if (axis === 'X') nb.x += (dSign * shiftAmt); else nb.y += (dSign * shiftAmt);
+                            return nb;
+                        }
+                    }
+                    return b;
+                } else {
+                    const idx = i - this.activeBlocks.length;
+                    if (idx === 0) return { x, y, w, h, layer: targetLayer };
+                    return { x, y, w, h, layer: 1 - targetLayer };
+                }
             }
-            nextBlocks.push({ x, y, w, h, layer: l });
         };
-        apply(targetLayer);
-        if (pullOther) apply(1 - targetLayer);
-        return this._checkEnvelopeDrift(nextBlocks);
+
+        return this._checkEnvelopeDriftVirtual(virtualBlocks);
     }
 
-    _checkEnvelopeDrift(blocks) {
+    _checkEnvelopeDriftVirtual(virtualBlocks) {
+        if (this.getConfig('EnableSubLayerAnchoring') !== true) return true;
         const lgW = this.logicGridW, lgH = this.logicGridH;
+        if (!lgW || !lgH) return true;
         const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
-        const colMin0 = new Int32Array(lgW).fill(10000), colMax0 = new Int32Array(lgW).fill(-10000);
-        const colMin1 = new Int32Array(lgW).fill(10000), colMax1 = new Int32Array(lgW).fill(-10000);
-        const rowMin0 = new Int32Array(lgH).fill(10000), rowMax0 = new Int32Array(lgH).fill(-10000);
-        const rowMin1 = new Int32Array(lgH).fill(10000), rowMax1 = new Int32Array(lgH).fill(-10000);
-        for (let i = 0; i < blocks.length; i++) {
-            const b = blocks[i];
-            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
-            const targetMinCol = b.layer === 0 ? colMin0 : colMin1, targetMaxCol = b.layer === 0 ? colMax0 : colMax1;
-            const targetMinRow = b.layer === 0 ? rowMin0 : rowMin1, targetMaxRow = b.layer === 0 ? rowMax0 : rowMax1;
-            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { targetMinCol[x] = Math.min(targetMinCol[x], by1); targetMaxCol[x] = Math.max(targetMaxCol[x], by2); }
-            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { targetMinRow[y] = Math.min(targetMinRow[y], bx1); targetMaxRow[y] = Math.max(targetMaxRow[y], bx2); }
+        if (!this._driftBuffers) {
+            this._driftBuffers = Array.from({ length: 5 }, () => ({
+                colMin: new Int32Array(2000), colMax: new Int32Array(2000),
+                rowMin: new Int32Array(2000), rowMax: new Int32Array(2000)
+            }));
         }
-        for (let x = 0; x < lgW; x++) if (colMin0[x] !== 10000 && colMin1[x] !== 10000) if (Math.abs(colMin0[x] - colMin1[x]) > 3 || Math.abs(colMax0[x] - colMax1[x]) > 3) return false;
-        for (let y = 0; y < lgH; y++) if (rowMin0[y] !== 10000 && rowMin1[y] !== 10000) if (Math.abs(rowMin0[y] - rowMin1[y]) > 3 || Math.abs(rowMax0[y] - rowMax1[y]) > 3) return false;
+        const db = this._driftBuffers;
+        for (let l = 0; l < 5; l++) {
+            db[l].colMin.fill(10000); db[l].colMax.fill(-10000);
+            db[l].rowMin.fill(10000); db[l].rowMax.fill(-10000);
+        }
+        const updateBounds = (b) => {
+            const bounds = db[b.layer]; if (!bounds) return;
+            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
+            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { 
+                if (bounds.colMin[x] > by1) bounds.colMin[x] = by1; if (bounds.colMax[x] < by2) bounds.colMax[x] = by2; 
+            }
+            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { 
+                if (bounds.rowMin[y] > bx1) bounds.rowMin[y] = bx1; if (bounds.rowMax[y] < bx2) bounds.rowMax[y] = bx2; 
+            }
+        };
+        for (let i = 0; i < virtualBlocks.length; i++) updateBounds(virtualBlocks.getItem(i));
+        const l0 = db[0], driftLimit = this.getConfig('SubLayerAnchorDistance') || 3;
+        for (let l = 1; l < 5; l++) {
+            const lb = db[l]; let hasData = false;
+            for (let x = 0; x < lgW; x++) { if (lb.colMin[x] !== 10000) { hasData = true; break; } }
+            if (!hasData) continue;
+            for (let x = 0; x < lgW; x++) {
+                if (l0.colMin[x] !== 10000 && lb.colMin[x] !== 10000) {
+                    if (Math.abs(l0.colMin[x] - lb.colMin[x]) > driftLimit || Math.abs(l0.colMax[x] - lb.colMax[x]) > driftLimit) return false;
+                }
+            }
+            for (let y = 0; y < lgH; y++) {
+                if (l0.rowMin[y] !== 10000 && lb.rowMin[y] !== 10000) {
+                    if (Math.abs(l0.rowMin[y] - lb.rowMin[y]) > driftLimit || Math.abs(l0.rowMax[y] - lb.rowMax[y]) > driftLimit) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    _checkEnvelopeDrift(blocks, candidate = null) {
+        // Only enforce drift limits if SubLayerAnchoring is enabled.
+        if (this.getConfig('EnableSubLayerAnchoring') !== true) return true;
+
+        const lgW = this.logicGridW, lgH = this.logicGridH;
+        if (!lgW || !lgH) return true;
+        const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
+        
+        // Use pooled buffers for bounds tracking
+        if (!this._driftBuffers) {
+            this._driftBuffers = Array.from({ length: 5 }, () => ({
+                colMin: new Int32Array(2000), // Max likely dimension
+                colMax: new Int32Array(2000),
+                rowMin: new Int32Array(2000),
+                rowMax: new Int32Array(2000)
+            }));
+        }
+
+        const db = this._driftBuffers;
+        for (let l = 0; l < 5; l++) {
+            db[l].colMin.fill(10000);
+            db[l].colMax.fill(-10000);
+            db[l].rowMin.fill(10000);
+            db[l].rowMax.fill(-10000);
+        }
+
+        const updateBounds = (b) => {
+            const bounds = db[b.layer];
+            if (!bounds) return;
+            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
+            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { 
+                if (bounds.colMin[x] > by1) bounds.colMin[x] = by1; 
+                if (bounds.colMax[x] < by2) bounds.colMax[x] = by2; 
+            }
+            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { 
+                if (bounds.rowMin[y] > bx1) bounds.rowMin[y] = bx1; 
+                if (bounds.rowMax[y] < bx2) bounds.rowMax[y] = bx2; 
+            }
+        };
+
+        for (let i = 0; i < blocks.length; i++) updateBounds(blocks[i]);
+        if (candidate) updateBounds(candidate);
+
+        const l0 = db[0];
+        const driftLimit = this.getConfig('SubLayerAnchorDistance') || 3;
+
+        for (let l = 1; l < 5; l++) {
+            const lb = db[l];
+            let hasData = false;
+            for (let x = 0; x < lgW; x++) { if (lb.colMin[x] !== 10000) { hasData = true; break; } }
+            if (!hasData) continue;
+
+            for (let x = 0; x < lgW; x++) {
+                if (l0.colMin[x] !== 10000 && lb.colMin[x] !== 10000) {
+                    if (Math.abs(l0.colMin[x] - lb.colMin[x]) > driftLimit || Math.abs(l0.colMax[x] - lb.colMax[x]) > driftLimit) return false;
+                }
+            }
+            for (let y = 0; y < lgH; y++) {
+                if (l0.rowMin[y] !== 10000 && lb.rowMin[y] !== 10000) {
+                    if (Math.abs(l0.rowMin[y] - lb.rowMin[y]) > driftLimit || Math.abs(l0.rowMax[y] - lb.rowMax[y]) > driftLimit) return false;
+                }
+            }
+        }
         return true;
     }
 
@@ -2268,12 +2469,21 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _checkNoOverlap(x, y, w, h, layer = 0) {
-        for (const b of this.activeBlocks) {
-            const ix = Math.max(x, b.x);
-            const iy = Math.max(y, b.y);
-            const iw = Math.min(x + w, b.x + b.w) - ix;
-            const ih = Math.min(y + h, b.y + b.h) - iy;
-            if (iw > 0 && ih > 0) return false;
+        if (!this.logicGridW || !this.logicGridH || !this.logicGrid) return false;
+        
+        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
+        const gx1 = cx + x, gy1 = cy + y;
+        const gx2 = gx1 + w - 1, gy2 = gy1 + h - 1;
+
+        // Bounds check
+        if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return false;
+
+        // Grid-based overlap check (All Layers via logicGrid)
+        for (let gy = gy1; gy <= gy2; gy++) {
+            const rowOff = gy * this.logicGridW;
+            for (let gx = gx1; gx <= gx2; gx++) {
+                if (this.logicGrid[rowOff + gx] === 1) return false;
+            }
         }
 
         // Sub-Layer Anchoring Logic
@@ -2289,11 +2499,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (x < -xLimit - 0.5 || x + w > xLimit + 0.5 || y < -yLimit - 0.5 || y + h > yLimit + 0.5) return false;
         }
 
-        const xLimitMax = (this.g.cols / bs.w / 2) + 5;
-        const yLimitMax = (this.g.rows / bs.h / 2) + 5;
-        if (x + w < -xLimitMax || x > xLimitMax || y + h < -yLimitMax || y > yLimitMax) return false;
-        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
-        if (x + cx < 0 || x + cx + w > this.logicGridW || y + cy < 0 || y + cy + h > this.logicGridH) return false;
         return true;
     }
 
@@ -2470,32 +2675,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         const freq = this.getConfig('RearrangeFrequency') !== undefined ? this.getConfig('RearrangeFrequency') : 0.5;
         if (Math.random() > freq) return false;
 
-        // Diagnostic log
-        if (this.expansionPhase % 10 === 0) {
-            const lBlocks = this.activeBlocks.filter(b => b.layer === targetLayer);
-            const oldBlocks = lBlocks.filter(b => b.startPhase < this.expansionPhase);
-            console.log(`[Rearrange] Step ${this.expansionPhase} L${targetLayer}: ${lBlocks.length} total, ${oldBlocks.length} eligible (Phase < ${this.expansionPhase})`);
-        }
-
-        console.log(`[Rearrange] Called for L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
-
         // Phase 1: Redistribution (Place blocks from pool into holes near center)
         if (this.rearrangePool[targetLayer] > 0) {
             const range = 25; 
             const holes = [];
-            for (let dy = -range; dy <= range; dy++) {
-                for (let dx = -range; dx <= range; dx++) {
-                    // A "hole" is an empty logic grid cell that is anchored to existing mass of this layer
-                    if (this._checkNoOverlap(dx, dy, 1, 1, targetLayer) && this._isAnchored(dx, dy, 1, 1, targetLayer)) {
-                        holes.push({x: dx, y: dy, dist: Math.sqrt(dx*dx + dy*dy)});
-                    }
+            
+            // Optimized Hole Selection: Sample random spots within range
+            const maxHoleAttempts = 100;
+            for (let i = 0; i < maxHoleAttempts; i++) {
+                const dx = Math.floor(Math.random() * (range * 2 + 1)) - range;
+                const dy = Math.floor(Math.random() * (range * 2 + 1)) - range;
+                
+                // A "hole" is an empty logic grid cell that is anchored to existing mass of this layer
+                if (this._checkNoOverlap(dx, dy, 1, 1, targetLayer) && this._isAnchored(dx, dy, 1, 1, targetLayer)) {
+                    holes.push({x: dx, y: dy, distSq: dx*dx + dy*dy});
                 }
+                if (holes.length >= 10) break;
             }
             
             if (holes.length > 0) {
                 // Priority: Filling holes closest to the center
-                holes.sort((a, b) => a.dist - b.dist);
-                const hole = holes[Math.floor(Math.random() * Math.min(5, holes.length))];
+                holes.sort((a, b) => a.distSq - b.distSq);
+                const hole = holes[0];
                 
                 const sizes = [{w:1,h:1}, {w:2,h:1}, {w:1,h:2}, {w:2,h:2}];
                 Utils.shuffle(sizes);
@@ -2503,8 +2704,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 for (const sz of sizes) {
                     if (this._spawnBlock(hole.x, hole.y, sz.w, sz.h, targetLayer, false, 0, false, true, false, false, true) !== -1) {
                         this.rearrangePool[targetLayer]--;
-                        console.log(`[Rearrange] REDISTRIBUTE: L${targetLayer} filled hole at (${hole.x}, ${hole.y}) with ${sz.w}x${sz.h}. Pool remaining: ${this.rearrangePool[targetLayer]}`);
-                        this._log(`[Rearrange] Step ${this.expansionPhase}: Redistributed to (${hole.x}, ${hole.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
+                        this._log(`[Rearrange] Redistributed to (${hole.x}, ${hole.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
                         return true; 
                     }
                 }
@@ -2513,47 +2713,53 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Phase 2: Selection (Remove extrusions to fund the pool)
         // Criteria: Only remove blocks born in previous steps that are far from center
-        const candidates = this.activeBlocks.filter(b => {
-            if (b.layer !== targetLayer) return false;
-            if (b.startPhase >= this.expansionPhase) return false;
-            const dist = Math.sqrt(b.x*b.x + b.y*b.y);
-            return dist > 6; // Reduced from 12 for easier triggering
-        });
-
-        if (candidates.length > 0 && this.rearrangePool[targetLayer] < 4) {
-            // Pick the furthest block
-            candidates.sort((a, b) => (b.x*b.x + b.y*b.y) - (a.x*a.x + a.y*a.y));
-            const b = candidates[0];
-
-            console.log(`[Rearrange] Found candidate at (${b.x}, ${b.y}) dist: ${Math.sqrt(b.x*b.x+b.y*b.y).toFixed(1)}`);
-
-            const idx = this.activeBlocks.indexOf(b);
-            if (idx !== -1) {
-                this.activeBlocks.splice(idx, 1);
-                this.rearrangePool[targetLayer]++;
-
-                console.log(`[Rearrange] REMOVE: L${targetLayer} removing extrusion at (${b.x}, ${b.y}) [Dist: ${Math.sqrt(b.x*b.x+b.y*b.y).toFixed(1)}]. New Pool: ${this.rearrangePool[targetLayer]}`);
-
-                this.maskOps.push({ 
-                    type: 'removeBlock', 
-                    x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
-                    startFrame: this.animFrame, layer: b.layer, fade: false 
-                });
-
-                if (this.manualStep && this.sequence && !this.isReconstructing) {
-                    if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
-                    this.sequence[this.expansionPhase].push({
-                        op: 'removeBlock',
-                        args: [b.x, b.y, b.x + b.w - 1, b.y + b.h - 1],
-                        layer: b.layer,
-                        fade: false
-                    });
+        if (this.rearrangePool[targetLayer] < 4) {
+            // Pick a random set of candidates and take the furthest one (Sampling approach)
+            const lBlocks = this.activeBlocks.filter(b => b.layer === targetLayer && b.startPhase < this.expansionPhase);
+            if (lBlocks.length > 0) {
+                let furthestBlock = null;
+                let maxDistSq = -1;
+                
+                const sampleSize = Math.min(lBlocks.length, 30);
+                for (let i = 0; i < sampleSize; i++) {
+                    const b = lBlocks[Math.floor(Math.random() * lBlocks.length)];
+                    const distSq = b.x*b.x + b.y*b.y;
+                    if (distSq > maxDistSq) {
+                        maxDistSq = distSq;
+                        furthestBlock = b;
+                    }
                 }
 
-                this._writeToGrid(b.x, b.y, b.w, b.h, -1, b.layer);
-                this._log(`[Rearrange] Step ${this.expansionPhase}: Removed extrusion at (${b.x}, ${b.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
-                this._maskDirty = true;
-                return true;
+                if (furthestBlock && maxDistSq > 36) { // dist > 6
+                    const b = furthestBlock;
+                    const idx = this.activeBlocks.indexOf(b);
+                    if (idx !== -1) {
+                        this.activeBlocks.splice(idx, 1);
+                        this.rearrangePool[targetLayer]++;
+
+                        this.maskOps.push({ 
+                            type: 'removeBlock', 
+                            x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
+                            startFrame: this.animFrame, layer: b.layer, fade: false 
+                        });
+
+                        if (this.manualStep && this.sequence && !this.isReconstructing) {
+                            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+                            this.sequence[this.expansionPhase].push({
+                                op: 'removeBlock',
+                                args: [b.x, b.y, b.x + b.w - 1, b.y + b.h - 1],
+                                layer: b.layer,
+                                fade: false
+                            });
+                        }
+
+                        this._writeToGrid(b.x, b.y, b.w, b.h, -1, b.layer);
+                        this._gridsDirty = true;
+                        this._log(`[Rearrange] Removed extrusion at (${b.x}, ${b.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
+                        this._maskDirty = true;
+                        return true;
+                    }
+                }
             }
         }
 
@@ -2562,124 +2768,175 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _attemptSpineGrowth(ignored, targetLayer = 0) {
         if (!this.spineState || !this.spineState[targetLayer]) return false;
-        const arms = ['N', 'S', 'E', 'W'];
-        const candidates = arms.filter(a => !this.spineState[targetLayer][a].finished);
-        if (candidates.length === 0) return false;
-
-        const arm = candidates[Math.floor(Math.random() * candidates.length)];
-        const data = this.spineState[targetLayer][arm];
         
-        const sw = this._getScaledConfig('MinBlockWidth', 1);
-        const mw = this._getScaledConfig('MaxBlockWidth', 3);
-        const sh = this._getScaledConfig('MinBlockHeight', 1);
-        const mh = this._getScaledConfig('MaxBlockHeight', 3);
+        // 1. Pick a direction (arm)
+        const arms = ['N', 'S', 'E', 'W'];
+        Utils.shuffle(arms);
+        
+        const bs = this.getBlockSize();
+        const visW = Math.ceil(this.g.cols / bs.w);
+        const visH = Math.ceil(this.g.rows / bs.h);
+        const xLimit = Math.floor(visW / 2) + 1;
+        const yLimit = Math.floor(visH / 2) + 1;
 
-        const breadth = Math.random() < 0.3 ? Math.min(2, mw) : 1;
-        let length = (breadth === 1) ? (Math.floor(Math.random() * (mh - sh + 1)) + sh) : 1;
+        for (const arm of arms) {
+            const data = this.spineState[targetLayer][arm];
+            if (data.finished) continue;
 
-        const blocksX = this.logicGridW, blocksY = this.logicGridH;
-        const cx = Math.floor(blocksX / 2), cy = Math.floor(blocksY / 2);
-        let tx = 0, ty = 0, w = 0, h = 0;
+            const expansionLevel = data.fieldExpansion || 0;
+            const primaryRange = 0; // Center only
+            const totalRange = primaryRange + (expansionLevel * 3); // Expand by 3 units laterally per level
+            
+            // Lane Offsets for this expansion level
+            const offsets = [];
+            for (let i = -totalRange; i <= totalRange; i++) offsets.push(i);
+            Utils.shuffle(offsets);
 
-        if (arm === 'N') {
-            w = breadth; tx = -Math.floor(breadth/2);
-            const absTop = cy - (data.len + length);
-            if (absTop < 0) { length -= -absTop; data.finished = true; }
-            if (length <= 0) { data.finished = true; return false; }
-            ty = -(data.len + length); h = length;
-        } else if (arm === 'S') {
-            w = breadth; tx = -Math.floor(breadth/2);
-            const startRel = data.len + 1;
-            const absBottom = cy + startRel + length;
-            if (absBottom > blocksY) { length -= (absBottom - blocksY); data.finished = true; }
-            if (length <= 0) { data.finished = true; return false; }
-            ty = startRel; h = length;
-        } else if (arm === 'E') {
-            h = breadth; ty = -Math.floor(breadth/2);
-            const startRel = data.len + 1;
-            const absRight = cx + startRel + length;
-            if (absRight > blocksX) { length -= (absRight - blocksX); data.finished = true; }
-            if (length <= 0) { data.finished = true; return false; }
-            tx = startRel; w = length;
-        } else if (arm === 'W') {
-            h = breadth; ty = -Math.floor(breadth/2);
-            const absLeft = cx - (data.len + length);
-            if (absLeft < 0) { length -= -absLeft; data.finished = true; }
-            if (length <= 0) { data.finished = true; return false; }
-            tx = -(data.len + length); w = length;
-        }
+            let successForArm = false;
+            let allLanesBlocked = true;
 
-        // Fix: Use skipConnectivity=false to enforce same-layer adjacency
-        if (this._spawnBlock(tx, ty, w, h, targetLayer, false, 0, false, true) !== -1) {
-            data.len += length;
-            return true;
+            for (const laneOffset of offsets) {
+                const sw = this._getScaledConfig('MinBlockWidth', 1);
+                const mw = this._getScaledConfig('MaxBlockWidth', 3);
+                const sh = this._getScaledConfig('MinBlockHeight', 1);
+                const mh = this._getScaledConfig('MaxBlockHeight', 3);
+
+                const breadth = Math.random() < 0.3 ? Math.min(2, mw) : 1;
+                let length = (breadth === 1) ? (Math.floor(Math.random() * (mh - sh + 1)) + sh) : 1;
+
+                const blocksX = this.logicGridW, blocksY = this.logicGridH;
+                const cx = Math.floor(blocksX / 2), cy = Math.floor(blocksY / 2);
+                let tx = 0, ty = 0, w = 0, h = 0;
+
+                if (arm === 'N') {
+                    w = breadth; tx = laneOffset - Math.floor(breadth/2);
+                    const absTop = cy - (data.len + length);
+                    if (data.len >= yLimit) { length = 0; } // Already at visible limit
+                    else if (absTop < cy - yLimit) { length = Math.max(0, yLimit - data.len); }
+                    
+                    if (length <= 0) continue; // This lane reached visible limit
+                    allLanesBlocked = false;
+                    ty = -(data.len + length); h = length;
+                } else if (arm === 'S') {
+                    w = breadth; tx = laneOffset - Math.floor(breadth/2);
+                    const startRel = data.len + 1;
+                    if (data.len >= yLimit) { length = 0; }
+                    else if (startRel + length > yLimit) { length = Math.max(0, yLimit - data.len); }
+                    
+                    if (length <= 0) continue;
+                    allLanesBlocked = false;
+                    ty = startRel; h = length;
+                } else if (arm === 'E') {
+                    h = breadth; ty = laneOffset - Math.floor(breadth/2);
+                    const startRel = data.len + 1;
+                    if (data.len >= xLimit) { length = 0; }
+                    else if (startRel + length > xLimit) { length = Math.max(0, xLimit - data.len); }
+                    
+                    if (length <= 0) continue;
+                    allLanesBlocked = false;
+                    tx = startRel; w = length;
+                } else if (arm === 'W') {
+                    h = breadth; ty = laneOffset - Math.floor(breadth/2);
+                    const absLeft = cx - (data.len + length);
+                    if (data.len >= xLimit) { length = 0; }
+                    else if (absLeft < cx - xLimit) { length = Math.max(0, xLimit - data.len); }
+                    
+                    if (length <= 0) continue;
+                    allLanesBlocked = false;
+                    tx = -(data.len + length); w = length;
+                }
+
+                if (this._spawnBlock(tx, ty, w, h, targetLayer, false, 0, false, true) !== -1) {
+                    data.len += length;
+                    successForArm = true;
+                    break;
+                }
+            }
+
+            if (successForArm) return true;
+
+            // Adaptive Expansion: If all sampled lanes are blocked, expand the field for this arm
+            if (allLanesBlocked) {
+                if (totalRange < Math.max(this.logicGridW, this.logicGridH)) {
+                    data.fieldExpansion++;
+                    this._log(`[Spine] Field expanded for ${arm} to level ${data.fieldExpansion}`);
+                } else {
+                    data.finished = true;
+                }
+            }
         }
         return false;
     }
 
-    _attemptCyclicGrowth(ignored, targetLayer = 0) {
-        if (!this.cycleState) return false;
-        const phase = this.cycleState.step % 3;
+    _attemptCenteredGrowth(ignored, targetLayer = 0) {
+        if (!this.centeredState || !this.centeredState[targetLayer]) {
+            if (!this.centeredState) this.centeredState = [];
+            this.centeredState[targetLayer] = { currentMaxRadius: 0, lastUpdate: -100 };
+        }
         
-        const spawnSmart = (layer, mustOverlap, mustProtrude) => {
-            const anchors = this.activeBlocks.filter(b => b.layer === 0);
-            if (anchors.length === 0) return null;
-            
-            const attempts = 40;
-            const sw = this._getScaledConfig('MinBlockWidth', 1);
-            const mw = this._getScaledConfig('MaxBlockWidth', 3);
-            const sh = this._getScaledConfig('MinBlockHeight', 1);
-            const mh = this._getScaledConfig('MaxBlockHeight', 3);
+        const state = this.centeredState[targetLayer];
+        
+        // Pace control
+        if (this.animFrame - state.lastUpdate < 3) return false;
+        state.lastUpdate = this.animFrame;
 
-            for (let i = 0; i < attempts; i++) {
-                const anchor = anchors[Math.floor(Math.random() * anchors.length)];
-                const w = Math.floor(Math.random() * (mw - sw + 1)) + sw;
-                const h = Math.floor(Math.random() * (mh - sh + 1)) + sh;
-                
-                const ox = Math.floor(Math.random() * (anchor.w + w + 1)) - w;
-                const oy = Math.floor(Math.random() * (anchor.h + h + 1)) - h;
-                const tx = anchor.x + ox, ty = anchor.y + oy;
-                
-                let intersectArea = 0, isTouching = false;
-                for (const b of this.activeBlocks) {
-                    if (b.layer !== 0) continue; 
-                    const ix = Math.max(tx, b.x), iy = Math.max(ty, b.y);
-                    const iw = Math.min(tx + w, b.x + b.w) - ix, ih = Math.min(ty + h, b.y + b.h) - iy;
-                    if (iw > 0 && ih > 0) intersectArea += (iw * ih);
-                    else {
-                        const touchX = (tx === b.x + b.w) || (tx + w === b.x);
-                        const overlapY = (ty < b.y + b.h) && (ty + h > b.y);
-                        const touchY = (ty === b.y + b.h) || (ty + h === b.y);
-                        const overlapX = (tx < b.x + b.w) && (tx + w > b.x);
-                        if ((touchX && overlapY) || (touchY && overlapX)) isTouching = true;
-                    }
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const grid = this.layerGrids[targetLayer];
+        if (!grid) return false;
+        
+        const sizes = [
+            {w:1, h:1}, {w:1, h:2}, {w:2, h:1}, {w:2, h:2}
+        ];
+
+        // Search from r=0 outwards to find the first available innermost gap.
+        // This ensures the core remains solid even if nudge shifts blocks away.
+        // We limit search radius to currentMaxRadius + buffer for performance.
+        const maxR = Math.min(Math.max(w, h), state.currentMaxRadius + 5);
+        
+        for (let r = 0; r <= maxR; r++) {
+            const points = [];
+            if (r === 0) {
+                points.push({x: 0, y: 0});
+            } else {
+                // Sample the ring
+                const samples = Math.min(16, r * 4); 
+                for (let i = 0; i < samples; i++) {
+                    const side = Math.floor(Math.random() * 4);
+                    const pos = Math.floor(Math.random() * (r * 2 + 1)) - r;
+                    if (side === 0) points.push({x: -r, y: pos});
+                    else if (side === 1) points.push({x: r, y: pos});
+                    else if (side === 2) points.push({x: pos, y: -r});
+                    else points.push({x: pos, y: r});
                 }
-                const totalArea = w * h;
-                const protrudeArea = totalArea - intersectArea;
-                const isConnected = (intersectArea > 0 || isTouching);
-                const isProtruding = (protrudeArea > 0);
-                
-                if ((!mustOverlap || isConnected) && (!mustProtrude || isProtruding)) {
-                    if (this._spawnBlock(tx, ty, w, h, layer) !== -1) {
-                        return { x: tx, y: ty, w, h };
+            }
+
+            for (const pt of points) {
+                const gx = cx + pt.x, gy = cy + pt.y;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+
+                // If this spot is empty on the target layer, try to fill it
+                if (grid[gy * w + gx] === -1) {
+                    const sz = sizes[Math.floor(Math.random() * sizes.length)];
+                    const ox = pt.x - Math.floor(sz.w / 2);
+                    const oy = pt.y - Math.floor(sz.h / 2);
+
+                    // Must be anchored to existing mass OR be the center seed
+                    const isCenter = (pt.x === 0 && pt.y === 0);
+                    if (isCenter || this._isAnchored(ox, oy, sz.w, sz.h, targetLayer)) {
+                        if (this._spawnBlock(ox, oy, sz.w, sz.h, targetLayer, false, 0, true, true) !== -1) {
+                            // Update max radius if we spawned at the frontier
+                            if (r >= state.currentMaxRadius) {
+                                state.currentMaxRadius = r + 1;
+                            }
+                            return true; 
+                        }
                     }
                 }
             }
-            return null;
-        };
-
-        let result = false;
-        if (phase === 0) { 
-            const b = spawnSmart(0, true, true);
-            if (b) { this.cycleState.step1Block = b; result = true; }
-        } else if (phase === 1) { 
-            if (spawnSmart(targetLayer || 1, true, true)) result = true;
-        } else if (phase === 2) { 
-            if (spawnSmart(0, true, true)) result = true;
         }
-        
-        this.cycleState.step++;
-        return result;
+
+        return false;
     }
 
     _performCenterBiasedGrowth(maxLen, layer, isVertical) {
@@ -3051,49 +3308,125 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _fillHoles(layer) {
+        if (!this._gridsDirty && this.activeBlocks.length > 0) return;
+        if (!this.logicGridW || !this.logicGridH) return;
+
         const w = this.logicGridW, h = this.logicGridH;
         const grid = this.layerGrids[layer];
         if (!grid) return;
-        const outsideMap = new Uint8Array(w * h);
-        const queue = new Int32Array(w * h);
+
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const bs = this.getBlockSize();
+        
+        // 1. Define Visible Boundary (with a 2-block safety buffer)
+        const visW = Math.ceil(this.g.cols / bs.w);
+        const visH = Math.ceil(this.g.rows / bs.h);
+        const xLim = Math.floor(visW / 2) + 2;
+        const yLim = Math.floor(visH / 2) + 2;
+
+        const minGX = Math.max(0, cx - xLim), maxGX = Math.min(w - 1, cx + xLim);
+        const minGY = Math.max(0, cy - yLim), maxGY = Math.min(h - 1, cy + yLim);
+
+        // 2. BFS from the Visibility Perimeter to find "Outside"
+        const outsideMap = this._getBuffer('connectedMap', w * h, Uint8Array);
+        outsideMap.fill(0);
+        const queue = this._getBuffer('queue', w * h, Int32Array);
         let head = 0, tail = 0;
+
         const add = (gx, gy) => {
             const idx = gy * w + gx;
-            if (outsideMap[idx] === 0 && grid[idx] === -1) { outsideMap[idx] = 1; queue[tail++] = idx; }
+            if (outsideMap[idx] === 0 && grid[idx] === -1) { 
+                outsideMap[idx] = 1; 
+                queue[tail++] = idx; 
+            }
         };
-        for (let x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
-        for (let y = 1; y < h - 1; y++) { add(0, y); add(w - 1, y); }
-        while (head < tail) {
-            const idx = queue[head++];
-            const cx = idx % w, cy = (idx / w) | 0;
-            if (cy > 0) add(cx, cy - 1); if (cy < h - 1) add(cx, cy + 1);
-            if (cx > 0) add(cx - 1, cy); if (cx < w - 1) add(cx + 1, cy);
-        }
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        for (let i = 0; i < w * h; i++) {
-            if (grid[i] === -1 && outsideMap[i] === 0) {
-                const gx = i % w, gy = (i / w) | 0;
-                this._spawnBlock(gx - cx, gy - cy, 1, 1, layer, false, 0, true, true);
+
+        // Seed BFS from any empty cell on or outside the visible boundary
+        for (let gy = 0; gy < h; gy++) {
+            for (let gx = 0; gx < w; gx++) {
+                const isOutsideVis = (gx <= minGX || gx >= maxGX || gy <= minGY || gy >= maxGY);
+                if (isOutsideVis) add(gx, gy);
             }
         }
+
+        while (head < tail) {
+            const idx = queue[head++];
+            const cgx = idx % w, cgy = (idx / w) | 0;
+            if (cgy > 0) add(cgx, cgy - 1); if (cgy < h - 1) add(cgx, cgy + 1);
+            if (cgx > 0) add(cgx - 1, cgy); if (cgx < w - 1) add(cgx + 1, cgy);
+        }
+
+        // 3. Fill holes inside the visible area
+        let filledCount = 0;
+        for (let gy = minGY + 1; gy < maxGY; gy++) {
+            for (let gx = minGX + 1; gx < maxGX; gx++) {
+                const i = gy * w + gx;
+                if (grid[i] === -1) {
+                    // Case A: Enclosed Hole (Cannot reach visible boundary)
+                    const isEnclosed = (outsideMap[i] === 0);
+                    
+                    // Case B: Aggressive Infill (3 or 4 cardinal neighbors are full)
+                    // This catches inlets and dead-ends that are connected to the outside.
+                    let neighborCount = 0;
+                    if (grid[i - 1] !== -1) neighborCount++;
+                    if (grid[i + 1] !== -1) neighborCount++;
+                    if (grid[i - w] !== -1) neighborCount++;
+                    if (grid[i + w] !== -1) neighborCount++;
+                    
+                    const isSmallGap = (neighborCount >= 3);
+
+                    if (isEnclosed || isSmallGap) {
+                        this._spawnBlock(gx - cx, gy - cy, 1, 1, layer, false, 0, true, true);
+                        this._gridsDirty = true;
+                        filledCount++;
+                    }
+                }
+            }
+        }
+        if (filledCount > 0) this._log(`[AutoFill] Layer ${layer}: Filled ${filledCount} holes/gaps.`);
     }
 
     _connectIslands() {
+        if (!this._gridsDirty && this.activeBlocks.length > 0) return;
+        if (!this.logicGridW || !this.logicGridH) return;
+
         const w = this.logicGridW, h = this.logicGridH;
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        const combined = new Int8Array(w * h).fill(-1);
+        
+        const combined = this._getBuffer('combined', w * h, Int8Array);
+        combined.fill(-1);
+
         for (let i = 0; i < this.activeBlocks.length; i++) {
             const b = this.activeBlocks[i];
             const x1 = cx + b.x, y1 = cy + b.y, x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
             for (let gy = Math.max(0, y1); gy <= Math.min(h - 1, y2); gy++) {
-                for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) { combined[gy * w + gx] = 1; }
+                const rowOff = gy * w;
+                for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) { 
+                    combined[rowOff + gx] = 1; 
+                }
             }
         }
-        const connectedMap = new Uint8Array(w * h);
-        const queue = new Int32Array(w * h);
+
+        const connectedMap = this._getBuffer('connectedMap', w * h, Uint8Array);
+        connectedMap.fill(0);
+        const queue = this._getBuffer('queue', w * h, Int32Array);
         let head = 0, tail = 0;
+        
         const startIdx = cy * w + cx;
-        if (combined[startIdx] === 1) { connectedMap[startIdx] = 1; queue[tail++] = startIdx; }
+        if (combined[startIdx] === 1) { 
+            connectedMap[startIdx] = 1; 
+            queue[tail++] = startIdx; 
+        } else {
+            // Find any mainland cell if center isn't covered
+            for(let i=0; i<w*h; i++) {
+                if(combined[i] === 1) {
+                    connectedMap[i] = 1;
+                    queue[tail++] = i;
+                    break;
+                }
+            }
+        }
+
         while (head < tail) {
             const idx = queue[head++];
             const gx = idx % w, gy = (idx / w) | 0;
@@ -3103,38 +3436,66 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (nIdx >= 0 && nIdx < w * h && connectedMap[nIdx] === 0 && combined[nIdx] === 1) {
                     if (i === 2 && gx === 0) continue;
                     if (i === 3 && gx === w - 1) continue;
-                    connectedMap[nIdx] = 1; queue[tail++] = nIdx;
+                    connectedMap[nIdx] = 1; 
+                    queue[tail++] = nIdx;
                 }
             }
         }
+
         const islands = this.activeBlocks.filter(b => {
             const x1 = cx + b.x, y1 = cy + b.y, x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
             for (let gy = Math.max(0, y1); gy <= Math.min(h - 1, y2); gy++) {
-                for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) { if (connectedMap[gy * w + gx] === 1) return false; }
+                const rowOff = gy * w;
+                for (let gx = Math.max(0, x1); gx <= Math.min(w - 1, x2); gx++) { 
+                    if (connectedMap[rowOff + gx] === 1) return false; 
+                }
             }
             return true;
         });
+
         if (islands.length === 0) return;
+
+        // Optimized Connection: Find nearest mainland point via BFS per island
         for (const island of islands) {
-            let bestDist = Infinity, bestIslandPt = null, bestTargetPt = null;
-            const ix1 = cx + island.x, iy1 = cy + island.y, ix2 = ix1 + island.w - 1, iy2 = iy1 + island.h - 1;
-            for (let igy = Math.max(0, iy1); igy <= Math.min(h - 1, iy2); igy++) {
-                for (let igx = Math.max(0, ix1); igx <= Math.min(w - 1, ix2); igx++) {
-                    for (let ty = 0; ty < h; ty++) {
-                        for (let tx = 0; tx < w; tx++) {
-                            if (connectedMap[ty * w + tx] === 1) {
-                                const d = Math.abs(tx - igx) + Math.abs(ty - igy);
-                                if (d < bestDist) { bestDist = d; bestIslandPt = { x: igx, y: igy }; bestTargetPt = { x: tx, y: ty }; }
-                            }
-                        }
+            let bestIslandPt = { x: cx + island.x, y: cy + island.y };
+            let bestTargetPt = null;
+            
+            // Per-island BFS to find nearest connectedMap === 1
+            const iQueue = new Int32Array(w * h); // Local small queue if possible, but reused buffer is better
+            const iVisited = new Uint8Array(w * h);
+            let iHead = 0, iTail = 0;
+            
+            const iStartIdx = bestIslandPt.y * w + bestIslandPt.x;
+            iQueue[iTail++] = iStartIdx;
+            iVisited[iStartIdx] = 1;
+            
+            while(iHead < iTail) {
+                const idx = iQueue[iHead++];
+                if (connectedMap[idx] === 1) {
+                    bestTargetPt = { x: idx % w, y: (idx / w) | 0 };
+                    break;
+                }
+                
+                const gx = idx % w, gy = (idx / w) | 0;
+                const neighbors = [idx - w, idx + w, idx - 1, idx + 1];
+                for (let i = 0; i < 4; i++) {
+                    const nIdx = neighbors[i];
+                    if (nIdx >= 0 && nIdx < w * h && iVisited[nIdx] === 0) {
+                        if (i === 2 && gx === 0) continue;
+                        if (i === 3 && gx === w - 1) continue;
+                        iVisited[nIdx] = 1;
+                        iQueue[iTail++] = nIdx;
                     }
                 }
+                if (iTail > 2000) break; // Safety break
             }
-            if (bestIslandPt && bestTargetPt) {
+
+            if (bestTargetPt) {
                 let curX = bestIslandPt.x, curY = bestIslandPt.y;
                 while (curX !== bestTargetPt.x || curY !== bestTargetPt.y) {
                     if (curX < bestTargetPt.x) curX++; else if (curX > bestTargetPt.x) curX--;
                     else if (curY < bestTargetPt.y) curY++; else if (curY > bestTargetPt.y) curY--;
+                    
                     if (combined[curY * w + curX] === -1) {
                         this._spawnBlock(curX - cx, curY - cy, 1, 1, island.layer, false, 0, true, true);
                         combined[curY * w + curX] = 1;
@@ -3148,24 +3509,32 @@ class QuantizedBaseEffect extends AbstractEffect {
         const w = this.logicGridW, h = this.logicGridH;
         if (!w || !h) return false;
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        
+        // Optimized Sampling for Force Fill
         for (let l = 0; l < 5; l++) {
             const grid = this.layerGrids[l];
             if (!grid) continue;
-            for (let gy = 0; gy < h; gy++) {
-                for (let gx = 0; gx < w; gx++) {
-                    const idx = gy * w + gx;
-                    if (grid[idx] === -1) {
-                        const hasNeighbor = 
-                            (gx > 0 && grid[idx - 1] !== -1) ||
-                            (gx < w - 1 && grid[idx + 1] !== -1) ||
-                            (gy > 0 && grid[idx - w] !== -1) ||
-                            (gy < h - 1 && grid[idx + w] !== -1);
-                        if (hasNeighbor) {
-                            const bx = gx - cx, by = gy - cy;
-                            if (this._validateAdditionSafety(bx, by, l)) {
-                                this._spawnBlock(bx, by, 1, 1, l, false, 0, true, true);
-                                return true;
-                            }
+
+            const totalCells = w * h;
+            const maxAttempts = Math.min(totalCells, 100); 
+            
+            for (let i = 0; i < maxAttempts; i++) {
+                const gx = Math.floor(Math.random() * w);
+                const gy = Math.floor(Math.random() * h);
+                const idx = gy * w + gx;
+                
+                if (grid[idx] === -1) {
+                    const hasNeighbor = 
+                        (gx > 0 && grid[idx - 1] !== -1) ||
+                        (gx < w - 1 && grid[idx + 1] !== -1) ||
+                        (gy > 0 && grid[idx - w] !== -1) ||
+                        (gy < h - 1 && grid[idx + w] !== -1);
+                    
+                    if (hasNeighbor) {
+                        const bx = gx - cx, by = gy - cy;
+                        if (this._validateAdditionSafety(bx, by, l)) {
+                            this._spawnBlock(bx, by, 1, 1, l, false, 0, true, true);
+                            return true;
                         }
                     }
                 }
@@ -3174,10 +3543,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
-    _validateAdditionSafety(bx, by, layer) {
-        const nextBlocks = this.activeBlocks.map(b => ({...b}));
-        nextBlocks.push({ x: bx, y: by, w: 1, h: 1, layer });
-        return this._checkEnvelopeDrift(nextBlocks);
+    _validateAdditionSafety(bx, by, layer, bypass = false) {
+        if (bypass) return true;
+        
+        // Optimized: Use a virtual view to avoid cloning activeBlocks
+        const virtualBlocks = {
+            length: this.activeBlocks.length + 1,
+            getItem: (i) => {
+                if (i < this.activeBlocks.length) return this.activeBlocks[i];
+                return { x: bx, y: by, w: 1, h: 1, layer };
+            }
+        };
+        return this._checkEnvelopeDriftVirtual(virtualBlocks);
     }
 
     _isCanvasFullyCovered() {

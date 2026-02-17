@@ -19,7 +19,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             { id: 'Nudge', method: '_executeNudgeGrowth' },
             { id: 'Cluster', method: '_attemptClusterGrowth' },
             { id: 'Shift', method: '_attemptShiftGrowth' },
-            { id: 'Cyclic', method: '_attemptCyclicGrowth' }
+            { id: 'Centered', method: '_attemptCenteredGrowth' }
         ];
 
         // --- 2. Global Maintenance Behaviors ---
@@ -35,13 +35,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.RULES = {
             // A. Bounds Check
             bounds: (c) => {
-                if (this.getConfig('PreventOffscreen') !== true) return true;
                 const bs = this.getBlockSize();
-                const xLimit = (this.g.cols / bs.w / 2);
-                const yLimit = (this.g.rows / bs.h / 2);
-                // Allow 0.5 buffer for partial blocks
-                if (c.x < -xLimit - 0.5 || c.x + c.w > xLimit + 0.5 || 
-                    c.y < -yLimit - 0.5 || c.y + c.h > yLimit + 0.5) return false;
+                const xLimit = (this.g.cols / bs.w / 2) + 1; // Canvas + 1 block
+                const yLimit = (this.g.rows / bs.h / 2) + 1;
+                
+                if (c.x < -xLimit || c.x + c.w > xLimit || 
+                    c.y < -yLimit || c.y + c.h > yLimit) return false;
                 return true;
             },
 
@@ -126,7 +125,34 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             // D. Anchoring (Optional sub-layer constraint)
             anchoring: (c) => {
+                 if (c.skipAnchoring || c.layer === 0) return true;
                  return this._isAnchored(c.x, c.y, c.w, c.h, c.layer);
+            },
+
+            // E. Drift Check (Optional sub-layer constraint)
+            drift: (c) => {
+                if (c.bypassDriftCheck) return true;
+                return this._validateAdditionSafety(c.x, c.y, c.layer);
+            },
+
+            // F. Spatial Distribution (Prevent clustering in one step)
+            spatial: (c) => {
+                if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial) return true;
+                if (!this._currentStepActions || this._currentStepActions.length === 0) return true;
+                
+                const cx = c.x + c.w / 2;
+                const cy = c.y + c.h / 2;
+                
+                // Manhattan distance: 20% of max dimension, min 10 blocks
+                const minDistance = Math.max(10, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.20));
+
+                for (const action of this._currentStepActions) {
+                    const ax = action.x + action.w / 2;
+                    const ay = action.y + action.h / 2;
+                    const dist = Math.abs(cx - ax) + Math.abs(cy - ay);
+                    if (dist < minDistance) return false;
+                }
+                return true;
             }
         };
     }
@@ -249,6 +275,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
              });
              if (this.maskOps.length !== oldLen) {
                  this._lastProcessedOpIndex = 0; 
+                 this._gridsDirty = true;
              }
         }
 
@@ -274,7 +301,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             this._updateRenderGridLogic();
 
-            const isCovered = this._isCanvasFullyCovered();
+            // Cache coverage check
+            if (this._gridsDirty || this._isCovered === undefined) {
+                this._isCovered = this._isCanvasFullyCovered();
+            }
+            const isCovered = this._isCovered;
             const timedOut = this.timer >= durationFrames;
 
             if (!this.debugMode && (timedOut || isCovered)) {
@@ -301,6 +332,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _attemptGrowth() {
         this._initProceduralState(); 
+        this._syncSubLayers(); // Synchronize existing state first
+        this._currentStepActions = []; // Reset step actions for spatial distribution check
 
         const s = this.c.state;
         const getGenConfig = (key) => {
@@ -309,28 +342,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             return s['quantizedGenerateV2' + key];
         };
 
-        const w = this.logicGridW, h = this.logicGridH;
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        // 1. Sync Logic Grid (for connectivity checks)
+        this._updateInternalLogicGrid();
 
-        // 1. Sync Logic Grid
-        this.logicGrid.fill(0);
-        for (let i = 0; i < this.activeBlocks.length; i++) {
-            const b = this.activeBlocks[i];
-            const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
-            const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
-            for (let gy = y1; gy <= y2; gy++) {
-                const rowOff = gy * w;
-                for (let gx = x1; gx <= x2; gx++) {
-                    this.logicGrid[rowOff + gx] = 1;
-                }
-            }
-        }
+        const w = this.logicGridW, h = this.logicGridH;
 
         // 2. Initialize Step Occupancy
-        if (!this._stepOccupancy || this._stepOccupancy.length !== this.logicGrid.length) {
-            this._stepOccupancy = new Uint8Array(this.logicGrid.length);
-        }
-        this._stepOccupancy.fill(0);
+        const stepOccupancy = this._getBuffer('stepOccupancy', this.logicGrid.length, Uint8Array);
+        stepOccupancy.fill(0);
+        this._stepOccupancy = stepOccupancy;
 
         // 3. Preparation
         let quota = getGenConfig('SimultaneousSpawns') || 1;
@@ -344,53 +364,66 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         const maxLayer = getGenConfig('LayerCount') || 1;
-        const targetLayer = (getGenConfig('EnableSyncSubLayers') === true) ? 0 : this.proceduralLayerIndex;
 
-        // 4. Phase A: Stateful Behaviors
-        this._processActiveStatefulBehaviors(targetLayer);
-
-        let actionsPerformed = 0;
-        let success = false;
-
-        // 5. Phase B: Nudge Priority
-        const enNudge = getGenConfig('EnableNudge') === true;
-        if (enNudge && actionsPerformed < quota) {
-            if (this._executeNudgeGrowth(null, targetLayer)) {
-                actionsPerformed++;
-                success = true;
+        // Collect and sort behaviors
+        const behaviors = [];
+        this.GROWTH_BEHAVIORS.forEach(b => {
+            if (getGenConfig('Enable' + b.id)) {
+                behaviors.push({
+                    id: b.id,
+                    method: b.method,
+                    order: getGenConfig(b.id + 'Order') || 5,
+                    layerOrder: getGenConfig(b.id + 'LayerOrder') || 'primary-first'
+                });
             }
+        });
+        if (getGenConfig('EnableFallback')) {
+            behaviors.push({
+                id: 'Fallback',
+                order: getGenConfig('FallbackOrder') || 10,
+                layerOrder: getGenConfig('FallbackLayerOrder') || 'primary-first'
+            });
         }
+        behaviors.sort((a, b) => a.order - b.order);
 
-        // 6. Phase C: Growth Behaviors
-        const enabledGrowth = this.GROWTH_BEHAVIORS.filter(b => 
-            b.id !== 'Nudge' && getGenConfig('Enable' + b.id) === true
-        );
-        
-        const maxAttempts = Math.max(20, quota * 4);
-        let attempts = 0;
+        let successInStep = false;
 
-        while (actionsPerformed < quota && attempts < maxAttempts && enabledGrowth.length > 0) {
-            attempts++;
-            const behavior = enabledGrowth[Math.floor(Math.random() * enabledGrowth.length)];
-            
-            if (typeof this[behavior.method] === 'function') {
-                if (this[behavior.method](null, targetLayer)) {
-                    success = true;
-                    actionsPerformed++;
+        // 4. Synchronized Layer Growth Loop
+        for (let q = 0; q < quota; q++) {
+            for (const behavior of behaviors) {
+                // Determine layer sequence for this behavior
+                let layers = [];
+                if (behavior.layerOrder === "primary-first") {
+                    for (let l = 0; l <= maxLayer; l++) layers.push(l);
+                } else if (behavior.layerOrder === "sub-first") {
+                    for (let l = maxLayer; l >= 0; l--) layers.push(l);
+                } else if (behavior.layerOrder === "random") {
+                    for (let l = 0; l <= maxLayer; l++) layers.push(l);
+                    Utils.shuffle(layers);
+                }
+
+                for (const targetLayer of layers) {
+                    let successForLayer = false;
+
+                    if (behavior.id === 'Fallback') {
+                        if (this._attemptSubstituteGrowthWithLayer(targetLayer)) successForLayer = true;
+                        else if (this._attemptForceFill(targetLayer)) successForLayer = true;
+                    } else if (behavior.id === 'Unfold' || behavior.id === 'Crawler') {
+                        if (this._processActiveStatefulBehaviors(targetLayer)) successForLayer = true;
+                    } else {
+                        if (typeof this[behavior.method] === 'function') {
+                            if (this[behavior.method](null, targetLayer)) successForLayer = true;
+                        }
+                    }
+
+                    if (successForLayer) successInStep = true;
                 }
             }
         }
 
-        // 7. Phase D: Fallback
-        if (!success && getGenConfig('EnableFallback') === true) {
-            if (this._attemptSubstituteGrowthWithLayer(targetLayer)) success = true;
-            else if (this._attemptForceFill()) success = true;
-        }
-
-        // 8. Global Behaviors
+        // 5. Global Maintenance (Pruning, etc.)
         for (const behavior of this.GLOBAL_BEHAVIORS) {
-            const configKey = 'Enable' + behavior.id;
-            const isEnabled = getGenConfig(configKey) === true;
+            const isEnabled = getGenConfig('Enable' + behavior.id) === true;
             if (isEnabled) {
                 if (behavior.perLayer) {
                     for (let l = 0; l <= maxLayer; l++) this[behavior.method](l);
@@ -400,16 +433,23 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
         }
 
-        // 9. Phase E: Final Mirroring/Synchronization Pass
-        this._syncSubLayers();
-
+        // Update Layer Rotation for any behaviors that still use sequential rotation
         this.proceduralLayerIndex = (this.proceduralLayerIndex + 1) % (maxLayer + 1);
 
-        if (!success && !this._isCanvasFullyCovered()) {
-            this._warn("QuantizedBlockGenerator: Growth stalled - no safe move found.");
+        if (!successInStep && !this._isCanvasFullyCovered()) {
+            this._warn("QuantizedBlockGenerator: Growth stalled - no safe move found in this step.");
         }
 
         // Final Logic Grid Sync (for rendering)
+        this._updateInternalLogicGrid();
+    }
+
+    _updateInternalLogicGrid() {
+        if (!this.logicGridW || !this.logicGridH) return;
+        if (!this._gridsDirty && this.logicGrid.some(v => v === 1)) return; // Skip if already synced
+
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
         this.logicGrid.fill(0);
         for (let i = 0; i < this.activeBlocks.length; i++) {
             const b = this.activeBlocks[i];
@@ -436,13 +476,52 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
     }
 
+    _attemptForceFill(layer) {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return false;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        
+        const grid = this.layerGrids[layer];
+        if (!grid) return false;
+
+        // Optimized Sampling: Instead of shuffling the entire grid, pick random spots
+        // and check neighbors.
+        const totalCells = w * h;
+        const maxAttempts = Math.min(totalCells, 200); 
+        
+        for (let i = 0; i < maxAttempts; i++) {
+            const gx = Math.floor(Math.random() * w);
+            const gy = Math.floor(Math.random() * h);
+            const idx = gy * w + gx;
+            
+            if (grid[idx] === -1) {
+                const hasNeighbor = 
+                    (gx > 0 && grid[idx - 1] !== -1) ||
+                    (gx < w - 1 && grid[idx + 1] !== -1) ||
+                    (gy > 0 && grid[idx - w] !== -1) ||
+                    (gy < h - 1 && grid[idx + w] !== -1);
+                
+                if (hasNeighbor) {
+                    const bx = gx - cx, by = gy - cy;
+                    if (this._spawnBlock(bx, by, 1, 1, layer, false, 0, true, true) !== -1) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     // --- CONTROLLER LOGIC ---
 
     _spawnBlock(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
         const candidate = {
             x, y, w, h, layer,
             isShifter, expireFrames, skipConnectivity, allowInternal,
-            suppressFades, isMirroredSpawn, bypassOccupancy
+            suppressFades, isMirroredSpawn, bypassOccupancy,
+            skipAnchoring: skipConnectivity,
+            bypassSpatial: skipConnectivity,
+            bypassDriftCheck: skipConnectivity
         };
         
         return this._proposeCandidate(candidate);
@@ -468,18 +547,27 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (!this.RULES.bounds(c)) return false;
         if (!this.RULES.occupancy(c)) return false;
         if (!this.RULES.anchoring(c)) return false;
+        if (!this.RULES.drift(c)) return false;
         if (!this.RULES.connectivity(c)) return false;
+        if (!this.RULES.spatial(c)) return false;
         return true;
     }
 
     _commitCandidate(c) {
         // Bypass checks in super that we already performed
-        return super._spawnBlock(
+        const id = super._spawnBlock(
             c.x, c.y, c.w, c.h, c.layer,
             c.isShifter, c.expireFrames,
             true, // Skip super's connectivity/overlap check
             c.allowInternal, c.suppressFades, c.isMirroredSpawn, c.bypassOccupancy
         );
+
+        if (id !== -1) {
+            if (!this._currentStepActions) this._currentStepActions = [];
+            this._currentStepActions.push(c);
+        }
+
+        return id;
     }
 
     _handleAxisBalancing(c) {
@@ -489,49 +577,76 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
 
-        let targetXRange = null; // [min, max]
-        let targetYRange = null;
+        // Target Quadrant Logic
+        let flipX = (mirrorType === 0 || mirrorType === 2);
+        let flipY = (mirrorType === 1 || mirrorType === 2);
 
-        // X-Axis Balancing
-        if (mirrorType === 0 || mirrorType === 2) {
-            if (c.x < 0) { targetXRange = [0, cx - c.w]; } // West -> East
-            else { targetXRange = [-cx, -c.w]; } // East -> West
-        } else {
-            targetXRange = [c.x, c.x]; // Keep same X
+        let targetX = flipX ? -c.x - c.w : c.x;
+        let targetY = flipY ? -c.y - c.h : c.y;
+
+        const candidate = { ...c, x: targetX, y: targetY, isMirroredSpawn: true };
+
+        // 1. Try direct mirror first
+        if (this._validateCandidate(candidate)) {
+            this._commitCandidate(candidate);
+            return;
         }
 
-        // Y-Axis Balancing
-        if (mirrorType === 1 || mirrorType === 2) {
-            if (c.y < 0) { targetYRange = [0, cy - c.h]; } // North -> South
-            else { targetYRange = [-cy, -c.h]; } // South -> North
-        } else {
-            targetYRange = [c.y, c.y]; // Keep same Y
+        // 2. Search for nearest connected spot in target quadrant
+        const searchRange = 5;
+        const attempts = [];
+        for (let dy = -searchRange; dy <= searchRange; dy++) {
+            for (let dx = -searchRange; dx <= searchRange; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                attempts.push({ 
+                    x: targetX + dx, 
+                    y: targetY + dy, 
+                    dist: Math.abs(dx) + Math.abs(dy) 
+                });
+            }
+        }
+        attempts.sort((a, b) => a.dist - b.dist);
+
+        for (const att of attempts) {
+            const searchCandidate = { ...candidate, x: att.x, y: att.y };
+            if (this._validateCandidate(searchCandidate)) {
+                this._commitCandidate(searchCandidate);
+                return;
+            }
         }
 
-        let mx = c.x, my = c.y;
-        
-        if (targetXRange) {
-            const minX = targetXRange[0], maxX = targetXRange[1];
-            if (minX <= maxX) mx = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
+        // 3. Last resort: Any connected spot on the target layer
+        // This ensures the balancing quota is fulfilled without breaking rules
+        const anchors = this.activeBlocks.filter(b => b.layer === c.layer);
+        if (anchors.length > 0) {
+            Utils.shuffle(anchors);
+            for (let i = 0; i < Math.min(10, anchors.length); i++) {
+                const a = anchors[i];
+                const dirs = [{dx:1, dy:0}, {dx:-1, dy:0}, {dx:0, dy:1}, {dx:0, dy:-1}];
+                Utils.shuffle(dirs);
+                for (const d of dirs) {
+                    let tx = (d.dx === 1) ? a.x + a.w : (d.dx === -1 ? a.x - c.w : a.x);
+                    let ty = (d.dy === 1) ? a.y + a.h : (d.dy === -1 ? a.y - c.h : a.y);
+                    
+                    const finalAttempt = { ...candidate, x: tx, y: ty };
+                    if (this._validateCandidate(finalAttempt)) {
+                        this._commitCandidate(finalAttempt);
+                        return;
+                    }
+                }
+            }
         }
-        if (targetYRange) {
-            const minY = targetYRange[0], maxY = targetYRange[1];
-            if (minY <= maxY) my = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
-        }
-
-        // Create balanced candidate
-        const balanced = { ...c, x: mx, y: my, isMirroredSpawn: true };
-        this._proposeCandidate(balanced);
     }
 
     _executeStepOps(step, startFrameOverride) {
+        this._syncSubLayers(); // Synchronize existing state first
         super._executeStepOps(step, startFrameOverride);
-        this._syncSubLayers();
     }
 
     _syncSubLayers() {
         const s = this.c.state;
         if (!s.quantizedGenerateV2EnableSyncSubLayers) return;
+        if (!this._gridsDirty && this.activeBlocks.length > 0) return; // Only sync if something changed
 
         const maxLayer = s.quantizedGenerateV2LayerCount || 1;
         if (maxLayer < 1) return;
@@ -545,24 +660,26 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const cy = Math.floor(h / 2);
 
         // 1. Identify all active cells in Layer 0 to sync.
-        // We remove the 4-way neighbor check to ensure sub-layers match the L0 perimeter exactly.
-        const syncGrid = new Uint8Array(w * h);
+        const syncGrid = this._getBuffer('syncGrid', w * h, Uint8Array);
+        syncGrid.fill(0);
         for (let i = 0; i < l0Grid.length; i++) {
             if (l0Grid[i] !== -1) syncGrid[i] = 1;
         }
 
-        // 2. Extract rectangles from syncGrid (Greedy Fill) for Editor visibility and efficiency
+        // 2. Extract rectangles from syncGrid (Greedy Fill)
         const rects = [];
         for (let gy = 0; gy < h; gy++) {
+            const rowOffBase = gy * w;
             for (let gx = 0; gx < w; gx++) {
-                if (syncGrid[gy * w + gx] === 1) {
+                if (syncGrid[rowOffBase + gx] === 1) {
                     let rw = 0;
-                    while (gx + rw < w && syncGrid[gy * w + gx + rw] === 1) rw++;
+                    while (gx + rw < w && syncGrid[rowOffBase + gx + rw] === 1) rw++;
                     let rh = 1;
                     while (gy + rh < h) {
                         let lineFull = true;
+                        const targetRowOff = (gy + rh) * w;
                         for (let ix = 0; ix < rw; ix++) {
-                            if (syncGrid[(gy + rh) * w + gx + ix] !== 1) { lineFull = false; break; }
+                            if (syncGrid[targetRowOff + gx + ix] !== 1) { lineFull = false; break; }
                         }
                         if (!lineFull) break;
                         rh++;
@@ -570,7 +687,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     rects.push({ x: gx - cx, y: gy - cy, w: rw, h: rh });
                     // Mark as processed
                     for (let iy = 0; iy < rh; iy++) {
-                        for (let ix = 0; ix < rw; ix++) syncGrid[(gy + iy) * w + gx + ix] = 0;
+                        const markRowOff = (gy + iy) * w;
+                        for (let ix = 0; ix < rw; ix++) syncGrid[markRowOff + gx + ix] = 0;
                     }
                 }
             }
@@ -578,10 +696,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // 3. Commit these rectangles to sub-layers if they aren't already covered
         for (const r of rects) {
+            const rx = cx + r.x, ry = cy + r.y;
             for (let l = 1; l <= maxLayer; l++) {
                 const targetGrid = this.layerGrids[l];
                 let fullyCovered = true;
-                const rx = cx + r.x, ry = cy + r.y;
+                
                 for (let iy = 0; iy < r.h; iy++) {
                     const rowOff = (ry + iy) * w;
                     for (let ix = 0; ix < r.w; ix++) {
@@ -594,8 +713,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 }
 
                 if (!fullyCovered) {
-                    // Use _spawnBlock to ensure visibility in Editor schematic (maskOps)
-                    // bypassOccupancy=true ensures mirroring succeeds even if other behaviors touched the spot.
                     this._spawnBlock(r.x, r.y, r.w, r.h, l, false, 0, true, true, true, true, true);
                 }
             }

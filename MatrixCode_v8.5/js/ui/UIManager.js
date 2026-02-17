@@ -456,7 +456,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2EnableNudge', type: 'checkbox', label: 'Enable Nudge Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables multi-layer nudge behaviors adjacent to spines." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableCluster', type: 'checkbox', label: 'Enable Cluster Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables shifting clusters of 2-3 blocks along spines." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableShift', type: 'checkbox', label: 'Enable Shift Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables large-scale block shifting along cardinal axes." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableCyclic', type: 'checkbox', label: 'Enable Cyclic Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the 3-phase cyclic growth pattern (Layer 0 -> Layer 1 -> Merge)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableCentered', type: 'checkbox', label: 'Enable Centered Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts at the center and grows outward on all layers." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableOverlap', type: 'checkbox', label: 'Enable Layer Overlap', dep: 'quantizedGenerateV2Enabled', description: "Enables overlapping layer generation (Cloud effect)." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableRearrange', type: 'checkbox', label: 'Enable Block Rearranging', dep: 'quantizedGenerateV2Enabled', description: "Selects blocks that extend too far from the center, removes them, and redistributes them to fill holes closer to the core." },
             { cat: 'Effects', id: 'quantizedGenerateV2RearrangeFrequency', type: 'range', label: 'Rearrange Frequency', min: 0.05, max: 1.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableRearrange'], description: "Controls how often the rearranging behavior is attempted. 100% = every step, 5% = rarely.", transform: v => (v * 100).toFixed(0) + '%' },
@@ -473,6 +473,13 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2EnableEventScaling', type: 'checkbox', label: 'Event Scaling', dep: 'quantizedGenerateV2Enabled', description: "Starts with few actions per step and increases frequency as total mass grows." },
             { cat: 'Effects', id: 'quantizedGenerateV2EventScalingMin', type: 'range', label: 'Min Actions', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableEventScaling'], description: "The starting number of actions per step when event scaling is enabled." },
             { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
+            
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Behavior Order & Layers', dep: 'quantizedGenerateV2Enabled' },
+            ...['Spine', 'Unfold', 'Crawler', 'Nudge', 'Cluster', 'Shift', 'Centered', 'Fallback'].flatMap(b => [
+                { cat: 'Effects', id: `quantizedGenerateV2${b}Order`, type: 'range', label: `${b} Order`, min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled' },
+                { cat: 'Effects', id: `quantizedGenerateV2${b}LayerOrder`, type: 'select', label: `${b} Layers`, options: [{label:'Primary First',value:'primary-first'}, {label:'Sub-layers First',value:'sub-first'}, {label:'Random',value:'random'}], dep: 'quantizedGenerateV2Enabled' }
+            ]),
+
             { cat: 'Effects', id: 'quantizedGenerateV2SubLayerAnchorDistance', type: 'range', label: 'Anchor Distance', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableSubLayerAnchoring'], description: "The maximum number of block spaces sub-layers can extend beyond the Layer 0 boundary." },
             { cat: 'Effects', type: 'accordion_subheader', label: 'Settings', dep: 'quantizedGenerateV2Enabled' },            { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
@@ -1586,6 +1593,16 @@ class UIManager {
                 row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
             }
             else if(def.type === 'select') { inp = document.createElement('select'); (typeof def.options === 'function' ? def.options() : def.options).forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; if(o.custom) opt.className = 'custom-font-opt'; if(this.c.get(def.id) === o.value) opt.selected = true; inp.appendChild(opt); }); inp.onchange = e => this.c.set(def.id, e.target.value); }
+            else if(def.type === 'text') {
+                inp = document.createElement('input');
+                inp.type = 'text';
+                const val = this.c.get(def.id);
+                inp.value = def.transform ? def.transform(val) : (val || "");
+                inp.onchange = e => {
+                    const finalVal = def.parse ? def.parse(e.target.value) : e.target.value;
+                    this.c.set(def.id, finalVal);
+                };
+            }
             row.appendChild(inp);
             if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
             if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`;
@@ -1868,6 +1885,8 @@ class UIManager {
                                 }
                                 disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                             }
+                        } else if (def.type === 'text') {
+                            inp.value = def.transform ? def.transform(val) : (val || "");
                         } else {
                             // Handle boolean values in select dropdowns correctly
                             inp.value = String(val);
