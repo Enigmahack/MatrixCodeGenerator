@@ -123,7 +123,7 @@ class QuantizedRenderer {
                 if (fx.renderGrid[idx] === -1) {
                     let isFading = false;
                     if (fadeOutFrames > 0) {
-                        for (let layerIdx = 0; layerIdx < 5; layerIdx++) {
+                        for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
                             const rGrid = fx.removalGrids[layerIdx];
                             if (rGrid && rGrid[idx] !== -1 && now < rGrid[idx] + fadeOutFrames) {
                                 isFading = true; break;
@@ -262,9 +262,8 @@ class QuantizedRenderer {
 
             const key = `${type}_${x}_${y}`;
             
-            // Layering Logic: Layers 0, 1, 2 always visible; 3 and 4 alternate.
-            const last3or4 = fx.layerOrder.find(l => l === 3 || l === 4);
-            const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2 || l === last3or4);
+            // Layering Logic: Layers 0, 1, 2 always visible.
+            const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2);
 
             for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
                 const L = visibleLayerIndices[iOrder];

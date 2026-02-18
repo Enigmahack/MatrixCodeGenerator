@@ -13,21 +13,19 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // These behaviors simply calculate coordinates and call _spawnBlock.
         // The new Controller Logic in _spawnBlock ensures they all adhere to the Rule Stack.
         this.GROWTH_BEHAVIORS = [
-            { id: 'Spine', method: '_attemptSpineGrowth' },
             { id: 'Unfold', method: '_attemptUnfoldGrowth' },
-            { id: 'Crawler', method: '_attemptCrawlerGrowth' },
             { id: 'Nudge', method: '_executeNudgeGrowth' },
             { id: 'Cluster', method: '_attemptClusterGrowth' },
             { id: 'Shift', method: '_attemptShiftGrowth' },
-            { id: 'Centered', method: '_attemptCenteredGrowth' }
+            { id: 'Centered', method: '_attemptCenteredGrowth' },
+            { id: 'Thicken', method: '_attemptThickenGrowth' }
         ];
 
         // --- 2. Global Maintenance Behaviors ---
         this.GLOBAL_BEHAVIORS = [
             { id: 'Rearrange', method: '_attemptRearrangeGrowth', perLayer: true },
             { id: 'AutoFillHoles', method: '_fillHoles', perLayer: true },
-            { id: 'AutoConnectIslands', method: '_connectIslands' },
-            { id: 'AutoPruneIslands', method: '_pruneIslands', perLayer: true }
+            { id: 'AutoConnectIslands', method: '_connectIslands' }
         ];
 
         // --- 3. Rule Stack (Validation) ---
@@ -37,7 +35,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             bounds: (c) => {
                 const bs = this.getBlockSize();
                 const xLimit = (this.g.cols / bs.w / 2) + 1; // Canvas + 1 block
-                const yLimit = (this.g.rows / bs.h / 2) + 1;
+                const yLimit = (this.g.rows / bs.h / 2) + 2; // Increased from +1 to +2 to ensure bottom row coverage
                 
                 if (c.x < -xLimit || c.x + c.w > xLimit || 
                     c.y < -yLimit || c.y + c.h > yLimit) return false;
@@ -104,26 +102,78 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 // Top
                 if (y1 > 0) {
                     const rowOff = (y1 - 1) * w;
-                    for (let gx = x1; gx <= x2; gx++) { if (grid[rowOff + gx] !== -1) return true; }
+                    for (let gx = x1; gx <= x2; gx++) { 
+                        const aIdx = rowOff + gx;
+                        if (grid[aIdx] !== -1) {
+                            c._foundAnchorIdx = aIdx;
+                            return true; 
+                        }
+                    }
                 }
                 // Bottom
                 if (y2 < h - 1) {
                     const rowOff = (y2 + 1) * w;
-                    for (let gx = x1; gx <= x2; gx++) { if (grid[rowOff + gx] !== -1) return true; }
+                    for (let gx = x1; gx <= x2; gx++) { 
+                        const aIdx = rowOff + gx;
+                        if (grid[aIdx] !== -1) {
+                            c._foundAnchorIdx = aIdx;
+                            return true; 
+                        }
+                    }
                 }
                 // Left
                 if (x1 > 0) {
-                    for (let gy = y1; gy <= y2; gy++) { if (grid[gy * w + x1 - 1] !== -1) return true; }
+                    for (let gy = y1; gy <= y2; gy++) { 
+                        const aIdx = gy * w + x1 - 1;
+                        if (grid[aIdx] !== -1) {
+                            c._foundAnchorIdx = aIdx;
+                            return true; 
+                        }
+                    }
                 }
                 // Right
                 if (x2 < w - 1) {
-                    for (let gy = y1; gy <= y2; gy++) { if (grid[gy * w + x2 + 1] !== -1) return true; }
+                    for (let gy = y1; gy <= y2; gy++) { 
+                        const aIdx = gy * w + x2 + 1;
+                        if (grid[aIdx] !== -1) {
+                            c._foundAnchorIdx = aIdx;
+                            return true; 
+                        }
+                    }
                 }
 
                 return false;
             },
 
-            // D. Anchoring (Optional sub-layer constraint)
+            // D. Outward Growth Check
+            direction: (c) => {
+                if (c.isShifter || c.isMirroredSpawn || c.skipConnectivity) return true;
+                
+                // The block must be connecting to an existing anchor further in.
+                const cx = Math.floor(this.logicGridW / 2);
+                const cy = Math.floor(this.logicGridH / 2);
+
+                const nx = c.x + c.w / 2;
+                const ny = c.y + c.h / 2;
+                const newDistSq = nx * nx + ny * ny;
+
+                // Use the anchor found during connectivity check
+                if (c._foundAnchorIdx !== undefined) {
+                    const ax_abs = c._foundAnchorIdx % this.logicGridW;
+                    const ay_abs = Math.floor(c._foundAnchorIdx / this.logicGridW);
+                    const ax = ax_abs - cx + 0.5;
+                    const ay = ay_abs - cy + 0.5;
+                    const anchorDistSq = ax * ax + ay * ay;
+
+                    // Allow very slight tolerance for floating point parity, 
+                    // but generally must be further out.
+                    if (newDistSq < anchorDistSq - 0.01) return false;
+                }
+
+                return true;
+            },
+
+            // E. Anchoring (Optional sub-layer constraint)
             anchoring: (c) => {
                  if (c.skipAnchoring || c.layer === 0) return true;
                  return this._isAnchored(c.x, c.y, c.w, c.h, c.layer);
@@ -365,51 +415,33 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         const maxLayer = getGenConfig('LayerCount') || 1;
 
-        // Collect and sort behaviors
+        // Collect behaviors
         const behaviors = [];
         this.GROWTH_BEHAVIORS.forEach(b => {
             if (getGenConfig('Enable' + b.id)) {
-                behaviors.push({
-                    id: b.id,
-                    method: b.method,
-                    order: getGenConfig(b.id + 'Order') || 5,
-                    layerOrder: getGenConfig(b.id + 'LayerOrder') || 'primary-first'
-                });
+                behaviors.push(b);
             }
         });
-        if (getGenConfig('EnableFallback')) {
-            behaviors.push({
-                id: 'Fallback',
-                order: getGenConfig('FallbackOrder') || 10,
-                layerOrder: getGenConfig('FallbackLayerOrder') || 'primary-first'
-            });
-        }
-        behaviors.sort((a, b) => a.order - b.order);
 
         let successInStep = false;
 
         // 4. Synchronized Layer Growth Loop
         for (let q = 0; q < quota; q++) {
             for (const behavior of behaviors) {
-                // Determine layer sequence for this behavior
-                let layers = [];
-                if (behavior.layerOrder === "primary-first") {
-                    for (let l = 0; l <= maxLayer; l++) layers.push(l);
-                } else if (behavior.layerOrder === "sub-first") {
-                    for (let l = maxLayer; l >= 0; l--) layers.push(l);
-                } else if (behavior.layerOrder === "random") {
-                    for (let l = 0; l <= maxLayer; l++) layers.push(l);
-                    Utils.shuffle(layers);
-                }
-
-                for (const targetLayer of layers) {
+                for (let targetLayer = 0; targetLayer <= maxLayer; targetLayer++) {
                     let successForLayer = false;
 
-                    if (behavior.id === 'Fallback') {
-                        if (this._attemptSubstituteGrowthWithLayer(targetLayer)) successForLayer = true;
-                        else if (this._attemptForceFill(targetLayer)) successForLayer = true;
-                    } else if (behavior.id === 'Unfold' || behavior.id === 'Crawler') {
-                        if (this._processActiveStatefulBehaviors(targetLayer)) successForLayer = true;
+                    if (behavior.id === 'Unfold') {
+                        // 1. Try to continue existing sequences
+                        if (this._processActiveStatefulBehaviors(targetLayer)) {
+                            successForLayer = true;
+                        }
+                        // 2. If no active sequence was updated, try to start a new one
+                        if (!successForLayer) {
+                            if (this._attemptUnfoldGrowth(null, targetLayer)) {
+                                successForLayer = true;
+                            }
+                        }
                     } else {
                         if (typeof this[behavior.method] === 'function') {
                             if (this[behavior.method](null, targetLayer)) successForLayer = true;
@@ -476,40 +508,107 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
     }
 
-    _attemptForceFill(layer) {
-        const w = this.logicGridW, h = this.logicGridH;
+    _attemptThickenGrowth(ignored, targetLayer) {
+        const s = this.c.state;
+        const count = s.quantizedGenerateV2ThickenQuadrantCount;
+        if (count === 0) return false;
+
+        // Since this is in the quota loop, we only want to trigger the quadrant logic ONCE per step per layer
+        // to match the slider's definition of "per step" while allowing it to apply to all layers.
+        if (!this._thickenStepFrames) this._thickenStepFrames = {};
+        if (this._thickenStepFrames[targetLayer] === this.animFrame) return false;
+        this._thickenStepFrames[targetLayer] = this.animFrame;
+
+        const w = this.logicGridW;
+        const h = this.logicGridH;
         if (!w || !h) return false;
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        
-        const grid = this.layerGrids[layer];
+
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+        const grid = this.layerGrids[targetLayer];
         if (!grid) return false;
 
-        // Optimized Sampling: Instead of shuffling the entire grid, pick random spots
-        // and check neighbors.
-        const totalCells = w * h;
-        const maxAttempts = Math.min(totalCells, 200); 
+        const ratio = (this.g.cols / this.g.rows) || 1.0;
+        const horizWeight = Math.max(1.0, ratio);
+        const vertWeight = Math.max(1.0, 1.0 / ratio);
+
+        const weightedQuadrants = [
+            { id: 'NW', w: vertWeight * horizWeight },
+            { id: 'NE', w: vertWeight * horizWeight },
+            { id: 'SW', w: vertWeight * horizWeight },
+            { id: 'SE', w: vertWeight * horizWeight }
+        ];
+
+        // Aspect Ratio Bias: If horizontal, prefer E/W quadrants. If vertical, prefer N/S.
+        // Actually, quadrants are combinations. NW is N+W. 
+        // If ratio > 1 (Horizontal), W and E are good. All quadrants have W or E.
+        // Let's refine: prefer quadrants that align with the longest side's ends.
         
-        for (let i = 0; i < maxAttempts; i++) {
-            const gx = Math.floor(Math.random() * w);
-            const gy = Math.floor(Math.random() * h);
-            const idx = gy * w + gx;
-            
-            if (grid[idx] === -1) {
-                const hasNeighbor = 
-                    (gx > 0 && grid[idx - 1] !== -1) ||
-                    (gx < w - 1 && grid[idx + 1] !== -1) ||
-                    (gy > 0 && grid[idx - w] !== -1) ||
-                    (gy < h - 1 && grid[idx + w] !== -1);
-                
-                if (hasNeighbor) {
-                    const bx = gx - cx, by = gy - cy;
-                    if (this._spawnBlock(bx, by, 1, 1, layer, false, 0, true, true) !== -1) {
-                        return true;
+        const result = [];
+        const pool = [...weightedQuadrants];
+        while (pool.length > 0) {
+            let totalW = 0;
+            for (const item of pool) totalW += item.w;
+            let r = Math.random() * totalW;
+            for (let i = 0; i < pool.length; i++) {
+                r -= pool[i].w;
+                if (r <= 0) {
+                    result.push(pool[i].id);
+                    pool.splice(i, 1);
+                    break;
+                }
+            }
+        }
+
+        const chosen = result.slice(0, count);
+
+        let success = false;
+        for (const q of chosen) {
+            let xStart, xEnd, yStart, yEnd;
+            if (q === 'NW') { xStart = 0; xEnd = cx - 1; yStart = 0; yEnd = cy - 1; }
+            else if (q === 'NE') { xStart = cx; xEnd = w - 1; yStart = 0; yEnd = cy - 1; }
+            else if (q === 'SW') { xStart = 0; xEnd = cx - 1; yStart = cy; yEnd = h - 1; }
+            else { xStart = cx; xEnd = w - 1; yStart = cy; yEnd = h - 1; }
+
+            // Find frontier within this quadrant
+            const frontier = [];
+            for (let gy = yStart; gy <= yEnd; gy++) {
+                const rowOff = gy * w;
+                for (let gx = xStart; gx <= xEnd; gx++) {
+                    const idx = rowOff + gx;
+                    if (grid[idx] === -1) {
+                        // Check if any neighbor is active on THIS layer
+                        const neighbors = [
+                            {x: gx, y: gy - 1}, {x: gx, y: gy + 1},
+                            {x: gx - 1, y: gy}, {x: gx + 1, y: gy}
+                        ];
+                        for (const n of neighbors) {
+                            if (n.x >= 0 && n.x < w && n.y >= 0 && n.y < h) {
+                                if (grid[n.y * w + n.x] !== -1) {
+                                    frontier.push({x: gx, y: gy});
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (frontier.length > 0) {
+                // To avoid massive performance hits or visual spikes, 
+                // we fill a random portion of the frontier (up to 20 blocks).
+                Utils.shuffle(frontier);
+                const toFill = frontier.slice(0, 20);
+                for (const pt of toFill) {
+                    // Use skipConnectivity=false to enforce the 'direction' (outward) rule
+                    if (this._spawnBlock(pt.x - cx, pt.y - cy, 1, 1, targetLayer, false, 0, false, true) !== -1) {
+                        success = true;
                     }
                 }
             }
         }
-        return false;
+
+        return success;
     }
 
     // --- CONTROLLER LOGIC ---
@@ -528,14 +627,19 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _proposeCandidate(c) {
-        // 1. Validate
+        // 1. Offscreen Redirection
+        if (!this.RULES.bounds(c)) {
+            if (!this._redirectOffscreen(c)) return -1; // Abort if no on-screen fallback found
+        }
+
+        // 2. Validate
         if (!this._validateCandidate(c)) return -1;
 
-        // 2. Commit
+        // 3. Commit
         const id = this._commitCandidate(c);
         if (id === -1) return -1;
 
-        // 3. Side Effects (Axis Balancing)
+        // 4. Side Effects (Axis Balancing)
         if (!c.isShifter && !c.isMirroredSpawn && this.getConfig('EnableAxisBalancing')) {
             this._handleAxisBalancing(c);
         }
@@ -543,12 +647,65 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return id;
     }
 
+    _redirectOffscreen(c) {
+        if (c.skipConnectivity) return false;
+
+        const bs = this.getBlockSize();
+        const xLimit = Math.floor((this.g.cols / bs.w) / 2);
+        const yLimit = Math.floor((this.g.rows / bs.h) / 2);
+
+        // Find all exposed blocks on THIS layer that are strictly on-screen
+        const anchors = this.activeBlocks.filter(b => {
+            if (b.layer !== c.layer) return false;
+            // Check if block is at least partially on-screen
+            return !(b.x < -xLimit || b.x > xLimit || b.y < -yLimit || b.y > yLimit);
+        });
+
+        if (anchors.length === 0) return false;
+
+        // Prefer anchors closest to the "offscreen" target to maintain some intent
+        const tx = c.x, ty = c.y;
+        anchors.sort((a, b) => {
+            const distA = Math.abs(a.x - tx) + Math.abs(a.y - ty);
+            const distB = Math.abs(b.x - tx) + Math.abs(b.y - ty);
+            return distA - distB;
+        });
+
+        // Try to attach the requested shape to the perimeter of the nearest on-screen anchors
+        const dirs = this._getBiasedDirections();
+        for (let i = 0; i < Math.min(10, anchors.length); i++) {
+            const a = anchors[i];
+            for (const dir of dirs) {
+                let nx = a.x, ny = a.y;
+                if (dir === 'N') ny = a.y - c.h;
+                else if (dir === 'S') ny = a.y + a.h;
+                else if (dir === 'E') nx = a.x + a.w;
+                else if (dir === 'W') nx = a.x - c.w;
+
+                // Validate new position is on-screen
+                if (nx >= -xLimit && nx + c.w - 1 <= xLimit && ny >= -yLimit && ny + c.h - 1 <= yLimit) {
+                    // Update candidate coordinates
+                    c.x = nx;
+                    c.y = ny;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     _validateCandidate(c) {
         if (!this.RULES.bounds(c)) return false;
         if (!this.RULES.occupancy(c)) return false;
         if (!this.RULES.anchoring(c)) return false;
         if (!this.RULES.drift(c)) return false;
+
+        // Shifter blocks bypass growth constraints
+        if (c.isShifter) return true;
+
         if (!this.RULES.connectivity(c)) return false;
+        if (!this.RULES.direction(c)) return false;
         if (!this.RULES.spatial(c)) return false;
         return true;
     }
@@ -639,14 +796,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _executeStepOps(step, startFrameOverride) {
-        this._syncSubLayers(); // Synchronize existing state first
+        this._syncSubLayers(); // Synchronize at the start
         super._executeStepOps(step, startFrameOverride);
     }
 
     _syncSubLayers() {
         const s = this.c.state;
         if (!s.quantizedGenerateV2EnableSyncSubLayers) return;
-        if (!this._gridsDirty && this.activeBlocks.length > 0) return; // Only sync if something changed
+
+        // Ensure we only sync once per step (frame-based throttle)
+        if (this._syncFrame === this.animFrame) return;
+        this._syncFrame = this.animFrame;
 
         const maxLayer = s.quantizedGenerateV2LayerCount || 1;
         if (maxLayer < 1) return;

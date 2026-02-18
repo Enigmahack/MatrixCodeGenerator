@@ -117,7 +117,7 @@ class QuantizedShadow {
                 const destBx = bx - offX + userBlockOffX;
                 const destBy = by - offY + userBlockOffY;
                 
-                if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
+                if (destBx < -1.5 || destBx > screenBlocksX + 1.5 || destBy < -1.5 || destBy > screenBlocksY + 1.5) continue;
                 
                 const startCellX = Math.round(destBx * pitchX);
                 const startCellY = Math.round(destBy * pitchY);
@@ -145,7 +145,7 @@ class QuantizedShadow {
                     const destBx = bx - offX + userBlockOffX;
                     const destBy = by - offY + userBlockOffY;
                     
-                    if (destBx < -1.5 || destBx > screenBlocksX + 0.5 || destBy < -1.5 || destBy > screenBlocksY + 0.5) continue;
+                    if (destBx < -1.5 || destBx > screenBlocksX + 1.5 || destBy < -1.5 || destBy > screenBlocksY + 1.5) continue;
                     
                     const startCellX = Math.round(destBx * pitchX);
                     const startCellY = Math.round(destBy * pitchY);
