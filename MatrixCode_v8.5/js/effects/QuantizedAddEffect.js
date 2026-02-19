@@ -43,14 +43,13 @@ class QuantizedAddEffect extends QuantizedBaseEffect {
 
         if (!super.trigger(force)) return false;
         
-        this.state = 'FADE_IN';
-        this.timer = 0;
-        this.alpha = 0.0;
-        this.offsetX = 0.5; 
-        this.offsetY = 0.5;
-
-                this.expansionPhase = 0;
-        this.cycleTimer = 0;
+                this.state = 'FADE_IN';
+                this.timer = 0;
+                this.alpha = 0.0;
+                this.offsetX = 0.0; 
+                this.offsetY = 0.0;
+        
+                this.expansionPhase = 0;        this.cycleTimer = 0;
         this.cyclesCompleted = 0;
         this.manualStep = false;
 

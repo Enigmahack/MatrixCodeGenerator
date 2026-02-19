@@ -46,8 +46,8 @@ class QuantizedPulseEffect extends QuantizedBaseEffect {
         this.state = 'FADE_IN';
         this.timer = 0;
         this.alpha = 0.0;
-        this.offsetX = 0.5; 
-        this.offsetY = 0.5;
+        this.offsetX = 0.0; 
+        this.offsetY = 0.0;
 
         this.expansionPhase = 0;
         this.cycleTimer = 0;

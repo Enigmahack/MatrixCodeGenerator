@@ -137,6 +137,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         return this.c.state[key];
     }
 
+    getLineGfxValue(suffix) {
+        const useOverride = this.getConfig('LineGfxOverride');
+        if (useOverride) {
+            const override = this.getConfig('LineGfx' + suffix);
+            if (override !== undefined && override !== null && override !== "") {
+                return override;
+            }
+        }
+        const globalVal = this.c.state['quantizedLineGfx' + suffix];
+        return (globalVal !== undefined) ? globalVal : null;
+    }
+
     getBlockSize() {
         let w = this.c.state[this.configPrefix + 'BlockWidthCells'];
         let h = this.c.state[this.configPrefix + 'BlockHeightCells'];
@@ -715,8 +727,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const logicCellsY = blocksY * pitchY;
         const screenCellsX = this.g.cols;
         const screenCellsY = this.g.rows;
-        const cellOffX = (logicCellsX - screenCellsX) / 2.0;
-        const cellOffY = (logicCellsY - screenCellsY) / 2.0;
+        const cellOffX = Math.floor((logicCellsX - screenCellsX) / 2.0);
+        const cellOffY = Math.floor((logicCellsY - screenCellsY) / 2.0);
         const offX = cellOffX / pitchX;
         const offY = cellOffY / pitchY;
         return { offX, offY };
@@ -748,6 +760,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._checkDirtiness();
         this._updateRenderGridLogic();
         const s = this.c.state;
+
         const glowStrength = this.getConfig('BorderIllumination') || 0;
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
@@ -756,6 +769,15 @@ class QuantizedBaseEffect extends AbstractEffect {
              this._updateMask(width, height, s, d);
              this._maskDirty = false;
         }
+
+        // Update Grid Cache (needed for both 2D and GPU rendering)
+        this._updateGridCache(width, height, s, d);
+
+        // Definitive disable for 2D line rendering in WebGL mode
+        if (s.renderingEngine === 'webgl') {
+            return;
+        }
+
         const showLines = (this.c.state.layerEnableQuantizedLines !== false);
         const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
         if ((glowStrength > 0 && showLines) || showSource) {
@@ -808,6 +830,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     renderDebug(ctx, derived) {
         if (!this.debugMode) return;
         const s = this.c.state;
+        if (s.renderingEngine === 'webgl') return;
+
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height);
@@ -816,6 +840,9 @@ class QuantizedBaseEffect extends AbstractEffect {
              this._maskDirty = false;
         }
         this._updateGridCache(width, height, s, derived);
+
+        if (s.renderingEngine === 'webgl') return;
+
         const scratchCtx = this.scratchCtx;
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
@@ -870,6 +897,30 @@ class QuantizedBaseEffect extends AbstractEffect {
              this._updateMask(width, height, s, derived);
              this._maskDirty = false;
         }
+        
+        this._updateGridCache(width, height, s, derived);
+
+        if (s.renderingEngine === 'webgl') {
+            // Clean up preview state after logic update but before return
+            if (this._previewActive) {
+                if (this._lastPreviewOpsAddedCount > 0) {
+                    this.maskOps.splice(this._lastPreviewSavedOpsLen, this._lastPreviewOpsAddedCount);
+                }
+                this.logicGrid.set(this._lastPreviewSavedLogic);
+                this.renderGrid.fill(-1);
+                for (let i = 0; i < 3; i++) {
+                     if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
+                }
+                this._lastProcessedOpIndex = 0;
+                if (typeof this._updateRenderGridLogic === 'function') {
+                    this._updateRenderGridLogic();
+                }
+                this._maskDirty = true;
+                this._previewActive = false;
+            }
+            return;
+        }
+
         const isSolid = this.c.state.quantizedSolidPerimeter || false;
         if (this.c.state.layerEnableQuantizedGridCache === true) {
             this._updateGridCache(width, height, s, derived);

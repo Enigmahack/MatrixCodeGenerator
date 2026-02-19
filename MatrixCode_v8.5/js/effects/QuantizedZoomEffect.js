@@ -523,17 +523,13 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         // Draw Interior Characters
         drawZoomLayer(this.maskCanvas, this.zoomScale, null, this.snapshotCanvas);
         
-        // --- Layer 2: Overlay (Border + Lines) ---
-        const pColor = this.getConfig('PerimeterColor') || '#FFD700';
-        const iColor = this.getConfig('InnerColor') || '#00FF00';
-        
-        const glowStrength = this.getConfig('BorderIllumination') || 4.0;
-        const alphaMult = Math.min(1.0, glowStrength / 4.0);
-
         // Ensure Grid Cache (Dense Characters) is updated
         this._updateGridCache(width, height, s, d);
 
-        // Helper to draw a masked layer with dense code texture
+        // Disable 2D line rendering if WebGL is active (GPU handles it)
+        if (s.renderingEngine === 'webgl') return;
+
+        // --- Layer 2: Overlay (Border + Lines) ---
         const drawCodeLayer = (maskCanvas, color) => {
             if (!maskCanvas) return;
             scratchCtx.globalCompositeOperation = 'source-over';

@@ -24,6 +24,11 @@ class WebGLRenderer {
         this.effects = effects;
         this.glyphAtlases = new Map();
 
+        // Enforce configuration sync
+        if (this.config.state.renderingEngine !== 'webgl') {
+            this.config.state.renderingEngine = 'webgl';
+        }
+
         // --- Core WebGL State ---
         this.program = null;       
         this.bloomProgram = null;  
@@ -304,7 +309,18 @@ class WebGLRenderer {
 
                 void main() {
                     if (u_mode == 2) {
-                        fragColor = texture(u_characterBuffer, v_uv);
+                        // Render Shadow Mask (Inside areas) - GPU Accelerated
+                        vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
+                        vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
+                        vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
+                        vec2 blockCoord = floor(logicPos);
+                        
+                        vec3 occ = getOccupancy(blockCoord);
+                        float mask = 0.0;
+                        for(int i=0; i<3; i++) {
+                            if (getLayerVal(occ, u_layerOrder[i]) > 0.5) { mask = 1.0; break; }
+                        }
+                        fragColor = vec4(0.0, 0.0, 0.0, mask);
                         return;
                     }
 
@@ -351,7 +367,9 @@ class WebGLRenderer {
                         return;
                     }
 
-                    vec2 screenPos = v_uv * u_resolution - u_offset;
+                    // GENERATE MODE (u_mode == 0)
+                    // Standardize to 0=Top coordinate system
+                    vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                     vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                     vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                     
@@ -359,10 +377,11 @@ class WebGLRenderer {
                     vec2 cellLocal = fract(logicPos);
                     
                     vec3 centerOcc = getOccupancy(blockCoord);
+                    // In 0=Top, +1 is Below, -1 is Above
                     vec3 leftOcc = getOccupancy(blockCoord + vec2(-1.0, 0.0));
                     vec3 rightOcc = getOccupancy(blockCoord + vec2(1.0, 0.0));
-                    vec3 belowOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
-                    vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, 1.0));
+                    vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
+                    vec3 belowOcc = getOccupancy(blockCoord + vec2(0.0, 1.0));
 
                     float dist = 1e10;
                     bool isVisible = false;
@@ -375,8 +394,8 @@ class WebGLRenderer {
 
                         if ((cL > 0.5) != (getLayerVal(leftOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); hasEdge = true; }
                         if ((cL > 0.5) != (getLayerVal(rightOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); hasEdge = true; }
-                        if ((cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); hasEdge = true; }
-                        if ((cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); hasEdge = true; }
+                        if ((cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); hasEdge = true; }
+                        if ((cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); hasEdge = true; }
 
                         if (hasEdge) {
                             bool obscured = false;
@@ -435,7 +454,7 @@ class WebGLRenderer {
                 out float v_glow;
                 out float v_prog;
                 out vec2 v_screenUV;
-                out vec2 v_shadowUV;
+                out vec2 v_cellPos;
                 out vec2 v_cellUV;
             `;
     
@@ -444,7 +463,6 @@ class WebGLRenderer {
                 uniform vec2 u_resolution;
                 uniform vec2 u_atlasSize;
                 uniform vec2 u_gridSize;
-                uniform vec2 u_gridOffset; 
                 uniform float u_cellSize;
                 uniform float u_cols;
                 uniform float u_decayDur;
@@ -472,7 +490,7 @@ class WebGLRenderer {
                     vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
                     vec2 worldPos = a_pos + centerPos2D;
                     
-                    v_shadowUV = (worldPos + u_gridOffset) / u_gridSize;
+                    v_cellPos = floor(a_pos / u_cellSize);
                     
                     // Mirror/Stretch
                     vec2 gridCenter = u_gridSize * 0.5;
@@ -527,7 +545,7 @@ class WebGLRenderer {
                 in float v_glow;
                 in float v_prog;
                 in vec2 v_screenUV;
-                in vec2 v_shadowUV;
+                in vec2 v_cellPos;
                 in vec2 v_cellUV;
                 
                 uniform sampler2D u_texture;
@@ -603,8 +621,8 @@ class WebGLRenderer {
                     bool isHighPriority = (v_mix >= 9.5);
                     float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
     
-                    // Sample Shadow Mask
-                    float shadow = texture(u_shadowMask, v_shadowUV).a;
+                    // Sample Shadow Mask using screen coordinates for perfect alignment
+                    float shadow = texture(u_shadowMask, v_screenUV).a;
                     
                     // Sample Texture with Effects
                     float tex1 = getProcessedAlpha(v_uv);
@@ -626,8 +644,7 @@ class WebGLRenderer {
                             float switchFreq = max(0.01, u_glimmerSpeed);
                             float timeStep = floor(u_time * switchFreq);
                             
-                            vec2 renderSize = u_cellSize * u_cellScale; 
-                            vec2 cellGridPos = floor((v_shadowUV * u_gridSize) / renderSize);
+                            vec2 cellGridPos = v_cellPos;
                             
                             // Perturb seed with timeStep to switch patterns
                             vec2 seed = cellGridPos + vec2(timeStep * 37.0, timeStep * 11.0);
@@ -1133,6 +1150,68 @@ class WebGLRenderer {
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
 
+    _renderQuantizedShadows(fx) {
+        if (!fx || !fx.renderGrid) return;
+        
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.shadowMaskFbo);
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
+
+        const gw = fx.logicGridW;
+        const gh = fx.logicGridH;
+        
+        const occupancy = new Uint8Array(gw * gh * 3);
+        for (let i = 0; i < gw * gh; i++) {
+            for (let L = 0; L < 3; L++) {
+                const grid = fx.layerGrids[L];
+                occupancy[i * 3 + L] = (grid && grid[i] !== -1) ? 255 : 0;
+            }
+        }
+        
+        this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, gw, gh, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, occupancy);
+        
+        const prog = this.lineProgram;
+        this.gl.useProgram(prog);
+        
+        const s = this.config.state;
+        const d = this.config.derived;
+        const scale = s.resolution;
+        const bs = fx.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+        const { offX, offY } = fx._computeCenteredOffset(gw, gh, cellPitchX, cellPitchY);
+        
+        const screenStepX = d.cellWidth * s.stretchX * scale;
+        const screenStepY = d.cellHeight * s.stretchY * scale;
+        const gridPixW = fx.g.cols * d.cellWidth * scale; 
+        const gridPixH = fx.g.rows * d.cellHeight * scale;
+        const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
+        const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
+
+        const uLoc = (n) => this.gl.getUniformLocation(prog, n);
+        this.gl.uniform1i(uLoc('u_mode'), 2); 
+        this.gl.uniform2f(uLoc('u_logicGridSize'), gw, gh);
+        this.gl.uniform2f(uLoc('u_screenOrigin'), screenOriginX, screenOriginY);
+        this.gl.uniform2f(uLoc('u_screenStep'), screenStepX, screenStepY);
+        this.gl.uniform2f(uLoc('u_cellPitch'), cellPitchX, cellPitchY);
+        this.gl.uniform2f(uLoc('u_blockOffset'), offX, offY);
+        this.gl.uniform2f(uLoc('u_userBlockOffset'), fx.userBlockOffX || 0, fx.userBlockOffY || 0);
+        this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
+        this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
+        this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
+
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+        this.gl.uniform1i(uLoc('u_logicGrid'), 1);
+
+        this.gl.bindVertexArray(this.vaoLine);
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        
+        this.gl.disable(this.gl.BLEND);
+    }
+
     _renderQuantizedLineGfx(s, d, sourceTex) {
         let fx = null;
         if (this.effects && this.effects.effects) {
@@ -1158,13 +1237,14 @@ class WebGLRenderer {
 
         const occupancy = new Uint8Array(gw * gh * 3);
         for (let gy = 0; gy < gh; gy++) {
-            const targetY = gh - 1 - gy; // Flip Y for GL (0=bottom)
+            const targetIdx = gy * gw; 
+            const sourceIdx = gy * gw;
             for (let gx = 0; gx < gw; gx++) {
-                const i = gy * gw + gx;
-                const targetIdx = targetY * gw + gx;
+                const i = sourceIdx + gx;
+                const tidx = (targetIdx + gx) * 3;
                 for (let L = 0; L < 3; L++) {
                     const grid = fx.layerGrids[L];
-                    occupancy[targetIdx * 3 + L] = (grid && grid[i] !== -1) ? 255 : 0;
+                    occupancy[tidx + L] = (grid && grid[i] !== -1) ? 255 : 0;
                 }
             }
         }
@@ -1211,27 +1291,37 @@ class WebGLRenderer {
                 this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
                 this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
                 this.gl.uniform2f(uLoc('u_sourceGridOffset'), s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale);
-                this.gl.uniform2f(uLoc('u_sampleOffset'), s.quantizedLineGfxSampleOffsetX * scale, s.quantizedLineGfxSampleOffsetY * scale);
+                
+                const sampleOffX = fx.getLineGfxValue('SampleOffsetX');
+                const sampleOffY = fx.getLineGfxValue('SampleOffsetY');
+                this.gl.uniform2f(uLoc('u_sampleOffset'), sampleOffX * scale, sampleOffY * scale);
                 
                 this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
-                this.gl.uniform1f(uLoc('u_thickness'), s.quantizedLineGfxThickness);
                 
-                const col = Utils.hexToRgb(s.quantizedLineGfxColor || "#ffffff");
+                const thickness = fx.getLineGfxValue('Thickness');
+                this.gl.uniform1f(uLoc('u_thickness'), thickness);
+                
+                const colHex = fx.getLineGfxValue('Color');
+                const col = Utils.hexToRgb(colHex || "#ffffff");
                 this.gl.uniform3f(uLoc('u_color'), col.r/255, col.g/255, col.b/255);
                 
-                const fCol = Utils.hexToRgb(s.quantizedLineGfxFadeColor || "#eeff00");
+                const fColHex = fx.getLineGfxValue('FadeColor');
+                const fCol = Utils.hexToRgb(fColHex || "#eeff00");
                 this.gl.uniform3f(uLoc('u_fadeColor'), fCol.r/255, fCol.g/255, fCol.b/255);
 
-                this.gl.uniform1f(uLoc('u_intensity'), s.quantizedLineGfxIntensity * fx.alpha); 
-                this.gl.uniform1f(uLoc('u_glow'), s.quantizedLineGfxGlow);
+                const intensity = fx.getLineGfxValue('Intensity');
+                this.gl.uniform1f(uLoc('u_intensity'), intensity * fx.alpha); 
                 
-                this.gl.uniform1f(uLoc('u_saturation'), s.quantizedLineGfxSaturation);
-                this.gl.uniform1f(uLoc('u_brightness'), s.quantizedLineGfxBrightness);
-                this.gl.uniform1f(uLoc('u_additiveStrength'), s.quantizedLineGfxAdditiveStrength);
-                this.gl.uniform1f(uLoc('u_sharpness'), s.quantizedLineGfxSharpness);
-                this.gl.uniform1f(uLoc('u_glowFalloff'), s.quantizedLineGfxGlowFalloff);
-                this.gl.uniform1f(uLoc('u_roundness'), s.quantizedLineGfxRoundness);
-                this.gl.uniform1f(uLoc('u_maskSoftness'), s.quantizedLineGfxMaskSoftness);
+                const glow = fx.getLineGfxValue('Glow');
+                this.gl.uniform1f(uLoc('u_glow'), glow);
+                
+                this.gl.uniform1f(uLoc('u_saturation'), fx.getLineGfxValue('Saturation'));
+                this.gl.uniform1f(uLoc('u_brightness'), fx.getLineGfxValue('Brightness'));
+                this.gl.uniform1f(uLoc('u_additiveStrength'), fx.getLineGfxValue('AdditiveStrength'));
+                this.gl.uniform1f(uLoc('u_sharpness'), fx.getLineGfxValue('Sharpness'));
+                this.gl.uniform1f(uLoc('u_glowFalloff'), fx.getLineGfxValue('GlowFalloff'));
+                this.gl.uniform1f(uLoc('u_roundness'), fx.getLineGfxValue('Roundness'));
+                this.gl.uniform1f(uLoc('u_maskSoftness'), fx.getLineGfxValue('MaskSoftness'));
         
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
@@ -1612,6 +1702,12 @@ class WebGLRenderer {
 
                  for (const effect of iterable) {
                      if (effect.active) {
+                         // GPU-Accelerated Shadow for Quantized Effects
+                         if (effect instanceof QuantizedBaseEffect) {
+                             this._renderQuantizedShadows(effect);
+                             continue;
+                         }
+                         
                          // Check for CrashEffect legacy support or new Generic Interface
                          if (effect.name === 'CrashSequence' && effect.blackSheets) {
                              // Legacy/Specific Support for CrashEffect
@@ -1877,7 +1973,6 @@ class WebGLRenderer {
         const gridPixW = grid.cols * d.cellWidth;
         const gridPixH = grid.rows * d.cellHeight;
         this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridOffset'), d.cellWidth, d.cellHeight);
 
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cellSize'), atlas.cellSize);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cols'), atlas._lastCols);
@@ -1944,7 +2039,7 @@ class WebGLRenderer {
         this.gl.bindVertexArray(null);
 
         // --- 3rd Pass: Quantized Line GFX ---
-        if (s.quantizedLineGfxEnabled && this.effects) {
+        if (this.effects) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
             this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
             this.gl.clearColor(0, 0, 0, 0);

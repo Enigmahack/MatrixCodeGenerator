@@ -146,8 +146,8 @@ class QuantizedRenderer {
         }
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
-        // Unified Shared Edge Rendering
-        if (!s.quantizedLineGfxEnabled) {
+        // Unified Shared Edge Rendering (Legacy 2D path)
+        if (s.renderingEngine !== 'webgl') {
             this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
             this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
         }
