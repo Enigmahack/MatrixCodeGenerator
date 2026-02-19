@@ -280,6 +280,8 @@ class WebGLRenderer {
                 uniform float u_additiveStrength;
                 uniform float u_sharpness;
                 uniform float u_glowFalloff;
+                uniform float u_roundness;
+                uniform float u_maskSoftness;
                 
                 out vec4 fragColor;
 
@@ -312,14 +314,31 @@ class WebGLRenderer {
                         
                         // Sample Source Grid for illumination points
                         vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-                        vec4 sourceChar = texture(u_sourceGrid, sourceUV);
-                        float charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                        
+                        // Soft Sampling for character mask
+                        float charLuma = 0.0;
+                        if (u_maskSoftness > 0.0) {
+                            float s = u_maskSoftness / u_resolution.x;
+                            charLuma += texture(u_sourceGrid, sourceUV).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
+                            charLuma /= 5.0;
+                        } else {
+                            vec4 sourceChar = texture(u_sourceGrid, sourceUV);
+                            charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                        }
                         
                         // Calculate Dynamic Color based on persistence (fade out)
-                        // If intensity/persist is high, use u_color. If it's low, blend towards u_fadeColor.
-                        // We use a simple power curve to make the fade color more prominent at the end.
                         float colorT = clamp(persist / u_intensity, 0.0, 1.0);
-                        vec3 dynamicColor = mix(u_fadeColor, u_color, pow(colorT, 0.5));
+                        
+                        // Line Roundness affects color transition dynamics
+                        float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
+                        vec3 dynamicColor = mix(u_fadeColor, u_color, profileT);
+                        
+                        // Add a "hot core" boost if roundness is high
+                        dynamicColor = mix(dynamicColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
                         
                         // Apply Saturation and Brightness to the highlight color
                         dynamicColor = boostSaturation(dynamicColor, u_saturation);
@@ -376,6 +395,14 @@ class WebGLRenderer {
                     if (isVisible) {
                         float halfThick = (u_thickness / 10.0) * 0.5;
                         float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, dist);
+                        
+                        // Apply Roundness profile
+                        if (u_roundness > 0.0 && halfThick > 0.0) {
+                            float normalizedDist = clamp(dist / halfThick, 0.0, 1.0);
+                            float profile = mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
+                            line *= profile;
+                        }
+
                         float glow = exp(-dist * u_glowFalloff) * (u_glow * 0.5);
                         total = max(line, glow) * u_intensity;
                     }
@@ -1203,6 +1230,8 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_additiveStrength'), s.quantizedLineGfxAdditiveStrength);
                 this.gl.uniform1f(uLoc('u_sharpness'), s.quantizedLineGfxSharpness);
                 this.gl.uniform1f(uLoc('u_glowFalloff'), s.quantizedLineGfxGlowFalloff);
+                this.gl.uniform1f(uLoc('u_roundness'), s.quantizedLineGfxRoundness);
+                this.gl.uniform1f(uLoc('u_maskSoftness'), s.quantizedLineGfxMaskSoftness);
         
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);

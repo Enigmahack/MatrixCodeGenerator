@@ -225,6 +225,8 @@ class ConfigurationManager {
             "quantizedLineGfxAdditiveStrength": 1.0,
             "quantizedLineGfxSharpness": 0.05,
             "quantizedLineGfxGlowFalloff": 2.0,
+            "quantizedLineGfxRoundness": 0.0,
+            "quantizedLineGfxMaskSoftness": 0.0,
             "quantizedLineGfxSampleOffsetX": 0,
             "quantizedLineGfxSampleOffsetY": 0,
             "quantizedLineGfxOffsetX": 0,
