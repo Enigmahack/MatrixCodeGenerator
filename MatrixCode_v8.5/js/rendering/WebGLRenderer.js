@@ -60,6 +60,7 @@ class WebGLRenderer {
         this._initShaders();
         this._initBuffers();
         this._initBloomBuffers();
+        this._initLineGfxBuffers();
         console.log("Rendering Engine: WebGL 2 (v8 CellGrid Optimized Fixed)");
 
         if (typeof PostProcessor !== 'undefined') {
@@ -238,6 +239,130 @@ class WebGLRenderer {
             `;
             this.shadowProgram = this._createProgram(shadowVS, shadowFS);
     
+            // --- QUANTIZED LINE GFX SHADER ---
+            const lineVS = `#version 300 es
+                precision highp float;
+                layout(location=0) in vec2 a_quad;
+                out vec2 v_uv;
+                void main() {
+                    v_uv = a_quad;
+                    gl_Position = vec4(a_quad * 2.0 - 1.0, 0.0, 1.0);
+                }
+            `;
+
+            const lineFS = `#version 300 es
+                precision highp float;
+                in vec2 v_uv;
+                uniform sampler2D u_characterBuffer;
+                uniform sampler2D u_persistenceBuffer;
+                uniform sampler2D u_sourceGrid;
+                uniform sampler2D u_logicGrid;
+                uniform vec2 u_logicGridSize; 
+                uniform vec2 u_screenOrigin;
+                uniform vec2 u_screenStep;
+                uniform vec2 u_cellPitch;
+                uniform vec2 u_blockOffset; 
+                uniform vec2 u_userBlockOffset;
+                uniform vec2 u_resolution;
+                uniform vec2 u_offset;
+                uniform vec2 u_sourceGridOffset;
+                uniform int u_mode; // 0 = Generate, 1 = Composite, 2 = Pure Blit
+                uniform ivec3 u_layerOrder; 
+                
+                uniform float u_thickness;
+                uniform vec3 u_color;
+                uniform float u_intensity;
+                uniform float u_glow;
+                
+                out vec4 fragColor;
+
+                vec3 getOccupancy(vec2 pos) {
+                    if (pos.x < 0.0 || pos.x >= u_logicGridSize.x || pos.y < 0.0 || pos.y >= u_logicGridSize.y) return vec3(0.0);
+                    return texture(u_logicGrid, (pos + 0.5) / u_logicGridSize).rgb;
+                }
+
+                float getLayerVal(vec3 occ, int layerIdx) {
+                    if (layerIdx == 0) return occ.r;
+                    if (layerIdx == 1) return occ.g;
+                    if (layerIdx == 2) return occ.b;
+                    return 0.0;
+                }
+
+                void main() {
+                    if (u_mode == 2) {
+                        fragColor = texture(u_characterBuffer, v_uv);
+                        return;
+                    }
+
+                    if (u_mode == 1) {
+                        vec4 base = texture(u_characterBuffer, v_uv);
+                        float persist = texture(u_persistenceBuffer, v_uv).r;
+                        
+                        // Sample Source Grid for illumination points
+                        vec2 sourceUV = v_uv + (u_sourceGridOffset / u_resolution);
+                        vec4 sourceChar = texture(u_sourceGrid, sourceUV);
+                        float charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                        
+                        // Additive highlight based on Source Grid characters
+                        vec3 highlight = u_color * persist * charLuma;
+                        
+                        fragColor = vec4(base.rgb + highlight, base.a);
+                        return;
+                    }
+
+                    vec2 screenPos = v_uv * u_resolution - u_offset;
+                    vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
+                    vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
+                    
+                    vec2 blockCoord = floor(logicPos);
+                    vec2 cellLocal = fract(logicPos);
+                    
+                    vec3 centerOcc = getOccupancy(blockCoord);
+                    vec3 leftOcc = getOccupancy(blockCoord + vec2(-1.0, 0.0));
+                    vec3 rightOcc = getOccupancy(blockCoord + vec2(1.0, 0.0));
+                    vec3 belowOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
+                    vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, 1.0));
+
+                    float dist = 1e10;
+                    bool isVisible = false;
+
+                    for (int i = 0; i < 3; i++) {
+                        int L = u_layerOrder[i];
+                        float cL = getLayerVal(centerOcc, L);
+                        bool hasEdge = false;
+                        float layerDist = 1e10;
+
+                        if ((cL > 0.5) != (getLayerVal(leftOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); hasEdge = true; }
+                        if ((cL > 0.5) != (getLayerVal(rightOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); hasEdge = true; }
+                        if ((cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); hasEdge = true; }
+                        if ((cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); hasEdge = true; }
+
+                        if (hasEdge) {
+                            bool obscured = false;
+                            for (int m = 0; m < i; m++) {
+                                int M = u_layerOrder[m];
+                                if (getLayerVal(centerOcc, M) > 0.5) { obscured = true; break; }
+                            }
+                            if (!obscured) {
+                                dist = min(dist, layerDist);
+                                isVisible = true;
+                            }
+                        }
+                    }
+
+                    float total = 0.0;
+                    if (isVisible) {
+                        float halfThick = (u_thickness / 10.0) * 0.5;
+                        float line = 1.0 - smoothstep(halfThick - 0.05, halfThick + 0.05, dist);
+                        float glow = exp(-dist * 2.0) * (u_glow * 0.5);
+                        total = max(line, glow) * u_intensity;
+                    }
+                    
+                    fragColor = vec4(total, 0.0, 0.0, 1.0);
+                }
+            `;
+            this.lineProgram = this._createProgram(lineVS, lineFS);
+
             // --- MATRIX SHADERS (SPLIT 2D/3D) ---
             
             const matrixVS_Common = `#version 300 es
@@ -718,12 +843,36 @@ class WebGLRenderer {
 
     _initBloomBuffers() {
         this.fboA = this.gl.createFramebuffer(); this.texA = this.gl.createTexture();
+        this.fboA2 = this.gl.createFramebuffer(); this.texA2 = this.gl.createTexture();
         this.fboB = this.gl.createFramebuffer(); this.texB = this.gl.createTexture();
         this.fboC = this.gl.createFramebuffer(); this.texC = this.gl.createTexture();
+        
+        // Line Persistence
+        this.fboLinePersist = this.gl.createFramebuffer();
+        this.texLinePersist = this.gl.createTexture();
         
         // Shadow Mask FBO
         this.shadowMaskFbo = this.gl.createFramebuffer(); 
         this.shadowMaskTex = this.gl.createTexture();
+    }
+
+    _initLineGfxBuffers() {
+        this.logicGridTexture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.lastLogicGridWidth = 0;
+        this.lastLogicGridHeight = 0;
+
+        this.sourceGridTexture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.lastSourceGridSeed = -1;
     }
 
     _configureFramebuffer(fbo, tex, width, height) {
@@ -780,6 +929,8 @@ class WebGLRenderer {
             this.bloomWidth = Math.floor(pw * 0.5); this.bloomHeight = Math.floor(ph * 0.5);
             if (pw > 0 && ph > 0) {
                 this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
+                this._configureFramebuffer(this.fboA2, this.texA2, this.fboWidth, this.fboHeight);
+                this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);
                 this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
                 this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
                 
@@ -932,6 +1083,144 @@ class WebGLRenderer {
         
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
+
+    _renderQuantizedLineGfx(s, d, sourceTex) {
+        let fx = null;
+        if (this.effects && this.effects.effects) {
+            const effectList = (Array.isArray(this.effects.effects)) 
+                ? this.effects.effects 
+                : (this.effects.effects instanceof Map) 
+                    ? Array.from(this.effects.effects.values()) 
+                    : [];
+            fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
+        }
+        if (!fx || !fx.renderGrid) return false;
+
+        const gw = fx.logicGridW;
+        const gh = fx.logicGridH;
+        if (gw <= 0 || gh <= 0) return false;
+        
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, gw, gh, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+            this.lastLogicGridWidth = gw;
+            this.lastLogicGridHeight = gh;
+        }
+
+        const occupancy = new Uint8Array(gw * gh * 3);
+        for (let gy = 0; gy < gh; gy++) {
+            const targetY = gh - 1 - gy; // Flip Y for GL (0=bottom)
+            for (let gx = 0; gx < gw; gx++) {
+                const i = gy * gw + gx;
+                const targetIdx = targetY * gw + gx;
+                for (let L = 0; L < 3; L++) {
+                    const grid = fx.layerGrids[L];
+                    occupancy[targetIdx * 3 + L] = (grid && grid[i] !== -1) ? 255 : 0;
+                }
+            }
+        }
+                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGB, this.gl.UNSIGNED_BYTE, occupancy);
+                
+                // 2. Update Source Grid Texture (Characters)
+                if (fx.gridCacheCanvas) {
+                    if (fx.lastGridSeed !== this.lastSourceGridSeed) {
+                        this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
+                        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+                        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fx.gridCacheCanvas);
+                        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
+                        this.lastSourceGridSeed = fx.lastGridSeed;
+                    }
+                }
+                
+                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
+        
+                const prog = this.lineProgram;
+                this.gl.useProgram(prog);
+                
+                const scale = s.resolution;
+                const bs = fx.getBlockSize();
+                const cellPitchX = Math.max(1, bs.w);
+                const cellPitchY = Math.max(1, bs.h);
+                const { offX, offY } = fx._computeCenteredOffset(gw, gh, cellPitchX, cellPitchY);
+                
+                const screenStepX = d.cellWidth * s.stretchX * scale;
+                const screenStepY = d.cellHeight * s.stretchY * scale;
+                const gridPixW = fx.g.cols * d.cellWidth * scale; 
+                const gridPixH = fx.g.rows * d.cellHeight * scale;
+                const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
+                const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
+        
+                const uLoc = (n) => this.gl.getUniformLocation(prog, n);
+                this.gl.uniform2f(uLoc('u_logicGridSize'), gw, gh);
+                this.gl.uniform2f(uLoc('u_screenOrigin'), screenOriginX, screenOriginY);
+                this.gl.uniform2f(uLoc('u_screenStep'), screenStepX, screenStepY);
+                this.gl.uniform2f(uLoc('u_cellPitch'), cellPitchX, cellPitchY);
+                this.gl.uniform2f(uLoc('u_blockOffset'), offX, offY);
+                this.gl.uniform2f(uLoc('u_userBlockOffset'), fx.userBlockOffX || 0, fx.userBlockOffY || 0);
+                this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
+                this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
+                this.gl.uniform2f(uLoc('u_sourceGridOffset'), s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale);
+                
+                this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
+                this.gl.uniform1f(uLoc('u_thickness'), s.quantizedLineGfxThickness);
+                const col = Utils.hexToRgb(s.quantizedLineGfxColor || "#ffffff");
+                this.gl.uniform3f(uLoc('u_color'), col.r/255, col.g/255, col.b/255);
+                this.gl.uniform1f(uLoc('u_intensity'), s.quantizedLineGfxIntensity * fx.alpha); 
+                this.gl.uniform1f(uLoc('u_glow'), s.quantizedLineGfxGlow);
+        
+                this.gl.activeTexture(this.gl.TEXTURE1);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+                this.gl.uniform1i(uLoc('u_logicGrid'), 1);
+        
+                this.gl.activeTexture(this.gl.TEXTURE3);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
+                this.gl.uniform1i(uLoc('u_sourceGrid'), 3);
+        
+                // PASS 1: GENERATE
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
+                this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+                
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.ZERO, this.gl.SRC_COLOR); 
+                const persistence = s.quantizedLineGfxPersistence;
+                this.gl.useProgram(this.colorProgram);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+                this.gl.enableVertexAttribArray(0);
+                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+                this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), persistence, persistence, persistence, 1.0);
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        
+                this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
+                this.gl.useProgram(prog);
+                this.gl.uniform1i(uLoc('u_mode'), 0); 
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        
+                // PASS 2: COMPOSITE
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                this.gl.disable(this.gl.BLEND);
+                
+                // A. Pure blit (Mode 2) - Preserves original alpha
+                this.gl.useProgram(prog);
+                this.gl.uniform1i(uLoc('u_mode'), 2);
+                this.gl.activeTexture(this.gl.TEXTURE0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
+                this.gl.uniform1i(uLoc('u_characterBuffer'), 0);
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        
+                // B. Apply highlights (Mode 1)
+                this.gl.uniform1i(uLoc('u_mode'), 1);
+                this.gl.activeTexture(this.gl.TEXTURE2);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.texLinePersist);
+                this.gl.uniform1i(uLoc('u_persistenceBuffer'), 2);
+                
+                // Ensure u_sourceGrid is also bound for mode 1 (already bound to unit 3 above)
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                return true;
+            }
 
     _runBlur(sourceTex, horizontal, strength, width, height, opacity = 1.0) {
         if (!this.bloomProgram) return;
@@ -1508,6 +1797,8 @@ class WebGLRenderer {
             }
         }
 
+        let finalMainTex = this.texA;
+
         // 2. Draw Cells
         // Respect layerEnablePrimaryCode
         if (s.layerEnablePrimaryCode !== false) {
@@ -1588,6 +1879,30 @@ class WebGLRenderer {
         // Draw Main Pass
         this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
         this.gl.bindVertexArray(null);
+
+        // --- 3rd Pass: Quantized Line GFX ---
+        if (s.quantizedLineGfxEnabled && this.effects) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+            this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+            this.gl.clearColor(0, 0, 0, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            
+            if (this._renderQuantizedLineGfx(s, d, this.texA)) {
+                finalMainTex = this.texA2;
+            } else {
+                // If GFX enabled but no active effect, we should probably clear persistence
+                // so old lines don't get stuck.
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
+                this.gl.clearColor(0, 0, 0, 0);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                
+                // Still need to blit texA to fboA2 if we want to use finalMainTex consistently
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                this._drawFullscreenTexture(this.texA, 1.0, 0);
+                finalMainTex = this.texA2;
+            }
+        }
+
         } // End layerEnablePrimaryCode check
 
         // --- POST PROCESS (Bloom) ---
@@ -1601,16 +1916,17 @@ class WebGLRenderer {
         this.gl.clearColor(br, bg, bb, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
+        this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
         
         const blurAmt = s.smoothingEnabled ? s.smoothingAmount : 0;
-        this._drawFullscreenTexture(this.texA, 1.0, blurAmt);
+        this._drawFullscreenTexture(finalMainTex, 1.0, blurAmt);
 
         if (s.enableBloom) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
             this.gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
             let spread = s.bloomStrength * 1.0; 
-            this._runBlur(this.texA, true, spread, this.fboWidth, this.fboHeight); 
+            this._runBlur(finalMainTex, true, spread, this.fboWidth, this.fboHeight); 
 
             const iterations = 3;
             for (let i = 0; i < iterations; i++) {

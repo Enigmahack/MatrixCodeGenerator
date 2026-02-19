@@ -539,10 +539,22 @@ class UIManager {
             { cat: 'Debug', id: 'layerEnableShadowWorld', type: 'checkbox', label: 'Show Shadow World', description: 'The alternate reality revealed by effects.' },
             { cat: 'Debug', id: 'layerEnableQuantizedLines', type: 'checkbox', label: 'Show Quantized Lines', description: 'The yellow/green grid lines from quantized effects.' },
             { cat: 'Debug', id: 'layerEnableQuantizedGridCache', type: 'checkbox', label: 'Show Quantized Source Grid', description: 'The raw character grid used to generate lines (Sparse Optimization).' },
+            { cat: 'Debug', id: 'quantizedSourceGridOffsetX', type: 'range', label: 'Source Grid X Offset', min: -100, max: 100, step: 1, dep: 'layerEnableQuantizedGridCache' },
+            { cat: 'Debug', id: 'quantizedSourceGridOffsetY', type: 'range', label: 'Source Grid Y Offset', min: -100, max: 100, step: 1, dep: 'layerEnableQuantizedGridCache' },
             { cat: 'Debug', id: 'layerEnableEditorGrid', type: 'checkbox', label: 'Show Editor Grid', description: 'The alignment grid in the Quantized Editor.' },
             { cat: 'Debug', id: 'layerEnableEditorOverlay', type: 'checkbox', label: 'Show Editor Changes', description: 'The green schematic blocks in the Quantized Editor.' },
             { cat: 'Debug', id: 'highlightErasers', type: 'checkbox', label: 'Highlight Erasers', description: "Draws a red border around invisible eraser tracers." },
             { cat: 'Debug', id: 'quantizedSolidPerimeter', type: 'checkbox', label: 'Solid Perimeter Lines', description: 'Renders grid lines as solid blocks instead of character-based masks.' },
+
+            { cat: 'Debug', type: 'accordion_header', label: 'Quantized Line GFX' },
+            { cat: 'Debug', id: 'quantizedLineGfxEnabled', type: 'checkbox', label: 'Enable GPU Lines', description: 'Replaces standard perimeter lines with GPU-accelerated ones.' },
+            { cat: 'Debug', id: 'quantizedLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedLineGfxEnabled', description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
+            { cat: 'Debug', id: 'quantizedLineGfxColor', type: 'color', label: 'Line Tint', dep: 'quantizedLineGfxEnabled' },
+            { cat: 'Debug', id: 'quantizedLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: 'quantizedLineGfxEnabled' },
+            { cat: 'Debug', id: 'quantizedLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: 'quantizedLineGfxEnabled' },
+            { cat: 'Debug', id: 'quantizedLineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: 'quantizedLineGfxEnabled' },
+            { cat: 'Debug', id: 'quantizedLineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: 'quantizedLineGfxEnabled' },
+            { cat: 'Debug', id: 'quantizedLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: 'quantizedLineGfxEnabled', description: "Similar to burn-in, controls how long lines linger." },
         ];
     }
 

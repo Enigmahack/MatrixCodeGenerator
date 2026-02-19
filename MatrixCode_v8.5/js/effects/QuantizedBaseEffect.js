@@ -763,8 +763,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             
             if (showSource) {
                 this._updateGridCache(width, height, s, d);
-                const srcOffX = (0) + (d.cellWidth * 0.5);
-                const srcOffY = (0) + (d.cellHeight * 0.5);
+                const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+                const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
                 ctx.save();
                 ctx.globalAlpha = 0.3; 
                 ctx.globalCompositeOperation = 'source-over';
@@ -774,8 +774,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
             if (showLines && glowStrength > 0) {
                 const scratchCtx = this.scratchCtx;
-                const srcOffX = (0) + (d.cellWidth * 0.5);
-                const srcOffY = (0) + (d.cellHeight * 0.5);
+                const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+                const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
                 scratchCtx.globalCompositeOperation = 'source-over';
                 scratchCtx.clearRect(0, 0, width, height);
                 if (isSolid) {
@@ -820,8 +820,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
         scratchCtx.globalAlpha = 1.0; 
-        const srcOffX = (0) + (derived.cellWidth * 0.5);
-        const srcOffY = (0) + (derived.cellHeight * 0.5);
+        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
         scratchCtx.save();
         scratchCtx.translate(srcOffX, srcOffY);
         scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
@@ -873,8 +873,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const isSolid = this.c.state.quantizedSolidPerimeter || false;
         if (this.c.state.layerEnableQuantizedGridCache === true) {
             this._updateGridCache(width, height, s, derived);
-            const srcOffX = (0) + (derived.cellWidth * 0.5);
-            const srcOffY = (0) + (derived.cellHeight * 0.5);
+            const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+            const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
             ctx.save();
             ctx.globalAlpha = 0.3;
             ctx.globalCompositeOperation = 'source-over';
@@ -883,8 +883,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.restore();
         }
         const scratchCtx = this.scratchCtx;
-        const srcOffX = (0) + (derived.cellWidth * 0.5);
-        const srcOffY = (0) + (derived.cellHeight * 0.5);
+        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
         if (isSolid) {

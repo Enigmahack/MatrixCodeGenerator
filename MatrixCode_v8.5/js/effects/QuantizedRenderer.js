@@ -147,8 +147,10 @@ class QuantizedRenderer {
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
         // Unified Shared Edge Rendering
-        this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
-        this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        if (!s.quantizedLineGfxEnabled) {
+            this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+            this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        }
         
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
