@@ -383,49 +383,50 @@ class WebGLRenderer {
                     vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
                     vec3 belowOcc = getOccupancy(blockCoord + vec2(0.0, 1.0));
 
-                    float dist = 1e10;
-                    bool isVisible = false;
+                    float total = 0.0;
+                    float halfThick = (u_thickness / 10.0) * 0.5;
 
                     for (int i = 0; i < 3; i++) {
                         int L = u_layerOrder[i];
                         float cL = getLayerVal(centerOcc, L);
-                        bool hasEdge = false;
-                        float layerDist = 1e10;
+                        
+                        bool isEdgeN = (cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5);
+                        bool isEdgeS = (cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5);
+                        bool isEdgeW = (cL > 0.5) != (getLayerVal(leftOcc, L) > 0.5);
+                        bool isEdgeE = (cL > 0.5) != (getLayerVal(rightOcc, L) > 0.5);
 
-                        if ((cL > 0.5) != (getLayerVal(leftOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); hasEdge = true; }
-                        if ((cL > 0.5) != (getLayerVal(rightOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); hasEdge = true; }
-                        if ((cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5)) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); hasEdge = true; }
-                        if ((cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5)) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); hasEdge = true; }
+                        if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
+                            float layerDist = 1e10;
+                            if (isEdgeW) layerDist = min(layerDist, cellLocal.x * u_cellPitch.x);
+                            if (isEdgeE) layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x);
+                            if (isEdgeN) layerDist = min(layerDist, cellLocal.y * u_cellPitch.y);
+                            if (isEdgeS) layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y);
 
-                        if (hasEdge) {
-                            bool obscured = false;
+                            int obs = 0;
                             for (int m = 0; m < i; m++) {
                                 int M = u_layerOrder[m];
-                                if (getLayerVal(centerOcc, M) > 0.5) { obscured = true; break; }
+                                if (getLayerVal(centerOcc, M) > 0.5) obs++;
                             }
-                            if (!obscured) {
-                                dist = min(dist, layerDist);
-                                isVisible = true;
+
+                            float op = (obs < 2) ? 1.0 : (obs == 2) ? 0.3 : 0.0;
+                            if (obs == 2) {
+                                // 3rd layer dim rule: North/South faces only (H-lines)
+                                if (!isEdgeN && !isEdgeS) op = 0.0;
+                            }
+
+                            if (op > 0.0) {
+                                float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
+                                if (u_roundness > 0.0 && halfThick > 0.0) {
+                                    float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
+                                    line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
+                                }
+                                float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
+                                total = max(total, max(line, glow) * op);
                             }
                         }
                     }
 
-                    float total = 0.0;
-                    if (isVisible) {
-                        float halfThick = (u_thickness / 10.0) * 0.5;
-                        float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, dist);
-                        
-                        // Apply Roundness profile
-                        if (u_roundness > 0.0 && halfThick > 0.0) {
-                            float normalizedDist = clamp(dist / halfThick, 0.0, 1.0);
-                            float profile = mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
-                            line *= profile;
-                        }
-
-                        float glow = exp(-dist * u_glowFalloff) * (u_glow * 0.5);
-                        total = max(line, glow) * u_intensity;
-                    }
-                    
+                    total *= u_intensity;
                     fragColor = vec4(total, 0.0, 0.0, 1.0);
                 }
             `;

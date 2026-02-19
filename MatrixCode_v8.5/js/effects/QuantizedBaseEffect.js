@@ -746,8 +746,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateMask(w, h, s, d) {
         this.renderer.updateMask(this, w, h, s, d);
     }
-    _renderEdges(ctx, ignoredCtx, now, blocksX, blocksY, offX, offY) {
-        this.renderer.renderEdges(this, ctx, now, blocksX, blocksY, offX, offY);
+    _renderEdges(ctx, colorCtx, now, blocksX, blocksY, offX, offY) {
+        this.renderer.renderEdges(this, ctx, colorCtx, now, blocksX, blocksY, offX, offY);
     }
     _removeBlockCorner(bx, by, corner) {
         this.renderer._removeBlockCorner(this, this.maskCtx, bx, by, corner);
@@ -1033,7 +1033,7 @@ class QuantizedBaseEffect extends AbstractEffect {
          ctx.save();
         const layerColors = ['rgba(0, 255, 0, 0.15)', 'rgba(0, 200, 255, 0.15)', 'rgba(255, 0, 200, 0.15)'];
         const layerLines = ['rgba(0, 255, 0, 0.8)', 'rgba(0, 200, 255, 0.8)', 'rgba(255, 0, 200, 0.8)'];
-        // Draw Fills in reverse layer order (back-to-front), but only top 3 + alternating visible
+        // Draw Fills in reverse layer order (back-to-front), but only show if obscureCount < 2
         const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
 
         for (let i = visibleIndices.length - 1; i >= 0; i--) {
@@ -1046,6 +1046,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (rGrid[idx] !== -1) {
                         const bx = idx % blocksX;
                         const by = Math.floor(idx / blocksX);
+
+                        // Only show if obscureCount < 2 (Top 2 layers at this spot)
+                        let obscureCount = 0;
+                        for (let j = 0; j < i; j++) {
+                            const higherLIdx = visibleIndices[j];
+                            if (this.visibleLayers && this.visibleLayers[higherLIdx] === false) continue;
+                            if (getVal(this.layerGrids[higherLIdx], bx, by) !== -1) {
+                                obscureCount++;
+                            }
+                        }
+                        if (obscureCount >= 2) continue;
+
                         let cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
                         let cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
                         cellX = Math.max(0, Math.min(this.g.cols, cellX));
@@ -1070,30 +1082,31 @@ class QuantizedBaseEffect extends AbstractEffect {
             return grid[by * blocksX + bx];
         };
 
-        // Draw Lines in reverse layer order (back-to-front), but only top 3 + alternating visible
+        // Draw Lines in reverse layer order (back-to-front), respecting obscureCount rules
         for (let i = visibleIndices.length - 1; i >= 0; i--) {
             const lIdx = visibleIndices[i];
             if (this.visibleLayers && this.visibleLayers[lIdx] === false) continue;
             const rGrid = this.layerGrids[lIdx];
             if (!rGrid) continue;
-            const pSolid = new Path2D();
+            
+            const pNormal = new Path2D();
+            const pDim = new Path2D();
+
             for (let x = 0; x <= blocksX; x++) {
                 for (let y = 0; y < blocksY; y++) {
                     const activeL = (getVal(rGrid, x - 1, y) !== -1);
                     const activeR = (getVal(rGrid, x, y) !== -1);
                     if (activeL !== activeR) {
-                        // Perimeter of Layer lIdx. Is it obscured by any higher layer in the order?
-                        let obscured = false;
+                        // Perimeter of Layer lIdx. Is it obscured?
+                        let obscureCount = 0;
                         for (let j = 0; j < i; j++) {
                             const higherLIdx = visibleIndices[j];
-                            // Only obscure if the higher layer is also VISIBLE in the editor
                             if (this.visibleLayers && this.visibleLayers[higherLIdx] === false) continue;
                             if (getVal(this.layerGrids[higherLIdx], x - 1, y) !== -1 || getVal(this.layerGrids[higherLIdx], x, y) !== -1) {
-                                obscured = true;
-                                break;
+                                obscureCount++;
                             }
                         }
-                        if (!obscured) {
+                        if (obscureCount < 2) {
                             let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
                             cellX = Math.max(0, Math.min(this.g.cols, cellX));
                             let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
@@ -1104,9 +1117,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                             const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
                             const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
                             const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
-                            pSolid.moveTo(px, py1);
-                            pSolid.lineTo(px, py2);
+                            pNormal.moveTo(px, py1);
+                            pNormal.lineTo(px, py2);
                         }
+                        // obscureCount === 2 is hidden for V-lines
                     }
                 }
             }
@@ -1115,36 +1129,43 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const activeT = (getVal(rGrid, x, y - 1) !== -1);
                     const activeB = (getVal(rGrid, x, y) !== -1);
                     if (activeT !== activeB) {
-                        // Perimeter of Layer lIdx. Is it obscured by any higher layer in the order?
-                        let obscured = false;
+                        // Perimeter of Layer lIdx. Is it obscured?
+                        let obscureCount = 0;
                         for (let j = 0; j < i; j++) {
                             const higherLIdx = visibleIndices[j];
-                            // Only obscure if the higher layer is also VISIBLE in the editor
                             if (this.visibleLayers && this.visibleLayers[higherLIdx] === false) continue;
                             if (getVal(this.layerGrids[higherLIdx], x, y - 1) !== -1 || getVal(this.layerGrids[higherLIdx], x, y) !== -1) {
-                                obscured = true;
-                                break;
+                                obscureCount++;
                             }
                         }
-                        if (!obscured) {
-                            let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                            cellY = Math.max(0, Math.min(this.g.rows, cellY));
-                            let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                            let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                            cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
-                            cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
 
-                            const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
-                            const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
-                            const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
-                            pSolid.moveTo(px1, py);
-                            pSolid.lineTo(px2, py);
+                        let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        cellY = Math.max(0, Math.min(this.g.rows, cellY));
+                        let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                        cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
+                        cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
+
+                        const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                        const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
+                        const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
+
+                        if (obscureCount < 2) {
+                            pNormal.moveTo(px1, py);
+                            pNormal.lineTo(px2, py);
+                        } else if (obscureCount === 2) {
+                            pDim.moveTo(px1, py);
+                            pDim.lineTo(px2, py);
                         }
                     }
                 }
             }
             ctx.strokeStyle = layerLines[lIdx];
-            ctx.stroke(pSolid);
+            ctx.stroke(pNormal);
+            ctx.save();
+            ctx.globalAlpha *= 0.3;
+            ctx.stroke(pDim);
+            ctx.restore();
         }
         const ops = this.maskOps;
         if (ops && this.c.state.layerEnableEditorRemovals !== false) {

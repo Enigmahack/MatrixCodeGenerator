@@ -255,72 +255,98 @@ class QuantizedRenderer {
                 bx = x;     by = y;
             }
 
-            const activeA = (getBlock(fx.renderGrid, ax, ay) !== -1);
-            const activeB = (getBlock(fx.renderGrid, bx, by) !== -1);
-            const globalPerimeter = (activeA !== activeB);
-
-            let isVisibleNow = false;
+            let isVisibleNormally = false;
+            let isVisibleDimly = false;
             let edgeBirthFrame = -1;
+            let dimBirthFrame = -1;
 
             const key = `${type}_${x}_${y}`;
             
-            // Layering Logic: Layers 0, 1, 2 always visible.
+            // Layering Logic: Layers 0, 1, 2 determine stacking.
             const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2);
 
             for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
                 const L = visibleLayerIndices[iOrder];
                 const grid = fx.layerGrids[L];
                 if (!grid) continue;
+                
                 const aL = (getBlock(grid, ax, ay) !== -1);
                 const bL = (getBlock(grid, bx, by) !== -1);
 
                 if (aL !== bL) {
-                    // Perimeter of Layer L. Is it obscured?
-                    let obscured = false;
+                    // Perimeter of Layer L. How many layers are ABOVE it in Z-order at this edge?
+                    let obscureCount = 0;
                     for (let m = 0; m < iOrder; m++) {
                         const M = visibleLayerIndices[m];
                         if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
-                            obscured = true;
-                            break;
+                            obscureCount++;
                         }
                     }
 
-                    if (!obscured) {
-                        isVisibleNow = true;
-                        const fA = getBlock(grid, ax, ay);
-                        const fB = getBlock(grid, bx, by);
-                        edgeBirthFrame = Math.max(fA, fB);
-                        break; 
+                    const birth = Math.max(getBlock(grid, ax, ay), getBlock(grid, bx, by));
+
+                    if (obscureCount < 2) {
+                        isVisibleNormally = true;
+                        if (birth > edgeBirthFrame) edgeBirthFrame = birth;
+                    } else if (obscureCount === 2) {
+                        // 3rd layer special rule: Dimmer, North/South face only (H-lines)
+                        if (type === 'H') {
+                            isVisibleDimly = true;
+                            if (birth > dimBirthFrame) dimBirthFrame = birth;
+                        }
                     }
                 }
             }
 
+            // Normal visibility takes precedence
+            if (isVisibleNormally) isVisibleDimly = false;
+
             let state = fx.lineStates.get(key);
             if (!state) {
-                state = { visible: false, deathFrame: -1, birthFrame: -1 };
+                state = { 
+                    visible: false, deathFrame: -1, birthFrame: -1,
+                    dimVisible: false, dimDeathFrame: -1, dimBirthFrame: -1
+                };
                 fx.lineStates.set(key, state);
             }
 
-            if (isVisibleNow) {
+            // Normal State Update
+            if (isVisibleNormally) {
                 if (!state.visible) {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    const isNew = (edgeBirthFrame === now);
-                    state.birthFrame = (isNew) ? now : -1;
+                    state.birthFrame = (edgeBirthFrame === now) ? now : -1;
                 }
             } else {
                 if (state.visible) {
                     state.visible = false;
                     fx.lastVisibilityChangeFrame = now;
                     state.birthFrame = -1;
-                    if (state.deathFrame === -1) {
-                        state.deathFrame = now;
-                    }
+                    if (state.deathFrame === -1) state.deathFrame = now;
+                }
+            }
+
+            // Dim State Update
+            if (isVisibleDimly) {
+                if (!state.dimVisible) {
+                    state.dimVisible = true;
+                    fx.lastVisibilityChangeFrame = now;
+                    state.dimDeathFrame = -1;
+                    state.dimBirthFrame = (dimBirthFrame === now) ? now : -1;
+                }
+            } else {
+                if (state.dimVisible) {
+                    state.dimVisible = false;
+                    fx.lastVisibilityChangeFrame = now;
+                    state.dimBirthFrame = -1;
+                    if (state.dimDeathFrame === -1) state.dimDeathFrame = now;
                 }
             }
 
             const face = (type === 'V') ? 'W' : 'N';
+            
+            // Draw Normal state
             if (state.visible) {
                 const birth = getBirthState(state.birthFrame);
                 if (birth) {
@@ -338,6 +364,29 @@ class QuantizedRenderer {
                     this._addFaceToPath(mPath, fx, x, y, face);
                 } else {
                     state.deathFrame = -1;
+                }
+            }
+
+            // Draw Dim state (3rd layer)
+            if (state.dimVisible) {
+                const birth = getBirthState(state.dimBirthFrame);
+                if (birth) {
+                    const dimOpacity = birth.o * 0.4;
+                    const path = getBatch(birth.c, dimOpacity);
+                    const mPath = getMaskBatch(dimOpacity);
+                    this._addFaceToPath(path, fx, x, y, face);
+                    this._addFaceToPath(mPath, fx, x, y, face);
+                }
+            } else if (state.dimDeathFrame !== -1) {
+                const fade = getFadeState(state.dimDeathFrame);
+                if (fade) {
+                    const dimOpacity = fade.o * 0.4;
+                    const path = getBatch(fade.c, dimOpacity);
+                    const mPath = getMaskBatch(dimOpacity);
+                    this._addFaceToPath(path, fx, x, y, face);
+                    this._addFaceToPath(mPath, fx, x, y, face);
+                } else {
+                    state.dimDeathFrame = -1;
                 }
             }
         };
