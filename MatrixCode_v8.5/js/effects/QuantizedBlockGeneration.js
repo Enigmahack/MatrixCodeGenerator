@@ -173,18 +173,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 return true;
             },
 
-            // E. Anchoring (Optional sub-layer constraint)
-            anchoring: (c) => {
-                 if (c.skipAnchoring || c.layer === 0) return true;
-                 return this._isAnchored(c.x, c.y, c.w, c.h, c.layer);
-            },
-
-            // E. Drift Check (Optional sub-layer constraint)
-            drift: (c) => {
-                if (c.bypassDriftCheck) return true;
-                return this._validateAdditionSafety(c.x, c.y, c.layer);
-            },
-
             // F. Spatial Distribution (Prevent clustering in one step)
             spatial: (c) => {
                 if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial) return true;
@@ -284,6 +272,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.cyclesCompleted = 0;
         this.alpha = 1.0;
         this.state = 'GENERATING';
+        this._isCovered = undefined;
         
         this.usedCardinalIndices = [];
         this.nudgeAxisBalance = 0; 
@@ -351,8 +340,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             this._updateRenderGridLogic();
 
-            // Cache coverage check
-            if (this._gridsDirty || this._isCovered === undefined) {
+            // Throttled coverage check: Only check once every 10 frames or if significant growth happened
+            const shouldCheckCoverage = (this._gridsDirty && this.animFrame % 10 === 0) || this._isCovered === undefined;
+            if (shouldCheckCoverage) {
                 this._isCovered = this._isCanvasFullyCovered();
             }
             const isCovered = this._isCovered;
@@ -618,9 +608,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             x, y, w, h, layer,
             isShifter, expireFrames, skipConnectivity, allowInternal,
             suppressFades, isMirroredSpawn, bypassOccupancy,
-            skipAnchoring: skipConnectivity,
-            bypassSpatial: skipConnectivity,
-            bypassDriftCheck: skipConnectivity
+            bypassSpatial: skipConnectivity
         };
         
         return this._proposeCandidate(candidate);
@@ -654,27 +642,36 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const xLimit = Math.floor((this.g.cols / bs.w) / 2);
         const yLimit = Math.floor((this.g.rows / bs.h) / 2);
 
-        // Find all exposed blocks on THIS layer that are strictly on-screen
-        const anchors = this.activeBlocks.filter(b => {
-            if (b.layer !== c.layer) return false;
-            // Check if block is at least partially on-screen
-            return !(b.x < -xLimit || b.x > xLimit || b.y < -yLimit || b.y > yLimit);
-        });
+        // OPTIMIZED: Instead of filtering and sorting EVERYTHING (O(N log N)),
+        // sample a subset of recently added blocks which are more likely to be relevant.
+        const total = this.activeBlocks.length;
+        if (total === 0) return false;
 
-        if (anchors.length === 0) return false;
-
-        // Prefer anchors closest to the "offscreen" target to maintain some intent
+        const sampleSize = Math.min(total, 50);
+        const candidates = [];
         const tx = c.x, ty = c.y;
-        anchors.sort((a, b) => {
-            const distA = Math.abs(a.x - tx) + Math.abs(a.y - ty);
-            const distB = Math.abs(b.x - tx) + Math.abs(b.y - ty);
-            return distA - distB;
-        });
+
+        // Walk backwards from most recent blocks
+        for (let i = total - 1; i >= 0 && candidates.length < sampleSize; i--) {
+            const b = this.activeBlocks[i];
+            if (b.layer !== c.layer) continue;
+            
+            // On-screen check
+            if (!(b.x < -xLimit || b.x > xLimit || b.y < -yLimit || b.y > yLimit)) {
+                const dist = Math.abs(b.x - tx) + Math.abs(b.y - ty);
+                candidates.push({ b, dist });
+            }
+        }
+
+        if (candidates.length === 0) return false;
+
+        // Sort only the small sample
+        candidates.sort((a, b) => a.dist - b.dist);
 
         // Try to attach the requested shape to the perimeter of the nearest on-screen anchors
         const dirs = this._getBiasedDirections();
-        for (let i = 0; i < Math.min(10, anchors.length); i++) {
-            const a = anchors[i];
+        for (let i = 0; i < Math.min(10, candidates.length); i++) {
+            const a = candidates[i].b;
             for (const dir of dirs) {
                 let nx = a.x, ny = a.y;
                 if (dir === 'N') ny = a.y - c.h;
@@ -698,8 +695,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _validateCandidate(c) {
         if (!this.RULES.bounds(c)) return false;
         if (!this.RULES.occupancy(c)) return false;
-        if (!this.RULES.anchoring(c)) return false;
-        if (!this.RULES.drift(c)) return false;
 
         // Shifter blocks bypass growth constraints
         if (c.isShifter) return true;

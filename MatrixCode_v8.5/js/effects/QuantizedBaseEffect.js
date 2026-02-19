@@ -235,6 +235,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.animFrame = 0;
         this._maskDirty = true;
         this._gridsDirty = true;
+        this._outsideMapDirty = true;
         
         // Reset Render Cache
         this.renderer._edgeCacheDirty = true;
@@ -1635,9 +1636,6 @@ class QuantizedBaseEffect extends AbstractEffect {
              if (!isShifter && !allowInternal && overlapArea >= (w * h)) return -1; 
         }
 
-        // 3. Optional: Sub-Layer Anchoring
-        if (!this._isAnchored(x, y, w, h, layer)) return -1;
-
         // 4. Occupancy and Logic Grid Update (Merged Loops)
         if (this._stepOccupancy && !bypassOccupancy) {
             for (let gy = minY; gy <= maxY; gy++) {
@@ -1737,6 +1735,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this.renderGrid[idx] = finalValue;
             }
         }
+        this._outsideMapDirty = true;
     }
 
     /*
@@ -2122,156 +2121,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         return status;
     }
 
-    _validateNudgeSafety(x, y, w, h, face, targetLayer, pullOther) {
-        if (!this.activeBlocks || this.activeBlocks.length === 0) return true;
-        
-        const uf = face.toUpperCase();
-        const axis = (uf === 'N' || uf === 'S') ? 'Y' : 'X';
-        const dSign = (uf === 'N' || uf === 'W') ? -1 : 1;
-        const shiftAmt = (axis === 'X' ? w : h);
-
-        // Virtual view of activeBlocks with projected moves
-        const virtualBlocks = {
-            length: this.activeBlocks.length + (pullOther ? 2 : 1),
-            getItem: (i) => {
-                if (i < this.activeBlocks.length) {
-                    const b = this.activeBlocks[i];
-                    // Check if it's moved
-                    let l = b.layer;
-                    if (l === targetLayer || (pullOther && l === 1 - targetLayer)) {
-                        let move = false;
-                        if (axis === 'X') { if (b.y >= y && b.y < y + h && ((dSign > 0 && b.x >= x) || (dSign < 0 && b.x <= x + w - 1))) move = true; }
-                        else { if (b.x >= x && b.x < x + w && ((dSign > 0 && b.y >= y) || (dSign < 0 && b.y <= y + h - 1))) move = true; }
-                        if (move) {
-                            const nb = { ...b };
-                            if (axis === 'X') nb.x += (dSign * shiftAmt); else nb.y += (dSign * shiftAmt);
-                            return nb;
-                        }
-                    }
-                    return b;
-                } else {
-                    const idx = i - this.activeBlocks.length;
-                    if (idx === 0) return { x, y, w, h, layer: targetLayer };
-                    return { x, y, w, h, layer: 1 - targetLayer };
-                }
-            }
-        };
-
-        return this._checkEnvelopeDriftVirtual(virtualBlocks);
-    }
-
-    _checkEnvelopeDriftVirtual(virtualBlocks) {
-        if (this.getConfig('EnableSubLayerAnchoring') !== true) return true;
-        const lgW = this.logicGridW, lgH = this.logicGridH;
-        if (!lgW || !lgH) return true;
-        const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
-        if (!this._driftBuffers) {
-            this._driftBuffers = Array.from({ length: 3 }, () => ({
-                colMin: new Int32Array(2000), colMax: new Int32Array(2000),
-                rowMin: new Int32Array(2000), rowMax: new Int32Array(2000)
-            }));
-        }
-        const db = this._driftBuffers;
-        for (let l = 0; l < 3; l++) {
-            db[l].colMin.fill(10000); db[l].colMax.fill(-10000);
-            db[l].rowMin.fill(10000); db[l].rowMax.fill(-10000);
-        }
-        const updateBounds = (b) => {
-            const bounds = db[b.layer]; if (!bounds) return;
-            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
-            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { 
-                if (bounds.colMin[x] > by1) bounds.colMin[x] = by1; if (bounds.colMax[x] < by2) bounds.colMax[x] = by2; 
-            }
-            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { 
-                if (bounds.rowMin[y] > bx1) bounds.rowMin[y] = bx1; if (bounds.rowMax[y] < bx2) bounds.rowMax[y] = bx2; 
-            }
-        };
-        for (let i = 0; i < virtualBlocks.length; i++) updateBounds(virtualBlocks.getItem(i));
-        const l0 = db[0], driftLimit = this.getConfig('SubLayerAnchorDistance') || 3;
-        for (let l = 1; l < 3; l++) {
-            const lb = db[l]; let hasData = false;
-            for (let x = 0; x < lgW; x++) { if (lb.colMin[x] !== 10000) { hasData = true; break; } }
-            if (!hasData) continue;
-            for (let x = 0; x < lgW; x++) {
-                if (l0.colMin[x] !== 10000 && lb.colMin[x] !== 10000) {
-                    if (Math.abs(l0.colMin[x] - lb.colMin[x]) > driftLimit || Math.abs(l0.colMax[x] - lb.colMax[x]) > driftLimit) return false;
-                }
-            }
-            for (let y = 0; y < lgH; y++) {
-                if (l0.rowMin[y] !== 10000 && lb.rowMin[y] !== 10000) {
-                    if (Math.abs(l0.rowMin[y] - lb.rowMin[y]) > driftLimit || Math.abs(l0.rowMax[y] - lb.rowMax[y]) > driftLimit) return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    _checkEnvelopeDrift(blocks, candidate = null) {
-        // Only enforce drift limits if SubLayerAnchoring is enabled.
-        if (this.getConfig('EnableSubLayerAnchoring') !== true) return true;
-
-        const lgW = this.logicGridW, lgH = this.logicGridH;
-        if (!lgW || !lgH) return true;
-        const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
-        
-        // Use pooled buffers for bounds tracking
-        if (!this._driftBuffers) {
-            this._driftBuffers = Array.from({ length: 3 }, () => ({
-                colMin: new Int32Array(2000), // Max likely dimension
-                colMax: new Int32Array(2000),
-                rowMin: new Int32Array(2000),
-                rowMax: new Int32Array(2000)
-            }));
-        }
-
-        const db = this._driftBuffers;
-        for (let l = 0; l < 3; l++) {
-            db[l].colMin.fill(10000);
-            db[l].colMax.fill(-10000);
-            db[l].rowMin.fill(10000);
-            db[l].rowMax.fill(-10000);
-        }
-
-        const updateBounds = (b) => {
-            const bounds = db[b.layer];
-            if (!bounds) return;
-            const bx1 = cx + b.x, by1 = cy + b.y, bx2 = bx1 + b.w - 1, by2 = by1 + b.h - 1;
-            for (let x = Math.max(0, bx1); x <= Math.min(lgW - 1, bx2); x++) { 
-                if (bounds.colMin[x] > by1) bounds.colMin[x] = by1; 
-                if (bounds.colMax[x] < by2) bounds.colMax[x] = b.y2; 
-            }
-            for (let y = Math.max(0, by1); y <= Math.min(lgH - 1, by2); y++) { 
-                if (bounds.rowMin[y] > bx1) bounds.rowMin[y] = bx1; 
-                if (bounds.rowMax[y] < bx2) bounds.rowMax[y] = bx2; 
-            }
-        };
-
-        for (let i = 0; i < blocks.length; i++) updateBounds(blocks[i]);
-        if (candidate) updateBounds(candidate);
-
-        const l0 = db[0];
-        const driftLimit = this.getConfig('SubLayerAnchorDistance') || 3;
-
-        for (let l = 1; l < 3; l++) {
-            const lb = db[l];
-            let hasData = false;
-            for (let x = 0; x < lgW; x++) { if (lb.colMin[x] !== 10000) { hasData = true; break; } }
-            if (!hasData) continue;
-
-            for (let x = 0; x < lgW; x++) {
-                if (l0.colMin[x] !== 10000 && lb.colMin[x] !== 10000) {
-                    if (Math.abs(l0.colMin[x] - lb.colMin[x]) > driftLimit || Math.abs(l0.colMax[x] - lb.colMax[x]) > driftLimit) return false;
-                }
-            }
-            for (let y = 0; y < lgH; y++) {
-                if (l0.rowMin[y] !== 10000 && lb.rowMin[y] !== 10000) {
-                    if (Math.abs(l0.rowMin[y] - lb.rowMin[y]) > driftLimit || Math.abs(l0.rowMax[y] - lb.rowMax[y]) > driftLimit) return false;
-                }
-            }
-        }
-        return true;
-    }
-
     _mergeLayer1(maxCycle = -1) {
         const now = this.animFrame;
         const blocksToMerge = this.activeBlocks.filter(b => 
@@ -2339,81 +2188,76 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
 
-        // Sub-Layer Anchoring Logic
-        if (!this._isAnchored(x, y, w, h, layer)) return false;
-
         return true;
     }
 
-    _isAnchored(x, y, w, h, layer) {
-        if (layer > 0 && this.getConfig('EnableSubLayerAnchoring')) {
-            const anchorDist = this.getConfig('SubLayerAnchorDistance') || 2;
-            const lgW = this.logicGridW, lgH = this.logicGridH;
-            const cx = Math.floor(lgW / 2), cy = Math.floor(lgH / 2);
-            const l0 = this.layerGrids[0];
+    _updateOutsideMap() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return;
 
-            if (l0) {
-                // Check every block space in the proposed new block
-                for (let ly = 0; ly < h; ly++) {
-                    for (let lx = 0; lx < w; lx++) {
-                        const gx = cx + x + lx, gy = cy + y + ly;
-                        if (gx < 0 || gx >= lgW || gy < 0 || gy >= lgH) continue;
-
-                        // For THIS cell, is there a Layer 0 block within anchorDist?
-                        let anchored = false;
-                        const r = anchorDist;
-                        for (let dy = -r; dy <= r; dy++) {
-                            for (let dx = -r; dx <= r; dx++) {
-                                const nx = gx + dx, ny = gy + dy;
-                                if (nx >= 0 && nx < lgW && ny >= 0 && ny < lgH) {
-                                    if (l0[ny * lgW + nx] !== -1) {
-                                        anchored = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (anchored) break;
-                        }
-                        if (!anchored) return false; // This part of the block is too far from Layer 0
-                    }
-                }
-            }
+        const size = w * h;
+        if (!this._outsideMap || this._outsideMap.length !== size) {
+            this._outsideMap = new Uint8Array(size);
         }
-        return true;
+        const status = this._outsideMap;
+        status.fill(0);
+
+        if (!this._bfsQueue || this._bfsQueue.length < size) {
+            this._bfsQueue = new Int32Array(size);
+        }
+        const queue = this._bfsQueue;
+        let head = 0, tail = 0;
+
+        const add = (idx) => {
+            if (status[idx] === 0 && this.logicGrid[idx] === 0) { 
+                status[idx] = 1;
+                queue[tail++] = idx;
+            }
+        };
+
+        // Seed BFS from logic grid boundaries
+        for (let x = 0; x < w; x++) { 
+            add(x); 
+            add((h - 1) * w + x); 
+        }
+        for (let y = 1; y < h - 1; y++) {
+            add(y * w); 
+            add(y * w + (w - 1)); 
+        }
+
+        while (head < tail) {
+            const idx = queue[head++];
+            const cx = idx % w, cy = (idx / w) | 0;
+            if (cy > 0) add(idx - w); 
+            if (cy < h - 1) add(idx + w);
+            if (cx > 0) add(idx - 1); 
+            if (cx < w - 1) add(idx + 1);
+        }
     }
 
     _checkNoHole(tx, ty, tw, th) {
         const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        
+        if (this._outsideMapDirty || !this._outsideMap) {
+            this._updateOutsideMap();
+            this._outsideMapDirty = false;
+        }
+        const status = this._outsideMap;
+
         const candidates = [];
         for (let x = tx - 1; x <= tx + tw; x++) { candidates.push([x, ty - 1], [x, ty + th]); }
         for (let y = ty; y < ty + th; y++) { candidates.push([tx - 1, y], [tx + tw, y]); }
+        
         for (const [nx, ny] of candidates) {
             const gx = nx + cx, gy = ny + cy;
             if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
-            if (this.logicGrid[gy * w + gx] !== 0) continue;
-            if (nx >= tx && nx < tx + tw && ny >= ty && ny < ty + th) continue;
-            if (!this._canReachBoundary(nx, ny, tx, ty, tw, th)) return false;
-        }
-        return true;
-    }
-
-    _canReachBoundary(startX, startY, px, py, pw, ph) {
-        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        const stack = [[startX, startY]], visited = new Set([`${startX},${startY}`]);
-        while (stack.length > 0) {
-            const [x, y] = stack.pop();
-            if (x + cx <= 0 || x + cx >= w - 1 || y + cy <= 0 || y + cy >= h - 1) return true;
-            const neighbors = [[x+1, y], [x-1, y], [x, y+1], [x, y-1]];
-            for (const [nx, ny] of neighbors) {
-                const gx = nx + cx, gy = ny + cy;
-                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
-                const key = `${nx},${ny}`;
-                if (visited.has(key) || (nx >= px && nx < px + pw && ny >= py && ny < py + ph) || this.logicGrid[gy * w + gx] !== 0) continue;
-                visited.add(key); stack.push([nx, ny]);
-                if (visited.size > 2000) return true; 
+            
+            // If the cell is empty and NOT reachable from the boundary (outside), it is an enclosed hole
+            if (this.logicGrid[gy * w + gx] === 0 && status[gy * w + gx] === 0) {
+                return false;
             }
         }
-        return false;
+        return true;
     }
 
     _attemptUnfoldGrowth(sequence = null, targetLayerInput = 0) {
@@ -2506,7 +2350,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const dy = Math.floor(Math.random() * (range * 2 + 1)) - range;
                 
                 // A "hole" is an empty logic grid cell that is anchored to existing mass of this layer
-                if (this._checkNoOverlap(dx, dy, 1, 1, targetLayer) && this._isAnchored(dx, dy, 1, 1, targetLayer)) {
+                if (this._checkNoOverlap(dx, dy, 1, 1, targetLayer)) {
                     holes.push({x: dx, y: dy, distSq: dx*dx + dy*dy});
                 }
                 if (holes.length >= 10) break;
@@ -2640,7 +2484,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     // Must be anchored to existing mass OR be the center seed
                     const isCenter = (pt.x === 0 && pt.y === 0);
-                    if (isCenter || this._isAnchored(ox, oy, sz.w, sz.h, targetLayer)) {
+                    if (isCenter) {
                         if (this._spawnBlock(ox, oy, sz.w, sz.h, targetLayer, false, 0, true, true) !== -1) {
                             // Update max radius if we spawned at the frontier
                             if (r >= state.currentMaxRadius) {
@@ -3008,11 +2852,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             return this.c.state['quantizedGenerateV2' + key];
         };
 
-        if (getGenConfig('EnableAutoFillHoles') === true) {
+        const now = this.animFrame;
+        const interval = 30; 
+
+        if (getGenConfig('EnableAutoFillHoles') === true && now % interval === 0) {
             for (let i = 0; i < 3; i++) this._fillHoles(i);
         }
         
-        if (getGenConfig('EnableAutoConnectIslands') === true) {
+        if (getGenConfig('EnableAutoConnectIslands') === true && now % interval === 15) {
             this._connectIslands();
         }
     }
@@ -3213,20 +3060,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
-    }
-
-    _validateAdditionSafety(bx, by, layer, bypass = false) {
-        if (bypass) return true;
-        
-        // Optimized: Use a virtual view to avoid cloning activeBlocks
-        const virtualBlocks = {
-            length: this.activeBlocks.length + 1,
-            getItem: (i) => {
-                if (i < this.activeBlocks.length) return this.activeBlocks[i];
-                return { x: bx, y: by, w: 1, h: 1, layer };
-            }
-        };
-        return this._checkEnvelopeDriftVirtual(virtualBlocks);
     }
 
     _isCanvasFullyCovered() {
