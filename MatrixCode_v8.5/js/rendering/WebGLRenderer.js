@@ -266,13 +266,20 @@ class WebGLRenderer {
                 uniform vec2 u_resolution;
                 uniform vec2 u_offset;
                 uniform vec2 u_sourceGridOffset;
+                uniform vec2 u_sampleOffset;
                 uniform int u_mode; // 0 = Generate, 1 = Composite, 2 = Pure Blit
                 uniform ivec3 u_layerOrder; 
                 
                 uniform float u_thickness;
                 uniform vec3 u_color;
+                uniform vec3 u_fadeColor;
                 uniform float u_intensity;
                 uniform float u_glow;
+                uniform float u_saturation;
+                uniform float u_brightness;
+                uniform float u_additiveStrength;
+                uniform float u_sharpness;
+                uniform float u_glowFalloff;
                 
                 out vec4 fragColor;
 
@@ -288,6 +295,11 @@ class WebGLRenderer {
                     return 0.0;
                 }
 
+                vec3 boostSaturation(vec3 c, float s) {
+                    float luma = dot(c, vec3(0.299, 0.587, 0.114));
+                    return mix(vec4(luma).rgb, c, s);
+                }
+
                 void main() {
                     if (u_mode == 2) {
                         fragColor = texture(u_characterBuffer, v_uv);
@@ -299,12 +311,22 @@ class WebGLRenderer {
                         float persist = texture(u_persistenceBuffer, v_uv).r;
                         
                         // Sample Source Grid for illumination points
-                        vec2 sourceUV = v_uv + (u_sourceGridOffset / u_resolution);
+                        vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
                         vec4 sourceChar = texture(u_sourceGrid, sourceUV);
                         float charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
                         
+                        // Calculate Dynamic Color based on persistence (fade out)
+                        // If intensity/persist is high, use u_color. If it's low, blend towards u_fadeColor.
+                        // We use a simple power curve to make the fade color more prominent at the end.
+                        float colorT = clamp(persist / u_intensity, 0.0, 1.0);
+                        vec3 dynamicColor = mix(u_fadeColor, u_color, pow(colorT, 0.5));
+                        
+                        // Apply Saturation and Brightness to the highlight color
+                        dynamicColor = boostSaturation(dynamicColor, u_saturation);
+                        dynamicColor *= u_brightness;
+                        
                         // Additive highlight based on Source Grid characters
-                        vec3 highlight = u_color * persist * charLuma;
+                        vec3 highlight = dynamicColor * persist * charLuma * u_additiveStrength;
                         
                         fragColor = vec4(base.rgb + highlight, base.a);
                         return;
@@ -353,8 +375,8 @@ class WebGLRenderer {
                     float total = 0.0;
                     if (isVisible) {
                         float halfThick = (u_thickness / 10.0) * 0.5;
-                        float line = 1.0 - smoothstep(halfThick - 0.05, halfThick + 0.05, dist);
-                        float glow = exp(-dist * 2.0) * (u_glow * 0.5);
+                        float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, dist);
+                        float glow = exp(-dist * u_glowFalloff) * (u_glow * 0.5);
                         total = max(line, glow) * u_intensity;
                     }
                     
@@ -1162,13 +1184,25 @@ class WebGLRenderer {
                 this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
                 this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
                 this.gl.uniform2f(uLoc('u_sourceGridOffset'), s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale);
+                this.gl.uniform2f(uLoc('u_sampleOffset'), s.quantizedLineGfxSampleOffsetX * scale, s.quantizedLineGfxSampleOffsetY * scale);
                 
                 this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
                 this.gl.uniform1f(uLoc('u_thickness'), s.quantizedLineGfxThickness);
+                
                 const col = Utils.hexToRgb(s.quantizedLineGfxColor || "#ffffff");
                 this.gl.uniform3f(uLoc('u_color'), col.r/255, col.g/255, col.b/255);
+                
+                const fCol = Utils.hexToRgb(s.quantizedLineGfxFadeColor || "#eeff00");
+                this.gl.uniform3f(uLoc('u_fadeColor'), fCol.r/255, fCol.g/255, fCol.b/255);
+
                 this.gl.uniform1f(uLoc('u_intensity'), s.quantizedLineGfxIntensity * fx.alpha); 
                 this.gl.uniform1f(uLoc('u_glow'), s.quantizedLineGfxGlow);
+                
+                this.gl.uniform1f(uLoc('u_saturation'), s.quantizedLineGfxSaturation);
+                this.gl.uniform1f(uLoc('u_brightness'), s.quantizedLineGfxBrightness);
+                this.gl.uniform1f(uLoc('u_additiveStrength'), s.quantizedLineGfxAdditiveStrength);
+                this.gl.uniform1f(uLoc('u_sharpness'), s.quantizedLineGfxSharpness);
+                this.gl.uniform1f(uLoc('u_glowFalloff'), s.quantizedLineGfxGlowFalloff);
         
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
