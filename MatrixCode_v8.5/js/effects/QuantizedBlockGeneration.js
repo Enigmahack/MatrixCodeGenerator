@@ -16,7 +16,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.GROWTH_BEHAVIORS = [
             { id: 'Nudge', method: '_executeNudgeGrowth' },
             { id: 'Cluster', method: '_attemptClusterGrowth' },
-            { id: 'Shift', method: '_attemptShiftGrowth' },
+            { id: 'Shift', method: '_attemptQuadrantShiftGrowth' },
             { id: 'Centered', method: '_attemptCenteredGrowth' },
             { id: 'Thicken', method: '_attemptThickenGrowth' },
             { id: 'Unfold', method: '_attemptUnfoldGrowth' }
@@ -517,20 +517,42 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _updateInternalLogicGrid() {
         if (!this.logicGridW || !this.logicGridH) return;
-        if (!this._gridsDirty && this.logicGrid.some(v => v === 1)) return; // Skip if already synced
-
+        
+        // If we have many blocks, full re-scan is slow.
+        // We only need to scan if logic grid was wiped or if we have new blocks.
+        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
         const w = this.logicGridW, h = this.logicGridH;
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        this.logicGrid.fill(0);
-        for (let i = 0; i < this.activeBlocks.length; i++) {
-            const b = this.activeBlocks[i];
-            const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
-            const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
-            for (let gy = y1; gy <= y2; gy++) {
-                const rowOff = gy * w;
-                for (let gx = x1; gx <= x2; gx++) {
-                    this.logicGrid[rowOff + gx] = 1;
+
+        if (this._gridsDirty) {
+            this.logicGrid.fill(0);
+            for (let i = 0; i < this.activeBlocks.length; i++) {
+                const b = this.activeBlocks[i];
+                const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
+                const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) {
+                        this.logicGrid[rowOff + gx] = 1;
+                    }
                 }
+            }
+            this._gridsDirty = false;
+            this._lastProcessedBlockCount = this.activeBlocks.length;
+        } else {
+            const startIdx = this._lastProcessedBlockCount || 0;
+            if (startIdx < this.activeBlocks.length) {
+                for (let i = startIdx; i < this.activeBlocks.length; i++) {
+                    const b = this.activeBlocks[i];
+                    const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
+                    const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
+                    for (let gy = y1; gy <= y2; gy++) {
+                        const rowOff = gy * w;
+                        for (let gx = x1; gx <= x2; gx++) {
+                            this.logicGrid[rowOff + gx] = 1;
+                        }
+                    }
+                }
+                this._lastProcessedBlockCount = this.activeBlocks.length;
             }
         }
     }
@@ -852,6 +874,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // Ensure we only sync once per step (frame-based throttle)
         if (this._syncFrame === this.animFrame) return;
+        
+        // Only re-sync if Layer 0 might have changed (new maskOps)
+        if (this._lastSyncOpCount === this.maskOps.length) return;
+        this._lastSyncOpCount = this.maskOps.length;
+        
         this._syncFrame = this.animFrame;
 
         const maxLayer = s.quantizedGenerateV2LayerCount || 1;

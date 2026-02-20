@@ -8812,6 +8812,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return updated;
     }
     _attemptGrowth() {
+        if (this._isCanvasFullyCovered()) return;
         this._initProceduralState();
         const s = this.c.state;
         const getGenConfig = (key) => {
@@ -8819,15 +8820,26 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (val !== undefined) return val;
             return s['quantizedGenerateV2' + key];
         };
-        const enUnfold = getGenConfig('EnableUnfold') === true;
-        const enNudge = getGenConfig('EnableNudge') === true;
+        const enUnfold = getGenConfig('EnableUnfold');
+        const enNudge = getGenConfig('EnableNudge');
+        const enCluster = getGenConfig('EnableCluster');
+        const enShift = getGenConfig('EnableShift');
+        const enCentered = getGenConfig('EnableCentered');
+        
+        // Default behaviors if nothing is explicitly configured for this effect
+        // Most effects should at least Nudge and Cluster to ensure coverage.
+        const useUnfold = (enUnfold === true);
+        const useNudge = (enNudge === true || enNudge === undefined);
+        const useCluster = (enCluster === true || enCluster === undefined);
+        const useShift = (enShift === true);
+        const useCentered = (enCentered === true);
         const quota = getGenConfig('SimultaneousSpawns') || 1;
-        const maxLayer = getGenConfig('LayerCount') || 1; // 1 means Layer 0 and 1
+        const maxLayer = getGenConfig('LayerCount') || 0; 
         // Determine target layer for THIS step (Sequential Rotation)
         const targetLayer = this.proceduralLayerIndex;
         const pool = [];
-        if (enUnfold) pool.push(() => this._attemptUnfoldGrowth());
-        if (enNudge) {
+        if (useUnfold) pool.push(() => this._attemptUnfoldGrowth(null, targetLayer));
+        if (useNudge) {
             pool.push(() => {
                 const sw = getGenConfig('MinBlockWidth') || 1;
                 const mw = getGenConfig('MaxBlockWidth') || 3;
@@ -8838,6 +8850,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
             });
         }
+        if (useCluster) pool.push(() => this._attemptClusterGrowth(null, targetLayer));
+        if (useShift) {
+            pool.push(() => this._attemptSpokeShiftGrowth(null, targetLayer));
+            pool.push(() => this._attemptQuadrantShiftGrowth(null, targetLayer));
+        }
+        if (useCentered) pool.push(() => this._attemptCenteredGrowth(null, targetLayer));
         // Execute total quota of actions
         let actionsPerformed = 0;
         const maxAttempts = quota * 2; 
@@ -8958,7 +8976,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         return false;
     }
-    _attemptShiftGrowth(ignored, targetLayer) {
+    _attemptQuadrantShiftGrowth(ignored, targetLayer) {
         if (targetLayer === 0) return false; // Sub-layers only
         const s = this.c.state;
         const freq = s.quantizedGenerateV2ShiftFrequency || 5;
@@ -9355,7 +9373,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // _nudge already contains anchoring and occupancy checks
         return this._nudge(block.x, block.y, block.w, block.h, face, block.layer);
     }
-    _attemptShiftGrowth(ignored, targetLayer = 0) {
+    _attemptSpokeShiftGrowth(ignored, targetLayer = 0) {
         const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
         if (anchors.length === 0) return false;
         const anchor = anchors[Math.floor(Math.random() * anchors.length)];
@@ -9524,6 +9542,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
     _isProceduralFinished() {
         if (!this.renderGrid) return true;
+        // 1. Check axis points (fast)
         const w = this.logicGridW;
         const h = this.logicGridH;
         const cx = Math.floor(w / 2);
@@ -9536,7 +9555,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         const hitS = check(cx, h - 1);
         const hitW = check(0, cy);
         const hitE = check(w - 1, cy);
-        return hitN && hitS && hitW && hitE;
+        // 2. If axes reached, perform full visible coverage check
+        if (hitN && hitS && hitW && hitE) {
+            return this._isCanvasFullyCovered();
+        }
+        return false;
     }
     _getBiasedCoordinate(minL, maxL, size, pStatus, axis) {
         const centerReached = (axis === 'X') ? (pStatus.E && pStatus.W) : (pStatus.N && pStatus.S);
@@ -10707,7 +10730,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             { id: 'Unfold', method: '_attemptUnfoldGrowth' },
             { id: 'Nudge', method: '_executeNudgeGrowth' },
             { id: 'Cluster', method: '_attemptClusterGrowth' },
-            { id: 'Shift', method: '_attemptShiftGrowth' },
+            { id: 'Shift', method: '_attemptQuadrantShiftGrowth' },
             { id: 'Centered', method: '_attemptCenteredGrowth' },
             { id: 'Thicken', method: '_attemptThickenGrowth' }
         ];
@@ -44689,46 +44712,68 @@ class UIManager {
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'QuantizedBlockGenerator', class: 'btn-warn' },
             { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Block Generator' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Growth Logic', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableUnfold', type: 'checkbox', label: 'Enable Unfold Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the unfolding behavior (Copy/Paste frontier)." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableNudge', type: 'checkbox', label: 'Enable Nudge Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables multi-layer nudge behaviors." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableCluster', type: 'checkbox', label: 'Enable Cluster Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables shifting clusters of 2-3 blocks." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableCentered', type: 'checkbox', label: 'Enable Centered Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts at the center and grows outward on all layers." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableOverlap', type: 'checkbox', label: 'Enable Layer Overlap', dep: 'quantizedGenerateV2Enabled', description: "Enables overlapping layer generation (Cloud effect)." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableRearrange', type: 'checkbox', label: 'Enable Block Rearranging', dep: 'quantizedGenerateV2Enabled', description: "Selects blocks that extend too far from the center, removes them, and redistributes them to fill holes closer to the core." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableThicken', type: 'checkbox', label: 'Enable Thicken Growth', dep: 'quantizedGenerateV2Enabled', description: "Adds a layer of thickness to existing blocks within random quadrants." },
-            { cat: 'Effects', id: 'quantizedGenerateV2ThickenQuadrantCount', type: 'range', label: 'Thicken Quadrant Count', min: 0, max: 4, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableThicken'], description: "Number of quadrants to thicken per step (0-4)." },
-            { cat: 'Effects', id: 'quantizedGenerateV2RearrangeFrequency', type: 'range', label: 'Rearrange Frequency', min: 0.05, max: 1.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableRearrange'], description: "Controls how often the rearranging behavior is attempted. 100% = every step, 5% = rarely.", transform: v => (v * 100).toFixed(0) + '%' },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableShift', type: 'checkbox', label: 'Enable Block Shift', dep: 'quantizedGenerateV2Enabled', description: "Selects a contiguous block group on a sub-layer and shifts it away from the central axis, filling the wake to prevent holes." },
-            { cat: 'Effects', id: 'quantizedGenerateV2ShiftFrequency', type: 'range', label: 'Shift Frequency', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableShift'], description: "Controls how often block shifting is attempted. 1 = Rarely, 10 = Every step." },
-            { cat: 'Effects', id: 'quantizedGenerateV2ShiftMaxThickness', type: 'range', label: 'Max Shift Thickness', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableShift'], description: "The behavior stops shifting a quadrant once the code mass in that region exceeds this thickness." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableAutoFillHoles', type: 'checkbox', label: 'Auto Fill Holes', dep: 'quantizedGenerateV2Enabled', description: "Automatically fills 1x1 internal gaps within logic blocks." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableAutoConnectIslands', type: 'checkbox', label: 'Auto Connect Islands', dep: 'quantizedGenerateV2Enabled', description: "Attempts to bridge gaps between detached clusters of blocks." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableSyncSubLayers', type: 'checkbox', label: 'Sync Sub-Layers', dep: 'quantizedGenerateV2Enabled', description: "Ensures Layer 0 blocks are always duplicated to sub-layers." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableLayerShoving', type: 'checkbox', label: 'Enable Layer Shoving', dep: 'quantizedGenerateV2Enabled', description: "Pushes overlapping sub-layer blocks outwards when the base layer expands." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableAxisBalancing', type: 'checkbox', label: 'Enable Axis Balancing', dep: 'quantizedGenerateV2Enabled', description: "Ensures symmetrical growth by spawning a mirrored block on an opposite axis whenever a new block is added." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableSubLayerAnchoring', type: 'checkbox', label: 'Anchor sub-layers', dep: 'quantizedGenerateV2Enabled', description: "Restricts sub-layer growth to within a specific distance of the Layer 0 perimeter." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableScaledGrowth', type: 'checkbox', label: 'Scaled Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts with small blocks (1x1, 1x2) and increases block size as the total mass grows." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EnableEventScaling', type: 'checkbox', label: 'Event Scaling', dep: 'quantizedGenerateV2Enabled', description: "Starts with few actions per step and increases frequency as total mass grows." },
-            { cat: 'Effects', id: 'quantizedGenerateV2EventScalingMin', type: 'range', label: 'Min Actions', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableEventScaling'], description: "The starting number of actions per step when event scaling is enabled." },
-            { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
-            { cat: 'Effects', id: 'quantizedGenerateV2SubLayerAnchorDistance', type: 'range', label: 'Anchor Distance', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableSubLayerAnchoring'], description: "The maximum number of block spaces sub-layers can extend beyond the Layer 0 boundary." },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Settings', dep: 'quantizedGenerateV2Enabled' },            { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedGenerateV2Enabled' },
+            
+            { cat: 'Effects', type: 'accordion_subheader', label: 'General', dep: 'quantizedGenerateV2Enabled' },
+            { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
+            { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
+
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Number of additional layers to generate (Layer 0 is always base, max 2 additional = 3 total)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2BlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Width of each grid block in character cells." },
+            { cat: 'Effects', id: 'quantizedGenerateV2BlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Height of each grid block in character cells." },
             { cat: 'Effects', id: 'quantizedGenerateV2MinBlockWidth', type: 'range', label: 'Min Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockWidth', type: 'range', label: 'Max Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2MinBlockHeight', type: 'range', label: 'Min Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockHeight', type: 'range', label: 'Max Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2FadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2FadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2BlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateV2BlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Height of each grid block in character cells." },
             { cat: 'Effects', id: 'quantizedGenerateV2BorderIllumination', type: 'range', label: 'Border Illumination', min: 0.1, max: 10.0, step: 0.1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2PerimeterThickness', type: 'range', label: 'Perimeter Thickness', min: 0.1, max: 4.0, step: 0.1, dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2PerimeterColor', type: 'color', label: 'Perimeter Color', dep: 'quantizedGenerateV2Enabled' },
             { cat: 'Effects', id: 'quantizedGenerateV2InnerColor', type: 'color', label: 'Perimeter Fade Color', dep: 'quantizedGenerateV2Enabled' },
+
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedGenerateV2Enabled' },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'], description: "Overrides global line persistence for this effect." },
+
+            { cat: 'Effects', type: 'accordion_subheader', label: 'Behavior', dep: 'quantizedGenerateV2Enabled' },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableUnfold', type: 'checkbox', label: 'Enable Unfold Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables the unfolding behavior (Copy/Paste frontier)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableNudge', type: 'checkbox', label: 'Enable Nudge Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables multi-layer nudge behaviors." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableCluster', type: 'checkbox', label: 'Enable Cluster Growth', dep: 'quantizedGenerateV2Enabled', description: "Enables shifting clusters of 2-3 blocks." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableCentered', type: 'checkbox', label: 'Enable Centered Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts at the center and grows outward on all layers." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableOverlap', type: 'checkbox', label: 'Enable Layer Overlap', dep: 'quantizedGenerateV2Enabled', description: "Enables overlapping layer generation (Cloud effect)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableShift', type: 'checkbox', label: 'Enable Block Shift', dep: 'quantizedGenerateV2Enabled', description: "Selects a contiguous block group on a sub-layer and shifts it away from the central axis, filling the wake to prevent holes." },
+            { cat: 'Effects', id: 'quantizedGenerateV2ShiftFrequency', type: 'range', label: 'Shift Frequency', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableShift'], description: "Controls how often block shifting is attempted. 1 = Rarely, 10 = Every step." },
+            { cat: 'Effects', id: 'quantizedGenerateV2ShiftMaxThickness', type: 'range', label: 'Max Shift Thickness', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableShift'], description: "The behavior stops shifting a quadrant once the code mass in that region exceeds this thickness." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableRearrange', type: 'checkbox', label: 'Enable Block Rearranging', dep: 'quantizedGenerateV2Enabled', description: "Scans for L-shaped block configurations, deletes the arm that extends away from its closest central axis, and redistributes it to a viable location near the axes in the next step." },
+            { cat: 'Effects', id: 'quantizedGenerateV2RearrangeFrequency', type: 'range', label: 'Deletions per Step', min: 1, max: 5, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableRearrange'], description: "Controls the maximum number of blocks pruned, rotated, or rearranged per step." },
+            { cat: 'Effects', id: 'quantizedGenerateV2RearrangeSubLayersOnly', type: 'checkbox', label: 'Sub-Layers Only', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableRearrange'], description: "Forces rearranging and deletions to only affect sub-layers (L1, L2), preserving the integrity of the primary layer (L0)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableThicken', type: 'checkbox', label: 'Enable Thicken Growth', dep: 'quantizedGenerateV2Enabled', description: "Adds a layer of thickness to existing blocks within random quadrants." },
+            { cat: 'Effects', id: 'quantizedGenerateV2ThickenQuadrantCount', type: 'range', label: 'Thicken Quadrant Count', min: 0, max: 4, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableThicken'], description: "Number of quadrants to thicken per step (0-4)." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableAutoFillHoles', type: 'checkbox', label: 'Auto Fill Holes', dep: 'quantizedGenerateV2Enabled', description: "Automatically fills 1x1 internal gaps within logic blocks." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableAutoConnectIslands', type: 'checkbox', label: 'Auto Connect Islands', dep: 'quantizedGenerateV2Enabled', description: "Attempts to bridge gaps between detached clusters of blocks." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableSyncSubLayers', type: 'checkbox', label: 'Sync Sub-Layers', dep: 'quantizedGenerateV2Enabled', description: "Ensures Layer 0 blocks are always duplicated to sub-layers." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableLayerShoving', type: 'checkbox', label: 'Enable Layer Shoving', dep: 'quantizedGenerateV2Enabled', description: "Pushes overlapping sub-layer blocks outwards when the base layer expands." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableLayerCycling', type: 'checkbox', label: 'Layer Cycle (1-2-0)', dep: 'quantizedGenerateV2Enabled', description: "Cycles through Layer 1, 2, and 0 sequentially for each action in a step." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableAxisBalancing', type: 'checkbox', label: 'Enable Axis Balancing', dep: 'quantizedGenerateV2Enabled', description: "Ensures symmetrical growth by spawning a mirrored block on an opposite axis whenever a new block is added." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableScaledGrowth', type: 'checkbox', label: 'Enable Scaled Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts with small blocks (1x1, 1x2) and increases block size as the total mass grows." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableEventScaling', type: 'checkbox', label: 'Enable Event Scaling', dep: 'quantizedGenerateV2Enabled', description: "Starts with few actions per step and increases frequency as total mass grows." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EventScalingMin', type: 'range', label: 'Min Actions', min: 1, max: 10, step: 1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2EnableEventScaling'], description: "The starting number of actions per step when event scaling is enabled." },
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
             { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
             { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power' },

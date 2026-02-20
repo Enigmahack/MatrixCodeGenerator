@@ -343,6 +343,12 @@ class QuantizedRenderer {
                     if (state.dimDeathFrame === -1) state.dimDeathFrame = now;
                 }
             }
+        };
+
+        const drawEdge = (x, y, type) => {
+            const key = `${type}_${x}_${y}`;
+            const state = fx.lineStates.get(key);
+            if (!state) return;
 
             const face = (type === 'V') ? 'W' : 'N';
             
@@ -391,14 +397,45 @@ class QuantizedRenderer {
             }
         };
 
-        for (let x = 0; x <= blocksX; x++) {
-            for (let y = 0; y < blocksY; y++) {
-                resolveEdge(x, y, 'V');
+        // Track changes since last frame to only resolve affected edges
+        if (fx._lastResolvedFrame !== now) {
+            // Check if any blocks were added/removed since LAST RENDER
+            const hasNewOps = (fx._lastRendererOpIndex < fx.maskOps.length);
+            const orderChanged = fx._gridsDirty;
+
+            if (hasNewOps || orderChanged) {
+                // If many changes, do a full scan (simpler for now)
+                // In a future optimization, we could use a dirty list.
+                for (let x = 0; x <= blocksX; x++) {
+                    for (let y = 0; y < blocksY; y++) {
+                        resolveEdge(x, y, 'V');
+                    }
+                }
+                for (let y = 0; y <= blocksY; y++) {
+                    for (let x = 0; x < blocksX; x++) {
+                        resolveEdge(x, y, 'H');
+                    }
+                }
+                fx._lastRendererOpIndex = fx.maskOps.length;
+            } else {
+                // Only resolve edges that are currently in transition
+                // (birthFrame/deathFrame/dimBirthFrame/dimDeathFrame !== -1)
+                for (const [key, state] of fx.lineStates) {
+                    if (state.birthFrame !== -1 || state.deathFrame !== -1 ||
+                        state.dimBirthFrame !== -1 || state.dimDeathFrame !== -1) {
+                        const [type, xStr, yStr] = key.split('_');
+                        resolveEdge(parseInt(xStr), parseInt(yStr), type);
+                    }
+                }
             }
+            fx._lastResolvedFrame = now;
         }
-        for (let y = 0; y <= blocksY; y++) {
-            for (let x = 0; x < blocksX; x++) {
-                resolveEdge(x, y, 'H');
+
+        // Always draw active/fading edges
+        for (const [key, state] of fx.lineStates) {
+            if (state.visible || state.deathFrame !== -1 || state.dimVisible || state.dimDeathFrame !== -1) {
+                const [type, xStr, yStr] = key.split('_');
+                drawEdge(parseInt(xStr), parseInt(yStr), type);
             }
         }
 

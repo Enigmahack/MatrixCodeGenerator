@@ -84,6 +84,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             stepOccupancy: null
         };
         this._gridsDirty = true;
+        this._lastRendererOpIndex = 0;
     }
 
     _getBuffer(key, length, type = Uint8Array) {
@@ -199,6 +200,39 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this.removalGrids[i].fill(-1);
             }
         }
+
+        // Initialize coverage counter
+        this._visibleEmptyCount = -1; // Force recalculation
+    }
+
+    _updateVisibleEmptyCount() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h || !this.renderGrid) return;
+        const bs = this.getBlockSize();
+        const { offX, offY } = this._computeCenteredOffset(w, h, bs.w, bs.h);
+        const visibleW = Math.ceil(this.g.cols / bs.w);
+        const visibleH = Math.ceil(this.g.rows / bs.h);
+        const startX = Math.max(0, Math.floor(offX));
+        const endX = Math.min(w, startX + visibleW);
+        const startY = Math.max(0, Math.floor(offY));
+        const endY = Math.min(h, startY + visibleH);
+
+        let count = 0;
+        for (let gy = startY; gy < endY; gy++) {
+            const rowOff = gy * w;
+            for (let gx = startX; gx < endX; gx++) {
+                if (this.renderGrid[rowOff + gx] === -1) count++;
+            }
+        }
+        this._visibleEmptyCount = count;
+        this._lastCoverageRect = { startX, endX, startY, endY };
+    }
+
+    _isCanvasFullyCovered() {
+        if (this._visibleEmptyCount === -1) {
+            this._updateVisibleEmptyCount();
+        }
+        return this._visibleEmptyCount <= 0;
     }
 
     _updateLayerOrder(updatedLayer) {
@@ -264,6 +298,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.expansionPhase = 0;
         this.maskOps = [];
         this._lastProcessedOpIndex = 0;
+        this._lastRendererOpIndex = 0;
         this.animFrame = 0;
         this._maskDirty = true;
         this._gridsDirty = true;
@@ -663,11 +698,16 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         if (!this.maskOps) return;
+
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
         const startIndex = this._lastProcessedOpIndex || 0;
         let processed = 0;
         let i = startIndex;
+        
+        // Track areas that need re-compositing
+        const dirtyRects = [];
+
         for (; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
             if (op.startFrame && this.animFrame < op.startFrame) break;
@@ -676,82 +716,143 @@ class QuantizedBaseEffect extends AbstractEffect {
             const targetGrid = this.layerGrids[layerIdx];
             
             if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
+                const oldOrder = this.layerOrder.join(',');
                 this._updateLayerOrder(layerIdx);
-                this._gridsDirty = true;
+                if (this.layerOrder.join(',') !== oldOrder) {
+                    this._gridsDirty = true;
+                }
             }
 
+            const x1 = Math.min(op.x1, op.x2);
+            const x2 = Math.max(op.x1, op.x2);
+            const y1 = Math.min(op.y1, op.y2);
+            const y2 = Math.max(op.y1, op.y2);
+            
+            dirtyRects.push({ x1, y1, x2, y2 });
+
             if (op.type === 'add' || op.type === 'addSmart') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.max(0, Math.min(start.x, end.x));
-                const maxX = Math.min(this.logicGridW - 1, Math.max(start.x, end.x));
-                const minY = Math.max(0, Math.min(start.y, end.y));
-                const maxY = Math.min(this.logicGridH - 1, Math.max(start.y, end.y));
+                const minX = Math.max(0, cx + x1);
+                const maxX = Math.min(this.logicGridW - 1, cx + x2);
+                const minY = Math.max(0, cy + y1);
+                const maxY = Math.min(this.logicGridH - 1, cy + y2);
                 for (let by = minY; by <= maxY; by++) {
                     const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
-                        // Use a large negative frame number for non-fading blocks to ensure they are immediately solid
                         targetGrid[idx] = (op.fade === false) ? -1000 : (op.startFrame || 0);
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
                 }
             } else if (op.type === 'removeBlock') {
-                const start = { x: cx + op.x1, y: cy + op.y1 };
-                const end = { x: cx + op.x2, y: cy + op.y2 };
-                const minX = Math.max(0, Math.min(start.x, end.x));
-                const maxX = Math.min(this.logicGridW - 1, Math.max(start.x, end.x));
-                const minY = Math.max(0, Math.min(start.y, end.y));
-                const maxY = Math.min(this.logicGridH - 1, Math.max(start.y, end.y));
+                const minX = Math.max(0, cx + x1);
+                const maxX = Math.min(this.logicGridW - 1, cx + x2);
+                const minY = Math.max(0, cy + y1);
+                const maxY = Math.min(this.logicGridH - 1, cy + y2);
                 for (let by = minY; by <= maxY; by++) {
                     const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
-                        const remFrame = op.startFrame || 0;
                         if (op.layer !== undefined) {
-                                                    targetGrid[idx] = -1;
-                                                    if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
-                                                } else {
-                                                    for (let l = 0; l < 3; l++) {
-                                                        this.layerGrids[l][idx] = -1;
-                                                        if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
-                                                    }
-                                                }                    }
+                            targetGrid[idx] = -1;
+                            if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
+                        } else {
+                            for (let l = 0; l < 3; l++) {
+                                this.layerGrids[l][idx] = -1;
+                                if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
+                            }
+                        }
+                    }
                 }
             }
         }
         
-        // Skip full re-composite if nothing changed
+        this._lastProcessedOpIndex = i;
+
+        // Skip full re-composite if nothing changed and not globally dirty
         if (processed === 0 && !this._gridsDirty) {
-            this._lastProcessedOpIndex = i;
             return;
         }
 
         const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
         const layerGrids = this.layerGrids;
 
-        for (let idx = 0; idx < totalBlocks; idx++) {
-            let finalVal = -1;
-            let anyActive = false;
-            for (let j = 0; j < visibleIndices.length; j++) {
-                const lIdx = visibleIndices[j];
-                const grid = layerGrids[lIdx];
-                if (grid && grid[idx] !== -1) {
-                    if (finalVal === -1) finalVal = grid[idx];
-                    anyActive = true;
+        if (this._gridsDirty) {
+            // Full re-composite
+            let emptyCount = 0;
+            const r = this._lastCoverageRect || { startX: 0, endX: 0, startY: 0, endY: 0 };
+            
+            for (let idx = 0; idx < totalBlocks; idx++) {
+                let finalVal = -1;
+                let anyActive = false;
+                for (let j = 0; j < visibleIndices.length; j++) {
+                    const lIdx = visibleIndices[j];
+                    const grid = layerGrids[lIdx];
+                    if (grid && grid[idx] !== -1) {
+                        if (finalVal === -1) finalVal = grid[idx];
+                        anyActive = true;
+                    }
+                }
+                this.renderGrid[idx] = finalVal;
+                if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
+                
+                // Track empty cells in visible area
+                const bx = idx % this.logicGridW;
+                const by = (idx / this.logicGridW) | 0;
+                if (finalVal === -1 && bx >= r.startX && bx < r.endX && by >= r.startY && by < r.endY) {
+                    emptyCount++;
                 }
             }
-            this.renderGrid[idx] = finalVal;
-            if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
+            this._visibleEmptyCount = emptyCount;
+            this._gridsDirty = false;
+        } else if (dirtyRects.length > 0) {
+            // Incremental re-composite for affected areas
+            const r = this._lastCoverageRect;
+            if (!r || this._visibleEmptyCount === -1) {
+                this._updateVisibleEmptyCount();
+            }
+
+            for (const rect of dirtyRects) {
+                const minX = Math.max(0, cx + rect.x1);
+                const maxX = Math.min(this.logicGridW - 1, cx + rect.x2);
+                const minY = Math.max(0, cy + rect.y1);
+                const maxY = Math.min(this.logicGridH - 1, cy + rect.y2);
+
+                for (let by = minY; by <= maxY; by++) {
+                    const rowOff = by * this.logicGridW;
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        const idx = rowOff + bx;
+                        const wasEmpty = (this.renderGrid[idx] === -1);
+                        const isVisible = (r && bx >= r.startX && bx < r.endX && by >= r.startY && by < r.endY);
+
+                        let finalVal = -1;
+                        let anyActive = false;
+                        for (let j = 0; j < visibleIndices.length; j++) {
+                            const lIdx = visibleIndices[j];
+                            const grid = layerGrids[lIdx];
+                            if (grid && grid[idx] !== -1) {
+                                if (finalVal === -1) finalVal = grid[idx];
+                                anyActive = true;
+                            }
+                        }
+                        this.renderGrid[idx] = finalVal;
+                        if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
+
+                        const isEmpty = (finalVal === -1);
+                        if (isVisible) {
+                            if (wasEmpty && !isEmpty) this._visibleEmptyCount--;
+                            else if (!wasEmpty && isEmpty) this._visibleEmptyCount++;
+                        }
+                    }
+                }
+            }
         }
-        this._lastProcessedOpIndex = i;
-        this._gridsDirty = false;
+
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
         const bs = this.getBlockSize();
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
-        if (processed > 0) {
+        if (processed > 0 || this._gridsDirty) {
             this.renderer._distMapDirty = true;
             this._outsideMapDirty = true;
             this._maskDirty = true;
@@ -1330,6 +1431,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptGrowth() {
+        if (this._isCanvasFullyCovered()) return;
         this._initProceduralState();
 
         const s = this.c.state;
@@ -1339,17 +1441,29 @@ class QuantizedBaseEffect extends AbstractEffect {
             return s['quantizedGenerateV2' + key];
         };
 
-        const enUnfold = getGenConfig('EnableUnfold') === true;
-        const enNudge = getGenConfig('EnableNudge') === true;
+        const enUnfold = getGenConfig('EnableUnfold');
+        const enNudge = getGenConfig('EnableNudge');
+        const enCluster = getGenConfig('EnableCluster');
+        const enShift = getGenConfig('EnableShift');
+        const enCentered = getGenConfig('EnableCentered');
+        
+        // Default behaviors if nothing is explicitly configured for this effect
+        // Most effects should at least Nudge and Cluster to ensure coverage.
+        const useUnfold = (enUnfold === true);
+        const useNudge = (enNudge === true || enNudge === undefined);
+        const useCluster = (enCluster === true || enCluster === undefined);
+        const useShift = (enShift === true);
+        const useCentered = (enCentered === true);
+
         const quota = getGenConfig('SimultaneousSpawns') || 1;
-        const maxLayer = getGenConfig('LayerCount') || 1; // 1 means Layer 0 and 1
+        const maxLayer = getGenConfig('LayerCount') || 0; 
 
         // Determine target layer for THIS step (Sequential Rotation)
         const targetLayer = this.proceduralLayerIndex;
         
         const pool = [];
-        if (enUnfold) pool.push(() => this._attemptUnfoldGrowth());
-        if (enNudge) {
+        if (useUnfold) pool.push(() => this._attemptUnfoldGrowth(null, targetLayer));
+        if (useNudge) {
             pool.push(() => {
                 const sw = getGenConfig('MinBlockWidth') || 1;
                 const mw = getGenConfig('MaxBlockWidth') || 3;
@@ -1360,6 +1474,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
             });
         }
+        if (useCluster) pool.push(() => this._attemptClusterGrowth(null, targetLayer));
+        if (useShift) {
+            pool.push(() => this._attemptSpokeShiftGrowth(null, targetLayer));
+            pool.push(() => this._attemptQuadrantShiftGrowth(null, targetLayer));
+        }
+        if (useCentered) pool.push(() => this._attemptCenteredGrowth(null, targetLayer));
 
         // Execute total quota of actions
         let actionsPerformed = 0;
@@ -1534,7 +1654,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
-    _attemptShiftGrowth(ignored, targetLayer) {
+    _attemptQuadrantShiftGrowth(ignored, targetLayer) {
         if (targetLayer === 0) return false; // Sub-layers only
 
         const s = this.c.state;
@@ -1996,7 +2116,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return this._nudge(block.x, block.y, block.w, block.h, face, block.layer);
     }
 
-    _attemptShiftGrowth(ignored, targetLayer = 0) {
+    _attemptSpokeShiftGrowth(ignored, targetLayer = 0) {
         const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
         if (anchors.length === 0) return false;
         const anchor = anchors[Math.floor(Math.random() * anchors.length)];
@@ -2180,6 +2300,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _isProceduralFinished() {
         if (!this.renderGrid) return true;
         
+        // 1. Check axis points (fast)
         const w = this.logicGridW;
         const h = this.logicGridH;
         const cx = Math.floor(w / 2);
@@ -2195,7 +2316,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         const hitW = check(0, cy);
         const hitE = check(w - 1, cy);
 
-        return hitN && hitS && hitW && hitE;
+        // 2. If axes reached, perform full visible coverage check
+        if (hitN && hitS && hitW && hitE) {
+            return this._isCanvasFullyCovered();
+        }
+        
+        return false;
     }
 
     _getBiasedCoordinate(minL, maxL, size, pStatus, axis) {
@@ -3274,32 +3400,15 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _isCanvasFullyCovered() {
-        const w = this.logicGridW, h = this.logicGridH;
-        if (!w || !h || !this.renderGrid) return false;
-        const bs = this.getBlockSize();
-        const { offX, offY } = this._computeCenteredOffset(w, h, bs.w, bs.h);
-        const visibleW = Math.ceil(this.g.cols / bs.w);
-        const visibleH = Math.ceil(this.g.rows / bs.h);
-        const startX = Math.max(0, Math.floor(offX));
-        const endX = Math.min(w, startX + visibleW);
-        const startY = Math.max(0, Math.floor(offY));
-        const endY = Math.min(h, startY + visibleH);
-
-        for (let gy = startY; gy < endY; gy++) {
-            const rowOff = gy * w;
-            for (let gx = startX; gx < endX; gx++) {
-                if (this.renderGrid[rowOff + gx] === -1) return false;
-            }
+        if (this._visibleEmptyCount === -1) {
+            this._updateVisibleEmptyCount();
         }
-        return true;
+        return this._visibleEmptyCount <= 0;
     }
 
     _updateExpansionStatus() {
         if (this.expansionComplete) return true;
         
-        // Throttled check: every 10 logic frames
-        if (this.animFrame % 10 !== 0) return false;
-
         if (this._isCanvasFullyCovered()) {
             this.expansionComplete = true;
             this.onExpansionComplete();
