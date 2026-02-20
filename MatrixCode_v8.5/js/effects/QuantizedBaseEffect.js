@@ -73,6 +73,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.overlapState = { step: 0 };
         this.cycleState = null;
         this.isReconstructing = false;
+        this.expansionComplete = false;
 
         // Buffer Pool for high-frequency operations
         this._bufferPool = {
@@ -227,6 +228,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         return sample.sort((a, b) => a.dist - b.dist);
     }
 
+    _getEdgeAnchors(targetLayer, sampleSize = 30) {
+        const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
+        if (anchors.length === 0) return [];
+        
+        if (anchors.length <= sampleSize) {
+            return anchors.sort((a, b) => b.dist - a.dist);
+        }
+
+        const sample = [];
+        for (let i = 0; i < sampleSize; i++) {
+            sample.push(anchors[Math.floor(Math.random() * anchors.length)]);
+        }
+        return sample.sort((a, b) => b.dist - a.dist);
+    }
+
     trigger(force = false) {
         if (this.active && !force) return false;
         
@@ -241,6 +257,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         this.active = true;
+        this.expansionComplete = false;
         
         this.cycleTimer = 0;
         this.cyclesCompleted = 0;
@@ -518,6 +535,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this.layerGrids[i] = new Int32Array(requiredSize);
                     this.layerGrids[i].fill(-1);
                 }
+                if (!this.removalGrids[i] || this.removalGrids[i].length !== requiredSize) {
+                    this.removalGrids[i] = new Int32Array(requiredSize);
+                    this.removalGrids[i].fill(-1);
+                }
             }
         }
     }
@@ -670,7 +691,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
-                        targetGrid[idx] = op.startFrame || 0;
+                        // Use a large negative frame number for non-fading blocks to ensure they are immediately solid
+                        targetGrid[idx] = (op.fade === false) ? -1000 : (op.startFrame || 0);
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
                 }
@@ -1288,7 +1310,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const maxLayer = this.getConfig('LayerCount') || 0;
             for (let l = 0; l <= maxLayer; l++) {
                 // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
-                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, false, false, true);
+                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, true, false, true);
             }
         }
     }
@@ -1502,7 +1524,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         else if (dir === 'E') { spawnX = firstEmpty.x; spawnY = firstEmpty.y - Math.floor(currentBh / 2); }
 
                         // Override Rule Stack to ensure continuity
-                        if (this._spawnBlock(spawnX, spawnY, currentBw, currentBh, targetLayer, false, 0, true, true, false, false, true) !== -1) {
+                        if (this._spawnBlock(spawnX, spawnY, currentBw, currentBh, targetLayer, false, 0, true, true, true, false, true) !== -1) {
                             return true;
                         }
                     }
@@ -1627,7 +1649,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
 
                     // Spawn at new location
-                    if (this._spawnBlock(lx + dx, ly + dy, sz.w, sz.h, targetLayer, true, 0, true, true, false, false, true) !== -1) {
+                    if (this._spawnBlock(lx + dx, ly + dy, sz.w, sz.h, targetLayer, true, 0, true, true, true, false, true) !== -1) {
                         return true;
                     }
                 }
@@ -1774,7 +1796,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.sequence[this.expansionPhase].push(seqOp);
         }
         
-        this._writeToGrid(x, y, w, h, this.animFrame, layer);
+        this._writeToGrid(x, y, w, h, (op.fade === false ? -1000 : this.animFrame), layer);
 
         return id;
     }
@@ -1936,16 +1958,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                 type: 'addSmart', 
                 x1: m.b.x, y1: m.b.y, x2: m.b.x + m.b.w - 1, y2: m.b.y + m.b.h - 1, 
                 startFrame: m.start, startPhase: this.expansionPhase, 
-                layer: layer 
+                layer: layer,
+                fade: false
             });
 
             // IMPORTANT: Add a NEW block to activeBlocks at the OLD position 
             // This ensures the simulation matches the physics grid (no holes in collision logic)
-            this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, layer, false, 0, true, true, false, false, true);
+            this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, layer, false, 0, true, true, true, false, true);
         }
 
         // 3. Add the SOURCE REPLACEMENT block at the original origin (x, y)
-        if (this._spawnBlock(x, y, w, h, layer, false, 0, true, true, false, false, true) !== -1) {
+        if (this._spawnBlock(x, y, w, h, layer, false, 0, true, true, true, false, true) !== -1) {
             // Record to sequence for Editor/Step support (ONLY if not currently reconstructing)
             if (this.manualStep && this.sequence && !this.isReconstructing) {
                 if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
@@ -2007,7 +2030,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         let success = false;
         for (const gap of potentialGaps) {
             if (gap.d < furthestDist) {
-                if (this._spawnBlock(gap.x, gap.y, 1, 1, targetLayer, false, 0, false, true) !== -1) success = true; 
+                if (this._spawnBlock(gap.x, gap.y, 1, 1, targetLayer, false, 0, false, true, true) !== -1) success = true; 
             }
         }
         let startExt = furthestDist + 1;
@@ -2015,7 +2038,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const d = startExt + i, tx = currentRelX + (scanX ? d * dx : 0), ty = currentRelY + (scanX ? 0 : d * dy);
             const gx = cx + tx, gy = cy + ty;
             if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
-                if (this._spawnBlock(tx, ty, 1, 1, targetLayer) !== -1) success = true;
+                if (this._spawnBlock(tx, ty, 1, 1, targetLayer, false, 0, false, false, true) !== -1) success = true;
             }
         }
         return success;
@@ -2361,9 +2384,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 else if (dir === 'E') tx += bw; else if (dir === 'W') tx -= bw;
                 
                 // Use skipConnectivity=false to ensure it attaches to its own layer
-                this._spawnBlock(tx, ty, bw, bh, targetLayer, false, 0, false, true);
+                // suppressFades=true as requested for unfolding blocks
+                const result = this._spawnBlock(tx, ty, bw, bh, targetLayer, false, 0, false, true, true);
                 sequence.active = false;
-                return true;
+                return (result !== -1);
             }
             return false;
         }
@@ -2373,7 +2397,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         const l0 = this.layerGrids[targetLayer];
         if (!l0) return false;
-        const anchors = this._getLooselyCentralAnchors(targetLayer);
+        // Prefer edge anchors for more efficient expansion
+        const anchors = this._getEdgeAnchors(targetLayer);
         if (anchors.length === 0) return false;
 
         for (const anchor of anchors) {
@@ -2406,9 +2431,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (unfoldDir === 'N') t2y -= bh; else if (unfoldDir === 'S') t2y += bh;
                 else if (unfoldDir === 'E') t2x += bw; else if (unfoldDir === 'W') t2x -= bw;
 
+                // Outward Growth Enforcement: Target must be further from center than source
+                const dSource = Math.abs(startX_rel + bw/2) + Math.abs(startY_rel + bh/2);
+                const dTarget = Math.abs(t2x + bw/2) + Math.abs(t2y + bh/2);
+                if (dTarget < dSource - 0.1) continue; 
+
                 if (this._checkNoOverlap(t2x, t2y, bw, bh, targetLayer) && this._checkNoHole(t2x, t2y, bw, bh)) {
                     this.unfoldSequences[targetLayer].push({ active: true, step: 0, x: startX_rel, y: startY_rel, bw, bh, dir: unfoldDir, layer: targetLayer });
                     // Snapshot source area: Use skipConnectivity=true and bypassOccupancy=true since we are capturing existing mass
+                    // suppressFades=true ensures capturing existing mass doesn't re-trigger fade-ins
                     this._spawnBlock(startX_rel, startY_rel, bw, bh, targetLayer, false, 0, true, true, true, false, true);
                     return true;
                 }
@@ -2452,7 +2483,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 Utils.shuffle(sizes);
                 
                 for (const sz of sizes) {
-                    if (this._spawnBlock(hole.x, hole.y, sz.w, sz.h, targetLayer, false, 0, false, true, false, false, true) !== -1) {
+                    if (this._spawnBlock(hole.x, hole.y, sz.w, sz.h, targetLayer, false, 0, false, true, true, false, true) !== -1) {
                         this.rearrangePool[targetLayer]--;
                         this._log(`[Rearrange] Redistributed to (${hole.x}, ${hole.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
                         return true; 
@@ -2519,15 +2550,11 @@ class QuantizedBaseEffect extends AbstractEffect {
     _attemptCenteredGrowth(ignored, targetLayer = 0) {
         if (!this.centeredState || !this.centeredState[targetLayer]) {
             if (!this.centeredState) this.centeredState = [];
-            this.centeredState[targetLayer] = { currentMaxRadius: 0, lastUpdate: -100 };
+            this.centeredState[targetLayer] = { currentMaxRadius: 0 };
         }
         
         const state = this.centeredState[targetLayer];
         
-        // Pace control
-        if (this.animFrame - state.lastUpdate < 3) return false;
-        state.lastUpdate = this.animFrame;
-
         const w = this.logicGridW, h = this.logicGridH;
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
         const grid = this.layerGrids[targetLayer];
@@ -2571,14 +2598,14 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     // Must be anchored to existing mass OR be the center seed
                     const isCenter = (pt.x === 0 && pt.y === 0);
-                    if (isCenter) {
-                        if (this._spawnBlock(ox, oy, sz.w, sz.h, targetLayer, false, 0, true, true) !== -1) {
-                            // Update max radius if we spawned at the frontier
-                            if (r >= state.currentMaxRadius) {
-                                state.currentMaxRadius = r + 1;
-                            }
-                            return true; 
+                    // Use skipConnectivity=true ONLY for the center seed to allow it to start,
+                    // but enforce connectivity for all subsequent blocks to ensure outward expansion.
+                    if (this._spawnBlock(ox, oy, sz.w, sz.h, targetLayer, false, 0, isCenter, true, true, false, true) !== -1) {
+                        // Update max radius if we spawned at the frontier
+                        if (r >= state.currentMaxRadius) {
+                            state.currentMaxRadius = r + 1;
                         }
+                        return true; 
                     }
                 }
             }
@@ -2642,8 +2669,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (bh > 1) fy -= Math.floor(bh / 2);
 
         if (this._checkNoOverlap(fx, fy, bw, bh, layer)) {
-            // Use suppressLines=true to prevent accumulation of persistent internal lines
-            this._spawnBlock(fx, fy, bw, bh, layer, false, 0, true, true, false);
+            // Use suppressFades=true to prevent accumulation of persistent internal lines
+            this._spawnBlock(fx, fy, bw, bh, layer, false, 0, true, true, true);
             return true;
         }
         return false;
@@ -2864,7 +2891,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (frontier.length === 0) {
             if (grid[cy * w + cx] === -1) {
-                this._spawnBlock(0, 0, 1, 1, targetLayer, false, 0, true, true, false);
+                this._spawnBlock(0, 0, 1, 1, targetLayer, false, 0, true, true, true);
                 return true;
             }
             return false;
@@ -2892,7 +2919,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const enShoving = this.getConfig('EnableLayerShoving') === true;
             if (targetLayer === 0 && enShoving) this._shoveOtherLayers(bx, by, bw, bh);
             // Use suppressLines=true for clean expansion
-            this._spawnBlock(bx, by, bw, bh, targetLayer, false, 0, true, true, false);
+            this._spawnBlock(bx, by, bw, bh, targetLayer, false, 0, true, true, true);
             return true;
         }
         return false;
@@ -3020,7 +3047,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const isSmallGap = (neighborCount >= 3);
 
                     if (isEnclosed || isSmallGap) {
-                        this._spawnBlock(gx - cx, gy - cy, 1, 1, layer, false, 0, true, true);
+                        this._spawnBlock(gx - cx, gy - cy, 1, 1, layer, false, 0, true, true, true);
                         this._gridsDirty = true;
                         filledCount++;
                     }
@@ -3141,7 +3168,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     else if (curY < bestTargetPt.y) curY++; else if (curY > bestTargetPt.y) curY--;
                     
                     if (combined[curY * w + curX] === -1) {
-                        this._spawnBlock(curX - cx, curY - cy, 1, 1, island.layer, false, 0, true, true);
+                        this._spawnBlock(curX - cx, curY - cy, 1, 1, island.layer, false, 0, true, true, true);
                         combined[curY * w + curX] = 1;
                     }
                 }
@@ -3168,6 +3195,24 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         return true;
+    }
+
+    _updateExpansionStatus() {
+        if (this.expansionComplete) return true;
+        
+        // Throttled check: every 10 logic frames
+        if (this.animFrame % 10 !== 0) return false;
+
+        if (this._isCanvasFullyCovered()) {
+            this.expansionComplete = true;
+            this.onExpansionComplete();
+            return true;
+        }
+        return false;
+    }
+
+    onExpansionComplete() {
+        this._log(`[${this.name}] Expansion complete: canvas covered.`);
     }
 
     stop() {

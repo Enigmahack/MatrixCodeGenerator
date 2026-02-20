@@ -287,6 +287,8 @@ class WebGLRenderer {
                 uniform float u_glowFalloff;
                 uniform float u_roundness;
                 uniform float u_maskSoftness;
+                uniform float u_persistence;
+                uniform bool u_showInterior;
                 
                 out vec4 fragColor;
 
@@ -318,7 +320,7 @@ class WebGLRenderer {
                         vec3 occ = getOccupancy(blockCoord);
                         float mask = 0.0;
                         for(int i=0; i<3; i++) {
-                            if (getLayerVal(occ, u_layerOrder[i]) > 0.5) { mask = 1.0; break; }
+                            mask = max(mask, getLayerVal(occ, u_layerOrder[i]));
                         }
                         fragColor = vec4(0.0, 0.0, 0.0, mask);
                         return;
@@ -346,8 +348,8 @@ class WebGLRenderer {
                             charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
                         }
                         
-                        // Calculate Dynamic Color based on persistence (fade out)
-                        float colorT = clamp(persist / u_intensity, 0.0, 1.0);
+                        // Calculate Dynamic Color based on normalized persistence (0..1)
+                        float colorT = clamp(persist, 0.0, 1.0);
                         
                         // Line Roundness affects color transition dynamics
                         float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
@@ -361,7 +363,7 @@ class WebGLRenderer {
                         dynamicColor *= u_brightness;
                         
                         // Additive highlight based on Source Grid characters
-                        vec3 highlight = dynamicColor * persist * charLuma * u_additiveStrength;
+                        vec3 highlight = dynamicColor * persist * charLuma * u_additiveStrength * u_intensity;
                         
                         fragColor = vec4(base.rgb + highlight, base.a);
                         return;
@@ -386,47 +388,97 @@ class WebGLRenderer {
                     float total = 0.0;
                     float halfThick = (u_thickness / 10.0) * 0.5;
 
-                    for (int i = 0; i < 3; i++) {
-                        int L = u_layerOrder[i];
-                        float cL = getLayerVal(centerOcc, L);
-                        
-                        bool isEdgeN = (cL > 0.5) != (getLayerVal(aboveOcc, L) > 0.5);
-                        bool isEdgeS = (cL > 0.5) != (getLayerVal(belowOcc, L) > 0.5);
-                        bool isEdgeW = (cL > 0.5) != (getLayerVal(leftOcc, L) > 0.5);
-                        bool isEdgeE = (cL > 0.5) != (getLayerVal(rightOcc, L) > 0.5);
+                    // UNION ALPHA approach for Perimeter-only mode
+                    float unionC = 0.0;
+                    float unionN = 0.0;
+                    float unionS = 0.0;
+                    float unionW = 0.0;
+                    float unionE = 0.0;
+
+                    if (!u_showInterior) {
+                        for (int i = 0; i < 3; i++) {
+                            int L = u_layerOrder[i];
+                            unionC = max(unionC, getLayerVal(centerOcc, L));
+                            unionN = max(unionN, getLayerVal(aboveOcc, L));
+                            unionS = max(unionS, getLayerVal(belowOcc, L));
+                            unionW = max(unionW, getLayerVal(leftOcc, L));
+                            unionE = max(unionE, getLayerVal(rightOcc, L));
+                        }
+
+                        // Binary Presence Check: only an edge if one side is occupied and the other is not.
+                        // This prevents internal flashes when a block is added adjacent to an existing one.
+                        bool isEdgeN = (unionC > 0.01) != (unionN > 0.01);
+                        bool isEdgeS = (unionC > 0.01) != (unionS > 0.01);
+                        bool isEdgeW = (unionC > 0.01) != (unionW > 0.01);
+                        bool isEdgeE = (unionC > 0.01) != (unionE > 0.01);
 
                         if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
                             float layerDist = 1e10;
-                            if (isEdgeW) layerDist = min(layerDist, cellLocal.x * u_cellPitch.x);
-                            if (isEdgeE) layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x);
-                            if (isEdgeN) layerDist = min(layerDist, cellLocal.y * u_cellPitch.y);
-                            if (isEdgeS) layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y);
+                            float edgeW = 0.0;
+                            // Line intensity follows the alpha of whichever cell is currently fading
+                            if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(unionC, unionW)); }
+                            if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(unionC, unionE)); }
+                            if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(unionC, unionN)); }
+                            if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(unionC, unionS)); }
 
-                            int obs = 0;
-                            for (int m = 0; m < i; m++) {
-                                int M = u_layerOrder[m];
-                                if (getLayerVal(centerOcc, M) > 0.5) obs++;
+                            float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
+                            if (u_roundness > 0.0 && halfThick > 0.0) {
+                                float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
+                                line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
                             }
+                            float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
+                            total = max(line, glow) * edgeW;
+                        }
+                    } else {
+                        for (int i = 0; i < 3; i++) {
+                            int L = u_layerOrder[i];
+                            float cL = getLayerVal(centerOcc, L);
+                            
+                            float nN = getLayerVal(aboveOcc, L);
+                            float nS = getLayerVal(belowOcc, L);
+                            float nW = getLayerVal(leftOcc, L);
+                            float nE = getLayerVal(rightOcc, L);
 
-                            float op = (obs < 2) ? 1.0 : (obs == 2) ? 0.3 : 0.0;
-                            if (obs == 2) {
-                                // 3rd layer dim rule: North/South faces only (H-lines)
-                                if (!isEdgeN && !isEdgeS) op = 0.0;
-                            }
+                            bool isEdgeN = (cL > 0.01 || nN > 0.01) && (abs(cL - nN) > 0.01);
+                            bool isEdgeS = (cL > 0.01 || nS > 0.01) && (abs(cL - nS) > 0.01);
+                            bool isEdgeW = (cL > 0.01 || nW > 0.01) && (abs(cL - nW) > 0.01);
+                            bool isEdgeE = (cL > 0.01 || nE > 0.01) && (abs(cL - nE) > 0.01);
 
-                            if (op > 0.0) {
-                                float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
-                                if (u_roundness > 0.0 && halfThick > 0.0) {
-                                    float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
-                                    line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
+                            if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
+                                float layerDist = 1e10;
+                                float edgeW = 0.0;
+                                if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, abs(cL - nW)); }
+                                if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, abs(cL - nE)); }
+                                if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, abs(cL - nN)); }
+                                if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, abs(cL - nS)); }
+
+                                int obs = 0;
+                                for (int m = 0; m < i; m++) {
+                                    int M = u_layerOrder[m];
+                                    if (getLayerVal(centerOcc, M) > 0.5) obs++;
                                 }
-                                float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
-                                total = max(total, max(line, glow) * op);
+
+                                float op = (obs < 2) ? 1.0 : (obs == 2) ? 0.3 : 0.0;
+                                if (obs == 2) {
+                                    // 3rd layer dim rule: North/South faces only (H-lines)
+                                    if (!isEdgeN && !isEdgeS) op = 0.0;
+                                }
+
+                                if (op > 0.0) {
+                                    float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
+                                    if (u_roundness > 0.0 && halfThick > 0.0) {
+                                        float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
+                                        line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
+                                    }
+                                    float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
+                                    total = max(total, max(line, glow) * op * edgeW);
+                                }
                             }
                         }
                     }
 
-                    total *= u_intensity;
+                    // Apply (1 - p) scaling here to prevent additive saturation
+                    total *= (1.0 - u_persistence);
                     fragColor = vec4(total, 0.0, 0.0, 1.0);
                 }
             `;
@@ -1161,11 +1213,34 @@ class WebGLRenderer {
         const gw = fx.logicGridW;
         const gh = fx.logicGridH;
         
+        const now = fx.animFrame;
+        const fadeIn = fx.getConfig('FadeInFrames') || 0;
+        const fadeOut = fx.getConfig('FadeFrames') || 0;
+
         const occupancy = new Uint8Array(gw * gh * 3);
         for (let i = 0; i < gw * gh; i++) {
             for (let L = 0; L < 3; L++) {
                 const grid = fx.layerGrids[L];
-                occupancy[i * 3 + L] = (grid && grid[i] !== -1) ? 255 : 0;
+                const rGrid = fx.removalGrids[L];
+                let alpha = 0;
+                
+                if (grid && grid[i] !== -1) {
+                    const birth = grid[i];
+                    if (fadeIn > 0 && now < birth + fadeIn) {
+                        alpha = Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255);
+                    } else {
+                        alpha = 255;
+                    }
+                } else if (rGrid && rGrid[i] !== -1) {
+                    const death = rGrid[i];
+                    if (fadeOut > 0 && now < death + fadeOut) {
+                        alpha = Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255);
+                    } else {
+                        rGrid[i] = -1;
+                        alpha = 0;
+                    }
+                }
+                occupancy[i * 3 + L] = alpha;
             }
         }
         
@@ -1202,6 +1277,7 @@ class WebGLRenderer {
         this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
         this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
         this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
+        this.gl.uniform1i(uLoc('u_showInterior'), fx.getConfig('ShowInterior') !== false);
 
         this.gl.activeTexture(this.gl.TEXTURE1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
@@ -1236,16 +1312,38 @@ class WebGLRenderer {
             this.lastLogicGridHeight = gh;
         }
 
+        const now = fx.animFrame;
+        const fadeIn = fx.getConfig('FadeInFrames') || 0;
+        const fadeOut = fx.getConfig('FadeFrames') || 0;
+
         const occupancy = new Uint8Array(gw * gh * 3);
         for (let gy = 0; gy < gh; gy++) {
-            const targetIdx = gy * gw; 
-            const sourceIdx = gy * gw;
+            const rowOff = gy * gw;
             for (let gx = 0; gx < gw; gx++) {
-                const i = sourceIdx + gx;
-                const tidx = (targetIdx + gx) * 3;
+                const i = rowOff + gx;
+                const tidx = i * 3;
                 for (let L = 0; L < 3; L++) {
                     const grid = fx.layerGrids[L];
-                    occupancy[tidx + L] = (grid && grid[i] !== -1) ? 255 : 0;
+                    const rGrid = fx.removalGrids[L];
+                    let alpha = 0;
+                    
+                    if (grid && grid[i] !== -1) {
+                        const birth = grid[i];
+                        if (fadeIn > 0 && now < birth + fadeIn) {
+                            alpha = Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255);
+                        } else {
+                            alpha = 255;
+                        }
+                    } else if (rGrid && rGrid[i] !== -1) {
+                        const death = rGrid[i];
+                        if (fadeOut > 0 && now < death + fadeOut) {
+                            alpha = Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255);
+                        } else {
+                            // Only cleanup in the shadow pass or separate update to avoid partial updates
+                            alpha = 0;
+                        }
+                    }
+                    occupancy[tidx + L] = alpha;
                 }
             }
         }
@@ -1298,6 +1396,7 @@ class WebGLRenderer {
                 this.gl.uniform2f(uLoc('u_sampleOffset'), sampleOffX * scale, sampleOffY * scale);
                 
                 this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
+                this.gl.uniform1i(uLoc('u_showInterior'), fx.getConfig('ShowInterior') !== false);
                 
                 const thickness = fx.getLineGfxValue('Thickness');
                 this.gl.uniform1f(uLoc('u_thickness'), thickness);
@@ -1338,7 +1437,9 @@ class WebGLRenderer {
                 
                 this.gl.enable(this.gl.BLEND);
                 this.gl.blendFunc(this.gl.ZERO, this.gl.SRC_COLOR); 
-                const persistence = s.quantizedLineGfxPersistence;
+                const persistence = fx.getLineGfxValue('Persistence') ?? 0.0;
+                this.gl.uniform1f(uLoc('u_persistence'), persistence); // Set uniform for Mode 0
+                
                 this.gl.useProgram(this.colorProgram);
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
                 this.gl.enableVertexAttribArray(0);

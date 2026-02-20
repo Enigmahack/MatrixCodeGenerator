@@ -8,6 +8,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.timer = 0;
         this.genTimer = 0;
         this.logicScale = 3.0; // Allow expansion 200% past screen edges to prevent border stalls
+        this.persistentCycleIndex = 0;
 
         // --- 1. Growth Behaviors (Proposers) ---
         // These behaviors simply calculate coordinates and call _spawnBlock.
@@ -173,7 +174,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 return true;
             },
 
-            // F. Spatial Distribution (Prevent clustering in one step)
+            // F. Spatial Distribution (Prevent clustering/stacking in one step)
             spatial: (c) => {
                 if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial) return true;
                 if (!this._currentStepActions || this._currentStepActions.length === 0) return true;
@@ -181,10 +182,14 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const cx = c.x + c.w / 2;
                 const cy = c.y + c.h / 2;
                 
-                // Manhattan distance: 20% of max dimension, min 10 blocks
-                const minDistance = Math.max(10, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.20));
+                // Manhattan distance: 15% of max dimension, min 10 blocks
+                const minDistance = Math.max(10, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.15));
 
                 for (const action of this._currentStepActions) {
+                    // Check for EXACT stacking first (center to center) - Regardless of Layer
+                    if (action.x === c.x && action.y === c.y) return false;
+
+                    // Then check Manhattan distance
                     const ax = action.x + action.w / 2;
                     const ay = action.y + action.h / 2;
                     const dist = Math.abs(cx - ax) + Math.abs(cy - ay);
@@ -273,6 +278,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.alpha = 1.0;
         this.state = 'GENERATING';
         this._isCovered = undefined;
+        this.persistentCycleIndex = 0;
         
         this.usedCardinalIndices = [];
         this.nudgeAxisBalance = 0; 
@@ -340,12 +346,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             
             this._updateRenderGridLogic();
 
-            // Throttled coverage check: Only check once every 10 frames or if significant growth happened
-            const shouldCheckCoverage = (this._gridsDirty && this.animFrame % 10 === 0) || this._isCovered === undefined;
-            if (shouldCheckCoverage) {
-                this._isCovered = this._isCanvasFullyCovered();
-            }
-            const isCovered = this._isCovered;
+            // Throttled coverage check using base class method
+            const isCovered = this._updateExpansionStatus();
             const timedOut = this.timer >= durationFrames;
 
             if (!this.debugMode && (timedOut || isCovered)) {
@@ -371,6 +373,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _attemptGrowth() {
+        if (this.expansionComplete) return;
         this._initProceduralState(); 
         this._syncSubLayers(); // Synchronize existing state first
         this._currentStepActions = []; // Reset step actions for spatial distribution check
@@ -414,33 +417,53 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         });
 
         let successInStep = false;
+        const enCycling = getGenConfig('EnableLayerCycling') === true;
 
-        // 4. Synchronized Layer Growth Loop
+        // 4. Layer Growth Loop
         for (let q = 0; q < quota; q++) {
+            // Determine target layers for this action slot
+            let layersToTry = [];
+            if (enCycling) {
+                const cycle = [];
+                if (maxLayer >= 1) cycle.push(1);
+                if (maxLayer >= 2) cycle.push(2);
+                cycle.push(0); 
+                
+                // Use persistent index to ensure fair distribution across frames
+                const target = cycle[(this.persistentCycleIndex + q) % cycle.length];
+                layersToTry = [target];
+            } else {
+                for (let l = 0; l <= maxLayer; l++) layersToTry.push(l);
+            }
+
+            let slotSuccess = false;
             for (const behavior of behaviors) {
-                for (let targetLayer = 0; targetLayer <= maxLayer; targetLayer++) {
+                for (const targetLayer of layersToTry) {
                     let successForLayer = false;
 
                     if (behavior.id === 'Unfold') {
-                        // 1. Try to continue existing sequences
-                        if (this._processActiveStatefulBehaviors(targetLayer)) {
-                            successForLayer = true;
-                        }
-                        // 2. If no active sequence was updated, try to start a new one
-                        if (!successForLayer) {
-                            if (this._attemptUnfoldGrowth(null, targetLayer)) {
-                                successForLayer = true;
-                            }
-                        }
+                        if (this._processActiveStatefulBehaviors(targetLayer)) successForLayer = true;
+                        if (!successForLayer && this._attemptUnfoldGrowth(null, targetLayer)) successForLayer = true;
                     } else {
                         if (typeof this[behavior.method] === 'function') {
                             if (this[behavior.method](null, targetLayer)) successForLayer = true;
                         }
                     }
 
-                    if (successForLayer) successInStep = true;
+                    if (successForLayer) {
+                        slotSuccess = true;
+                        successInStep = true;
+                        break; 
+                    }
                 }
+                if (slotSuccess) break; // Slot filled, move to next quota q
             }
+        }
+
+        if (enCycling) {
+            // Advance the cycle for the next frame
+            const cycleLen = (maxLayer >= 2 ? 3 : maxLayer >= 1 ? 2 : 1);
+            this.persistentCycleIndex = (this.persistentCycleIndex + quota) % cycleLen;
         }
 
         // 5. Global Maintenance (Pruning, etc.)
@@ -591,7 +614,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const toFill = frontier.slice(0, 20);
                 for (const pt of toFill) {
                     // Use skipConnectivity=false to enforce the 'direction' (outward) rule
-                    if (this._spawnBlock(pt.x - cx, pt.y - cy, 1, 1, targetLayer, false, 0, false, true) !== -1) {
+                    // and suppressFades=true to prevent flashes
+                    if (this._spawnBlock(pt.x - cx, pt.y - cy, 1, 1, targetLayer, false, 0, false, true, true) !== -1) {
                         success = true;
                     }
                 }

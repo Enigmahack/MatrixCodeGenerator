@@ -407,6 +407,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedPulseLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedPulseLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedPulseLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedPulseLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add', action: 'quantizedAdd', class: 'btn-warn' },
@@ -433,6 +434,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedAddLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedAddLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedAddLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedAddLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Retract' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract', action: 'quantizedRetract', class: 'btn-warn' },
@@ -459,6 +461,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedRetractLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedRetractLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedRetractLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedRetractLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Climb' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb', action: 'quantizedClimb', class: 'btn-warn' },
@@ -485,6 +488,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedClimbLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedClimbLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedClimbLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedClimbLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Zoom' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom', action: 'quantizedZoom', class: 'btn-warn' },
@@ -514,6 +518,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedZoomLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedZoomLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedZoomLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedZoomLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
             { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'QuantizedBlockGenerator', class: 'btn-warn' },
@@ -535,6 +540,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2EnableAutoConnectIslands', type: 'checkbox', label: 'Auto Connect Islands', dep: 'quantizedGenerateV2Enabled', description: "Attempts to bridge gaps between detached clusters of blocks." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableSyncSubLayers', type: 'checkbox', label: 'Sync Sub-Layers', dep: 'quantizedGenerateV2Enabled', description: "Ensures Layer 0 blocks are always duplicated to sub-layers." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableLayerShoving', type: 'checkbox', label: 'Enable Layer Shoving', dep: 'quantizedGenerateV2Enabled', description: "Pushes overlapping sub-layer blocks outwards when the base layer expands." },
+            { cat: 'Effects', id: 'quantizedGenerateV2EnableLayerCycling', type: 'checkbox', label: 'Layer Cycle (1-2-0)', dep: 'quantizedGenerateV2Enabled', description: "Cycles through Layer 1, 2, and 0 sequentially for each action in a step." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableAxisBalancing', type: 'checkbox', label: 'Enable Axis Balancing', dep: 'quantizedGenerateV2Enabled', description: "Ensures symmetrical growth by spawning a mirrored block on an opposite axis whenever a new block is added." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableScaledGrowth', type: 'checkbox', label: 'Scaled Growth', dep: 'quantizedGenerateV2Enabled', description: "Starts with small blocks (1x1, 1x2) and increases block size as the total mass grows." },
             { cat: 'Effects', id: 'quantizedGenerateV2EnableEventScaling', type: 'checkbox', label: 'Event Scaling', dep: 'quantizedGenerateV2Enabled', description: "Starts with few actions per step and increases frequency as total mass grows." },
@@ -569,6 +575,7 @@ class UIManager {
             { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
             { cat: 'Effects', id: 'quantizedGenerateV2LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
+            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'], description: "Overrides global line persistence for this effect." },
 
             { cat: 'Effects', type: 'header', label: 'Special Effects' }, // Header for Special Effects
 
