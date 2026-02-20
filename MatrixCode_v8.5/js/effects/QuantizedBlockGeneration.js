@@ -182,8 +182,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const cx = c.x + c.w / 2;
                 const cy = c.y + c.h / 2;
                 
-                // Manhattan distance: 15% of max dimension, min 10 blocks
-                const minDistance = Math.max(10, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.15));
+                // Manhattan distance: 15% of max SCREEN dimension, min 10 blocks
+                const bs = this.getBlockSize();
+                const screenW = Math.ceil(this.g.cols / bs.w);
+                const screenH = Math.ceil(this.g.rows / bs.h);
+                const minDistance = Math.max(10, Math.floor(Math.max(screenW, screenH) * 0.15));
 
                 for (const action of this._currentStepActions) {
                     // Check for EXACT stacking first (center to center) - Regardless of Layer

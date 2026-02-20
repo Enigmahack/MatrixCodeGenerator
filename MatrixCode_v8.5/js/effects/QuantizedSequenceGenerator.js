@@ -200,6 +200,32 @@ class QuantizedSequenceGenerator {
 
                 let massAdded = 0;
                 let attempts = 0;
+                const maxAttempts = 20;
+
+                while (massAdded < currentBlocksPerStep && attempts < maxAttempts) {
+                    attempts++;
+                    
+                    // 1. Erosion (Optional, based on config)
+                    if (config.erosionRate > 0 && Math.random() < config.erosionRate) {
+                        const eroded = this._attemptErosion(stepOps, filledCells);
+                        filledCells -= eroded;
+                        // We don't count erosion towards massAdded quota, 
+                        // it just creates space for more growth.
+                    }
+
+                    // 2. Expansion
+                    const added = this._attemptExpansion(s, stepOps, dynamicWeights, config.innerLineDuration, stepOccupancy, crossComplete);
+                    if (added > 0) {
+                        massAdded += added;
+                        filledCells += added;
+                    }
+                }
+
+                // 3. Optional: Tendrils or Multi-Block moves (if cross is complete)
+                if (crossComplete && Math.random() < 0.1) {
+                    const added = this._attemptTendril(s, stepOps, config.innerLineDuration, stepOccupancy);
+                    filledCells += added;
+                }
             }
 
             if (stepOps.length > 0) {

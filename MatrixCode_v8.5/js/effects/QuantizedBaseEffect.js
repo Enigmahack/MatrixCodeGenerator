@@ -203,6 +203,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Initialize coverage counter
         this._visibleEmptyCount = -1; // Force recalculation
+        this._lastCoverageRect = null;
     }
 
     _updateVisibleEmptyCount() {
@@ -778,8 +779,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (this._gridsDirty) {
             // Full re-composite
+            if (!this._lastCoverageRect) {
+                this._updateVisibleEmptyCount();
+            }
             let emptyCount = 0;
-            const r = this._lastCoverageRect || { startX: 0, endX: 0, startY: 0, endY: 0 };
+            const r = this._lastCoverageRect;
             
             for (let idx = 0; idx < totalBlocks; idx++) {
                 let finalVal = -1;
