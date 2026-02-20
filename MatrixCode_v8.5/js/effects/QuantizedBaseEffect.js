@@ -212,6 +212,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
+    _getLooselyCentralAnchors(targetLayer, sampleSize = 30) {
+        const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
+        if (anchors.length === 0) return [];
+        
+        if (anchors.length <= sampleSize) {
+            return anchors.sort((a, b) => a.dist - b.dist);
+        }
+
+        const sample = [];
+        for (let i = 0; i < sampleSize; i++) {
+            sample.push(anchors[Math.floor(Math.random() * anchors.length)]);
+        }
+        return sample.sort((a, b) => a.dist - b.dist);
+    }
+
     trigger(force = false) {
         if (this.active && !force) return false;
         
@@ -902,9 +917,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._updateGridCache(width, height, s, derived);
 
         if (s.renderingEngine === 'webgl') {
-            // Clean up preview state after logic update but before return
-            if (this._previewActive) {
-                if (this._lastPreviewOpsAddedCount > 0) {
+            // Clean up preview state ONLY IF we are done with the frame.
+            // Note: In WebGL, the actual drawing happens after this call returns.
+            // So we delay cleanup until the NEXT frame or use a flag.
+            // For now, let's let the preview op stay in maskOps until the next trigger.
+            if (this._previewActive && !previewOp) {
+                 if (this._lastPreviewOpsAddedCount > 0) {
                     this.maskOps.splice(this._lastPreviewSavedOpsLen, this._lastPreviewOpsAddedCount);
                 }
                 this.logicGrid.set(this._lastPreviewSavedLogic);
@@ -913,6 +931,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                      if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
                 }
                 this._lastProcessedOpIndex = 0;
+                this._gridsDirty = true;
                 if (typeof this._updateRenderGridLogic === 'function') {
                     this._updateRenderGridLogic();
                 }
@@ -968,6 +987,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                  if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
             }
             this._lastProcessedOpIndex = 0;
+            this._gridsDirty = true;
             if (typeof this._updateRenderGridLogic === 'function') {
                 this._updateRenderGridLogic();
             }
@@ -1033,6 +1053,11 @@ class QuantizedBaseEffect extends AbstractEffect {
          ctx.save();
         const layerColors = ['rgba(0, 255, 0, 0.15)', 'rgba(0, 200, 255, 0.15)', 'rgba(255, 0, 200, 0.15)'];
         const layerLines = ['rgba(0, 255, 0, 0.8)', 'rgba(0, 200, 255, 0.8)', 'rgba(255, 0, 200, 0.8)'];
+        const getVal = (grid, bx, by) => {
+            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
+            return grid[by * blocksX + bx];
+        };
+
         // Draw Fills in reverse layer order (back-to-front), but only show if obscureCount < 2
         const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
 
@@ -1041,7 +1066,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (this.visibleLayers && this.visibleLayers[lIdx] === false) continue;
             const rGrid = this.layerGrids[lIdx];
             if (rGrid) {
-                ctx.fillStyle = layerColors[lIdx];
                 for (let idx = 0; idx < rGrid.length; idx++) {
                     if (rGrid[idx] !== -1) {
                         const bx = idx % blocksX;
@@ -1056,7 +1080,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                                 obscureCount++;
                             }
                         }
-                        if (obscureCount >= 2) continue;
+                        
+                        ctx.save();
+                        if (obscureCount >= 2) {
+                            ctx.globalAlpha = 0.05; // Dim fill for 3rd layer
+                        }
+                        ctx.fillStyle = layerColors[lIdx];
 
                         let cellX = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
                         let cellY = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
@@ -1073,14 +1102,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const w = (nextCellX - cellX) * l.screenStepX;
                         const h = (nextCellY - cellY) * l.screenStepY;
                         ctx.fillRect(x, y, w, h); 
+                        ctx.restore();
                     }
                 }
             }
         }
-        const getVal = (grid, bx, by) => {
-            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
-            return grid[by * blocksX + bx];
-        };
 
         // Draw Lines in reverse layer order (back-to-front), respecting obscureCount rules
         for (let i = visibleIndices.length - 1; i >= 0; i--) {
@@ -1395,9 +1421,37 @@ class QuantizedBaseEffect extends AbstractEffect {
         const faces = this._getBiasedDirections();
 
         for (const dir of faces) {
+            // Calculate extension ratio for THIS direction's main spoke (offset 0)
+            let spokeBlocks = 0;
+            let spokeMax = 0;
+            if (dir === 'N' || dir === 'S') {
+                spokeMax = (dir === 'N') ? cy : h - 1 - cy;
+                const step = (dir === 'N') ? -1 : 1;
+                for (let gy = cy + step; (dir === 'N' ? gy >= 0 : gy < h); gy += step) {
+                    if (grid[gy * w + cx] !== -1) spokeBlocks++; else break;
+                }
+            } else {
+                spokeMax = (dir === 'W') ? cx : w - 1 - cx;
+                const step = (dir === 'W') ? -1 : 1;
+                for (let gx = cx + step; (dir === 'W' ? gx >= 0 : gx < w); gx += step) {
+                    if (grid[cy * w + gx] !== -1) spokeBlocks++; else break;
+                }
+            }
+            const extRatio = spokeMax > 0 ? spokeBlocks / spokeMax : 1.0;
+
             // Offsets from axis: 0, 1, -1, 2, -2, 3, -3...
             const maxOffset = Math.max(cx, cy);
             for (let offset = 0; offset <= maxOffset; offset++) {
+                // Rule: only one line (offset 0) until > 33% extension
+                if (offset > 0 && extRatio <= 0.33) break;
+
+                // Rule: force 1-wide (single line) until > 33% extension
+                let currentBw = bw, currentBh = bh;
+                if (extRatio <= 0.33) {
+                    if (dir === 'N' || dir === 'S') currentBw = 1;
+                    else currentBh = 1;
+                }
+
                 // Try both sides of the axis for this offset
                 const dxs = (offset === 0) ? [0] : [offset, -offset];
                 for (const dAxis of dxs) {
@@ -1442,13 +1496,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                         let spawnY = firstEmpty.y;
 
                         // Align requested dimensions
-                        if (dir === 'N') { spawnY = firstEmpty.y - bh + 1; spawnX = firstEmpty.x - Math.floor(bw / 2); }
-                        else if (dir === 'S') { spawnY = firstEmpty.y; spawnX = firstEmpty.x - Math.floor(bw / 2); }
-                        else if (dir === 'W') { spawnX = firstEmpty.x - bw + 1; spawnY = firstEmpty.y - Math.floor(bh / 2); }
-                        else if (dir === 'E') { spawnX = firstEmpty.x; spawnY = firstEmpty.y - Math.floor(bh / 2); }
+                        if (dir === 'N') { spawnY = firstEmpty.y - currentBh + 1; spawnX = firstEmpty.x - Math.floor(currentBw / 2); }
+                        else if (dir === 'S') { spawnY = firstEmpty.y; spawnX = firstEmpty.x - Math.floor(currentBw / 2); }
+                        else if (dir === 'W') { spawnX = firstEmpty.x - currentBw + 1; spawnY = firstEmpty.y - Math.floor(currentBh / 2); }
+                        else if (dir === 'E') { spawnX = firstEmpty.x; spawnY = firstEmpty.y - Math.floor(currentBh / 2); }
 
                         // Override Rule Stack to ensure continuity
-                        if (this._spawnBlock(spawnX, spawnY, bw, bh, targetLayer, false, 0, true, true, false, false, true) !== -1) {
+                        if (this._spawnBlock(spawnX, spawnY, currentBw, currentBh, targetLayer, false, 0, true, true, false, false, true) !== -1) {
                             return true;
                         }
                     }
@@ -1684,7 +1738,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         const id = this.nextBlockId++;
-        const b = { x, y, w, h, startFrame: this.animFrame, startPhase: this.expansionPhase, layer, id, isShifter };
+        const b = { 
+            x, y, w, h, 
+            startFrame: this.animFrame, 
+            startPhase: this.expansionPhase, 
+            layer, id, isShifter,
+            dist: Math.abs(x) + Math.abs(y)
+        };
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
         
@@ -1962,18 +2022,24 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptClusterGrowth(ignored, targetLayer = 0) {
-        const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
+        const anchors = this._getLooselyCentralAnchors(targetLayer);
         if (anchors.length === 0) return false;
-        const anchor = anchors[Math.floor(Math.random() * anchors.length)];
-        
-        const dirs = this._getBiasedDirections();
-        const dir = dirs[0];
-        const axis = (dir === 'N' || dir === 'S') ? 'V' : 'H';
 
-        let startCoords;
-        if (axis === 'V') { startCoords = { x: anchor.x, y: 0 }; }
-        else { startCoords = { x: 0, y: anchor.y }; }
-        return this._blockShift(dir, Math.floor(Math.random() * 2) + 2, startCoords, targetLayer);
+        for (const anchor of anchors) {
+            const dirs = this._getBiasedDirections();
+            for (const dir of dirs) {
+                const axis = (dir === 'N' || dir === 'S') ? 'V' : 'H';
+
+                let startCoords;
+                if (axis === 'V') { startCoords = { x: anchor.x, y: 0 }; }
+                else { startCoords = { x: 0, y: anchor.y }; }
+                
+                if (this._blockShift(dir, Math.floor(Math.random() * 2) + 2, startCoords, targetLayer)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     flattenLayers(targetLayers, selectionRect, stepIndex) {
@@ -2307,9 +2373,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         const l0 = this.layerGrids[targetLayer];
         if (!l0) return false;
-        const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
+        const anchors = this._getLooselyCentralAnchors(targetLayer);
         if (anchors.length === 0) return false;
-        Utils.shuffle(anchors);
+
         for (const anchor of anchors) {
             const faces = this._getBiasedDirections();
             for (const unfoldDir of faces) {

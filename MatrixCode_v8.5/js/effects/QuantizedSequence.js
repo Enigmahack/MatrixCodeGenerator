@@ -86,7 +86,7 @@ class QuantizedSequence {
             ctx.setLocalActive(dx, dy);
             ctx.setLayerActive(dx, dy, 0, now);
             fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: 0 });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: 0, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: 0, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
         } else if (opCode === 2) { // rem(x, y, mask)
             const dx = step[i++];
             const dy = step[i++];
@@ -105,7 +105,7 @@ class QuantizedSequence {
             fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: layer });
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y) });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     ctx.setLocalActive(x + gx, y + gy);
@@ -118,7 +118,7 @@ class QuantizedSequence {
             ctx.setLocalActive(dx, dy);
             ctx.setLayerActive(dx, dy, 0, now);
             fx.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: 0 });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: 0, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: 0, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
         } else if (opCode === 7) { // removeBlock(x, y)
             const dx = step[i++];
             const dy = step[i++];
@@ -133,7 +133,7 @@ class QuantizedSequence {
             ctx.setLocalActive(dx, dy);
             ctx.setLayerActive(dx, dy, l, now);
             fx.maskOps.push({ type: 'add', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: l });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: l, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: l, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
         } else if (opCode === 9) { // addRectLayered(x1, y1, x2, y2, layer)
             const dx1 = step[i++];
             const dy1 = step[i++];
@@ -143,7 +143,7 @@ class QuantizedSequence {
             fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: l });
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: l, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: l, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y) });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     ctx.setLocalActive(x + gx, y + gy);
@@ -157,7 +157,7 @@ class QuantizedSequence {
             ctx.setLocalActive(dx, dy);
             ctx.setLayerActive(dx, dy, l, now);
             fx.maskOps.push({ type: 'addSmart', x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: l });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: l, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: l, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
         } else if (opCode === 11) { // removeBlockLayered
             const dx = step[i++];
             const dy = step[i++];
@@ -205,13 +205,13 @@ class QuantizedSequence {
             setLocalActive(dx, dy);
             setLayerActive(dx, dy, targetLayer, now);
             fx.maskOps.push({ type: op, x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayer });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: targetLayer, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer: targetLayer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
         } else if (op === 'addRect') {
             const [dx1, dy1, dx2, dy2] = args;
             fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayer });
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: targetLayer, startFrame: now, id: fx.nextBlockId++ });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: targetLayer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y) });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     setLocalActive(x + gx, y + gy);
