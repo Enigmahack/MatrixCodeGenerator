@@ -709,15 +709,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const idx = rowOff + bx;
                         const remFrame = op.startFrame || 0;
                         if (op.layer !== undefined) {
-                            targetGrid[idx] = -1;
-                            if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = remFrame;
-                        } else {
-                            for (let l = 0; l < 3; l++) {
-                                this.layerGrids[l][idx] = -1;
-                                if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = remFrame;
-                            }
-                        }
-                    }
+                                                    targetGrid[idx] = -1;
+                                                    if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
+                                                } else {
+                                                    for (let l = 0; l < 3; l++) {
+                                                        this.layerGrids[l][idx] = -1;
+                                                        if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
+                                                    }
+                                                }                    }
                 }
             }
         }
@@ -2280,7 +2279,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return finalVal;
     }
 
-    _checkNoOverlap(x, y, w, h, layer = 0) {
+    _checkNoOverlap(x, y, w, h, layer = 0, checkVacated = true) {
         if (!this.logicGridW || !this.logicGridH || !this.logicGrid) return false;
         
         const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
@@ -2291,10 +2290,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return false;
 
         // Grid-based overlap check (All Layers via logicGrid)
+        const remGrid = checkVacated ? this.removalGrids[layer] : null;
+        const cooldown = 3;
+
         for (let gy = gy1; gy <= gy2; gy++) {
             const rowOff = gy * this.logicGridW;
             for (let gx = gx1; gx <= gx2; gx++) {
                 if (this.logicGrid[rowOff + gx] === 1) return false;
+                if (remGrid) {
+                    const remPhase = remGrid[rowOff + gx];
+                    if (remPhase !== -1 && this.expansionPhase - remPhase < cooldown) return false;
+                }
             }
         }
 
@@ -2378,69 +2384,87 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (sequence) {
             if (sequence.step === 0) { sequence.step = 1; } 
             else if (sequence.step === 1) {
-                const { x, y, bw, bh, dir } = sequence;
+                const { x, y, dir } = sequence;
                 let tx = x, ty = y;
-                if (dir === 'N') ty -= bh; else if (dir === 'S') ty += bh;
-                else if (dir === 'E') tx += bw; else if (dir === 'W') tx -= bw;
+                if (dir === 'N') ty -= 1; else if (dir === 'S') ty += 1;
+                else if (dir === 'E') tx += 1; else if (dir === 'W') tx -= 1;
                 
-                // Use skipConnectivity=false to ensure it attaches to its own layer
-                // suppressFades=true as requested for unfolding blocks
-                const result = this._spawnBlock(tx, ty, bw, bh, targetLayer, false, 0, false, true, true);
+                // Spawn individual 1x1 block
+                const result = this._spawnBlock(tx, ty, 1, 1, targetLayer, false, 0, false, true, true);
                 sequence.active = false;
                 return (result !== -1);
             }
             return false;
         }
 
-        // Local throttle per layer instead of global block
-        if (this.unfoldSequences[targetLayer].length >= 3) return false;
+        // Local throttle per layer
+        if (this.unfoldSequences[targetLayer].length >= 5) return false;
         
-        const l0 = this.layerGrids[targetLayer];
-        if (!l0) return false;
-        // Prefer edge anchors for more efficient expansion
-        const anchors = this._getEdgeAnchors(targetLayer);
-        if (anchors.length === 0) return false;
+        const grid = this.layerGrids[targetLayer];
+        if (!grid) return false;
+
+        // 1. Anchor Selection: Use individual 1x1 edge blocks
+        const layerBlocks = this.activeBlocks.filter(b => b.layer === targetLayer && b.w === 1 && b.h === 1);
+        if (layerBlocks.length === 0) return false;
+        
+        Utils.shuffle(layerBlocks);
+        const anchors = layerBlocks.slice(0, 40);
 
         for (const anchor of anchors) {
+            const gx = cx + anchor.x, gy = cy + anchor.y;
+            
+            // Check for edge-ness (at least one free neighbor)
+            const hasN = (gy > 0 && grid[(gy - 1) * w + gx] !== -1);
+            const hasS = (gy < h - 1 && grid[(gy + 1) * w + gx] !== -1);
+            const hasE = (gx < w - 1 && grid[gy * w + gx + 1] !== -1);
+            const hasW = (gx > 0 && grid[gy * w + gx - 1] !== -1);
+            if (hasN && hasS && hasE && hasW) continue; 
+
             const faces = this._getBiasedDirections();
+            const candidates = [];
+
             for (const unfoldDir of faces) {
-                const sw = this._getScaledConfig('MinBlockWidth', 1);
-                const mw = this._getScaledConfig('MaxBlockWidth', 5);
-                const sh = this._getScaledConfig('MinBlockHeight', 1);
-                const mh = this._getScaledConfig('MaxBlockHeight', 5);
+                let tx = anchor.x, ty = anchor.y;
+                if (unfoldDir === 'N') ty -= 1; else if (unfoldDir === 'S') ty += 1;
+                else if (unfoldDir === 'E') tx += 1; else if (unfoldDir === 'W') tx -= 1;
 
-                const bw_target = Math.floor(Math.random() * (mw - sw + 1)) + sw;
-                const bh_target = Math.floor(Math.random() * (mh - sh + 1)) + sh;
-
-                let bw = 1, bh = 1, startX_rel = anchor.x, startY_rel = anchor.y;
+                const dSourceSq = anchor.x * anchor.x + anchor.y * anchor.y;
+                const dTargetSq = tx * tx + ty * ty;
                 
-                if (unfoldDir === 'N' || unfoldDir === 'S') { 
-                    bh = bh_target; 
-                    bw = Math.min(anchor.w, bw_target); 
-                    startX_rel = anchor.x + Math.floor((anchor.w - bw) / 2);
-                    if (unfoldDir === 'N') startY_rel = anchor.y; else startY_rel = anchor.y + anchor.h - bh; 
-                } 
-                else { 
-                    bw = bw_target; 
-                    bh = Math.min(anchor.h, bh_target); 
-                    startY_rel = anchor.y + Math.floor((anchor.h - bh) / 2);
-                    if (unfoldDir === 'W') startX_rel = anchor.x; else startX_rel = anchor.x + anchor.w - bw; 
+                let score = 0;
+                
+                // Reward growing OUTWARD
+                if (dTargetSq > dSourceSq) score += 40;
+                
+                // Reward staying near core
+                if (dSourceSq < 225) score += 60;
+
+                // L-Shape / Corner Bonus: VERY high to encourage Rearranging
+                let createsCorner = false;
+                if ((unfoldDir === 'E' || unfoldDir === 'W') && (hasN || hasS)) createsCorner = true;
+                if ((unfoldDir === 'N' || unfoldDir === 'S') && (hasE || hasW)) createsCorner = true;
+                if (createsCorner) score += 100;
+
+                // Axis Fins (Perpendicular growth)
+                const distToXAxis = Math.abs(anchor.y);
+                const distToYAxis = Math.abs(anchor.x);
+                if (distToXAxis < distToYAxis) {
+                    if (unfoldDir === 'N' || unfoldDir === 'S') score += 50;
+                } else {
+                    if (unfoldDir === 'E' || unfoldDir === 'W') score += 50;
                 }
+                
+                score += Math.random() * 20;
+                candidates.push({ dir: unfoldDir, score, tx, ty });
+            }
 
-                let t2x = startX_rel, t2y = startY_rel;
-                if (unfoldDir === 'N') t2y -= bh; else if (unfoldDir === 'S') t2y += bh;
-                else if (unfoldDir === 'E') t2x += bw; else if (unfoldDir === 'W') t2x -= bw;
+            candidates.sort((a, b) => b.score - a.score);
 
-                // Outward Growth Enforcement: Target must be further from center than source
-                const dSource = Math.abs(startX_rel + bw/2) + Math.abs(startY_rel + bh/2);
-                const dTarget = Math.abs(t2x + bw/2) + Math.abs(t2y + bh/2);
-                if (dTarget < dSource - 0.1) continue; 
-
-                if (this._checkNoOverlap(t2x, t2y, bw, bh, targetLayer) && this._checkNoHole(t2x, t2y, bw, bh)) {
-                    this.unfoldSequences[targetLayer].push({ active: true, step: 0, x: startX_rel, y: startY_rel, bw, bh, dir: unfoldDir, layer: targetLayer });
-                    // Snapshot source area: Use skipConnectivity=true and bypassOccupancy=true since we are capturing existing mass
-                    // suppressFades=true ensures capturing existing mass doesn't re-trigger fade-ins
-                    this._spawnBlock(startX_rel, startY_rel, bw, bh, targetLayer, false, 0, true, true, true, false, true);
+            for (const c of candidates) {
+                if (this._checkNoOverlap(c.tx, c.ty, 1, 1, targetLayer) && this._checkNoHole(c.tx, c.ty, 1, 1)) {
+                    this.unfoldSequences[targetLayer].push({ active: true, step: 0, x: anchor.x, y: anchor.y, dir: c.dir, layer: targetLayer });
+                    // Snapshot source
+                    this._spawnBlock(anchor.x, anchor.y, 1, 1, targetLayer, false, 0, true, true, true, false, true);
                     return true;
                 }
             }
@@ -2449,102 +2473,175 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptRearrangeGrowth(targetLayerInput) {
-        if (!this.rearrangePool) return false;
+        if (!this.rearrangePool || this.expansionPhase < 10) return false;
         const targetLayer = targetLayerInput !== undefined ? targetLayerInput : 0;
         
-        // Use Frequency setting to throttle attempts
-        const freq = this.getConfig('RearrangeFrequency') !== undefined ? this.getConfig('RearrangeFrequency') : 0.5;
-        if (Math.random() > freq) return false;
+        // Interpreted as 'Actions per Step' (1-5)
+        const quota = Math.max(1, Math.floor(this.getConfig('RearrangeFrequency') || 1));
 
-        // Phase 1: Redistribution (Place blocks from pool into holes near center)
+        const w = this.logicGridW;
+        const h = this.logicGridH;
+        const cx = Math.floor(w / 2);
+        const cy = Math.floor(h / 2);
+
+        let actionsPerformed = 0;
+
+        // Phase 1: Redistribution (Place blocks from pool into holes near axes)
+        // This is a "free" action that doesn't count against deletion quota as it ADDS blocks.
         if (this.rearrangePool[targetLayer] > 0) {
             const range = 25; 
             const holes = [];
             
-            // Optimized Hole Selection: Sample random spots within range
             const maxHoleAttempts = 100;
             for (let i = 0; i < maxHoleAttempts; i++) {
                 const dx = Math.floor(Math.random() * (range * 2 + 1)) - range;
                 const dy = Math.floor(Math.random() * (range * 2 + 1)) - range;
-                
-                // A "hole" is an empty logic grid cell that is anchored to existing mass of this layer
                 if (this._checkNoOverlap(dx, dy, 1, 1, targetLayer)) {
-                    holes.push({x: dx, y: dy, distSq: dx*dx + dy*dy});
+                    const axisDist = Math.min(Math.abs(dx), Math.abs(dy));
+                    holes.push({x: dx, y: dy, axisDist, distSq: dx*dx + dy*dy});
                 }
-                if (holes.length >= 10) break;
+                if (holes.length >= 15) break;
             }
             
             if (holes.length > 0) {
-                // Priority: Filling holes closest to the center
-                holes.sort((a, b) => a.distSq - b.distSq);
+                holes.sort((a, b) => a.axisDist - b.axisDist || a.distSq - b.distSq);
                 const hole = holes[0];
-                
-                const sizes = [{w:1,h:1}, {w:2,h:1}, {w:1,h:2}, {w:2,h:2}];
-                Utils.shuffle(sizes);
+                const poolSize = this.rearrangePool[targetLayer];
+                const sizes = [];
+                if (poolSize >= 3) sizes.push({w:3,h:1}, {w:1,h:3});
+                if (poolSize >= 2) sizes.push({w:2,h:1}, {w:1,h:2}, {w:2,h:2});
+                sizes.push({w:1,h:1});
                 
                 for (const sz of sizes) {
                     if (this._spawnBlock(hole.x, hole.y, sz.w, sz.h, targetLayer, false, 0, false, true, true, false, true) !== -1) {
-                        this.rearrangePool[targetLayer]--;
-                        this._log(`[Rearrange] Redistributed to (${hole.x}, ${hole.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
-                        return true; 
+                        this.rearrangePool[targetLayer] -= (sz.w * sz.h);
+                        // this._log(`[Rearrange] Redistributed ${sz.w}x${sz.h} to (${hole.x}, ${hole.y}) on L${targetLayer}.`);
+                        break; 
                     }
                 }
             }
         }
 
-        // Phase 2: Selection (Remove extrusions to fund the pool)
-        // Criteria: Only remove blocks born in previous steps that are far from center
-        if (this.rearrangePool[targetLayer] < 4) {
-            // Pick a random set of candidates and take the furthest one (Sampling approach)
-            const lBlocks = this.activeBlocks.filter(b => b.layer === targetLayer && b.startPhase < this.expansionPhase);
-            if (lBlocks.length > 0) {
-                let furthestBlock = null;
-                let maxDistSq = -1;
-                
-                const sampleSize = Math.min(lBlocks.length, 30);
-                for (let i = 0; i < sampleSize; i++) {
-                    const b = lBlocks[Math.floor(Math.random() * lBlocks.length)];
-                    const distSq = b.x*b.x + b.y*b.y;
-                    if (distSq > maxDistSq) {
-                        maxDistSq = distSq;
-                        furthestBlock = b;
+        // Phase 2: Maintenance (Rotation, Pruning, L-Shape) - Counts against Quota
+        const subLayersOnly = this.getConfig('RearrangeSubLayersOnly') === true;
+        if (subLayersOnly && targetLayer === 0) return actionsPerformed > 0;
+
+        while (actionsPerformed < quota) {
+            const grid = this.layerGrids[targetLayer];
+            if (!grid) break;
+
+            const layerBlocks = this.activeBlocks.filter(b => b.layer === targetLayer);
+            if (layerBlocks.length === 0) break;
+
+            const posMap = new Map();
+            for (const b of layerBlocks) posMap.set(b.x + ',' + b.y, b);
+
+            Utils.shuffle(layerBlocks);
+            const sample = layerBlocks.slice(0, 50);
+            let actionTakenInLoop = false;
+
+            for (const b of sample) {
+                if (!this.activeBlocks.includes(b)) continue;
+
+                // --- 1. Rotation Check (Axis Alignment) ---
+                if (b.w !== b.h) {
+                    const distX = Math.abs(b.x), distY = Math.abs(b.y);
+                    const onHorizArm = distX > (distY * 1.5) + 2; 
+                    const onVertArm = distY > (distX * 1.5) + 2;
+
+                    let needsRotation = false;
+                    if (b.h > b.w && onHorizArm) needsRotation = true; 
+                    if (b.w > b.h && onVertArm) needsRotation = true; 
+
+                    if (needsRotation) {
+                        const idx = this.activeBlocks.indexOf(b);
+                        if (idx !== -1) {
+                            this.activeBlocks.splice(idx, 1);
+                            this.maskOps.push({ 
+                                type: 'removeBlock', 
+                                x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
+                                startFrame: this.animFrame, layer: b.layer, fade: false 
+                            });
+                            this._writeToGrid(b.x, b.y, b.w, b.h, -1, b.layer);
+
+                            const spawnedId = this._spawnBlock(b.x, b.y, b.h, b.w, targetLayer, false, 0, true, true, true, false, true);
+                            if (spawnedId === -1) this.rearrangePool[targetLayer] += (b.w * b.h);
+                            
+                            this._gridsDirty = true; this._maskDirty = true;
+                            actionsPerformed++; actionTakenInLoop = true;
+                            break; 
+                        }
                     }
                 }
 
-                if (furthestBlock && maxDistSq > 36) { // dist > 6
-                    const b = furthestBlock;
-                    const idx = this.activeBlocks.indexOf(b);
-                    if (idx !== -1) {
-                        this.activeBlocks.splice(idx, 1);
-                        this.rearrangePool[targetLayer]++;
+                // --- 2. Dangling Pruning (1x1 only) ---
+                if (b.w === 1 && b.h === 1) {
+                    const gx = cx + b.x, gy = cy + b.y;
+                    let nCnt = 0;
+                    if (gy > 0 && grid[(gy - 1) * w + gx] !== -1) nCnt++;
+                    if (gy < h - 1 && grid[(gy + 1) * w + gx] !== -1) nCnt++;
+                    if (gx < w - 1 && grid[gy * w + gx + 1] !== -1) nCnt++;
+                    if (gx > 0 && grid[gy * w + gx - 1] !== -1) nCnt++;
 
-                        this.maskOps.push({ 
-                            type: 'removeBlock', 
-                            x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: b.y + b.h - 1, 
-                            startFrame: this.animFrame, layer: b.layer, fade: false 
-                        });
+                    if (nCnt <= 1) {
+                        const idx = this.activeBlocks.indexOf(b);
+                        if (idx !== -1) {
+                            this.activeBlocks.splice(idx, 1);
+                            this.rearrangePool[targetLayer]++;
+                            this.maskOps.push({ type: 'removeBlock', x1: b.x, y1: b.y, x2: b.x, y2: b.y, startFrame: this.animFrame, layer: b.layer, fade: false });
+                            this._writeToGrid(b.x, b.y, 1, 1, -1, b.layer);
+                            this._gridsDirty = true; this._maskDirty = true;
+                            actionsPerformed++; actionTakenInLoop = true;
+                            break;
+                        }
+                    }
+                }
 
-                        if (this.manualStep && this.sequence && !this.isReconstructing) {
-                            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
-                            this.sequence[this.expansionPhase].push({
-                                op: 'removeBlock',
-                                args: [b.x, b.y, b.x + b.w - 1, b.y + b.h - 1],
-                                layer: b.layer,
-                                fade: false
-                            });
+                // --- 3. L-Shape Extrusion Removal (1x1 only) ---
+                if (b.w === 1 && b.h === 1) {
+                    const gx = cx + b.x, gy = cy + b.y;
+                    const hasN = (gy > 0 && grid[(gy - 1) * w + gx] !== -1);
+                    const hasS = (gy < h - 1 && grid[(gy + 1) * w + gx] !== -1);
+                    const hasE = (gx < w - 1 && grid[gy * w + gx + 1] !== -1);
+                    const hasW = (gx > 0 && grid[gy * w + gx - 1] !== -1);
+
+                    let armDX = 0, armDY = 0;
+                    if (hasN && hasE) { armDX = 1; armDY = -1; } 
+                    else if (hasN && hasW) { armDX = -1; armDY = -1; } 
+                    else if (hasS && hasE) { armDX = 1; armDY = 1; } 
+                    else if (hasS && hasW) { armDX = -1; armDY = 1; }
+
+                    if (armDX !== 0) {
+                        let remX = null, remY = null;
+                        if (Math.abs(b.x) < Math.abs(b.y)) {
+                            if (Math.abs(b.x + armDX) > Math.abs(b.x)) { remX = b.x + armDX; remY = b.y; }
+                        } else {
+                            if (Math.abs(b.y + armDY) > Math.abs(b.y)) { remX = b.x; remY = b.y + armDY; }
                         }
 
-                        this._writeToGrid(b.x, b.y, b.w, b.h, -1, b.layer);
-                        this._gridsDirty = true;
-                        this._log(`[Rearrange] Removed extrusion at (${b.x}, ${b.y}) on L${targetLayer}. Pool: ${this.rearrangePool[targetLayer]}`);
-                        this._maskDirty = true;
-                        return true;
+                        if (remX !== null) {
+                            const targetBlock = posMap.get(`${remX},${remY}`);
+                            if (targetBlock) {
+                                const idx = this.activeBlocks.indexOf(targetBlock);
+                                if (idx !== -1) {
+                                    this.activeBlocks.splice(idx, 1);
+                                    this.rearrangePool[targetLayer]++;
+                                    this.maskOps.push({ type: 'removeBlock', x1: targetBlock.x, y1: targetBlock.y, x2: targetBlock.x, y2: targetBlock.y, startFrame: this.animFrame, layer: targetBlock.layer, fade: false });
+                                    this._writeToGrid(targetBlock.x, targetBlock.y, 1, 1, -1, targetBlock.layer);
+                                    this._gridsDirty = true; this._maskDirty = true;
+                                    actionsPerformed++; actionTakenInLoop = true;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            if (!actionTakenInLoop) break; // No more actions can be taken
         }
 
-        return false;
+        return actionsPerformed > 0;
     }
 
     _attemptCenteredGrowth(ignored, targetLayer = 0) {

@@ -14,12 +14,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // These behaviors simply calculate coordinates and call _spawnBlock.
         // The new Controller Logic in _spawnBlock ensures they all adhere to the Rule Stack.
         this.GROWTH_BEHAVIORS = [
-            { id: 'Unfold', method: '_attemptUnfoldGrowth' },
             { id: 'Nudge', method: '_executeNudgeGrowth' },
             { id: 'Cluster', method: '_attemptClusterGrowth' },
             { id: 'Shift', method: '_attemptShiftGrowth' },
             { id: 'Centered', method: '_attemptCenteredGrowth' },
-            { id: 'Thicken', method: '_attemptThickenGrowth' }
+            { id: 'Thicken', method: '_attemptThickenGrowth' },
+            { id: 'Unfold', method: '_attemptUnfoldGrowth' }
         ];
 
         // --- 2. Global Maintenance Behaviors ---
@@ -194,6 +194,32 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     const ay = action.y + action.h / 2;
                     const dist = Math.abs(cx - ax) + Math.abs(cy - ay);
                     if (dist < minDistance) return false;
+                }
+                return true;
+            },
+
+            // G. Vacated Cooldown (Prevent flickering)
+            vacated: (c) => {
+                if (c.bypassOccupancy) return true; // Allow intentional immediate reuse (e.g. rotation)
+                
+                const grid = this.removalGrids[c.layer];
+                if (!grid) return true;
+
+                const w = this.logicGridW;
+                const cx = Math.floor(w / 2);
+                const cy = Math.floor(this.logicGridH / 2);
+                const x1 = Math.max(0, cx + c.x);
+                const y1 = Math.max(0, cy + c.y);
+                const x2 = Math.min(w - 1, x1 + c.w - 1);
+                const y2 = Math.min(this.logicGridH - 1, y1 + c.h - 1);
+
+                const cooldownSteps = 3; 
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) {
+                        const remPhase = grid[rowOff + gx];
+                        if (remPhase !== -1 && this.expansionPhase - remPhase < cooldownSteps) return false;
+                    }
                 }
                 return true;
             }
@@ -719,6 +745,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _validateCandidate(c) {
         if (!this.RULES.bounds(c)) return false;
         if (!this.RULES.occupancy(c)) return false;
+        if (!this.RULES.vacated(c)) return false;
 
         // Shifter blocks bypass growth constraints
         if (c.isShifter) return true;
