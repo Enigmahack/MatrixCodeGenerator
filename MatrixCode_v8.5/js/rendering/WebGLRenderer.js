@@ -388,93 +388,68 @@ class WebGLRenderer {
                     float total = 0.0;
                     float halfThick = (u_thickness / 10.0) * 0.5;
 
-                    // UNION ALPHA approach for Perimeter-only mode
-                    float unionC = 0.0;
-                    float unionN = 0.0;
-                    float unionS = 0.0;
-                    float unionW = 0.0;
-                    float unionE = 0.0;
+                    // Identify layers using u_layerOrder
+                    int L0 = u_layerOrder[0];
+                    int L1 = u_layerOrder[1];
+                    int L2 = u_layerOrder[2];
 
-                    if (!u_showInterior) {
-                        for (int i = 0; i < 3; i++) {
-                            int L = u_layerOrder[i];
-                            unionC = max(unionC, getLayerVal(centerOcc, L));
-                            unionN = max(unionN, getLayerVal(aboveOcc, L));
-                            unionS = max(unionS, getLayerVal(belowOcc, L));
-                            unionW = max(unionW, getLayerVal(leftOcc, L));
-                            unionE = max(unionE, getLayerVal(rightOcc, L));
+                    // 1. Foundation (L0) - Always contributes to perimeter
+                    float a0 = getLayerVal(centerOcc, L0);
+                    float nN0 = getLayerVal(aboveOcc, L0);
+                    float nS0 = getLayerVal(belowOcc, L0);
+                    float nW0 = getLayerVal(leftOcc, L0);
+                    float nE0 = getLayerVal(rightOcc, L0);
+
+                    // 2. Lead Convergence (L1 & L2 Intersection) - Contributes where overlap zone boundary exists
+                    float a1 = getLayerVal(centerOcc, L1); float a2 = getLayerVal(centerOcc, L2);
+                    float nN1 = getLayerVal(aboveOcc, L1); float nN2 = getLayerVal(aboveOcc, L2);
+                    float nS1 = getLayerVal(belowOcc, L1); float nS2 = getLayerVal(belowOcc, L2);
+                    float nW1 = getLayerVal(leftOcc, L1);  float nW2 = getLayerVal(leftOcc, L2);
+                    float nE1 = getLayerVal(rightOcc, L1); float nE2 = getLayerVal(rightOcc, L2);
+
+                    float aBoth = min(a1, a2);
+                    float nNBoth = min(nN1, nN2);
+                    float nSBoth = min(nS1, nS2);
+                    float nWBoth = min(nW1, nW2);
+                    float nEBoth = min(nE1, nE2);
+
+                    // Combined Edge Detection
+                    // An edge exists if the Foundation (L0) has a boundary, 
+                    // OR if the Lead Intersection has a boundary that is NOT obscured by L0.
+                    bool isEdgeN = (a0 > 0.01 != nN0 > 0.01) || ((aBoth > 0.01 != nNBoth > 0.01) && !(a0 > 0.01 || nN0 > 0.01));
+                    bool isEdgeS = (a0 > 0.01 != nS0 > 0.01) || ((aBoth > 0.01 != nSBoth > 0.01) && !(a0 > 0.01 || nS0 > 0.01));
+                    bool isEdgeW = (a0 > 0.01 != nW0 > 0.01) || ((aBoth > 0.01 != nWBoth > 0.01) && !(a0 > 0.01 || nW0 > 0.01));
+                    bool isEdgeE = (a0 > 0.01 != nE0 > 0.01) || ((aBoth > 0.01 != nEBoth > 0.01) && !(a0 > 0.01 || nE0 > 0.01));
+
+                    if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
+                        float layerDist = 1e10;
+                        float edgeW = 0.0;
+                        
+                        // Line intensity follows the max alpha of contributing elements
+                        if (isEdgeW) { 
+                            layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); 
+                            edgeW = max(edgeW, max(max(a0, nW0), max(aBoth, nWBoth)));
+                        }
+                        if (isEdgeE) { 
+                            layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); 
+                            edgeW = max(edgeW, max(max(a0, nE0), max(aBoth, nEBoth)));
+                        }
+                        if (isEdgeN) { 
+                            layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); 
+                            edgeW = max(edgeW, max(max(a0, nN0), max(aBoth, nNBoth)));
+                        }
+                        if (isEdgeS) { 
+                            layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); 
+                            edgeW = max(edgeW, max(max(a0, nS0), max(aBoth, nSBoth)));
                         }
 
-                        // Binary Presence Check: only an edge if one side is occupied and the other is not.
-                        // This prevents internal flashes when a block is added adjacent to an existing one.
-                        bool isEdgeN = (unionC > 0.01) != (unionN > 0.01);
-                        bool isEdgeS = (unionC > 0.01) != (unionS > 0.01);
-                        bool isEdgeW = (unionC > 0.01) != (unionW > 0.01);
-                        bool isEdgeE = (unionC > 0.01) != (unionE > 0.01);
-
-                        if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
-                            float layerDist = 1e10;
-                            float edgeW = 0.0;
-                            // Line intensity follows the alpha of whichever cell is currently fading
-                            if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(unionC, unionW)); }
-                            if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(unionC, unionE)); }
-                            if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(unionC, unionN)); }
-                            if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(unionC, unionS)); }
-
-                            float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
-                            if (u_roundness > 0.0 && halfThick > 0.0) {
-                                float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
-                                line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
-                            }
-                            float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
-                            total = max(line, glow) * edgeW;
+                        float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
+                        if (u_roundness > 0.0 && halfThick > 0.0) {
+                            float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
+                            line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
                         }
-                    } else {
-                        for (int i = 0; i < 3; i++) {
-                            int L = u_layerOrder[i];
-                            float cL = getLayerVal(centerOcc, L);
-                            
-                            float nN = getLayerVal(aboveOcc, L);
-                            float nS = getLayerVal(belowOcc, L);
-                            float nW = getLayerVal(leftOcc, L);
-                            float nE = getLayerVal(rightOcc, L);
-
-                            bool isEdgeN = (cL > 0.01 || nN > 0.01) && (abs(cL - nN) > 0.01);
-                            bool isEdgeS = (cL > 0.01 || nS > 0.01) && (abs(cL - nS) > 0.01);
-                            bool isEdgeW = (cL > 0.01 || nW > 0.01) && (abs(cL - nW) > 0.01);
-                            bool isEdgeE = (cL > 0.01 || nE > 0.01) && (abs(cL - nE) > 0.01);
-
-                            if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
-                                float layerDist = 1e10;
-                                float edgeW = 0.0;
-                                if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, abs(cL - nW)); }
-                                if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, abs(cL - nE)); }
-                                if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, abs(cL - nN)); }
-                                if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, abs(cL - nS)); }
-
-                                int obs = 0;
-                                for (int m = 0; m < i; m++) {
-                                    int M = u_layerOrder[m];
-                                    if (getLayerVal(centerOcc, M) > 0.5) obs++;
-                                }
-
-                                float op = (obs < 2) ? 1.0 : (obs == 2) ? 0.3 : 0.0;
-                                if (obs == 2) {
-                                    // 3rd layer dim rule: North/South faces only (H-lines)
-                                    if (!isEdgeN && !isEdgeS) op = 0.0;
-                                }
-
-                                if (op > 0.0) {
-                                    float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
-                                    if (u_roundness > 0.0 && halfThick > 0.0) {
-                                        float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
-                                        line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
-                                    }
-                                    float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
-                                    total = max(total, max(line, glow) * op * edgeW);
-                                }
-                            }
-                        }
+                        float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
+                        total = max(line, glow) * edgeW;
                     }
 
                     // Apply (1 - p) scaling here to prevent additive saturation

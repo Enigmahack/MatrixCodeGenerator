@@ -536,6 +536,14 @@ class QuantizedEffectEditor {
 
                 this.effect.sequence = this._decodeSequence(this.effect.sequence);
                 
+                // If opening a brand new effect, ensure procedural state is seeded
+                if (this.effect.sequence.length <= 1 && this.effect.activeBlocks && this.effect.activeBlocks.length === 0) {
+                    if (typeof this.effect._initProceduralState === 'function') {
+                        this.effect.proceduralInitiated = false; // Force re-init
+                        this.effect._initProceduralState(true);
+                    }
+                }
+
                 // Start at Step 1 if available
                 this.effect.expansionPhase = Math.min(1, this.effect.sequence.length);
 
@@ -1568,6 +1576,13 @@ class QuantizedEffectEditor {
         
         this.effect.sequence.splice(insertIdx, 0, []); 
         
+        // If adding to a brand new effect, ensure procedural state is seeded
+        if (this.effect.sequence.length <= 2 && this.effect.activeBlocks && this.effect.activeBlocks.length === 0) {
+            if (typeof this.effect._initProceduralState === 'function') {
+                this.effect._initProceduralState(true);
+            }
+        }
+
         // Move into the new step
         this._changeStep(1);
     }
@@ -1614,6 +1629,12 @@ class QuantizedEffectEditor {
         // Reset the logic grid
         if (typeof this.effect._initLogicGrid === 'function') {
             this.effect._initLogicGrid();
+        }
+        
+        // Seed initial anchor for procedural/connectivity rules
+        if (typeof this.effect._initProceduralState === 'function') {
+            this.effect.proceduralInitiated = false; // Force re-init
+            this.effect._initProceduralState(true);
         }
         
         this.effect.refreshStep();
@@ -2078,8 +2099,11 @@ class QuantizedEffectEditor {
                     if (opName === 'add') {
                         // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
                         const oldManual = this.effect.manualStep;
+                        const oldPhase = this.effect.expansionPhase;
                         this.effect.manualStep = true;
+                        this.effect.expansionPhase = targetIdx; // Align for recording
                         this.effect._spawnBlock(hit.x, hit.y, 1, 1, this.currentLayer);
+                        this.effect.expansionPhase = oldPhase;
                         this.effect.manualStep = oldManual;
                     } else {
                         const newOp = { op: opName, args: args };
@@ -2122,8 +2146,11 @@ class QuantizedEffectEditor {
 
                     // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
                     const oldManual = this.effect.manualStep;
+                    const oldPhase = this.effect.expansionPhase;
                     this.effect.manualStep = true;
+                    this.effect.expansionPhase = targetIdx; // Align for recording
                     this.effect._spawnBlock(minX, minY, w, h, this.currentLayer);
+                    this.effect.expansionPhase = oldPhase;
                     this.effect.manualStep = oldManual;
 
                     if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;

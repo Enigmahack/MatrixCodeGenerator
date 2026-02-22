@@ -34,12 +34,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.RULES = {
             // A. Bounds Check
             bounds: (c) => {
-                const bs = this.getBlockSize();
-                const xLimit = (this.g.cols / bs.w / 2) + 1; // Canvas + 1 block
-                const yLimit = (this.g.rows / bs.h / 2) + 2; // Increased from +1 to +2 to ensure bottom row coverage
+                const w = this.logicGridW;
+                const h = this.logicGridH;
+                const cx = Math.floor(w / 2);
+                const cy = Math.floor(h / 2);
                 
-                if (c.x < -xLimit || c.x + c.w > xLimit || 
-                    c.y < -yLimit || c.y + c.h > yLimit) return false;
+                if (cx + c.x < 0 || cx + c.x + c.w > w || 
+                    cy + c.y < 0 || cy + c.y + c.h > h) return false;
                 return true;
             },
 
@@ -65,7 +66,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             // C. Connectivity (Adherence to layer)
             connectivity: (c) => {
-                if (c.skipConnectivity) return true;
+                if (c.skipConnectivity || this.debugMode) return true;
                 
                 const grid = this.layerGrids[c.layer];
                 if (!grid) return false;
@@ -87,9 +88,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 for (let gy = y1; gy <= y2; gy++) {
                     const rowOff = gy * w;
                     for (let gx = x1; gx <= x2; gx++) {
-                        if (grid[rowOff + gx] !== -1) {
+                        const idx = rowOff + gx;
+                        if (grid[idx] !== -1) {
                             overlapCount++;
                             connected = true;
+                            c._foundAnchorIdx = idx; // Set anchor for direction check
                         }
                     }
                 }
@@ -148,7 +151,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             // D. Outward Growth Check
             direction: (c) => {
-                if (c.isShifter || c.isMirroredSpawn || c.skipConnectivity) return true;
+                if (c.isShifter || c.isMirroredSpawn || c.skipConnectivity || this.debugMode) return true;
                 
                 // The block must be connecting to an existing anchor further in.
                 const cx = Math.floor(this.logicGridW / 2);
@@ -176,17 +179,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             // F. Spatial Distribution (Prevent clustering/stacking in one step)
             spatial: (c) => {
-                if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial) return true;
+                if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial || this.debugMode) return true;
                 if (!this._currentStepActions || this._currentStepActions.length === 0) return true;
                 
                 const cx = c.x + c.w / 2;
                 const cy = c.y + c.h / 2;
                 
-                // Manhattan distance: 15% of max SCREEN dimension, min 10 blocks
+                // Manhattan distance: 5% of max SCREEN dimension, min 1 block
                 const bs = this.getBlockSize();
                 const screenW = Math.ceil(this.g.cols / bs.w);
                 const screenH = Math.ceil(this.g.rows / bs.h);
-                const minDistance = Math.max(10, Math.floor(Math.max(screenW, screenH) * 0.15));
+                const minDistance = Math.max(1, Math.floor(Math.max(screenW, screenH) * 0.05));
 
                 for (const action of this._currentStepActions) {
                     // Check for EXACT stacking first (center to center) - Regardless of Layer
@@ -230,6 +233,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _initShadowWorld() {
+        console.log("QuantizedBlockGenerator: _initShadowWorld starting...");
         this._initShadowWorldBase(false);
         const sm = this.shadowSim.streamManager;
         const s = this.c.state;
@@ -294,10 +298,18 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     trigger(force = false) {
-        if (this.active && !force) return false;
-        if (!super.trigger(force)) return false;
+        console.log(`QuantizedBlockGenerator: trigger(force=${force}) called`);
+        if (this.active && !force) {
+            console.log("QuantizedBlockGenerator: Already active, returning");
+            return false;
+        }
+        if (!super.trigger(force)) {
+            console.log("QuantizedBlockGenerator: super.trigger() failed");
+            return false;
+        }
 
-        this._log("QuantizedBlockGenerator: Triggered");
+        console.log("QuantizedBlockGenerator: Triggered and initialized");
+        console.log(`QuantizedBlockGenerator: logicGridW=${this.logicGridW}, logicGridH=${this.logicGridH}`);
         this.timer = 0;
         this.genTimer = 0;
         this.animFrame = 0;
@@ -320,7 +332,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
 
-        this._initProceduralState();
+        this._initProceduralState(true);
         this._updateRenderGridLogic();
 
         return true;
@@ -330,7 +342,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (!this.active) return;
 
         if (!this.hasSwapped && !this.isSwapping) {
-            if (super._updateShadowSim()) return;
+            if (super._updateShadowSim()) {
+                // this._log("QuantizedBlockGenerator: updateShadowSim warming up...");
+                return;
+            }
         } else if (this.isSwapping) {
             super.updateTransition(false);
         }
@@ -339,6 +354,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const fps = 60;
         this.animFrame++;
         this.timer++;
+
+        // Log occasionally
+        if (this.animFrame % 60 === 0) {
+            console.log(`QuantizedBlockGenerator: update() frame ${this.animFrame}, state ${this.state}`);
+        }
 
         const fadeOutFrames = this.getConfig('FadeFrames') || 0;
         if (this.maskOps.length > 0 && this.animFrame % 60 === 0) {
@@ -364,23 +384,31 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const intervalMult = enNudge ? 0.15 : 0.25; 
             const interval = Math.max(1, baseDuration * (delayMult * intervalMult));
             
-            if (!this.debugMode) {
+            if (!this.debugMode || this.manualStep) {
                 this.genTimer++;
-                if (this.genTimer >= interval) {
+                if (this.genTimer >= interval || this.manualStep) {
                     this.genTimer = 0;
-                    this._attemptGrowth();
+                    try {
+                        this._attemptGrowth();
+                    } catch (e) {
+                        console.error("QuantizedBlockGenerator: Error in _attemptGrowth:", e);
+                    }
                     this.expansionPhase++;
                 }
+                this.manualStep = false;
             }
             
             this._updateRenderGridLogic();
 
             // Throttled coverage check using base class method
             const isCovered = this._updateExpansionStatus();
+            if (this.animFrame % 60 === 0) {
+                console.log(`QuantizedBlockGenerator: isCovered=${isCovered}, emptyCount=${this._visibleEmptyCount}`);
+            }
             const timedOut = this.timer >= durationFrames;
 
             if (!this.debugMode && (timedOut || isCovered)) {
-                this._log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
+                console.log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {
@@ -401,120 +429,306 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._checkDirtiness();
     }
 
-    _attemptGrowth() {
-        if (this.expansionComplete) return;
-        this._initProceduralState(); 
-        this._syncSubLayers(); // Synchronize existing state first
-        this._currentStepActions = []; // Reset step actions for spatial distribution check
+    _initProceduralState(forceSeed = false) {
+        if (this.proceduralInitiated && !forceSeed) return;
+        this.proceduralInitiated = true;
 
-        const s = this.c.state;
-        const getGenConfig = (key) => {
-            const val = this.getConfig(key);
-            if (val !== undefined) return val;
-            return s['quantizedGenerateV2' + key];
+        // Initialize growth states
+        this.finishedBranches = new Set();
+        
+        if (!this.unfoldSequences) this.unfoldSequences = Array.from({ length: 3 }, () => []);
+        if (!this.rearrangePool) this.rearrangePool = Array.from({ length: 3 }, () => 0);
+
+        // Seed center block on all layers if requested
+        if (forceSeed && (!this.activeBlocks || this.activeBlocks.length === 0)) {
+            if (!this.activeBlocks) this.activeBlocks = [];
+            const maxLayer = this.getConfig('LayerCount') || 0;
+            for (let l = 0; l <= maxLayer; l++) {
+                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, true, false, true);
+            }
+        }
+    }
+
+    /**
+     * Aggressively maintains structural integrity using flood-fill reachability.
+     * Prevents holes of any size and prunes isolated islands.
+     */
+    _maintainStructuralIntegrity() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+
+        const bs = this.getBlockSize();
+        const xVisible = Math.ceil(this.g.cols / bs.w / 2);
+        const yVisible = Math.ceil(this.g.rows / bs.h / 2);
+
+        // --- 1. Robust Hole Detection (BFS Reachability) ---
+        const minX = -xVisible - 2, maxX = xVisible + 2;
+        const minY = -yVisible - 2, maxY = yVisible + 2;
+        const scanW = maxX - minX + 1;
+        const scanH = maxY - minY + 1;
+        
+        const reachGrid = new Uint8Array(scanW * scanH); // 0: unknown, 1: outside, 2: block
+        const getIdx = (bx, by) => (by - minY) * scanW + (bx - minX);
+
+        // Mark existing blocks (Union of all layers for reveal mask)
+        for (let bx = minX; bx <= maxX; bx++) {
+            for (let by = minY; by <= maxY; by++) {
+                const gx = cx + bx, gy = cy + by;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+                if (this.renderGrid[gy * w + gx] !== -1) {
+                    reachGrid[getIdx(bx, by)] = 2;
+                }
+            }
+        }
+
+        // BFS from the outer perimeter of the scan box to find "Outside"
+        const queue = [];
+        const pushIfOutside = (bx, by) => {
+            if (bx < minX || bx > maxX || by < minY || by > maxY) return;
+            const idx = getIdx(bx, by);
+            if (reachGrid[idx] === 0) {
+                reachGrid[idx] = 1;
+                queue.push({x: bx, y: by});
+            }
         };
 
-        // 1. Sync Logic Grid (for connectivity checks)
+        for (let x = minX; x <= maxX; x++) { pushIfOutside(x, minY); pushIfOutside(x, maxY); }
+        for (let y = minY; y <= maxY; y++) { pushIfOutside(minX, y); pushIfOutside(maxX, y); }
+
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            const ds = [[1,0], [-1,0], [0,1], [0,-1]];
+            for (const [dx, dy] of ds) { pushIfOutside(curr.x + dx, curr.y + dy); }
+        }
+
+        // Fill holes: any unknown cell within logic bounds is a hole
+        const maxLayer = this.getConfig('LayerCount') || 0;
+        for (let bx = minX; bx <= maxX; bx++) {
+            for (let by = minY; by <= maxY; by++) {
+                const idx = getIdx(bx, by);
+                if (reachGrid[idx] === 0) {
+                    for (let l = 0; l <= maxLayer; l++) {
+                        this._spawnBlock(bx, by, 1, 1, l, false, 0, true, true, true, false, true);
+                    }
+                }
+            }
+        }
+    }
+
+    _revertFrontier(ox, oy, dx, dy, layer, chance, branchId) {
+        if (this.finishedBranches.has(branchId)) return false;
+        if (layer === 0 || Math.random() > chance) return false;
+
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+
+        let tx = ox, ty = oy, lastOccupied = null;
+        const isOcc = (l, bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return false;
+            return this.layerGrids[l][gy * w + gx] !== -1;
+        };
+
+        while (true) {
+            const ntx = tx + dx, nty = ty + dy;
+            if (!isOcc(layer, ntx, nty)) break;
+            tx = ntx; ty = nty; lastOccupied = { x: tx, y: ty };
+            if (Math.abs(tx) > w || Math.abs(ty) > h) break;
+        }
+
+        if (lastOccupied && (lastOccupied.x !== 0 || lastOccupied.y !== 0)) {
+            if (isOcc(0, lastOccupied.x, lastOccupied.y)) return false;
+            this.maskOps.push({ type: 'removeBlock', x1: lastOccupied.x, y1: lastOccupied.y, x2: lastOccupied.x, y2: lastOccupied.y, layer: layer, startFrame: this.animFrame, fade: false });
+            this.activeBlocks = this.activeBlocks.filter(b => !(b.x === lastOccupied.x && b.y === lastOccupied.y && b.layer === layer));
+            this.layerGrids[layer][(cy + lastOccupied.y) * w + (cx + lastOccupied.x)] = -1;
+            this._gridsDirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    _attemptGrowth() {
+        if (this.expansionComplete) return;
+        console.log(`QuantizedBlockGenerator: _attemptGrowth cycle ${this.expansionPhase}`);
+        this._initProceduralState(true); 
+        this._syncSubLayers(); // Synchronize existing state first
         this._updateInternalLogicGrid();
 
         const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const chance = 0.66;
+        const reversionChance = 0.15;
+        const maxLayer = this.getConfig('LayerCount') || 1;
 
-        // 2. Initialize Step Occupancy
-        const stepOccupancy = this._getBuffer('stepOccupancy', this.logicGrid.length, Uint8Array);
-        stepOccupancy.fill(0);
-        this._stepOccupancy = stepOccupancy;
+        const bs = this.getBlockSize();
+        const xVisible = Math.ceil(this.g.cols / bs.w / 2);
+        const yVisible = Math.ceil(this.g.rows / bs.h / 2);
+        const xGrowthLimit = xVisible + 3;
+        const yGrowthLimit = yVisible + 3;
+        const xFinishLimit = xVisible + 1;
+        const yFinishLimit = yVisible + 1;
 
-        // 3. Preparation
-        let quota = getGenConfig('SimultaneousSpawns') || 1;
-        if (getGenConfig('EnableEventScaling')) {
-            const minQuota = getGenConfig('EventScalingMin') || 1;
-            let filled = 0;
-            for (let i = 0; i < this.logicGrid.length; i++) if (this.logicGrid[i] === 1) filled++;
-            const massPercent = filled / this.logicGrid.length;
-            const t = Math.min(1.0, massPercent / 0.5); 
-            quota = Math.round(minQuota + (quota - minQuota) * t);
-        }
+        const ratio = this.g.cols / this.g.rows;
+        const xBias = Math.max(1.0, ratio);
+        const yBias = Math.max(1.0, 1.0 / ratio);
 
-        const maxLayer = getGenConfig('LayerCount') || 1;
-
-        // Collect behaviors
-        const behaviors = [];
-        this.GROWTH_BEHAVIORS.forEach(b => {
-            if (getGenConfig('Enable' + b.id)) {
-                behaviors.push(b);
+        const getBurst = (bias) => {
+            let b = 1;
+            if (bias > 1.2) {
+                if (Math.random() < (bias - 1.0) * 0.8) b = 2;
+                if (b === 2 && Math.random() < (bias - 2.0) * 0.5) b = 3;
             }
-        });
+            return b;
+        };
+
+        const xBurst = getBurst(xBias);
+        const yBurst = getBurst(yBias);
+
+        const getGridVal = (layer, bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return -2; 
+            return this.layerGrids[layer][gy * w + gx];
+        };
 
         let successInStep = false;
-        const enCycling = getGenConfig('EnableLayerCycling') === true;
 
-        // 4. Layer Growth Loop
-        for (let q = 0; q < quota; q++) {
-            // Determine target layers for this action slot
-            let layersToTry = [];
-            if (enCycling) {
-                const cycle = [];
-                if (maxLayer >= 1) cycle.push(1);
-                if (maxLayer >= 2) cycle.push(2);
-                cycle.push(0); 
-                
-                // Use persistent index to ensure fair distribution across frames
-                const target = cycle[(this.persistentCycleIndex + q) % cycle.length];
-                layersToTry = [target];
-            } else {
-                for (let l = 0; l <= maxLayer; l++) layersToTry.push(l);
-            }
-
-            let slotSuccess = false;
-            for (const behavior of behaviors) {
-                for (const targetLayer of layersToTry) {
-                    let successForLayer = false;
-
-                    if (behavior.id === 'Unfold') {
-                        if (this._processActiveStatefulBehaviors(targetLayer)) successForLayer = true;
-                        if (!successForLayer && this._attemptUnfoldGrowth(null, targetLayer)) successForLayer = true;
-                    } else {
-                        if (typeof this[behavior.method] === 'function') {
-                            if (this[behavior.method](null, targetLayer)) successForLayer = true;
+        // --- 1. X-Axis Spine Growth ---
+        const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
+        for (const spine of xSpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeX = spine.dx;
+                    while (true) {
+                        const val = getGridVal(l, freeX, 0);
+                        if (val === -2 || Math.abs(freeX) >= xFinishLimit) { if (l === maxLayer) finished = true; break; }
+                        if (val === -1) break;
+                        freeX += spine.dx;
+                    }
+                    if (Math.abs(freeX) < xFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = freeX + (b * spine.dx);
+                            if (getGridVal(l, tx, 0) === -1 && Math.abs(tx) <= xGrowthLimit) {
+                                if (this._spawnBlock(tx, 0, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
                         }
                     }
+                }
+                if (finished) this.finishedBranches.add(spine.id);
+            }
+        }
 
-                    if (successForLayer) {
-                        slotSuccess = true;
-                        successInStep = true;
-                        break; 
+        // --- 2. Y-Axis Spine Growth ---
+        const ySpines = [{id: 'spine_north', dy: -1}, {id: 'spine_south', dy: 1}];
+        for (const spine of ySpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeY = spine.dy;
+                    while (true) {
+                        const val = getGridVal(l, 0, freeY);
+                        if (val === -2 || Math.abs(freeY) >= yFinishLimit) { if (l === 1) finished = true; break; }
+                        if (val === -1) break;
+                        freeY += spine.dy;
+                    }
+                    if (Math.abs(freeY) < yFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = freeY + (b * spine.dy);
+                            if (getGridVal(l, 0, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
+                                if (this._spawnBlock(0, ty, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
+                        }
                     }
                 }
-                if (slotSuccess) break; // Slot filled, move to next quota q
+                if (finished) this.finishedBranches.add(spine.id);
             }
         }
 
-        if (enCycling) {
-            // Advance the cycle for the next frame
-            const cycleLen = (maxLayer >= 2 ? 3 : maxLayer >= 1 ? 2 : 1);
-            this.persistentCycleIndex = (this.persistentCycleIndex + quota) % cycleLen;
-        }
-
-        // 5. Global Maintenance (Pruning, etc.)
-        for (const behavior of this.GLOBAL_BEHAVIORS) {
-            const isEnabled = getGenConfig('Enable' + behavior.id) === true;
-            if (isEnabled) {
-                if (behavior.perLayer) {
-                    for (let l = 0; l <= maxLayer; l++) this[behavior.method](l);
-                } else {
-                    this[behavior.method]();
+        // --- 3. Follower Foundations ---
+        for (const spine of xSpines) {
+            for (let x = spine.dx; Math.abs(x) <= xGrowthLimit; x += spine.dx) {
+                let anyLeading = false;
+                for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, 0) !== -1) anyLeading = true;
+                if (getGridVal(0, x, 0) === -1 && anyLeading) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = x + (b * spine.dx);
+                            if (getGridVal(0, tx, 0) === -1) {
+                                if (this._spawnBlock(tx, 0, 1, 1, 0, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
+                        }
+                    }
+                    break;
                 }
             }
         }
 
-        // Update Layer Rotation for any behaviors that still use sequential rotation
-        this.proceduralLayerIndex = (this.proceduralLayerIndex + 1) % (maxLayer + 1);
+        // --- 4. Wing Growth ---
+        // Find current spine bounds on maxLayer
+        let minX = 0, maxX = 0;
+        for (let x = -1; ; x--) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { minX = x + 1; break; } }
+        for (let x = 1; ; x++) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { maxX = x - 1; break; } }
 
-        if (!successInStep && !this._isCanvasFullyCovered()) {
-            this._warn("QuantizedBlockGenerator: Growth stalled - no safe move found in this step.");
+        for (let x = minX; x <= maxX; x++) {
+            const directions = [{ id: 'n', dy: -1 }, { id: 's', dy: 1 }];
+            for (const d of directions) {
+                const branchId = `wing_${d.id}_${x}`;
+                let wingFinished = this.finishedBranches.has(branchId);
+                let wingFreeY = d.dy;
+
+                if (!wingFinished) {
+                    while (true) {
+                        const val = getGridVal(maxLayer, x, wingFreeY);
+                        if (val === -2 || Math.abs(wingFreeY) >= yFinishLimit) {
+                            wingFinished = true;
+                            this.finishedBranches.add(branchId);
+                            break;
+                        }
+                        if (val === -1) break;
+                        wingFreeY += d.dy;
+                    }
+                }
+
+                if (!wingFinished) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = wingFreeY + (b * d.dy);
+                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
+                                if (this._spawnBlock(x, ty, 1, 1, maxLayer, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
+                        }
+                    }
+                    this._revertFrontier(x, 0, 0, d.dy, maxLayer, reversionChance, branchId);
+                }
+
+                // Layer 0 Wing Follower
+                const searchLimitY = wingFinished ? yGrowthLimit : Math.abs(wingFreeY);
+                for (let y = d.dy; Math.abs(y) <= searchLimitY; y += d.dy) {
+                    if (getGridVal(0, x, y) === -1 && getGridVal(maxLayer, x, y) !== -1) {
+                        if (Math.random() < chance) {
+                            for (let b = 0; b < yBurst; b++) {
+                                const ty = y + (b * d.dy);
+                                if (getGridVal(0, x, ty) === -1 && getGridVal(maxLayer, x, ty) !== -1) {
+                                    if (this._spawnBlock(x, ty, 1, 1, 0, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                                } else break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
-        // Final Logic Grid Sync (for rendering)
+        // --- 5. Maintain Structural Integrity ---
+        if (this.getConfig('EnableAutoFillHoles')) {
+            this._maintainStructuralIntegrity();
+        }
+
+        if (!successInStep && !this._isCanvasFullyCovered()) {
+            console.warn("QuantizedBlockGenerator: Growth stalled.");
+        }
+
         this._updateInternalLogicGrid();
     }
 
@@ -768,16 +982,34 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _validateCandidate(c) {
-        if (!this.RULES.bounds(c)) return false;
-        if (!this.RULES.occupancy(c)) return false;
-        if (!this.RULES.vacated(c)) return false;
+        if (!this.RULES.bounds(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: bounds", c);
+            return false;
+        }
+        if (!this.RULES.occupancy(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: occupancy", c);
+            return false;
+        }
+        if (!this.RULES.vacated(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: vacated", c);
+            return false;
+        }
 
         // Shifter blocks bypass growth constraints
         if (c.isShifter) return true;
 
-        if (!this.RULES.connectivity(c)) return false;
-        if (!this.RULES.direction(c)) return false;
-        if (!this.RULES.spatial(c)) return false;
+        if (!this.RULES.connectivity(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: connectivity", c);
+            return false;
+        }
+        if (!this.RULES.direction(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: direction", c);
+            return false;
+        }
+        if (!this.RULES.spatial(c)) {
+            console.log("QuantizedBlockGenerator: Rule failed: spatial", c);
+            return false;
+        }
         return true;
     }
 

@@ -109,7 +109,7 @@ class QuantizedRenderer {
                     const idx = gy * blocksX + gx;
                     // Only erase if this cell is NOT occupied by ANY visible layer in the final composition
                     if (fx.renderGrid[idx] === -1) {
-                        this._addBlockToCtx(fx, colorLayerCtx, l, {x: gx, y: gy}, {x: gx, y: gy});
+                        this._addBlock(fx, colorLayerCtx, l, {x: gx, y: gy}, {x: gx, y: gy});
                     }
                 }
             }
@@ -146,12 +146,10 @@ class QuantizedRenderer {
         }
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
-        // Unified Shared Edge Rendering (Legacy 2D path)
-        if (s.renderingEngine !== 'webgl') {
-            this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
-            this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
-        }
-        
+        // Unified Shared Edge Rendering (Populate masks for both 2D and WebGL)
+        this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
         
@@ -159,33 +157,159 @@ class QuantizedRenderer {
         fx._snapSettings = null;
     }
 
-    _addBlockToCtx(fx, ctx, l, blockStart, blockEnd) {
+    _addBlock(fx, ctx, l, blockStart, blockEnd, isExtending, visibilityCheck) {
         const offX = l.offX || 0;
         const offY = l.offY || 0;
+        
+        // Apply Offsets to align Logic Grid with Screen
+        const sBx = blockStart.x - offX;
+        const sBy = blockStart.y - offY;
+        const eBx = blockEnd.x - offX;
+        const eBy = blockEnd.y - offY;
 
-        let startX = Math.round((blockStart.x - offX + l.userBlockOffX) * l.cellPitchX);
-        let endX = Math.round((blockEnd.x + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        let startY = Math.round((blockStart.y - offY + l.userBlockOffY) * l.cellPitchY);
-        let endY = Math.round((blockEnd.y + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+        const startX = Math.floor(sBx * l.cellPitchX);
+        const endX = Math.floor((eBx + 1) * l.cellPitchX);
+        const startY = Math.floor(sBy * l.cellPitchY);
+        const endY = Math.floor((eBy + 1) * l.cellPitchY);
 
-        startX = Math.max(0, Math.min(fx.g.cols, startX));
-        endX = Math.max(0, Math.min(fx.g.cols, endX));
-        startY = Math.max(0, Math.min(fx.g.rows, startY));
-        endY = Math.max(0, Math.min(fx.g.rows, endY));
-
+        ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
-        const xPos = l.screenOriginX + (startX) * l.screenStepX + l.pixelOffX;
-        const yPos = l.screenOriginY + (startY) * l.screenStepY + l.pixelOffY;
-        const w = (endX - startX) * l.screenStepX;
-        const h = (endY - startY) * l.screenStepY;
-        
-        const sLeft = this._getSnap(fx, xPos, 'x');
-        const sTop = this._getSnap(fx, yPos, 'y');
-        const sRight = this._getSnap(fx, xPos + w, 'x');
-        const sBottom = this._getSnap(fx, yPos + h, 'y');
-        
-        ctx.rect(sLeft - 0.5, sTop - 0.5, (sRight - sLeft) + 1.0, (sBottom - sTop) + 1.0);
+
+        if (visibilityCheck) {
+            const rangeMinBx = blockStart.x;
+            const rangeMaxBx = blockEnd.x;
+            const rangeMinBy = blockStart.y;
+            const rangeMaxBy = blockEnd.y;
+            
+            for (let by = rangeMinBy; by <= rangeMaxBy; by++) {
+                for (let bx = rangeMinBx; bx <= rangeMaxBx; bx++) {
+                    if (!visibilityCheck(bx, by)) continue;
+                    
+                    const drawBx = bx - offX;
+                    const drawBy = by - offY;
+                    
+                    const cellX = Math.floor(drawBx * l.cellPitchX);
+                    const cellY = Math.floor(drawBy * l.cellPitchY);
+                    const xPos = l.screenOriginX + (cellX * l.screenStepX);
+                    const yPos = l.screenOriginY + (cellY * l.screenStepY);
+                    
+                    const w = l.screenStepX * l.cellPitchX;
+                    const h = l.screenStepY * l.cellPitchY;
+                    
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, l.lineWidthX, h + l.lineWidthY);
+                    ctx.rect(xPos - l.halfLineX, yPos - l.halfLineY, w + l.lineWidthX, l.lineWidthY);
+                }
+            }
+        } else {
+            if (isExtending) {
+                let cy = l.screenOriginY + (startY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                cy = l.screenOriginY + (endY * l.screenStepY);
+                ctx.rect(l.screenOriginX + (startX * l.screenStepX) - l.halfLineX, cy - l.halfLineY, (endX - startX) * l.screenStepX + l.lineWidthX, l.lineWidthY);
+                let cx = l.screenOriginX + (startX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
+                cx = l.screenOriginX + (endX * l.screenStepX);
+                ctx.rect(cx - l.halfLineX, l.screenOriginY + (startY * l.screenStepY) - l.halfLineY, l.lineWidthX, (endY - startY) * l.screenStepY + l.lineWidthY);
+            } else {
+                const sCellX = Math.floor(sBx * l.cellPitchX);
+                const sCellY = Math.floor(sBy * l.cellPitchY);
+                const eCellX = Math.floor((eBx + 1) * l.cellPitchX);
+                const eCellY = Math.floor((eBy + 1) * l.cellPitchY);
+                
+                const xPos = l.screenOriginX + (sCellX * l.screenStepX);
+                const yPos = l.screenOriginY + (sCellY * l.screenStepY);
+                const w = (eCellX - sCellX) * l.screenStepX;
+                const h = (eCellY - sCellY) * l.screenStepY;
+                
+                ctx.rect(xPos - 0.5, yPos - 0.5, w + 1.0, h + 1.0);
+            }
+        }
         ctx.fill();
+    }
+
+    _addPerimeterFacePath(ctx, l, bx, by, faceObj, widthX, widthY) {
+        const offX = l.offX || 0;
+        const offY = l.offY || 0;
+        
+        // Apply Offsets
+        const drawBx = bx - offX;
+        const drawBy = by - offY;
+        
+        const startCellX = Math.floor(drawBx * l.cellPitchX);
+        const startCellY = Math.floor(drawBy * l.cellPitchY);
+        const endCellX = Math.floor((drawBx + 1) * l.cellPitchX);
+        const endCellY = Math.floor((drawBy + 1) * l.cellPitchY);
+
+        const face = faceObj.dir;
+        const rS = faceObj.rS;
+        const rE = faceObj.rE;
+
+        if (face === 'N') {
+            const cy = l.screenOriginY + (startCellY * l.screenStepY);
+            let drawX, drawY, drawW, drawH;
+            const topY = cy; 
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            drawY = topY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX; 
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'S') {
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawY = bottomY - widthY; 
+            drawH = widthY;
+            drawX = leftX;
+            drawW = rightX - leftX;
+            
+            if (rS) { drawX += widthX; drawW -= widthX; }
+            if (rE) { drawW -= widthX; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'W') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const leftX = l.screenOriginX + (startCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = leftX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+
+        } else if (face === 'E') {
+            const topY = l.screenOriginY + (startCellY * l.screenStepY);
+            const bottomY = l.screenOriginY + (endCellY * l.screenStepY);
+            const rightX = l.screenOriginX + (endCellX * l.screenStepX);
+
+            let drawX, drawY, drawW, drawH;
+            drawX = rightX - widthX; 
+            drawW = widthX;
+            drawY = topY;
+            drawH = bottomY - topY;
+            
+            if (rS) { drawY += widthY; drawH -= widthY; }
+            if (rE) { drawH -= widthY; }
+            
+            ctx.rect(drawX, drawY, drawW, drawH);
+        }
     }
 
     _getSnap(fx, val, axis) {
@@ -247,13 +371,8 @@ class QuantizedRenderer {
 
         const resolveEdge = (x, y, type) => {
             let ax, ay, bx, by; 
-            if (type === 'V') {
-                ax = x - 1; ay = y;
-                bx = x;     by = y;
-            } else {
-                ax = x;     ay = y - 1;
-                bx = x;     by = y;
-            }
+            if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
+            else { ax = x; ay = y - 1; bx = x; by = y; }
 
             let isVisibleNormally = false;
             let isVisibleDimly = false;
@@ -262,43 +381,47 @@ class QuantizedRenderer {
 
             const key = `${type}_${x}_${y}`;
             
-            // Layering Logic: Layers 0, 1, 2 determine stacking.
-            const visibleLayerIndices = fx.layerOrder.filter(l => l <= 2);
-
-            for (let iOrder = 0; iOrder < visibleLayerIndices.length; iOrder++) {
-                const L = visibleLayerIndices[iOrder];
-                const grid = fx.layerGrids[L];
-                if (!grid) continue;
-                
-                const aL = (getBlock(grid, ax, ay) !== -1);
-                const bL = (getBlock(grid, bx, by) !== -1);
-
-                if (aL !== bL) {
-                    // Perimeter of Layer L. How many layers are ABOVE it in Z-order at this edge?
-                    let obscureCount = 0;
-                    for (let m = 0; m < iOrder; m++) {
-                        const M = visibleLayerIndices[m];
-                        if (getBlock(fx.layerGrids[M], ax, ay) !== -1 || getBlock(fx.layerGrids[M], bx, by) !== -1) {
-                            obscureCount++;
-                        }
-                    }
-
-                    const birth = Math.max(getBlock(grid, ax, ay), getBlock(grid, bx, by));
-
-                    if (obscureCount < 2) {
-                        isVisibleNormally = true;
-                        if (birth > edgeBirthFrame) edgeBirthFrame = birth;
-                    } else if (obscureCount === 2) {
-                        // 3rd layer special rule: Dimmer, North/South face only (H-lines)
-                        if (type === 'H') {
-                            isVisibleDimly = true;
-                            if (birth > dimBirthFrame) dimBirthFrame = birth;
-                        }
-                    }
+            // 1. Foundation Layer (usually Layer 0) - Always Visible
+            // We use the first layer in layerOrder as the foundation.
+            const foundationLayerIdx = (fx.layerOrder && fx.layerOrder.length > 0) ? fx.layerOrder[0] : 0;
+            const grid0 = fx.layerGrids[foundationLayerIdx];
+            if (grid0) {
+                const a0 = (getBlock(grid0, ax, ay) !== -1);
+                const b0 = (getBlock(grid0, bx, by) !== -1);
+                if (a0 !== b0) {
+                    isVisibleNormally = true;
+                    edgeBirthFrame = Math.max(getBlock(grid0, ax, ay), getBlock(grid0, bx, by));
                 }
             }
 
-            // Normal visibility takes precedence
+                        // 2. Lead Convergence (Overlap of subsequent layers, usually L1 & L2)
+                        // "Lines are only drawn for layer 1 and 2 where they both exist in the same spot."
+                        const lead1Idx = (fx.layerOrder && fx.layerOrder.length > 1) ? fx.layerOrder[1] : 1;
+                        const lead2Idx = (fx.layerOrder && fx.layerOrder.length > 2) ? fx.layerOrder[2] : 2;
+                        const grid1 = fx.layerGrids[lead1Idx];
+                        const grid2 = fx.layerGrids[lead2Idx];
+            
+                        if (grid1 && grid2) {
+                            const aBoth = (getBlock(grid1, ax, ay) !== -1 && getBlock(grid2, ax, ay) !== -1);
+                            const bBoth = (getBlock(grid1, bx, by) !== -1 && getBlock(grid2, bx, by) !== -1);
+            
+                            if (aBoth !== bBoth) {
+                                // Check if this lead edge is obscured by the Foundation Layer (Z-order)
+                                const obscured = (grid0 && (getBlock(grid0, ax, ay) !== -1 || getBlock(grid0, bx, by) !== -1));
+                                
+                                if (!obscured) {
+                                    const birth = Math.max(
+                                        Math.max(getBlock(grid1, ax, ay), getBlock(grid2, ax, ay)),
+                                        Math.max(getBlock(grid1, bx, by), getBlock(grid2, bx, by))
+                                    );
+            
+                                    // For the Lead Intersection, we use "Normally Visible"
+                                    isVisibleNormally = true;
+                                    if (birth > edgeBirthFrame) edgeBirthFrame = birth;
+                                }
+                            }
+                        }
+                        // Normal visibility takes precedence
             if (isVisibleNormally) isVisibleDimly = false;
 
             let state = fx.lineStates.get(key);

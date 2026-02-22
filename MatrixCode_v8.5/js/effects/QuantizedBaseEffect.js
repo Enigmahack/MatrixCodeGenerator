@@ -225,6 +225,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (this.renderGrid[rowOff + gx] === -1) count++;
             }
         }
+        
+        if (this.name === "QuantizedBlockGenerator" && this.animFrame % 60 === 0) {
+            console.log(`[${this.name}] _updateVisibleEmptyCount: w=${w}, h=${h}, offX=${offX.toFixed(2)}, offY=${offY.toFixed(2)}, startX=${startX}, endX=${endX}, startY=${startY}, endY=${endY}, visibleW=${visibleW}, visibleH=${visibleH}, count=${count}`);
+        }
+
         this._visibleEmptyCount = count;
         this._lastCoverageRect = { startX, endX, startY, endY };
     }
@@ -377,13 +382,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps = [];
         this.activeBlocks = []; 
         this.nextBlockId = 0;
-        this.proceduralInitiated = false;
         
-        // Fully reset procedural state machine
-        this.unfoldSequences = Array.from({ length: 3 }, () => []);
-        this.nudgeState = null;
-        this.cycleState = null;
-        this.centeredState = null;
+        // Safely re-init or ensure existence of procedural state
+        this.proceduralInitiated = false;
+        this._initProceduralState(false); 
 
         this._initLogicGrid();
         if (this.renderGrid) this.renderGrid.fill(-1);
@@ -413,9 +415,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        // Re-seed initial blocks or reconstruct from maskOps
-        this._initProceduralState();
-
         this.expansionPhase = targetStepsCompleted; 
         this.animFrame = targetStepsCompleted * framesPerStep;
 
@@ -433,6 +432,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     
     // Proxy for SequenceManager
     _executeStepOps(step, startFrameOverride) {
+        if (this.activeBlocks) this.activeBlocks = [];
         this.sequenceManager.executeStepOps(this, step, startFrameOverride);
     }
 
@@ -774,7 +774,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             return;
         }
 
-        const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
+        const visibleIndices = [0]; // ONLY Layer 0 reveals code fills by default
         const layerGrids = this.layerGrids;
 
         if (this._gridsDirty) {
@@ -784,18 +784,21 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
             let emptyCount = 0;
             const r = this._lastCoverageRect;
+            const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
             
             for (let idx = 0; idx < totalBlocks; idx++) {
                 let finalVal = -1;
                 let anyActive = false;
-                for (let j = 0; j < visibleIndices.length; j++) {
-                    const lIdx = visibleIndices[j];
-                    const grid = layerGrids[lIdx];
-                    if (grid && grid[idx] !== -1) {
-                        if (finalVal === -1) finalVal = grid[idx];
+                
+                // Track LOGIC for all layers and determine if anything is active
+                for (let l = 0; l < 3; l++) {
+                    if (layerGrids[l] && layerGrids[l][idx] !== -1) {
                         anyActive = true;
+                        // Use the earliest start frame for the renderGrid value if not already set
+                        if (finalVal === -1) finalVal = layerGrids[l][idx];
                     }
                 }
+
                 this.renderGrid[idx] = finalVal;
                 if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
                 
@@ -815,6 +818,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this._updateVisibleEmptyCount();
             }
 
+            const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
+
             for (const rect of dirtyRects) {
                 const minX = Math.max(0, cx + rect.x1);
                 const maxX = Math.min(this.logicGridW - 1, cx + rect.x2);
@@ -823,21 +828,23 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 for (let by = minY; by <= maxY; by++) {
                     const rowOff = by * this.logicGridW;
-                    for (let bx = minX; bx <= maxX; bx++) {
-                        const idx = rowOff + bx;
+                    for (let gx = minX; gx <= maxX; gx++) {
+                        const idx = rowOff + gx;
                         const wasEmpty = (this.renderGrid[idx] === -1);
-                        const isVisible = (r && bx >= r.startX && bx < r.endX && by >= r.startY && by < r.endY);
+                        const isVisible = (r && gx >= r.startX && gx < r.endX && by >= r.startY && by < r.endY);
 
                         let finalVal = -1;
                         let anyActive = false;
-                        for (let j = 0; j < visibleIndices.length; j++) {
-                            const lIdx = visibleIndices[j];
-                            const grid = layerGrids[lIdx];
-                            if (grid && grid[idx] !== -1) {
-                                if (finalVal === -1) finalVal = grid[idx];
+
+                        // Track LOGIC for all layers and determine if anything is active
+                        for (let l = 0; l < 3; l++) {
+                            if (layerGrids[l] && layerGrids[l][idx] !== -1) {
                                 anyActive = true;
+                                // Use the earliest start frame for the renderGrid value if not already set
+                                if (finalVal === -1) finalVal = layerGrids[l][idx];
                             }
                         }
+
                         this.renderGrid[idx] = finalVal;
                         if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
 
@@ -850,7 +857,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
-
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
         const bs = this.getBlockSize();
@@ -894,7 +900,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.renderer._removeBlockCorner(this, this.maskCtx, bx, by, corner);
     }
     _addBlock(start, end, ext, check) {
-        this.renderer._addBlockToCtx(this.maskCtx, this.layout, start, end);
+        this.renderer._addBlock(this, this.maskCtx, this.layout, start, end, ext, check);
     }
 
     render(ctx, d) {
@@ -1234,91 +1240,73 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
 
-        // Draw Lines in reverse layer order (back-to-front), respecting obscureCount rules
-        for (let i = visibleIndices.length - 1; i >= 0; i--) {
-            const lIdx = visibleIndices[i];
-            if (this.visibleLayers && this.visibleLayers[lIdx] === false) continue;
-            const rGrid = this.layerGrids[lIdx];
-            if (!rGrid) continue;
+        // Draw Lines: Foundation Layer AND Lead Intersection ONLY
+        const pNormal = new Path2D();
+        const pDim = new Path2D();
+
+        const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
+        const lead1Idx = (this.layerOrder && this.layerOrder.length > 1) ? this.layerOrder[1] : 1;
+        const lead2Idx = (this.layerOrder && this.layerOrder.length > 2) ? this.layerOrder[2] : 2;
+
+        const grid0 = this.layerGrids[foundationIdx];
+        const grid1 = this.layerGrids[lead1Idx];
+        const grid2 = this.layerGrids[lead2Idx];
+
+        const isOcc = (grid, bx, by) => {
+            if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY || !grid) return false;
+            return grid[by * blocksX + bx] !== -1;
+        };
+
+        const isBoth = (bx, by) => isOcc(grid1, bx, by) && isOcc(grid2, bx, by);
+
+        const addEdgeToPath = (path, x, y, isV) => {
+            let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+            cellX = Math.max(0, Math.min(this.g.cols, cellX));
+            const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
             
-            const pNormal = new Path2D();
-            const pDim = new Path2D();
-
-            for (let x = 0; x <= blocksX; x++) {
-                for (let y = 0; y < blocksY; y++) {
-                    const activeL = (getVal(rGrid, x - 1, y) !== -1);
-                    const activeR = (getVal(rGrid, x, y) !== -1);
-                    if (activeL !== activeR) {
-                        // Perimeter of Layer lIdx. Is it obscured?
-                        let obscureCount = 0;
-                        for (let j = 0; j < i; j++) {
-                            const higherLIdx = visibleIndices[j];
-                            if (this.visibleLayers && this.visibleLayers[higherLIdx] === false) continue;
-                            if (getVal(this.layerGrids[higherLIdx], x - 1, y) !== -1 || getVal(this.layerGrids[higherLIdx], x, y) !== -1) {
-                                obscureCount++;
-                            }
-                        }
-                        if (obscureCount < 2) {
-                            let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                            cellX = Math.max(0, Math.min(this.g.cols, cellX));
-                            let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                            let cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
-                            cellY1 = Math.max(0, Math.min(this.g.rows, cellY1));
-                            cellY2 = Math.max(0, Math.min(this.g.rows, cellY2));
-
-                            const px = l.screenOriginX + (cellX * l.screenStepX) + l.pixelOffX + changesOffX;
-                            const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
-                            const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
-                            pNormal.moveTo(px, py1);
-                            pNormal.lineTo(px, py2);
-                        }
-                        // obscureCount === 2 is hidden for V-lines
-                    }
-                }
+            if (isV) {
+                let cellY1 = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                let cellY2 = Math.round((y + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                cellY1 = Math.max(0, Math.min(this.g.rows, cellY1));
+                cellY2 = Math.max(0, Math.min(this.g.rows, cellY2));
+                const py1 = l.screenOriginY + (cellY1 * l.screenStepY) + l.pixelOffY + changesOffY;
+                const py2 = l.screenOriginY + (cellY2 * l.screenStepY) + l.pixelOffY + changesOffY;
+                path.moveTo(px, py1); path.lineTo(px, py2);
+            } else {
+                let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
+                cellY = Math.max(0, Math.min(this.g.rows, cellY));
+                const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
+                let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
+                let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
+                cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
+                cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
+                const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
+                const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
+                path.moveTo(px1, py); path.lineTo(px2, py);
             }
-            for (let y = 0; y <= blocksY; y++) {
-                for (let x = 0; x < blocksX; x++) {
-                    const activeT = (getVal(rGrid, x, y - 1) !== -1);
-                    const activeB = (getVal(rGrid, x, y) !== -1);
-                    if (activeT !== activeB) {
-                        // Perimeter of Layer lIdx. Is it obscured?
-                        let obscureCount = 0;
-                        for (let j = 0; j < i; j++) {
-                            const higherLIdx = visibleIndices[j];
-                            if (this.visibleLayers && this.visibleLayers[higherLIdx] === false) continue;
-                            if (getVal(this.layerGrids[higherLIdx], x, y - 1) !== -1 || getVal(this.layerGrids[higherLIdx], x, y) !== -1) {
-                                obscureCount++;
-                            }
-                        }
+        };
 
-                        let cellY = Math.round((y - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        cellY = Math.max(0, Math.min(this.g.rows, cellY));
-                        let cellX1 = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        let cellX2 = Math.round((x + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        cellX1 = Math.max(0, Math.min(this.g.cols, cellX1));
-                        cellX2 = Math.max(0, Math.min(this.g.cols, cellX2));
-
-                        const py = l.screenOriginY + (cellY * l.screenStepY) + l.pixelOffY + changesOffY;
-                        const px1 = l.screenOriginX + (cellX1 * l.screenStepX) + l.pixelOffX + changesOffX;
-                        const px2 = l.screenOriginX + (cellX2 * l.screenStepX) + l.pixelOffX + changesOffX;
-
-                        if (obscureCount < 2) {
-                            pNormal.moveTo(px1, py);
-                            pNormal.lineTo(px2, py);
-                        } else if (obscureCount === 2) {
-                            pDim.moveTo(px1, py);
-                            pDim.lineTo(px2, py);
-                        }
-                    }
-                }
+        // Vertical Edges
+        for (let x = 0; x <= blocksX; x++) {
+            for (let y = 0; y < blocksY; y++) {
+                const a0 = isOcc(grid0, x-1, y), b0 = isOcc(grid0, x, y);
+                const aB = isBoth(x-1, y), bB = isBoth(x, y);
+                const obscured = a0 || b0;
+                if ((a0 !== b0) || (aB !== bB && !obscured)) addEdgeToPath(pNormal, x, y, true);
             }
-            ctx.strokeStyle = layerLines[lIdx];
-            ctx.stroke(pNormal);
-            ctx.save();
-            ctx.globalAlpha *= 0.3;
-            ctx.stroke(pDim);
-            ctx.restore();
         }
+        // Horizontal Edges
+        for (let y = 0; y <= blocksY; y++) {
+            for (let x = 0; x < blocksX; x++) {
+                const a0 = isOcc(grid0, x, y-1), b0 = isOcc(grid0, x, y);
+                const aB = isBoth(x, y-1), bB = isBoth(x, y);
+                const obscured = a0 || b0;
+                if ((a0 !== b0) || (aB !== bB && !obscured)) addEdgeToPath(pNormal, x, y, false);
+            }
+        }
+
+        ctx.strokeStyle = layerLines[0]; // Use L0 color for the unified wireframe
+        ctx.stroke(pNormal);
         const ops = this.maskOps;
         if (ops && this.c.state.layerEnableEditorRemovals !== false) {
             for (const op of ops) {
@@ -1352,63 +1340,26 @@ class QuantizedBaseEffect extends AbstractEffect {
     // PROCEDURAL GENERATION (from BlockGenerator)
     // =========================================================================
 
-    _initProceduralState() {
-        if (this.proceduralInitiated) return;
+    _initProceduralState(forceSeed = false) {
+        if (this.proceduralInitiated && !forceSeed) return;
         this.proceduralInitiated = true;
-        console.log("[QuantizedBaseEffect] Initializing Procedural State");
 
-        // Initialize activeBlocks from current maskOps (manual steps)
-        if (this.maskOps) {
-            for (const op of this.maskOps) {
-                if (op.type === 'add' || op.type === 'addSmart') {
-                    // Reconstruct block object
-                    const id = this.nextBlockId++;
-                    this.activeBlocks.push({
-                        x: op.x1, y: op.y1, 
-                        w: Math.abs(op.x2 - op.x1) + 1, 
-                        h: Math.abs(op.y2 - op.y1) + 1,
-                        startFrame: op.startFrame || this.animFrame,
-                        layer: op.layer || 0,
-                        id: id
-                    });
-                } else if (op.type === 'removeBlock') {
-                    const bx1 = op.x1, by1 = op.y1;
-                    const bx2 = (op.x2 !== undefined) ? op.x2 : bx1;
-                    const by2 = (op.y2 !== undefined) ? op.y2 : by1;
-                    const layer = op.layer; // can be undefined
-
-                    this.activeBlocks = this.activeBlocks.filter(b => {
-                        // If layer is specified, only remove from that layer
-                        if (layer !== undefined && b.layer !== layer) return true;
-                        
-                        // Check if block b is within or overlaps with removal rect (bx1, by1) to (bx2, by2)
-                        // For structural blocks, we usually want to remove it if its anchor (top-left) matches,
-                        // or if it's fully contained. Let's use anchor match for simplicity as most ops are 1x1 removals of larger blocks.
-                        // Actually, let's check if the block's area overlaps with the removal area.
-                        const b_x2 = b.x + b.w - 1;
-                        const b_y2 = b.y + b.h - 1;
-                        
-                        const overlap = !(b.x > bx2 || b_x2 < bx1 || b.y > by2 || b_y2 < by1);
-                        return !overlap;
-                    });
-                }
-            }
+        // Initialize growth states if not already present
+        if (!this.unfoldSequences) this.unfoldSequences = Array.from({ length: 3 }, () => []);
+        if (!this.nudgeState) {
+            this.nudgeState = {
+                dirCounts: { N: 0, S: 0, E: 0, W: 0 },
+                fieldExpansion: { N: 0, S: 0, E: 0, W: 0 },
+                lanes: new Map() // Tracks {0: count, 1: count} per lane
+            };
         }
+        if (!this.overlapState) this.overlapState = { step: 0 };
+        if (!this.cycleState) this.cycleState = { step: 0, step1Block: null };
+        if (!this.rearrangePool) this.rearrangePool = Array.from({ length: 3 }, () => 0);
 
-        // Initialize growth states
-        this.unfoldSequences = Array.from({ length: 3 }, () => []);
-        this.nudgeState = {
-            dirCounts: { N: 0, S: 0, E: 0, W: 0 },
-            fieldExpansion: { N: 0, S: 0, E: 0, W: 0 },
-            lanes: new Map() // Tracks {0: count, 1: count} per lane
-        };
-        this.overlapState = { step: 0 };
-        this.cycleState = { step: 0, step1Block: null };
-        this.centeredState = null;
-        this.rearrangePool = Array.from({ length: 3 }, () => 0);
-
-        // Ensure we have at least one anchor if starting fresh
-        if (this.activeBlocks.length === 0) {
+        // Ensure we have at least one anchor if starting fresh and requested
+        if (forceSeed && (!this.activeBlocks || this.activeBlocks.length === 0)) {
+            if (!this.activeBlocks) this.activeBlocks = [];
             // Principle #3: Adhere to LayerCount setting. 
             // Seed the center block on all active layers to ensure they have an initial anchor.
             const maxLayer = this.getConfig('LayerCount') || 0;
@@ -1436,7 +1387,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _attemptGrowth() {
         if (this._isCanvasFullyCovered()) return;
-        this._initProceduralState();
+        this._initProceduralState(true);
 
         const s = this.c.state;
         const getGenConfig = (key) => {
@@ -1788,24 +1739,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         const blocksY = this.logicGridH;
         if (!blocksX || !blocksY) return -1;
 
-        // 0. Safety Limits
-        if (this.maskOps.length > 50000 || this.activeBlocks.length > 50000) {
-            this._warn("QuantizedBlockGenerator: maskOps/activeBlocks limit reached, stopping growth.");
-            return -1;
-        }
-
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
 
-        // 1. Grid Boundary Constraint: Canvas + 1 block
-        // Visible width in blocks
-        const visW = Math.ceil(this.g.cols / bs.w);
-        const visH = Math.ceil(this.g.rows / bs.h);
-        const xLimit = Math.floor(visW / 2) + 1;
-        const yLimit = Math.floor(visH / 2) + 1;
+        // 1. Grid Boundary Constraint: Logic Grid Bounds
+        const wLimit = Math.floor(blocksX / 2);
+        const hLimit = Math.floor(blocksY / 2);
 
-        if (x < -xLimit || x + w > xLimit || y < -yLimit || y + h > yLimit) {
-            // Allow nudge/mirror to push things slightly further, but restrict procedural growth
+        if (cx + x < 0 || cx + x + w > blocksX || cy + y < 0 || cy + y + h > blocksY) {
+            // Allow nudge/mirror to push things slightly further if logic grid allows, 
+            // but generally restrict to logic grid boundaries.
             if (!isShifter && !isMirroredSpawn) return -1;
         }
 
@@ -1819,7 +1762,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (minX > maxX || minY > maxY) return -1; // Out of logic grid entirely
 
         // 2. Enforce Strict Layer-Specific Connectivity (Grid-Based Optimization)
-        if (!skipConnectivity) {
+        if (!skipConnectivity && !this.debugMode) {
              let connected = false;
              let overlapArea = 0;
              const targetGrid = this.layerGrids[layer];

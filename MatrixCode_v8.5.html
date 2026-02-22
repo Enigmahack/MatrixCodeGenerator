@@ -9092,14 +9092,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
-        // 1. Grid Boundary Constraint: Canvas + 1 block
-        // Visible width in blocks
-        const visW = Math.ceil(this.g.cols / bs.w);
-        const visH = Math.ceil(this.g.rows / bs.h);
-        const xLimit = Math.floor(visW / 2) + 1;
-        const yLimit = Math.floor(visH / 2) + 1;
-        if (x < -xLimit || x + w > xLimit || y < -yLimit || y + h > yLimit) {
-            // Allow nudge/mirror to push things slightly further, but restrict procedural growth
+        // 1. Grid Boundary Constraint: Logic Grid Bounds
+        const wLimit = Math.floor(blocksX / 2);
+        const hLimit = Math.floor(blocksY / 2);
+        if (cx + x < 0 || cx + x + w > blocksX || cy + y < 0 || cy + y + h > blocksY) {
+            // Allow nudge/mirror to push things slightly further if logic grid allows, 
+            // but generally restrict to logic grid boundaries.
             if (!isShifter && !isMirroredSpawn) return -1;
         }
         const startX = cx + x;
@@ -10745,11 +10743,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.RULES = {
             // A. Bounds Check
             bounds: (c) => {
-                const bs = this.getBlockSize();
-                const xLimit = (this.g.cols / bs.w / 2) + 1; // Canvas + 1 block
-                const yLimit = (this.g.rows / bs.h / 2) + 2; // Increased from +1 to +2 to ensure bottom row coverage
-                if (c.x < -xLimit || c.x + c.w > xLimit || 
-                    c.y < -yLimit || c.y + c.h > yLimit) return false;
+                const w = this.logicGridW;
+                const h = this.logicGridH;
+                const cx = Math.floor(w / 2);
+                const cy = Math.floor(h / 2);
+                if (cx + c.x < 0 || cx + c.x + c.w > w || 
+                    cy + c.y < 0 || cy + c.y + c.h > h) return false;
                 return true;
             },
             // B. Step Occupancy (Prevent stacking in one frame)
@@ -10790,9 +10789,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 for (let gy = y1; gy <= y2; gy++) {
                     const rowOff = gy * w;
                     for (let gx = x1; gx <= x2; gx++) {
-                        if (grid[rowOff + gx] !== -1) {
+                        const idx = rowOff + gx;
+                        if (grid[idx] !== -1) {
                             overlapCount++;
                             connected = true;
+                            c._foundAnchorIdx = idx; // Set anchor for direction check
                         }
                     }
                 }
@@ -10882,8 +10883,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 if (!this._currentStepActions || this._currentStepActions.length === 0) return true;
                 const cx = c.x + c.w / 2;
                 const cy = c.y + c.h / 2;
-                // Manhattan distance: 20% of max dimension, min 10 blocks
-                const minDistance = Math.max(10, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.20));
+                // Manhattan distance: 5% of max dimension, min 1 block
+                const minDistance = Math.max(1, Math.floor(Math.max(this.logicGridW, this.logicGridH) * 0.05));
                 for (const action of this._currentStepActions) {
                     const ax = action.x + action.w / 2;
                     const ay = action.y + action.h / 2;
@@ -10965,7 +10966,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._lastBlocksY = this.logicGridH;
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
-        this._initProceduralState();
+        this._initProceduralState(true);
         this._updateRenderGridLogic();
         return true;
     }
@@ -11000,13 +11001,18 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const enNudge = (this.getConfig('EnableNudge') === true);
             const intervalMult = enNudge ? 0.15 : 0.25; 
             const interval = Math.max(1, baseDuration * (delayMult * intervalMult));
-            if (!this.debugMode) {
+            if (!this.debugMode || this.manualStep) {
                 this.genTimer++;
-                if (this.genTimer >= interval) {
+                if (this.genTimer >= interval || this.manualStep) {
                     this.genTimer = 0;
-                    this._attemptGrowth();
+                    try {
+                        this._attemptGrowth();
+                    } catch (e) {
+                        console.error("QuantizedBlockGenerator: Error in _attemptGrowth:", e);
+                    }
                     this.expansionPhase++;
                 }
+                this.manualStep = false;
             }
             this._updateRenderGridLogic();
             // Cache coverage check
@@ -11036,7 +11042,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this._checkDirtiness();
     }
     _attemptGrowth() {
-        this._initProceduralState(); 
+        this._initProceduralState(true); 
         this._syncSubLayers(); // Synchronize existing state first
         this._currentStepActions = []; // Reset step actions for spatial distribution check
         const s = this.c.state;
