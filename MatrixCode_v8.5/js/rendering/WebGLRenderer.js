@@ -543,18 +543,26 @@ class WebGLRenderer {
     
                     // UV 1
                     float cIdx = a_charIdx;
-                    float row = floor(cIdx / u_cols);
-                    float col = mod(cIdx, u_cols);
-                    vec2 uvBase = vec2(col, row) * u_cellSize;
-                    v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                    if (cIdx < 65534.5) {
+                        float row = floor(cIdx / u_cols);
+                        float col = mod(cIdx, u_cols);
+                        vec2 uvBase = vec2(col, row) * u_cellSize;
+                        v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                    } else {
+                        v_uv = vec2(-1.0, -1.0);
+                    }
     
                     // UV 2
                     if (a_mix > 0.0) {
                         float cIdx2 = a_nextChar;
-                        float row2 = floor(cIdx2 / u_cols);
-                        float col2 = mod(cIdx2, u_cols);
-                        vec2 uvBase2 = vec2(col2, row2) * u_cellSize;
-                        v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
+                        if (cIdx2 < 65534.5) {
+                            float row2 = floor(cIdx2 / u_cols);
+                            float col2 = mod(cIdx2, u_cols);
+                            vec2 uvBase2 = vec2(col2, row2) * u_cellSize;
+                            v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
+                        } else {
+                            v_uv2 = vec2(-1.0, -1.0);
+                        }
                     } else {
                         v_uv2 = v_uv;
                     }
@@ -616,6 +624,7 @@ class WebGLRenderer {
 
                 // Helper to apply all visual degradations (Dissolve + Ghosting) identically
                 float getProcessedAlpha(vec2 uv) {
+                    if (uv.x < 0.0) return 0.0;
                     float a = texture(u_texture, uv).a;
                     float ghost1 = 0.0;
                     float ghost2 = 0.0;
@@ -794,7 +803,18 @@ class WebGLRenderer {
                         }
                     }
     
-                    if (useMix >= 4.0) {
+                    if (useMix >= 5.0) {
+                        // DUAL World Mode (Shadow Transition Overlap)
+                        float originalBaseAlpha = baseColor.a; // OW Combined Alpha (Sim * Fade)
+                        float nwA = v_glow; // NW Combined Alpha (Sim * Fade)
+                        
+                        float tex2 = getProcessedAlpha(v_uv2);
+                        float owA = tex1 * originalBaseAlpha;
+                        
+                        // Overlap: combine the character strokes from both worlds
+                        finalAlpha = max(owA, tex2 * nwA);
+                        baseColor.a = 1.0; 
+                    } else if (useMix >= 4.0) {
                         // Overlay Mode (Tracers/Effects)
                         // Use baseColor so tracers follow Stream Color.
                         float originalBaseAlpha = baseColor.a;
@@ -866,7 +886,7 @@ class WebGLRenderer {
                     }
     
                     // Base Alpha (Stream Fade)
-                    float streamAlpha = col.a * finalAlpha;
+                    float streamAlpha = col.a * finalAlpha * (isHighPriority ? 1.0 : (1.0 - shadow));
     
                     if (glimmer > 0.0) {
                         // 1. Turn the block White (mix base color to white)
@@ -1565,11 +1585,11 @@ class WebGLRenderer {
         const uMix = this.uploadMix;
 
         const mapChar = (c) => {
-            if (c <= 32) return 0;
+            if (c <= 32) return 65535;
             let id = lookup[c];
             if (id === -1) {
                 const rect = atlas.addChar(String.fromCharCode(c));
-                id = rect ? rect.id : 0;
+                id = rect ? rect.id : 65535;
             }
             return id;
         };
@@ -1590,7 +1610,7 @@ class WebGLRenderer {
                     let eAlpha = effAlphas[i];
                     if (eAlpha > 0.99) eAlpha = 0.99;
                     uMix[i] = 5.0 + eAlpha; 
-                    mNext[i] = 0;
+                    mNext[i] = 65535;
                     continue;
                 }
 
@@ -1622,7 +1642,7 @@ class WebGLRenderer {
                     
                     uDecays[i] = 0; 
                     uMix[i] = 10.0; // Signal Value
-                    mNext[i] = 0;
+                    mNext[i] = 65535;
                     continue;
                 }
 
@@ -1635,7 +1655,7 @@ class WebGLRenderer {
                 // Force "Solid" render behavior for effects to prevent simulation fading
                 uDecays[i] = 0; 
                 uMix[i] = 0.0; // Treat as solid/override in shader
-                mNext[i] = 0;
+                mNext[i] = 65535;
                 continue; 
             }
 
@@ -1643,9 +1663,37 @@ class WebGLRenderer {
             // These usually indicate a logic change or interruption.
             const ov = ovActive[i];
             if (ov) {
-                if (ov === 2) { // SOLID
-                    mChars[i] = 0;
-                    mNext[i] = 0;
+                if (ov === 5) {
+                    // DUAL WORLD MODE (Transition overlap)
+                    // Slot 1 = Old World (Simulation)
+                    // Slot 2 = New World (Shadow)
+                    mChars[i] = mapChar(gChars[i]);
+                    uColors[i] = gColors[i]; 
+                    uAlphas[i] = gAlphas[i] * ovAlphas[i]; // OW Alpha (Simulation * World Fade)
+                    
+                    // Passing NW Alpha (Shadow Sim * World Fade) via uGlows
+                    uGlows[i] = grid.overrideGlows[i]; 
+                    
+                    // NW Character selection (Snap during transition due to slot limit)
+                    const nwRotMix = (grid.overrideMix[i] || 0.0);
+                    if (nwRotMix > 0.5) {
+                        mNext[i] = mapChar(ovNextChars[i]);
+                    } else {
+                        mNext[i] = mapChar(ovChars[i]);
+                    }
+                    
+                    // Pass DUAL mode signal (5.0) + the Shadow World's own rotator mix
+                    // This allows the NW character to potentially rotate if we find a way later,
+                    // but for now it helps keep the mode signal separate.
+                    uMix[i] = 5.0 + nwRotMix; 
+                    
+                    uDecays[i] = gDecays[i];
+                    uMaxDecays[i] = gMaxDecays ? gMaxDecays[i] : 0;
+                }
+                                
+                 else if (ov === 2) { // SOLID
+                    mChars[i] = 65535;
+                    mNext[i] = 65535;
                     uMix[i] = 3.0; // Trigger SOLID mode in shader
                     uColors[i] = ovColors[i];
                     uAlphas[i] = ovAlphas[i];
@@ -1659,8 +1707,8 @@ class WebGLRenderer {
                         mNext[i] = mapChar(gSecChars[i]);
                         uMix[i] = 2.0; 
                     } else {
-                        mNext[i] = 0;
-                        uMix[i] = 0;
+                        mNext[i] = 65535;
+                        uMix[i] = 0.0;
                     }
                     
                     uColors[i] = ovColors[i];
@@ -1672,10 +1720,16 @@ class WebGLRenderer {
                          // FULL OVERRIDE: Use Override Mix (New World state)
                          const mixVal = grid.overrideMix[i];
                          uMix[i] = mixVal;
-                         if (mixVal > 0) {
+                         if (mixVal > 0.0) {
                              mNext[i] = mapChar(ovNextChars[i]);
+                         } else {
+                             mNext[i] = 65535;
                          }
-                    } else {
+                         // Fixed: Use provided transition alpha (ovAlphas contains the world fade)
+                         // Do NOT multiply by rotator mix (mixVal), which causes flickering
+                         uAlphas[i] = ovAlphas[i];
+                    }
+                     else {
                          // CHAR OVERRIDE: Inherit Main Mix (Old World state)
                          if (gMix[i] > 0) {
                              uMix[i] = gMix[i];
@@ -1709,10 +1763,10 @@ class WebGLRenderer {
                 uMix[i] = 2.0; 
             } else {
                 uMix[i] = mix;
-                if (mix > 0) {
+                if (mix > 0.0) {
                     mNext[i] = mapChar(gNext[i]);
                 } else {
-                    mNext[i] = 0;
+                    mNext[i] = 65535;
                 }
             }
         }

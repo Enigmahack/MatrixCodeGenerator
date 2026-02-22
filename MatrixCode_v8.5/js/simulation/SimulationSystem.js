@@ -134,6 +134,7 @@ class SimulationSystem {
         const int32Size = total * 4;
 
         const buffers = {
+            activeFlag: new Uint8Array(createSAB(uint8Size)),
             state: new Uint8Array(createSAB(uint8Size)),
             
             chars: new Uint16Array(createSAB(uint16Size)),
@@ -224,7 +225,9 @@ class SimulationSystem {
             if (!style) continue;
 
             // Pause Glimmer updates if cell is frozen by an effect (e.g. Pulse Pause)
-            if (this.grid.effectActive[idx] !== 0 || this.grid.overrideActive[idx] !== 0) continue;
+            // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+            const ov = this.grid.overrideActive[idx];
+            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) continue;
 
             // --- TYPE 1: STANDARD GLIMMER (Upward Tracers) ---
             if (style.type === 'glimmer') {
@@ -361,7 +364,9 @@ class SimulationSystem {
             const N = this.grid.secondaryChars.length;
             for (let i = 0; i < N; i++) {
                 // If cell is overridden (e.g. Pulse Freeze), do not change secondary char
-                if (this.grid.overrideActive[i] !== 0) continue;
+                // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+                const ov = this.grid.overrideActive[i];
+                if (ov !== 0 && ov !== 3 && ov !== 5) continue;
 
                 if (Math.random() < currentDensity) {
                     setOverlapChar(i);
@@ -386,9 +391,20 @@ class SimulationSystem {
         const s = this.config.state;
         const d = this.config.derived;
         const grid = this.grid;
+        const activeFlag = grid.activeFlag;
+        const total = grid.cols * grid.rows;
 
-        for (const idx of grid.activeIndices) {
-            this._updateCell(idx, frame, s, d);
+        if (activeFlag) {
+            for (let i = 0; i < total; i++) {
+                if (activeFlag[i] === 1) {
+                    this._updateCell(i, frame, s, d);
+                }
+            }
+        } else {
+            // Fallback for non-SAB mode
+            for (const idx of grid.activeIndices) {
+                this._updateCell(idx, frame, s, d);
+            }
         }
     }
 
@@ -397,9 +413,9 @@ class SimulationSystem {
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         // If an effect is overriding this cell, pause simulation updates (Freeze)
-        // EXCEPTION: Mode 3 (FULL) is used by Quantized Effects for "Masking" (Replacement),
+        // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are used by Quantized Effects for "Masking",
         // so we allow the underlying simulation to run underneath.
-        if (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3) return;
+        if (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3 && grid.overrideActive[idx] !== 5) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;

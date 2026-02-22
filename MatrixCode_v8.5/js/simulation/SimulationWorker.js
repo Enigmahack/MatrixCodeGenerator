@@ -76,6 +76,11 @@ class WorkerSimulationSystem {
             const style = this.grid.complexStyles.get(idx);
             if (!style || style.type !== 'glimmer') continue;
 
+            // Pause Glimmer updates if cell is frozen by an effect (e.g. Pulse Pause)
+            // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+            const ov = this.grid.overrideActive[idx];
+            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) continue;
+
             // Initialize Mobility (One-time)
             if (style.mobile === undefined) {
                 // 20% chance to be a "Moving" glimmer
@@ -195,7 +200,10 @@ class WorkerSimulationSystem {
         if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
             const N = this.grid.secondaryChars.length;
             for (let i = 0; i < N; i++) {
-                if (this.grid.overrideActive[i] !== 0) continue;
+                // If cell is overridden (e.g. Pulse Freeze), do not change secondary char
+                // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+                const ov = this.grid.overrideActive[i];
+                if (ov !== 0 && ov !== 3 && ov !== 5) continue;
                 if (Math.random() < currentDensity) {
                     setOverlapChar(i);
                 } else {
@@ -216,9 +224,20 @@ class WorkerSimulationSystem {
         const s = this.config.state;
         const d = this.config.derived;
         const grid = this.grid;
+        const activeFlag = grid.activeFlag;
+        const total = grid.cols * grid.rows;
 
-        for (const idx of grid.activeIndices) {
-            this._updateCell(idx, frame, s, d);
+        if (activeFlag) {
+            for (let i = 0; i < total; i++) {
+                if (activeFlag[i] === 1) {
+                    this._updateCell(i, frame, s, d);
+                }
+            }
+        } else {
+            // Fallback
+            for (const idx of grid.activeIndices) {
+                this._updateCell(idx, frame, s, d);
+            }
         }
     }
 
@@ -226,7 +245,10 @@ class WorkerSimulationSystem {
         const grid = this.grid;
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
-        if (grid.overrideActive[idx] !== 0) return;
+        // If an effect is overriding this cell, pause simulation updates (Freeze)
+        // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+        const ov = grid.overrideActive[idx];
+        if (ov !== 0 && ov !== 3 && ov !== 5) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;
@@ -340,9 +362,6 @@ class WorkerSimulationSystem {
             const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
             grid.alphas[idx] = this._calculateAlpha(idx, age, decay, maxFade);
         }
-        
-        // Run Glimmer Lifecycle (Rotation/Fade)
-        this._updateGlimmerLifecycle();
     }
     
     _handleRotator(idx, frame, s, d) {
@@ -500,8 +519,9 @@ self.onmessage = function(e) {
                      return st;
                 });
 
-                sm.activeStreams = rehydratedStreams;
-                sm.nextSpawnFrame = s.nextSpawnFrame || 0;
+                // Merge active streams (Don't overwrite existing main simulation streams)
+                sm.activeStreams = sm.activeStreams.concat(rehydratedStreams);
+                sm.nextSpawnFrame = Math.min(sm.nextSpawnFrame, s.nextSpawnFrame || 0);
                 
                 // Typed Arrays need explicit copy if not shared (passed as ArrayBuffer usually)
                 if (s.columnSpeeds) sm.columnSpeeds = new Float32Array(s.columnSpeeds);
@@ -533,24 +553,24 @@ self.onmessage = function(e) {
                     }
                 }
                 
-                // We prefer the explicit list sent from main thread to avoid SAB race conditions.
+                // Merge shadow world's active cells into main simulation (don't clear)
                 if (grid && grid.state) {
-                    grid.activeIndices.clear();
                     if (s.activeIndices && Array.isArray(s.activeIndices)) {
                         for (const idx of s.activeIndices) {
                             grid.activeIndices.add(idx);
+                            if (grid.activeFlag) grid.activeFlag[idx] = 1;
                         }
-                        console.log(`[SimulationWorker] Replaced activeIndices with ${s.activeIndices.length} entries.`);
+                        console.log(`[SimulationWorker] Merged ${s.activeIndices.length} shadow indices into main activeIndices.`);
                     } else {
-                        // Fallback: Scan SAB (May be risky if not propagated)
-                        console.warn("[SimulationWorker] activeIndices missing in replace_state! Scanning SAB...");
+                        // Fallback: Scan activeFlag or state
+                        console.warn("[SimulationWorker] activeIndices missing in replace_state! Scanning...");
                         const total = grid.cols * grid.rows;
                         for(let i=0; i<total; i++) {
-                            if (grid.state[i] === 1) { // CELL_STATE.ACTIVE
+                            const isActive = (grid.activeFlag ? grid.activeFlag[i] === 1 : grid.state[i] === 1);
+                            if (isActive) {
                                 grid.activeIndices.add(i);
                             }
                         }
-                        console.log(`[SimulationWorker] Scanned ${grid.activeIndices.size} active cells.`);
                     }
                 }
                 

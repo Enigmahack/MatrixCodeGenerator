@@ -364,6 +364,7 @@ class UIManager {
             { cat: 'Effects', type: 'header', label: 'Resurrections' }, // Sub-header
 
             { cat: 'Effects', type: 'accordion_header', label: 'Quantized Line Defaults' },
+            { cat: 'Effects', id: 'quantizedShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Speed', min: 0, max: 2, step: 0.1, unit: 's', description: "Fading between current world and shadow world when blocks are added/removed." },
             { cat: 'Effects', id: 'quantizedLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
             { cat: 'Effects', id: 'quantizedLineGfxColor', type: 'color', label: 'Line Tint' },
             { cat: 'Effects', id: 'quantizedLineGfxFadeColor', type: 'color', label: 'Line Fade Color', description: "The color the lines fade into as they disappear." },

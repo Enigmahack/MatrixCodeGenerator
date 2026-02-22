@@ -4,6 +4,8 @@ class QuantizedShadow {
         this.shadowSim = null;
         this.warmupRemaining = 0;
         this.shadowSimFrame = 0;
+        this.shadowFade = null; // Float32Array for shadow world alpha tracking
+        this.oldWorldFade = null; // Float32Array for old world (simulation) alpha tracking
     }
 
     initShadowWorld(fx) {
@@ -50,6 +52,12 @@ class QuantizedShadow {
         
         this.shadowSim = new SimulationSystem(this.shadowGrid, fx.c, false);
         this.shadowSim.useWorker = workerEnabled;
+
+        const totalCells = fx.g.cols * fx.g.rows;
+        this.shadowFade = new Float32Array(totalCells);
+        this.shadowFade.fill(0);
+        this.oldWorldFade = new Float32Array(totalCells);
+        this.oldWorldFade.fill(1.0); // Initially old world is fully visible
 
         if (!workerEnabled && this.shadowSim.worker) {
             this.shadowSim.worker.terminate();
@@ -109,32 +117,12 @@ class QuantizedShadow {
         const userBlockOffX = 0;
         const userBlockOffY = 0;
 
-        for (let by = 0; by < blocksY; by++) {
-            for (let bx = 0; bx < blocksX; bx++) {
-                const idx = by * blocksX + bx;
-                if (outsideMask[idx] !== 1) continue; 
-
-                const destBx = bx - offX + userBlockOffX;
-                const destBy = by - offY + userBlockOffY;
-                
-                if (destBx < -1.5 || destBx > screenBlocksX + 1.5 || destBy < -1.5 || destBy > screenBlocksY + 1.5) continue;
-                
-                const startCellX = Math.round(destBx * pitchX);
-                const startCellY = Math.round(destBy * pitchY);
-                const endCellX = Math.round((destBx + 1) * pitchX);
-                const endCellY = Math.round((destBy + 1) * pitchY);                
-                for (let cy = startCellY; cy < endCellY; cy++) {
-                    if (cy >= g.rows || cy < 0) continue;
-                    for (let cx = startCellX; cx < endCellX; cx++) {
-                        if (cx >= g.cols || cx < 0) continue;
-                        const destIdx = cy * g.cols + cx;
-                        if (g.overrideActive[destIdx] === 3) {
-                            g.overrideActive[destIdx] = 0;
-                        }
-                    }
-                }
-            }
+        // Track intended shadow world occupancy for this frame
+        const totalCells = g.cols * g.rows;
+        if (!this._targetActive || this._targetActive.length !== totalCells) {
+            this._targetActive = new Uint8Array(totalCells);
         }
+        this._targetActive.fill(0);
 
         if (fx.c.state.layerEnableShadowWorld !== false) {
             for (let by = 0; by < blocksY; by++) {
@@ -156,19 +144,70 @@ class QuantizedShadow {
                         for (let cx = startCellX; cx < endCellX; cx++) {
                             if (cx >= g.cols || cx < 0) continue;
                             const destIdx = cy * g.cols + cx;
-                            const srcIdx = cy * sg.cols + cx;
-                            if (sg && sg.chars && srcIdx < sg.chars.length) {
-                                g.overrideActive[destIdx] = 3; 
-                                g.overrideChars[destIdx] = sg.chars[srcIdx];
-                                g.overrideColors[destIdx] = sg.colors[srcIdx];
-                                g.overrideAlphas[destIdx] = sg.alphas[srcIdx];
-                                g.overrideGlows[destIdx] = sg.glows[srcIdx];
-                                g.overrideMix[destIdx] = sg.mix[srcIdx];
-                                g.overrideNextChars[destIdx] = sg.nextChars[srcIdx];
-                                g.overrideFontIndices[destIdx] = sg.fontIndices[srcIdx];
-                            }
+                            this._targetActive[destIdx] = 1;
                         }
                     }
+                }
+            }
+        }
+
+        // Apply fading logic
+        const fadeSpeedSec = fx.c.state.quantizedShadowWorldFadeSpeed !== undefined ? fx.c.state.quantizedShadowWorldFadeSpeed : 0.5;
+        const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); // Assuming 60fps
+
+        for (let i = 0; i < totalCells; i++) {
+            const target = this._targetActive[i];
+            let sFade = this.shadowFade[i];
+            let oFade = this.oldWorldFade[i];
+
+            if (target === 1) {
+                // ACTIVATION: Shadow World appears instantly, Old World fades out
+                sFade = 1.0;
+                oFade = Math.max(0.0, oFade - fadeDelta);
+            } else {
+                // DEACTIVATION: Old World appears instantly, Shadow World fades out
+                oFade = 1.0;
+                sFade = Math.max(0.0, sFade - fadeDelta);
+            }
+            this.shadowFade[i] = sFade;
+            this.oldWorldFade[i] = oFade;
+
+            if (sFade > 0 && oFade > 0) {
+                // DUAL WORLD (Transition overlap)
+                const srcIdx = i; 
+                if (sg && sg.chars && srcIdx < sg.chars.length) {
+                    g.overrideActive[i] = 5; // DUAL MODE
+                    g.overrideChars[i] = sg.chars[srcIdx];
+                    g.overrideColors[i] = sg.colors[srcIdx];
+                    g.overrideAlphas[i] = g.alphas[i] * oFade; // OW Combined Alpha
+                    
+                    // We use overrideGlows to pass the New World transition alpha (nwA)
+                    // This NW alpha combines shadow world sim alpha and world-level fade
+                    g.overrideGlows[i] = sg.alphas[srcIdx] * sFade; 
+                    
+                    // Now overrideMix can stay as the Shadow World's rotator mix!
+                    g.overrideMix[i] = sg.mix[srcIdx]; 
+                    
+                    g.overrideNextChars[i] = sg.nextChars[srcIdx];
+                    g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
+                }
+            } else if (sFade > 0) {
+                // FULL SHADOW WORLD (Mode 3)
+                const srcIdx = i;
+                if (sg && sg.chars && srcIdx < sg.chars.length) {
+                    g.overrideActive[i] = 3; 
+                    g.overrideChars[i] = sg.chars[srcIdx];
+                    g.overrideColors[i] = sg.colors[srcIdx];
+                    g.overrideAlphas[i] = sg.alphas[srcIdx] * sFade; 
+                    g.overrideGlows[i] = sg.glows[srcIdx];
+                    g.overrideMix[i] = sg.mix[srcIdx];
+                    g.overrideNextChars[i] = sg.nextChars[srcIdx];
+                    g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
+                }
+            } else {
+                // COMPLETELY BACK TO OLD WORLD
+                if (g.overrideActive[i] !== 0) {
+                    g.overrideActive[i] = 0;
                 }
             }
         }
@@ -220,17 +259,18 @@ class QuantizedShadow {
                 } else {
                     state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
                     const mainMgr = mainSim.streamManager;
-                    mainMgr.activeStreams = state.activeStreams;
+                    // Merge shadow streams into main mgr (don't overwrite)
+                    mainMgr.activeStreams = mainMgr.activeStreams.concat(state.activeStreams);
                     mainMgr.columnSpeeds.set(state.columnSpeeds);
                     if (mainMgr.streamsPerColumn && state.streamsPerColumn) mainMgr.streamsPerColumn.set(state.streamsPerColumn);
                     mainMgr.lastStreamInColumn = state.lastStreamInColumn;
                     mainMgr.lastEraserInColumn = state.lastEraserInColumn;
                     mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                    mainMgr.nextSpawnFrame = state.nextSpawnFrame;
+                    mainMgr.nextSpawnFrame = Math.min(mainMgr.nextSpawnFrame, state.nextSpawnFrame);
                     mainSim.overlapInitialized = state.overlapInitialized;
                     mainSim._lastOverlapDensity = state._lastOverlapDensity;
                     if (state.activeIndices) {
-                        mainSim.grid.activeIndices.clear();
+                        // Merge active indices (don't clear)
                         state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
                     }
                     return 'SYNC';
@@ -281,8 +321,19 @@ class QuantizedShadow {
         copyData(g.secondaryGlows, sg.secondaryGlows);
         copyData(g.secondaryFontIndices, sg.secondaryFontIndices);
         copyData(g.mix, sg.mix);
+        
+        // --- Merge activeIndices and update activeFlag ---
+        if (g.activeFlag) {
+            // If using SAB, update main grid's activeFlag
+            for (let i = 0; i < g.activeFlag.length; i++) {
+                if (sg.activeFlag && sg.activeFlag[i] === 1) {
+                    g.activeFlag[i] = 1;
+                }
+            }
+        }
+
+        // Add shadow's active cells to main grid's activeIndices (Merge, don't clear)
         if (sg.activeIndices.size > 0) {
-            g.activeIndices.clear();
             for (const idx of sg.activeIndices) {
                 const x = idx % sg.cols;
                 const y = Math.floor(idx / sg.cols);

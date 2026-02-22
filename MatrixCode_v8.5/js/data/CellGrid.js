@@ -19,7 +19,8 @@ const OVERRIDE_MODE = {
     NONE: 0,
     CHAR: 1,
     SOLID: 2,
-    FULL: 3
+    FULL: 3,
+    DUAL: 5
 };
 
 class CellGrid {
@@ -31,7 +32,8 @@ class CellGrid {
         this.rows = 0;
 
         // --- Core State ---
-        this.activeIndices = new Set(); // Tracks active (non-empty) cells
+        this.activeIndices = new Set(); // Tracks active (non-empty) cells (Main Thread Only for sparse loops)
+        this.activeFlag = null; // Uint8: 0/1 (Shared for Worker consistency)
         this.state = null; // Uint8: INACTIVE / ACTIVE
 
         // --- Primary Layer ---
@@ -121,6 +123,7 @@ class CellGrid {
         this.glows[idx] = glow;
         this.fontIndices[idx] = fontIndex;
         this.state[idx] = CELL_STATE.ACTIVE;
+        if (this.activeFlag) this.activeFlag[idx] = 1;
         this.activeIndices.add(idx);
     }
 
@@ -226,6 +229,7 @@ class CellGrid {
 
     clearCell(idx) {
         this.state[idx] = CELL_STATE.INACTIVE;
+        if (this.activeFlag) this.activeFlag[idx] = 0;
         this.chars[idx] = 32; // Space
         this.alphas[idx] = 0;
         this.glows[idx] = 0;
@@ -265,6 +269,7 @@ class CellGrid {
 
         if (buffers) {
             // Adopt provided buffers (SharedArrayBuffer views)
+            this.activeFlag = buffers.activeFlag;
             this.state = buffers.state;
             this.chars = buffers.chars;
             this.colors = buffers.colors;
@@ -312,6 +317,7 @@ class CellGrid {
 
         } else {
             // Core
+            this.activeFlag = new Uint8Array(total);
             this.state = new Uint8Array(total);
 
             // Primary

@@ -231,6 +231,7 @@ class ConfigurationManager {
             "quantizedPulseLineGfxPersistence": null,
             
             "quantizedLineGfxEnabled": true,
+            "quantizedShadowWorldFadeSpeed": 0.5,
             "quantizedLineGfxThickness": 1.0,
             "quantizedLineGfxColor": "#ffffff",
             "quantizedLineGfxFadeColor": "#eeff00",

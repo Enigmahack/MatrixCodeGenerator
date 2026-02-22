@@ -794,8 +794,19 @@ class QuantizedBaseEffect extends AbstractEffect {
                 for (let l = 0; l < 3; l++) {
                     if (layerGrids[l] && layerGrids[l][idx] !== -1) {
                         anyActive = true;
-                        // Use the earliest start frame for the renderGrid value if not already set
-                        if (finalVal === -1) finalVal = layerGrids[l][idx];
+                    }
+                }
+
+                // Determine if this cell should reveal the shadow world (renderGrid)
+                // 1. Layer 0 (foundation) always reveals.
+                // 2. Layers 1 and 2 ONLY reveal if they overlap with each other OR with Layer 0.
+                if (layerGrids[0] && layerGrids[0][idx] !== -1) {
+                    finalVal = layerGrids[0][idx];
+                } else {
+                    const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
+                    const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
+                    if (l1Active && l2Active) {
+                        finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
                     }
                 }
 
@@ -840,8 +851,19 @@ class QuantizedBaseEffect extends AbstractEffect {
                         for (let l = 0; l < 3; l++) {
                             if (layerGrids[l] && layerGrids[l][idx] !== -1) {
                                 anyActive = true;
-                                // Use the earliest start frame for the renderGrid value if not already set
-                                if (finalVal === -1) finalVal = layerGrids[l][idx];
+                            }
+                        }
+
+                        // Determine if this cell should reveal the shadow world (renderGrid)
+                        // 1. Layer 0 (foundation) always reveals.
+                        // 2. Layers 1 and 2 ONLY reveal if they overlap with each other OR with Layer 0.
+                        if (layerGrids[0] && layerGrids[0][idx] !== -1) {
+                            finalVal = layerGrids[0][idx];
+                        } else {
+                            const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
+                            const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
+                            if (l1Active && l2Active) {
+                                finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
                             }
                         }
 
@@ -1993,10 +2015,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         const shiftAmt = (axis === 'X' ? w : h);
 
-        // 1. Identify and Shift blocks
+        // Determine which layers are affected. If layer 0 is nudged, affect 0, 1, and 2.
+        const targetLayers = (layer === 0) ? [0, 1, 2] : [layer];
+        const targetLayersSet = new Set(targetLayers);
+
+        // 1. Identify and Shift blocks across all target layers
         const shiftedBlocks = [];
         for (const b of this.activeBlocks) {
-            if (b.layer !== layer) continue;
+            if (!targetLayersSet.has(b.layer)) continue;
 
             let shouldMove = false;
             if (axis === 'X') {
@@ -2009,7 +2035,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (laneMatch && posMatch) shouldMove = true;
             }
             if (shouldMove) {
-                shiftedBlocks.push({ b, oldX: b.x, oldY: b.y, oldW: b.w, oldH: b.h, start: b.startFrame });
+                shiftedBlocks.push({ b, oldX: b.x, oldY: b.y, oldW: b.w, oldH: b.h, start: b.startFrame, layer: b.layer });
                 if (axis === 'X') b.x += (dir * shiftAmt);
                 else b.y += (dir * shiftAmt);
             }
@@ -2024,17 +2050,24 @@ class QuantizedBaseEffect extends AbstractEffect {
                 type: 'addSmart', 
                 x1: m.b.x, y1: m.b.y, x2: m.b.x + m.b.w - 1, y2: m.b.y + m.b.h - 1, 
                 startFrame: m.start, startPhase: this.expansionPhase, 
-                layer: layer,
+                layer: m.layer,
                 fade: false
             });
 
             // IMPORTANT: Add a NEW block to activeBlocks at the OLD position 
             // This ensures the simulation matches the physics grid (no holes in collision logic)
-            this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, layer, false, 0, true, true, true, false, true);
+            this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, m.layer, false, 0, true, true, true, false, true);
         }
 
-        // 3. Add the SOURCE REPLACEMENT block at the original origin (x, y)
-        if (this._spawnBlock(x, y, w, h, layer, false, 0, true, true, true, false, true) !== -1) {
+        // 3. Add the SOURCE REPLACEMENT blocks at the original origin (x, y) for all target layers
+        let success = false;
+        for (const l of targetLayers) {
+            if (this._spawnBlock(x, y, w, h, l, false, 0, true, true, true, false, true) !== -1) {
+                success = true;
+            }
+        }
+
+        if (success) {
             // Record to sequence for Editor/Step support (ONLY if not currently reconstructing)
             if (this.manualStep && this.sequence && !this.isReconstructing) {
                 if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
@@ -2045,7 +2078,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 });
             }
 
-            this._log(`Nudge: Solid Shifted ${shiftedBlocks.length} blocks, continuous mass preserved.`);
+            this._log(`Nudge: Solid Shifted ${shiftedBlocks.length} blocks across layers [${targetLayers.join(',')}], continuous mass preserved.`);
             return true;
         }
         return false;
