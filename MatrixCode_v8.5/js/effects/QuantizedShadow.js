@@ -35,7 +35,35 @@ class QuantizedShadow {
         this.oldWorldFade.fill(1.0); 
 
         const sm = this.shadowSim.streamManager;
-        sm.resize(this.shadowGrid.cols);
+        // Wiping the streams every time an effect is triggered causes an "empty top" and 
+        // resets mature tracers. Only resize if the dimensions have actually changed.
+        const needsResize = sm.lastStreamInColumn.length !== this.shadowGrid.cols;
+        if (needsResize) {
+            sm.resize(this.shadowGrid.cols);
+        }
+
+        // POPULATION LOGIC: Ensure the shadow world is populated with tracers before reveal
+        // Temporarily disabled for testing
+        /*
+        const activeCount = sm.activeStreams.length;
+        const targetCount = Math.floor(this.shadowGrid.cols * 0.75);
+        
+        if (needsResize || activeCount < (this.shadowGrid.cols * 0.05)) {
+            const columns = [];
+            for (let i = 0; i < this.shadowGrid.cols; i++) columns.push(i);
+            Utils.shuffle(columns);
+            
+            const toInject = columns.slice(0, targetCount);
+            for (const col of toInject) {
+                // Random Y position across the full screen height
+                const y = Math.floor(Math.random() * this.shadowGrid.rows);
+                // Mix of tracers and erasers
+                const isEraser = Math.random() < 0.15;
+                sm.injectStream(col, y, isEraser);
+            }
+        }
+        */
+
         this.shadowSim.timeScale = 1.0;
         
         fx.shadowGrid = this.shadowGrid;
@@ -51,6 +79,11 @@ class QuantizedShadow {
         
         this.shadowSimFrame = window.globalShadowWorld ? window.globalShadowWorld.frame : (this.shadowSimFrame + 1);
         fx.shadowSimFrame = this.shadowSimFrame;
+
+        // If using local fallback, manually update the simulation
+        if (!window.globalShadowWorld) {
+            this.shadowSim.update(this.shadowSimFrame);
+        }
         
         if (!fx.renderGrid || !fx._lastBlocksX) return false;
 
