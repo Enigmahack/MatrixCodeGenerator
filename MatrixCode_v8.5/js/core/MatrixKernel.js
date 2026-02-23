@@ -144,20 +144,6 @@ class MatrixKernel {
         this.simulation = sim0;
 
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
-
-        // Global Shadow World (Maintains compatibility with effects)
-        // Now it just acts as a pointer to the inactive world
-        if (typeof GlobalShadowWorld !== 'undefined') {
-            window.globalShadowWorld = {
-                get grid() { return window.matrix.inactiveWorld.grid; },
-                get simulation() { return window.matrix.inactiveWorld.sim; },
-                get frame() { return window.matrix.frame; },
-                initialized: true,
-                init: () => {}, // No-op
-                update: () => {}, // No-op
-                resize: (w, h) => window.matrix.inactiveWorld.grid.resize(w, h)
-            };
-        }
     }
 
     get activeWorld() { return this.worlds[this.activeWorldIndex]; }
@@ -354,11 +340,10 @@ class MatrixKernel {
 
             // Recalculate stream speeds when timing settings change
             if (speedTriggers.has(key) || key === 'ALL') {
-                if (this.simulation && this.simulation.streamManager) {
-                    this.simulation.streamManager.recalculateSpeeds();
-                }
-                if (window.globalShadowWorld && window.globalShadowWorld.simulation && window.globalShadowWorld.simulation.streamManager) {
-                    window.globalShadowWorld.simulation.streamManager.recalculateSpeeds();
+                if (this.worlds) {
+                    this.worlds.forEach(w => {
+                        if (w.sim && w.sim.streamManager) w.sim.streamManager.recalculateSpeeds();
+                    });
                 }
             }
 

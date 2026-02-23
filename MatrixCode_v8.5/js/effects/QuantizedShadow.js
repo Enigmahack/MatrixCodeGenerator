@@ -12,8 +12,13 @@ class QuantizedShadow {
     }
 
     initShadowWorldBase(fx) {
-        if (!window.globalShadowWorld) {
-            console.warn("[QuantizedShadow] GlobalShadowWorld not found. Initializing locally as fallback.");
+        // --- PING-PONG REFACTOR ---
+        // Instead of a dedicated GlobalShadowWorld, we use the kernel's inactive world.
+        if (window.matrix && window.matrix.inactiveWorld) {
+            this.shadowGrid = window.matrix.inactiveWorld.grid;
+            this.shadowSim = window.matrix.inactiveWorld.sim;
+        } else {
+            console.warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
             this.shadowGrid = new CellGrid(fx.c);
             const d = fx.c.derived;
             const w = fx.g.cols * d.cellWidth; 
@@ -21,9 +26,6 @@ class QuantizedShadow {
             this.shadowGrid.resize(w, h);
             this.shadowGrid.isShadow = true;
             this.shadowSim = new SimulationSystem(this.shadowGrid, fx.c, false);
-        } else {
-            this.shadowGrid = window.globalShadowWorld.grid;
-            this.shadowSim = window.globalShadowWorld.simulation;
         }
 
         const totalCells = fx.g.cols * fx.g.rows;
@@ -55,11 +57,14 @@ class QuantizedShadow {
     updateShadowSim(fx) {
         if (!this.shadowSim) return false;
         
-        this.shadowSimFrame = window.globalShadowWorld ? window.globalShadowWorld.frame : (this.shadowSimFrame + 1);
+        // Sync with kernel frame
+        this.shadowSimFrame = (window.matrix) ? window.matrix.frame : (this.shadowSimFrame + 1);
         fx.shadowSimFrame = this.shadowSimFrame;
 
-        // If using local fallback, manually update the simulation
-        if (!window.globalShadowWorld) {
+        // The Kernel now handles updating BOTH worlds in its main loop, 
+        // so we don't need to manually update the shadow simulation here anymore.
+        // If we are in local fallback mode (no kernel), we still update.
+        if (!window.matrix) {
             this.shadowSim.update(this.shadowSimFrame);
         }
         
