@@ -127,6 +127,11 @@ class MatrixKernel {
         this.grid = new CellGrid(this.config);
         this.simulation = new SimulationSystem(this.grid, this.config);
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
+
+        // Initialize Global Shadow World
+        if (typeof GlobalShadowWorld !== 'undefined') {
+            window.globalShadowWorld = new GlobalShadowWorld(this.config);
+        }
     }
 
     /**
@@ -301,8 +306,13 @@ class MatrixKernel {
             }
 
             // Recalculate stream speeds when timing settings change
-            if ((speedTriggers.has(key) || key === 'ALL') && this.simulation && this.simulation.streamManager) {
-                this.simulation.streamManager.recalculateSpeeds();
+            if (speedTriggers.has(key) || key === 'ALL') {
+                if (this.simulation && this.simulation.streamManager) {
+                    this.simulation.streamManager.recalculateSpeeds();
+                }
+                if (window.globalShadowWorld && window.globalShadowWorld.simulation && window.globalShadowWorld.simulation.streamManager) {
+                    window.globalShadowWorld.simulation.streamManager.recalculateSpeeds();
+                }
             }
 
             // Update renderer when smoothing settings change
@@ -398,6 +408,13 @@ class MatrixKernel {
 
         // 3. Resize Grid
         this.grid.resize(logicalW, logicalH);
+        if (window.globalShadowWorld) {
+            if (!window.globalShadowWorld.initialized) {
+                window.globalShadowWorld.init(logicalW, logicalH);
+            } else {
+                window.globalShadowWorld.resize(logicalW, logicalH);
+            }
+        }
         this.renderer.resize();
 
         if (this.overlayCanvas) {
@@ -503,6 +520,10 @@ class MatrixKernel {
         this.frame++;
         this.effectRegistry.update();
         this.simulation.update(this.frame);
+        
+        if (window.globalShadowWorld) {
+            window.globalShadowWorld.update(this.frame);
+        }
 
         const autoEffects = [
             { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },

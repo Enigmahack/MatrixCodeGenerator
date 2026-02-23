@@ -2,68 +2,38 @@ class QuantizedShadow {
     constructor() {
         this.shadowGrid = null;
         this.shadowSim = null;
-        this.warmupRemaining = 0;
         this.shadowSimFrame = 0;
-        this.shadowFade = null; // Float32Array for shadow world alpha tracking
-        this.oldWorldFade = null; // Float32Array for old world (simulation) alpha tracking
+        this.shadowFade = null; 
+        this.oldWorldFade = null; 
     }
 
     initShadowWorld(fx) {
-        this.initShadowWorldBase(fx, false);
-        const s = fx.c.state;
-        const d = fx.c.derived;
-
-        const sm = this.shadowSim.streamManager;
-        const cols = this.shadowGrid.cols;
-        const rows = this.shadowGrid.rows;
-
-        // --- Stream Injection (Pre-population) ---
-        for (let x = 0; x < cols; x++) {
-            if (Math.random() < 0.30) {
-                const y = Math.floor(Math.random() * (rows + 10));
-                sm.injectStream(x, y, false);
-                if (Math.random() < 0.15) {
-                    const ey = Math.floor(Math.random() * (y - 5));
-                    sm.injectStream(x, ey, true);
-                }
-            } else if (Math.random() < 0.15) {
-                const y = Math.floor(Math.random() * (rows + 10));
-                sm.injectStream(x, y, true);
-            }
-        }
-
-        const avgTickInterval = Math.max(1, 21 - (s.streamSpeed || 10));
-        let warmupFrames = Math.floor(rows * avgTickInterval * 2.5);
-        warmupFrames = Math.max(200, warmupFrames);
-        warmupFrames = Math.min(5000, warmupFrames);
-        
-        this.warmupRemaining = warmupFrames;
-        fx.warmupRemaining = warmupFrames;
-        this.shadowSimFrame = 0;
-        fx.shadowSimFrame = 0;
+        this.initShadowWorldBase(fx);
     }
 
-    initShadowWorldBase(fx, workerEnabled = false) {
-        this.shadowGrid = new CellGrid(fx.c);
-        const d = fx.c.derived;
-        const w = fx.g.cols * d.cellWidth; 
-        const h = fx.g.rows * d.cellHeight;
-        this.shadowGrid.resize(w, h);
-        
-        this.shadowSim = new SimulationSystem(this.shadowGrid, fx.c, false);
-        this.shadowSim.useWorker = workerEnabled;
+    initShadowWorldBase(fx) {
+        if (!window.globalShadowWorld) {
+            console.warn("[QuantizedShadow] GlobalShadowWorld not found. Initializing locally as fallback.");
+            this.shadowGrid = new CellGrid(fx.c);
+            const d = fx.c.derived;
+            const w = fx.g.cols * d.cellWidth; 
+            const h = fx.g.rows * d.cellHeight;
+            this.shadowGrid.resize(w, h);
+            this.shadowGrid.isShadow = true;
+            this.shadowSim = new SimulationSystem(this.shadowGrid, fx.c, false);
+        } else {
+            this.shadowGrid = window.globalShadowWorld.grid;
+            this.shadowSim = window.globalShadowWorld.simulation;
+        }
 
         const totalCells = fx.g.cols * fx.g.rows;
-        this.shadowFade = new Float32Array(totalCells);
-        this.shadowFade.fill(0);
-        this.oldWorldFade = new Float32Array(totalCells);
-        this.oldWorldFade.fill(1.0); // Initially old world is fully visible
-
-        if (!workerEnabled && this.shadowSim.worker) {
-            this.shadowSim.worker.terminate();
-            this.shadowSim.worker = null;
+        if (!this.shadowFade || this.shadowFade.length !== totalCells) {
+            this.shadowFade = new Float32Array(totalCells);
+            this.oldWorldFade = new Float32Array(totalCells);
         }
-        
+        this.shadowFade.fill(0);
+        this.oldWorldFade.fill(1.0); 
+
         const sm = this.shadowSim.streamManager;
         sm.resize(this.shadowGrid.cols);
         this.shadowSim.timeScale = 1.0;
@@ -79,23 +49,7 @@ class QuantizedShadow {
     updateShadowSim(fx) {
         if (!this.shadowSim) return false;
         
-        if (fx.warmupRemaining !== undefined && fx.warmupRemaining !== this.warmupRemaining) {
-            this.warmupRemaining = fx.warmupRemaining;
-        }
-
-        if (this.warmupRemaining > 0) {
-            const batch = 50; 
-            const toRun = Math.min(this.warmupRemaining, batch);
-            for (let i = 0; i < toRun; i++) {
-                this.shadowSim.update(++this.shadowSimFrame);
-            }
-            this.warmupRemaining -= toRun;
-            fx.warmupRemaining = this.warmupRemaining; 
-            fx.shadowSimFrame = this.shadowSimFrame;
-            return true; 
-        }
-
-        this.shadowSim.update(++this.shadowSimFrame);
+        this.shadowSimFrame = window.globalShadowWorld ? window.globalShadowWorld.frame : (this.shadowSimFrame + 1);
         fx.shadowSimFrame = this.shadowSimFrame;
         
         if (!fx.renderGrid || !fx._lastBlocksX) return false;
@@ -117,7 +71,6 @@ class QuantizedShadow {
         const userBlockOffX = 0;
         const userBlockOffY = 0;
 
-        // Track intended shadow world occupancy for this frame
         const totalCells = g.cols * g.rows;
         if (!this._targetActive || this._targetActive.length !== totalCells) {
             this._targetActive = new Uint8Array(totalCells);
@@ -151,9 +104,8 @@ class QuantizedShadow {
             }
         }
 
-        // Apply fading logic
         const fadeSpeedSec = fx.c.state.quantizedShadowWorldFadeSpeed !== undefined ? fx.c.state.quantizedShadowWorldFadeSpeed : 0.5;
-        const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); // Assuming 60fps
+        const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); 
 
         for (let i = 0; i < totalCells; i++) {
             const target = this._targetActive[i];
@@ -161,11 +113,9 @@ class QuantizedShadow {
             let oFade = this.oldWorldFade[i];
 
             if (target === 1) {
-                // ACTIVATION: Shadow World appears instantly, Old World fades out
                 sFade = 1.0;
                 oFade = Math.max(0.0, oFade - fadeDelta);
             } else {
-                // DEACTIVATION: Old World appears instantly, Shadow World fades out
                 oFade = 1.0;
                 sFade = Math.max(0.0, sFade - fadeDelta);
             }
@@ -173,26 +123,18 @@ class QuantizedShadow {
             this.oldWorldFade[i] = oFade;
 
             if (sFade > 0 && oFade > 0) {
-                // DUAL WORLD (Transition overlap)
                 const srcIdx = i; 
                 if (sg && sg.chars && srcIdx < sg.chars.length) {
-                    g.overrideActive[i] = 5; // DUAL MODE
+                    g.overrideActive[i] = 5; 
                     g.overrideChars[i] = sg.chars[srcIdx];
                     g.overrideColors[i] = sg.colors[srcIdx];
-                    g.overrideAlphas[i] = g.alphas[i] * oFade; // OW Combined Alpha
-                    
-                    // We use overrideGlows to pass the New World transition alpha (nwA)
-                    // This NW alpha combines shadow world sim alpha and world-level fade
+                    g.overrideAlphas[i] = g.alphas[i] * oFade; 
                     g.overrideGlows[i] = sg.alphas[srcIdx] * sFade; 
-                    
-                    // Now overrideMix can stay as the Shadow World's rotator mix!
                     g.overrideMix[i] = sg.mix[srcIdx]; 
-                    
                     g.overrideNextChars[i] = sg.nextChars[srcIdx];
                     g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
                 }
             } else if (sFade > 0) {
-                // FULL SHADOW WORLD (Mode 3)
                 const srcIdx = i;
                 if (sg && sg.chars && srcIdx < sg.chars.length) {
                     g.overrideActive[i] = 3; 
@@ -205,12 +147,13 @@ class QuantizedShadow {
                     g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
                 }
             } else {
-                // COMPLETELY BACK TO OLD WORLD
                 if (g.overrideActive[i] !== 0) {
                     g.overrideActive[i] = 0;
                 }
             }
         }
+        
+        return false;
     }
 
     commitShadowState(fx) {
@@ -218,7 +161,11 @@ class QuantizedShadow {
         try {
             const g = fx.g;
             const sg = this.shadowGrid;
+            
+            // --- FULL STATE REPLACEMENT ---
+            // Overwrite entire grid memory with shadow world memory
             this._copyGridBuffers(g, sg);
+
             if (window.matrix && window.matrix.simulation) {
                 const mainSim = window.matrix.simulation;
                 const shadowMgr = this.shadowSim.streamManager;
@@ -236,43 +183,49 @@ class QuantizedShadow {
                     if (shadowMgr.activeStreams.includes(s)) serializedActiveStreams.push(copy);
                 }
                 const serializeRefArray = (arr) => arr.map(s => (s && streamMap.has(s)) ? streamMap.get(s) : null);
+                
                 const state = {
                     activeStreams: serializedActiveStreams, 
-                    columnSpeeds: shadowMgr.columnSpeeds,
-                    streamsPerColumn: shadowMgr.streamsPerColumn,   
+                    columnSpeeds: Array.from(shadowMgr.columnSpeeds), 
+                    streamsPerColumn: Array.from(shadowMgr.streamsPerColumn),   
                     lastStreamInColumn: serializeRefArray(shadowMgr.lastStreamInColumn),
                     lastEraserInColumn: serializeRefArray(shadowMgr.lastEraserInColumn),
                     lastUpwardTracerInColumn: serializeRefArray(shadowMgr.lastUpwardTracerInColumn),
                     nextSpawnFrame: shadowMgr.nextSpawnFrame,
                     overlapInitialized: this.shadowSim.overlapInitialized,
                     _lastOverlapDensity: this.shadowSim._lastOverlapDensity,
-                    activeIndices: Array.from(sg.activeIndices)
+                    activeIndices: Array.from(sg.activeIndices),
+                    complexStyles: Array.from(sg.complexStyles.entries())
                 };
-                const frameOffset = mainSim.frame || 0; 
-                const shadowFrame = (this.shadowSimFrame !== undefined) ? this.shadowSimFrame : (fx.localFrame || 0);
-                const delta = frameOffset - shadowFrame;
-                state.nextSpawnFrame = shadowMgr.nextSpawnFrame + delta;
+                
                 if (mainSim.useWorker && mainSim.worker) {
                     mainSim.worker.postMessage({ type: 'replace_state', state: state });
-                    mainSim.worker.postMessage({ type: 'config', config: { state: JSON.parse(JSON.stringify(fx.c.state)), derived: fx.c.derived } });
                     return 'ASYNC';
                 } else {
                     state.activeStreams.forEach(s => { if (Array.isArray(s.holes)) s.holes = new Set(s.holes); });
                     const mainMgr = mainSim.streamManager;
-                    // Merge shadow streams into main mgr (don't overwrite)
-                    mainMgr.activeStreams = mainMgr.activeStreams.concat(state.activeStreams);
+                    
+                    // --- FULL REPLACEMENT OF SIMULATION STATE ---
+                    // This ensures the main world becomes a exact functional clone of the shadow world.
+                    mainMgr.activeStreams = state.activeStreams;
                     mainMgr.columnSpeeds.set(state.columnSpeeds);
-                    if (mainMgr.streamsPerColumn && state.streamsPerColumn) mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                    if (mainMgr.streamsPerColumn && state.streamsPerColumn) {
+                        mainMgr.streamsPerColumn.set(state.streamsPerColumn);
+                    }
                     mainMgr.lastStreamInColumn = state.lastStreamInColumn;
                     mainMgr.lastEraserInColumn = state.lastEraserInColumn;
                     mainMgr.lastUpwardTracerInColumn = state.lastUpwardTracerInColumn;
-                    mainMgr.nextSpawnFrame = Math.min(mainMgr.nextSpawnFrame, state.nextSpawnFrame);
+                    
+                    mainMgr.nextSpawnFrame = state.nextSpawnFrame;
                     mainSim.overlapInitialized = state.overlapInitialized;
                     mainSim._lastOverlapDensity = state._lastOverlapDensity;
-                    if (state.activeIndices) {
-                        // Merge active indices (don't clear)
-                        state.activeIndices.forEach(idx => mainSim.grid.activeIndices.add(idx));
+                    
+                    // Re-sync Global Shadow World for next transition
+                    if (window.globalShadowWorld) {
+                        window.globalShadowWorld.initialized = false;
+                        window.globalShadowWorld.init(fx.g.cols * fx.c.derived.cellWidth, fx.g.rows * fx.c.derived.cellHeight, mainSim.frame);
                     }
+
                     return 'SYNC';
                 }
             }
@@ -284,73 +237,49 @@ class QuantizedShadow {
     }
 
     _copyGridBuffers(g, sg) {
-        const copyData = (target, source) => {
-            if (!target || !source) return;
-            if (source.length === target.length && sg.cols === g.cols) {
-                target.set(source);
-            } else {
-                const rows = Math.min(sg.rows, g.rows);
-                const cols = Math.min(sg.cols, g.cols);
-                for (let y = 0; y < rows; y++) {
-                    const srcOff = y * sg.cols;
-                    const dstOff = y * g.cols;
-                    target.set(source.subarray(srcOff, srcOff + cols), dstOff);
-                }
+        // Rigorous buffer-by-buffer overwrite. 
+        // This ensures the main memory is identical to the shadow universe.
+        const copyBuffer = (name) => {
+            if (g[name] && sg[name] && g[name].length === sg[name].length) {
+                g[name].set(sg[name]);
             }
         };
-        copyData(g.state, sg.state); 
-        copyData(g.chars, sg.chars);
-        copyData(g.colors, sg.colors);
-        copyData(g.baseColors, sg.baseColors); 
-        copyData(g.alphas, sg.alphas);
-        copyData(g.glows, sg.glows);
-        copyData(g.fontIndices, sg.fontIndices);
-        copyData(g.renderMode, sg.renderMode); 
-        copyData(g.types, sg.types);
-        copyData(g.decays, sg.decays);
-        copyData(g.maxDecays, sg.maxDecays);
-        copyData(g.ages, sg.ages);
-        copyData(g.brightness, sg.brightness);
-        copyData(g.rotatorOffsets, sg.rotatorOffsets);
-        copyData(g.cellLocks, sg.cellLocks);
-        copyData(g.nextChars, sg.nextChars);
-        copyData(g.nextOverlapChars, sg.nextOverlapChars);
-        copyData(g.secondaryChars, sg.secondaryChars);
-        copyData(g.secondaryColors, sg.secondaryColors);
-        copyData(g.secondaryAlphas, sg.secondaryAlphas);
-        copyData(g.secondaryGlows, sg.secondaryGlows);
-        copyData(g.secondaryFontIndices, sg.secondaryFontIndices);
-        copyData(g.mix, sg.mix);
         
-        // --- Merge activeIndices and update activeFlag ---
-        if (g.activeFlag) {
-            // If using SAB, update main grid's activeFlag
-            for (let i = 0; i < g.activeFlag.length; i++) {
-                if (sg.activeFlag && sg.activeFlag[i] === 1) {
-                    g.activeFlag[i] = 1;
-                }
-            }
+        copyBuffer('state');
+        copyBuffer('chars');
+        copyBuffer('colors');
+        copyBuffer('baseColors');
+        copyBuffer('alphas');
+        copyBuffer('glows');
+        copyBuffer('fontIndices');
+        copyBuffer('renderMode');
+        copyBuffer('types');
+        copyBuffer('decays');
+        copyBuffer('maxDecays');
+        copyBuffer('ages');
+        copyBuffer('brightness');
+        copyBuffer('rotatorOffsets');
+        copyBuffer('cellLocks');
+        copyBuffer('nextChars');
+        copyBuffer('nextOverlapChars');
+        copyBuffer('secondaryChars');
+        copyBuffer('secondaryColors');
+        copyBuffer('secondaryAlphas');
+        copyBuffer('secondaryGlows');
+        copyBuffer('secondaryFontIndices');
+        copyBuffer('mix');
+        if (g.activeFlag && sg.activeFlag) copyBuffer('activeFlag');
+
+        // Rebuild main active indices set from scratch
+        g.activeIndices.clear();
+        for (const idx of sg.activeIndices) {
+            g.activeIndices.add(idx);
         }
 
-        // Add shadow's active cells to main grid's activeIndices (Merge, don't clear)
-        if (sg.activeIndices.size > 0) {
-            for (const idx of sg.activeIndices) {
-                const x = idx % sg.cols;
-                const y = Math.floor(idx / sg.cols);
-                if (x < g.cols && y < g.rows) {
-                    const newIdx = y * g.cols + x;
-                    g.activeIndices.add(newIdx);
-                }
-            }
-        }
+        // Deep copy complex styles (glimmers, etc.)
         g.complexStyles.clear();
         for (const [key, value] of sg.complexStyles) {
-            const x = key % sg.cols;
-            const y = Math.floor(key / sg.cols);
-            if (x < g.cols && y < g.rows) {
-                const newKey = y * g.cols + x;
-                g.complexStyles.set(newKey, {...value});
-            }
+            g.complexStyles.set(key, JSON.parse(JSON.stringify(value)));
         }
     }
 }

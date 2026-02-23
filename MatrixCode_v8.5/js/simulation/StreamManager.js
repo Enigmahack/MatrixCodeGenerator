@@ -358,6 +358,9 @@ class StreamManager {
                 }
 
                 if (stream.y < stream.len) {
+                    // Record old position to set as trail after moving
+                    const oldY = stream.y;
+                    
                     // Debug: Clean up previous eraser position to prevent trails
                     if (stream.isEraser && this.config.state.highlightErasers) {
                         const prevIdx = grid.getIndex(stream.x, stream.y);

@@ -14,6 +14,10 @@ class EffectRegistry {
             }
             get(name) { return this.effects.find(e => e.name === name); }
 
+            isQuantizedActive() {
+                return this.effects.some(e => e.active && e.name.startsWith('Quantized'));
+            }
+
             _isEditorActive() {
                 if (window.matrix && window.matrix.ui && window.matrix.ui.quantEditor) {
                     return window.matrix.ui.quantEditor.active;

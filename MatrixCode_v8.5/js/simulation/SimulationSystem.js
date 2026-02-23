@@ -199,12 +199,14 @@ class SimulationSystem {
             // It just renders whatever is in the SharedBuffers
         } else {
             // Fallback: Local Logic
-            this.streamManager.update(frame, this.timeScale);
-            this._manageOverlapGrid(frame);
-            this._updateCells(frame, this.timeScale);
-            
-            // Local Glimmer Lifecycle (Copy-paste logic from Worker/Original)
-            this._updateGlimmerLifecycle();
+            if (this.timeScale > 0) {
+                this.streamManager.update(frame, this.timeScale);
+                this._manageOverlapGrid(frame);
+                this._updateCells(frame, this.timeScale);
+                this._updateGlimmerLifecycle();
+            } else if (this.timeScale < 0) {
+                this.streamManager.update(frame, this.timeScale);
+            }
 
             if (this.grid.envGlows) this.grid.envGlows.fill(0);
             this.glowSystem.update();
@@ -414,8 +416,7 @@ class SimulationSystem {
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         // If an effect is overriding this cell, pause simulation updates (Freeze)
-        // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are used by Quantized Effects for "Masking",
-        // so we allow the underlying simulation to run underneath.
+        // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
         if (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3 && grid.overrideActive[idx] !== 5) return;
 
         const decay = grid.decays[idx];
