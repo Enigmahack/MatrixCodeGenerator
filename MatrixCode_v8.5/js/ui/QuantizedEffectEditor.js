@@ -337,92 +337,7 @@ class QuantizedEffectEditor {
     }
 
     _decodeSequence(sequence) {
-        if (!sequence || sequence.length === 0) return [[]];
-        
-        const OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 6: 'addSmart', 7: 'removeBlock' };
-        
-        const decodedSeq = [];
-        for (const step of sequence) {
-            const decodedStep = [];
-            if (Array.isArray(step) && step.length > 0 && typeof step[0] === 'number') {
-                let i = 0;
-                while (i < step.length) {
-                    const opCode = step[i++];
-                    const opName = OPS_INV[opCode];
-                    
-                    let args = [];
-                    if (opCode === 1 || opCode === 6 || opCode === 7) {
-                        args = [step[i++], step[i++]];
-                    } else if (opCode === 3) {
-                        args = [step[i++], step[i++], step[i++], step[i++]];
-                    } else if (opCode === 8) { // addLayered
-                        const x = step[i++];
-                        const y = step[i++];
-                        const l = step[i++];
-                        decodedStep.push({ op: 'add', args: [x, y], layer: l });
-                        continue;
-                    } else if (opCode === 9) { // addRectLayered
-                        const x1 = step[i++];
-                        const y1 = step[i++];
-                        const x2 = step[i++];
-                        const y2 = step[i++];
-                        const l = step[i++];
-                        decodedStep.push({ op: 'addRect', args: [x1, y1, x2, y2], layer: l });
-                        continue;
-                    } else if (opCode === 10) { // addSmartLayered
-                        const x = step[i++];
-                        const y = step[i++];
-                        const l = step[i++];
-                        decodedStep.push({ op: 'addSmart', args: [x, y], layer: l });
-                        continue;
-                    } else if (opCode === 11) { // removeBlockLayered
-                        const x = step[i++];
-                        const y = step[i++];
-                        const l = step[i++];
-                        decodedStep.push({ op: 'removeBlock', args: [x, y], layer: l });
-                        continue;
-                    } else if (opCode === 12 || opCode === 13) { // nudge / nudgeML
-                        const x = step[i++];
-                        const y = step[i++];
-                        const w = step[i++];
-                        const h = step[i++];
-                        const l = step[i++];
-                        const fMask = step[i++];
-                        const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
-                        const face = FACES_INV[fMask] || 'N';
-                        decodedStep.push({ op: (opCode === 13 ? 'nudgeML' : 'nudge'), args: [x, y, w, h, face], layer: l });
-                        continue;
-                    } else if (opCode === 2) {
-                        const x = step[i++];
-                        const y = step[i++];
-                        let mask = step[i++];
-                        
-                        // Unpack Layer
-                        const l = (mask >> 4) & 0x7; 
-                        decodedStep.push({ op: 'rem', args: [x, y], layer: l });
-                        continue; 
-                    }
-                    decodedStep.push({ op: opName, args: args });
-                }
-            } else {
-                for (const opObj of step) {
-                    if (Array.isArray(opObj)) {
-                        decodedStep.push({ op: opObj[0], args: opObj.slice(1) });
-                    } else if (opObj && opObj.op === 'group' && opObj.ops) {
-                        // Recursively decode group ops
-                        const decodedGroup = { op: 'group', ops: [] };
-                        // We wrap ops in a temporary step to reuse decode logic (shallow)
-                        const tempResult = this._decodeSequence([opObj.ops]);
-                        decodedGroup.ops = tempResult[0];
-                        decodedStep.push(decodedGroup);
-                    } else {
-                        decodedStep.push(opObj);
-                    }
-                }
-            }
-            decodedSeq.push(decodedStep);
-        }
-        return decodedSeq;
+        return QuantizedSequence.decode(sequence);
     }
 
     _switchEffect(effectName) {
@@ -1556,9 +1471,15 @@ class QuantizedEffectEditor {
 
         this._log(`[Editor] ChangeStep: ${oldStep} -> ${newStep} (Delta: ${delta}, Len: ${this.effect.sequence.length})`);
 
-        // Force full reconstruction to ensure all previous step logic is visible
+        // Force deterministic reconstruction by invalidating cache from this point forward
+        // This ensures that "Step 5, 10..." issues caused by stale snapshots are eliminated.
+        if (this.effect.invalidateCache) {
+            this.effect.invalidateCache(Math.min(oldStep, newStep));
+        }
+
         this.effect.isReconstructing = true;
         this.effect.jumpToStep(newStep);
+        this.effect.isReconstructing = false;
 
         this._updateUI();
         this.isDirty = true;
@@ -1724,87 +1645,7 @@ class QuantizedEffectEditor {
     }
 
     _encodeSequence(sequence) {
-        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12, 'nudgeML': 13 };
-        const FACES = { 'N': 1, 'n': 1, 'S': 2, 's': 2, 'E': 4, 'e': 4, 'W': 8, 'w': 8 };
-        
-        const packedSequence = [];
-        for (const step of sequence) {
-            const stepData = [];
-            for (const opObj of step) {
-                let opName, args, layer = 0;
-                if (Array.isArray(opObj)) {
-                    if (typeof opObj[0] === 'number') {
-                        stepData.push(...opObj);
-                        continue;
-                    }
-                    opName = opObj[0];
-                    args = opObj.slice(1);
-                } else {
-                    opName = opObj.op;
-                    args = opObj.args;
-                    layer = opObj.layer || 0;
-                }
-
-                const opCode = OPS[opName];
-                if (!opCode) {
-                    if (opName === 'group' && opObj.ops) {
-                        const encodedGroup = { op: 'group', ops: [] };
-                        const tempResult = this._encodeSequence([opObj.ops]);
-                        encodedGroup.ops = tempResult[0];
-                        stepData.push(encodedGroup);
-                    }
-                    continue;
-                }
-
-                if (opCode === 1) { // add
-                    if (layer > 0) {
-                        stepData.push(8, args[0], args[1], layer); 
-                    } else {
-                        stepData.push(1, args[0], args[1]);
-                    }
-                } else if (opCode === 3) { // addRect
-                    if (layer > 0) {
-                        stepData.push(9, args[0], args[1], args[2], args[3], layer); 
-                    } else {
-                        stepData.push(3, args[0], args[1], args[2], args[3]);
-                    }
-                } else if (opCode === 6) { // addSmart
-                    if (layer > 0) {
-                         stepData.push(10, args[0], args[1], layer); 
-                    } else {
-                         stepData.push(6, args[0], args[1]);
-                    }
-                } else if (opCode === 7) { // removeBlock
-                    if (layer > 0) {
-                         stepData.push(11, args[0], args[1], layer); 
-                    } else {
-                         stepData.push(7, args[0], args[1]);
-                    }
-                } else if (opCode === 12 || opCode === 13) { // nudge / nudgeML
-                    const dx = args[0];
-                    const dy = args[1];
-                    let face = args[4];
-
-                    if (!face) {
-                         if (dx === 0 && dy === 0) face = 'N'; 
-                         else if (Math.abs(dy) > Math.abs(dx)) face = (dy > 0) ? 'S' : 'N';
-                         else face = (dx > 0) ? 'E' : 'W';
-                    }
-                    
-                    const fMask = FACES[face.toUpperCase()] || 0;
-                    stepData.push(opCode, args[0], args[1], args[2], args[3], layer, fMask);
-                } else if (opCode === 2) { // rem
-                    stepData.push(2, args[0], args[1]);
-                    let mask = 0;
-                    if (layer > 0) {
-                        mask = (layer << 4);
-                    }
-                    stepData.push(mask);
-                }
-            }
-            packedSequence.push(stepData);
-        }
-        return packedSequence;
+        return QuantizedSequence.encode(sequence);
     }
 
 

@@ -430,6 +430,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.expansionPhase = i; 
             const step = this.sequence[i];
             if (step) {
+                // Ensure logic is up to date before processing the next step's ops
+                // especially important for nudges and smart-adds
+                this._updateRenderGridLogic();
                 this._executeStepOps(step, simFrame); 
             }
 
@@ -441,8 +444,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this.expansionPhase = targetStepsCompleted; 
         this.animFrame = targetStepsCompleted * framesPerStep;
+        this.isReconstructing = false; // Reconstruction complete
 
-        this._updateRenderGridLogic(); // Force immediate logical update
+        this._updateRenderGridLogic(); // Final logic update for the current state
 
         this._maskDirty = true;
         this.renderer._edgeCacheDirty = true;
@@ -865,9 +869,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateRenderGridLogic() {
         if (!this.logicGridW || !this.logicGridH) return;
         
-        // Guard: Do not process logic updates while jumpToStep is still rebuilding the sequence.
-        // Composition will happen once isReconstructing is false.
-        if (this.isReconstructing) return;
+        // Removed the isReconstructing guard to allow logic updates during jump loops,
+        // which is required for context-aware operations (nudges/smart-adds) to see
+        // the current state of the grid during reconstruction.
 
         const totalBlocks = this.logicGridW * this.logicGridH;
         if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
@@ -1352,8 +1356,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             return grid[by * blocksX + bx];
         };
 
-        // Draw Fills in reverse layer order (back-to-front), but only show if obscureCount < 2
-        const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
+        // Draw Fills in fixed back-to-front order (L2 -> L1 -> L0)
+        // This ensures L0 always renders in the same spot in the stack for consistent coloring.
+        const visibleIndices = [0, 1, 2];
 
         for (let i = visibleIndices.length - 1; i >= 0; i--) {
             const lIdx = visibleIndices[i];
@@ -1365,7 +1370,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const bx = idx % blocksX;
                         const by = Math.floor(idx / blocksX);
 
-                        // Only show if obscureCount < 2 (Top 2 layers at this spot)
+                        // Only dim if covered by a HIGHER layer in the fixed stack (0 is highest)
                         let obscureCount = 0;
                         for (let j = 0; j < i; j++) {
                             const higherLIdx = visibleIndices[j];
@@ -1377,7 +1382,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         
                         ctx.save();
                         if (obscureCount >= 2) {
-                            ctx.globalAlpha = 0.05; // Dim fill for 3rd layer
+                            ctx.globalAlpha = 0.05; 
                         }
                         ctx.fillStyle = layerColors[lIdx];
 
@@ -1402,13 +1407,13 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
 
-        // Draw Lines: Foundation Layer AND Lead Intersection ONLY
+        // Draw Lines: Layer 0 ALWAYS acts as the green foundation/wireframe reference
         const pNormal = new Path2D();
         const pDim = new Path2D();
 
-        const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
-        const lead1Idx = (this.layerOrder && this.layerOrder.length > 1) ? this.layerOrder[1] : 1;
-        const lead2Idx = (this.layerOrder && this.layerOrder.length > 2) ? this.layerOrder[2] : 2;
+        const foundationIdx = 0;
+        const lead1Idx = 1;
+        const lead2Idx = 2;
 
         const grid0 = this.layerGrids[foundationIdx];
         const grid1 = this.layerGrids[lead1Idx];
