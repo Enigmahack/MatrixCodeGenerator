@@ -18,7 +18,7 @@ class QuantizedShadow {
             this.shadowGrid = window.matrix.inactiveWorld.grid;
             this.shadowSim = window.matrix.inactiveWorld.sim;
         } else {
-            console.warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
+            fx._warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
             this.shadowGrid = new CellGrid(fx.c);
             const d = fx.c.derived;
             const w = fx.g.cols * d.cellWidth; 
@@ -183,7 +183,7 @@ class QuantizedShadow {
             }
             return 'SYNC';
         } catch (e) {
-            console.error("[QuantizedShadow] Swap failed:", e);
+            fx._error("[QuantizedShadow] Swap failed:", e);
             return false;
         }
     }

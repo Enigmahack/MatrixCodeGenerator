@@ -233,24 +233,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     trigger(force = false) {
-        console.log(`QuantizedBlockGenerator: trigger(force=${force}) called`);
         if (this.active && !force) {
-            console.log("QuantizedBlockGenerator: Already active, returning");
             return false;
         }
         if (!super.trigger(force)) {
-            console.log("QuantizedBlockGenerator: super.trigger() failed");
             return false;
         }
 
-        console.log("QuantizedBlockGenerator: Triggered and initialized");
-        console.log(`QuantizedBlockGenerator: logicGridW=${this.logicGridW}, logicGridH=${this.logicGridH}`);
-        this.timer = 0;
-        this.genTimer = 0;
-        this.animFrame = 0;
-        this.expansionPhase = 0;
-        this.cycleTimer = 0;
-        this.cyclesCompleted = 0;
         this.alpha = 1.0;
         this.state = 'GENERATING';
         this._isCovered = undefined;
@@ -273,95 +262,14 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         return true;
     }
 
-    update() {
-        if (!this.active) return;
-
-        if (!this.hasSwapped && !this.isSwapping) {
-            if (super._updateShadowSim()) {
-                // this._log("QuantizedBlockGenerator: updateShadowSim warming up...");
-                return;
-            }
-        } else if (this.isSwapping) {
-            super.updateTransition(false);
-        }
-
-        const s = this.c.state;
-        const fps = 60;
-        this.animFrame++;
-        this.timer++;
-
-        // Log occasionally
-        if (this.animFrame % 60 === 0) {
-            console.log(`QuantizedBlockGenerator: update() frame ${this.animFrame}, state ${this.state}`);
-        }
-
-        const fadeOutFrames = this.getConfig('FadeFrames') || 0;
-        if (this.maskOps.length > 0 && this.animFrame % 60 === 0) {
-             const oldLen = this.maskOps.length;
-             this.maskOps = this.maskOps.filter(op => {
-                 if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOutFrames) return false;
-                 return true;
-             });
-             if (this.maskOps.length !== oldLen) {
-                 this._lastProcessedOpIndex = 0; 
-                 this._gridsDirty = true;
-             }
-        }
-
-        const durationFrames = (s.quantizedGenerateV2DurationSeconds || 5) * fps;
+    _getEffectiveInterval() {
+        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+        const userSpeed = this.getConfig('Speed') || 5;
+        const delayMult = 11 - userSpeed;
         
-        if (this.state === 'GENERATING') {
-            const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-            const userSpeed = (s.quantizedGenerateV2Speed !== undefined) ? s.quantizedGenerateV2Speed : 5;
-            const delayMult = 11 - userSpeed;
-            
-            const enNudge = (this.getConfig('EnableNudge') === true);
-            const intervalMult = enNudge ? 0.15 : 0.25; 
-            const interval = Math.max(1, baseDuration * (delayMult * intervalMult));
-            
-            if (!this.debugMode || this.manualStep) {
-                this.genTimer++;
-                if (this.genTimer >= interval || this.manualStep) {
-                    this.genTimer = 0;
-                    try {
-                        this._attemptGrowth();
-                    } catch (e) {
-                        console.error("QuantizedBlockGenerator: Error in _attemptGrowth:", e);
-                    }
-                    this.expansionPhase++;
-                }
-                this.manualStep = false;
-            }
-            
-            this._updateRenderGridLogic();
-
-            // Throttled coverage check using base class method
-            const isCovered = this._updateExpansionStatus();
-            if (this.animFrame % 60 === 0) {
-                console.log(`QuantizedBlockGenerator: isCovered=${isCovered}, emptyCount=${this._visibleEmptyCount}`);
-            }
-            const timedOut = this.timer >= durationFrames;
-
-            if (!this.debugMode && (timedOut || isCovered)) {
-                console.log(`QuantizedBlockGenerator: Ending generation. Reason: ${isCovered ? 'FULL COVERAGE' : 'TIMEOUT (' + (this.timer/fps).toFixed(1) + 's)'}`);
-                this.state = 'FADE_OUT';
-                this.timer = 0;
-                if (!this.hasSwapped && !this.isSwapping) {
-                    this._swapStates();
-                }
-            }
-        } else if (this.state === 'FADE_OUT') {
-            const fadeFrames = s.quantizedGenerateV2FadeFrames || 60;
-            this.alpha = Math.max(0, 1.0 - (this.timer / fadeFrames));
-            if (this.timer >= fadeFrames) {
-                this._log("QuantizedBlockGenerator: Effect complete.");
-                this.active = false;
-                this.state = 'IDLE';
-                this.g.clearAllOverrides();
-            }
-        }
-        
-        this._checkDirtiness();
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        const intervalMult = enNudge ? 0.15 : 0.25; 
+        return Math.max(1, baseDuration * (delayMult * intervalMult));
     }
 
     _initProceduralState(forceSeed = false) {
@@ -485,8 +393,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _attemptGrowth() {
         if (this.expansionComplete) return;
-        console.log(`QuantizedBlockGenerator: _attemptGrowth cycle ${this.expansionPhase}`);
-        this._initProceduralState(true); 
+        this._log(`QuantizedBlockGenerator: _attemptGrowth cycle ${this.expansionPhase}`);
+        this._initProceduralState(false); 
         this._syncSubLayers(); // Synchronize existing state first
         this._updateInternalLogicGrid();
 
@@ -661,7 +569,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         if (!successInStep && !this._isCanvasFullyCovered()) {
-            console.warn("QuantizedBlockGenerator: Growth stalled.");
+            this._warn("QuantizedBlockGenerator: Growth stalled.");
         }
 
         this._updateInternalLogicGrid();
@@ -688,7 +596,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     }
                 }
             }
-            this._gridsDirty = false;
             this._lastProcessedBlockCount = this.activeBlocks.length;
         } else {
             const startIdx = this._lastProcessedBlockCount || 0;
@@ -918,15 +825,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _validateCandidate(c) {
         if (!this.RULES.bounds(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: bounds", c);
+            this._log("QuantizedBlockGenerator: Rule failed: bounds", c);
             return false;
         }
         if (!this.RULES.occupancy(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: occupancy", c);
+            this._log("QuantizedBlockGenerator: Rule failed: occupancy", c);
             return false;
         }
         if (!this.RULES.vacated(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: vacated", c);
+            this._log("QuantizedBlockGenerator: Rule failed: vacated", c);
             return false;
         }
 
@@ -934,15 +841,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (c.isShifter) return true;
 
         if (!this.RULES.connectivity(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: connectivity", c);
+            this._log("QuantizedBlockGenerator: Rule failed: connectivity", c);
             return false;
         }
         if (!this.RULES.direction(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: direction", c);
+            this._log("QuantizedBlockGenerator: Rule failed: direction", c);
             return false;
         }
         if (!this.RULES.spatial(c)) {
-            console.log("QuantizedBlockGenerator: Rule failed: spatial", c);
+            this._log("QuantizedBlockGenerator: Rule failed: spatial", c);
             return false;
         }
         return true;

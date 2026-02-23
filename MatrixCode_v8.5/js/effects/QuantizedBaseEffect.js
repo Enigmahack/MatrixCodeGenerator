@@ -228,7 +228,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         
         if (this.name === "QuantizedBlockGenerator" && this.animFrame % 60 === 0) {
-            console.log(`[${this.name}] _updateVisibleEmptyCount: w=${w}, h=${h}, offX=${offX.toFixed(2)}, offY=${offY.toFixed(2)}, startX=${startX}, endX=${endX}, startY=${startY}, endY=${endY}, visibleW=${visibleW}, visibleH=${visibleH}, count=${count}`);
+            this._log(`[${this.name}] _updateVisibleEmptyCount: w=${w}, h=${h}, offX=${offX.toFixed(2)}, offY=${offY.toFixed(2)}, startX=${startX}, endX=${endX}, startY=${startY}, endY=${endY}, visibleW=${visibleW}, visibleH=${visibleH}, count=${count}`);
         }
 
         this._visibleEmptyCount = count;
@@ -343,6 +343,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._initLogicGrid();
         this.stateCache.clear();
+
+        this.state = 'FADE_IN';
+        this.timer = 0;
+        this.alpha = 0.0;
 
         if (this.debugMode) {
             // Keydown handling for stepping is managed by the Editor when active
@@ -500,6 +504,147 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         return result;
+    }
+
+    _getEffectiveInterval() {
+        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
+        const userSpeed = this.getConfig('Speed') || 5;
+        // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
+        const delayMult = 11 - userSpeed;
+        return baseDuration * (delayMult / 4.0);
+    }
+
+    update() {
+        if (!this.active) return;
+
+        const s = this.c.state;
+        const fps = 60;
+
+        // 1. Update Shadow Simulation & Warmup
+        // If the effect doesn't use shadow world, _updateShadowSim should return false immediately.
+        if (!this.hasSwapped && !this.isSwapping) {
+            if (this._updateShadowSim()) return;
+        } else if (this.isSwapping) {
+            this.updateTransition(true);
+        }
+
+        this.animFrame++;
+
+        // 1. WAITING State (Delay Start)
+        if (this.state === 'WAITING') {
+            this.timer--;
+            if (this.timer <= 0) {
+                this.state = 'FADE_IN';
+                this.timer = 0;
+                this.alpha = 0.0;
+            }
+            return;
+        }
+
+        // Periodic maintenance (Pruning expired ops)
+        if (this.animFrame % 60 === 0 && this.maskOps && this.maskOps.length > 0) {
+            const fadeOut = this.getConfig('FadeFrames') || 0;
+            const oldLen = this.maskOps.length;
+            this.maskOps = this.maskOps.filter(op => {
+                if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOut) return false;
+                return true;
+            });
+            if (this.maskOps.length !== oldLen) {
+                this._lastProcessedOpIndex = 0; 
+                this._gridsDirty = true;
+            }
+        }
+
+        // 2. Animation Cycle (Grid Expansion) - Logic Update
+        const effectiveInterval = this._getEffectiveInterval();
+
+        this.cycleTimer++;
+
+        if (this.cycleTimer >= effectiveInterval) {
+            if (!this.debugMode || this.manualStep) {
+                this.cycleTimer = 0;
+                this.cyclesCompleted++;
+
+                // Clear step-local state
+                this._currentStepActions = [];
+                if (this.logicGridW && this.logicGridH) {
+                    this._stepOccupancy = new Uint8Array(this.logicGridW * this.logicGridH);
+                }
+                
+                if (this.expansionPhase < this.sequence.length) {
+                    this._processAnimationStep();
+                } else if (this.getConfig('AutoGenerateRemaining') || this.state === 'GENERATING') {
+                    this._attemptGrowth();
+                    this.expansionPhase++;
+                }
+                this.manualStep = false;
+            }
+        }
+
+        // Update Render Grid Logic immediately
+        this._updateRenderGridLogic();
+
+        // 3. Lifecycle State Machine
+        const fadeInFrames = Math.max(1, this.getConfig('FadeInFrames') || 0);
+        const fadeOutFrames = Math.max(1, this.getConfig('FadeFrames') || 0);
+        const durationFrames = (this.getConfig('DurationSeconds') || 5) * fps;
+        
+        const setAlpha = (val) => { this.alpha = Math.max(0, Math.min(1, val)); };
+
+        if (this.state === 'FADE_IN') {
+            this.timer++;
+            if (fadeInFrames <= 1) {
+                this.alpha = 1.0;
+                this.state = 'SUSTAIN';
+                this.timer = 0;
+            } else {
+                setAlpha(this.timer / fadeInFrames);
+                if (this.timer >= fadeInFrames) {
+                    this.state = 'SUSTAIN';
+                    this.timer = 0;
+                    this.alpha = 1.0;
+                }
+            }
+        } else if (this.state === 'SUSTAIN' || this.state === 'GENERATING') {
+            this.timer++;
+            const isFinished = (this.timer >= durationFrames);
+            const procFinished = (this.getConfig('AutoGenerateRemaining') || this.state === 'GENERATING') && this._isProceduralFinished();
+
+            if (!this.debugMode && (isFinished || procFinished)) {
+                this.state = 'FADE_OUT';
+                this.timer = 0;
+                if (!this.hasSwapped && !this.isSwapping) {
+                    this._swapStates();
+                }
+            }
+        } else if (this.state === 'FADE_OUT') {
+            // If swapping, we handle termination in swap logic.
+            // If just fading out (e.g. cancelled), handle standard fade.
+            if (!this.isSwapping) {
+                this.timer++;
+                if (fadeOutFrames <= 1) {
+                    this._terminate();
+                } else {
+                    setAlpha(1.0 - (this.timer / fadeOutFrames));
+                    if (this.timer >= fadeOutFrames) {
+                        this._terminate();
+                    }
+                }
+            }
+        }
+
+        // 4. Animation Transition Management (Dirtiness)
+        this._checkDirtiness();
+    }
+
+    _terminate() {
+        this.active = false;
+        this.state = 'IDLE';
+        this.alpha = 0.0;
+        window.removeEventListener('keydown', this._boundDebugHandler);
+        if (this.g) this.g.clearAllOverrides();
+        this.shadowGrid = null;
+        this.shadowSim = null;
     }
 
     updateTransition(deactivate = true) {
@@ -889,6 +1034,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const bs = this.getBlockSize();
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
+
+        this._updateExpansionStatus();
     }
 
     _computeCenteredOffset(blocksX, blocksY, pitchX, pitchY) {

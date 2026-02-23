@@ -2,5 +2,10 @@ ToDo:
 <- Bugs: 
 
 <- Behavior:
+[ ] 3. Abstract Configuration Mapping: Dynamically generate UI controls in UIManager.js based on ConfigTemplate.
+[ ] 5. Effect Initialization: Implement EffectRegistry.autoRegister() for data-driven effect management.
+[ ] 2. (Optional) Shared Buffer Pool: Refactor procedural growth to use a robust kernel-level buffer pool for high-frequency pathfinding.
 
 <- Look:
+[DONE] Ping-Pong Architecture: Dual-world simulation for seamless transitions.
+[DONE] Unified Quantized Update Loop: Abstracted lifecycle and timing into QuantizedBaseEffect.

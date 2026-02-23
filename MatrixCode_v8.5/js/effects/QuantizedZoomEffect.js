@@ -99,9 +99,9 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                             erosionRate, 
                             innerLineDuration,
                             initialSequence
-                        });            console.log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
+                        });            this._log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
         } else {
-            console.error("QuantizedSequenceGenerator not found!");
+            this._error("QuantizedSequenceGenerator not found!");
             this.active = false;
             return false;
         }
@@ -315,135 +315,24 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     update() {
         if (!this.active) return;
 
-        // 0. Update Shadow Simulation & Warmup
-        if (this.useShadowWorld) {
-            if (!this.hasSwapped && !this.isSwapping) {
-                if (this._updateShadowSim()) return;
-            } else if (this.isSwapping) {
-                super.updateTransition(false);
-            }
-        }
+        // Handle unique zoom logic before or after base update
+        super.update();
 
-        const s = this.c.state;
-        const fps = 60;
-        this.animFrame++;
-
-        // 1. WAITING State (Delay Start)
-        if (this.state === 'WAITING') {
-            this.timer--;
-            if (this.timer <= 0) {
-                this.state = 'FADE_IN';
-                this.timer = 0;
-                this.alpha = 0.0;
-            }
-            return; // Skip update while waiting
-        }
-
-        // 1. Animation Cycle
-        const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const userSpeed = (s.quantizedZoomSpeed !== undefined) ? s.quantizedZoomSpeed : 5;
-        // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
-        const delayMult = 11 - userSpeed;
-        const effectiveInterval = baseDuration * (delayMult / 4.0);
-
-                this.cycleTimer++;
-
-        
-
-                if (this.cycleTimer >= effectiveInterval) {
-
-                    if (!this.debugMode || this.manualStep) {
-
-                        this.cycleTimer = 0;
-
-                        this.cyclesCompleted++;
-
-                        
-
-                        if (this.expansionPhase < this.sequence.length) {
-
-                            this._processAnimationStep();
-
-                        } else if (this.getConfig('AutoGenerateRemaining')) {
-
-                            this._attemptGrowth();
-
-                        }
-
-                        this.manualStep = false;
-
-                    }
-
-                }
-        
-        // Optimize: Update render logic
-        this._updateRenderGridLogic();
-
-        // 2. Zoom & Fade Logic
-        const totalSteps = this.sequence.length;
-        const currentStep = this.expansionPhase;
-        const progress = Math.min(1.0, currentStep / Math.max(1, totalSteps));
-        
-        // Decoupled Zoom Logic
-        const zoomDelayFrames = (s.quantizedZoomDelay !== undefined) ? s.quantizedZoomDelay * 60 : 0; // delay in seconds -> frames
-        const zoomRate = (s.quantizedZoomZoomRate !== undefined) ? s.quantizedZoomZoomRate : 1.0;
-        
-        if (this.timer >= zoomDelayFrames) {
-             // Actual zoom progress
-             if (!this.zoomProgress) this.zoomProgress = 0;
-             // Base speed: 0.005 per frame * zoomRate
-             this.zoomProgress += 0.005 * zoomRate; 
-             const t = Math.min(1.0, this.zoomProgress);
-             const smoothT = t * t * (3 - 2 * t);
-             this.zoomScale = 1.0 + (3.0 * smoothT);
-        } else {
-             this.zoomScale = 1.0;
-        }
-
-        // 3. Lifecycle & Alpha
-        const fadeInFrames = Math.max(1, (s.quantizedZoomFadeInFrames !== undefined) ? s.quantizedZoomFadeInFrames : 60);
-        const fadeOutFrames = Math.max(1, (s.quantizedZoomFadeFrames !== undefined) ? s.quantizedZoomFadeFrames : 60);
-        const durationFrames = ((s.quantizedZoomDurationSeconds !== undefined) ? s.quantizedZoomDurationSeconds : 5.0) * fps;
-        
-        if (this.state === 'FADE_IN') {
-            this.timer++;
-            this.alpha = Math.min(1.0, this.timer / fadeInFrames);
-            if (this.timer >= fadeInFrames) {
-                this.state = 'SUSTAIN';
-                this.timer = 0; // Reset timer for sustain duration
-                this.alpha = 1.0;
-            }
-        } else if (this.state === 'SUSTAIN') {
-            this.timer++;
-            this.alpha = 1.0;
-
-            const isFinished = (this.timer >= durationFrames);
-            const procFinished = this.getConfig('AutoGenerateRemaining') && this._isProceduralFinished();
-
-            if (!this.debugMode && (isFinished || procFinished)) {
-                this.state = 'FADE_OUT';
-                this.fadeTimer = 0;
-            }
-        } else if (this.state === 'HOLD') {
-            // Deprecated state, but kept for logic safety if manually set
-            this.state = 'FADE_OUT';
-            this.fadeTimer = 0;
-        } else if (this.state === 'FADE_OUT') {
-            this.timer++;
-            this.fadeTimer++;
-            this.alpha = Math.max(0.0, 1.0 - (this.fadeTimer / fadeOutFrames));
+        if (this.active && this.state !== 'WAITING') {
+            const s = this.c.state;
+            const zoomDelayFrames = (s.quantizedZoomDelay !== undefined) ? s.quantizedZoomDelay * 60 : 0;
+            const zoomRate = (s.quantizedZoomZoomRate !== undefined) ? s.quantizedZoomZoomRate : 1.0;
             
-            if (this.fadeTimer >= fadeOutFrames) {
-                this.active = false;
-                this.state = 'IDLE';
-                window.removeEventListener('keydown', this._boundDebugHandler);
-                this.snapshotCanvas = null; 
-                this.charSnapshotCanvas = null;
+            if (this.timer >= zoomDelayFrames) {
+                 if (!this.zoomProgress) this.zoomProgress = 0;
+                 this.zoomProgress += 0.005 * zoomRate; 
+                 const t = Math.min(1.0, this.zoomProgress);
+                 const smoothT = t * t * (3 - 2 * t);
+                 this.zoomScale = 1.0 + (3.0 * smoothT);
+            } else {
+                 this.zoomScale = 1.0;
             }
         }
-
-        // 4. Animation Transition Management (Dirtiness)
-        this._checkDirtiness();
     }
 
 
