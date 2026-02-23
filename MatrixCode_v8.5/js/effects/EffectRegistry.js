@@ -16,6 +16,52 @@ class EffectRegistry {
             registerDefaults() {
                 // ... (Load dynamically or manually)
             }
+
+            /**
+             * Data-Driven Effect Registration
+             * Iterates through the ConfigTemplate and registers effects based on their actions.
+             * @param {Array<Object>} template - The UI ConfigTemplate.
+             */
+            autoRegister(template) {
+                if (!template) return;
+
+                const CLASS_MAP = {
+                    'pulse': PulseEffect,
+                    'clearpulse': ClearPulseEffect,
+                    'minipulse': MiniPulseEffect,
+                    'dejavu': DejaVuEffect,
+                    'superman': SupermanEffect,
+                    'boot': BootEffect,
+                    'crash': CrashEffect,
+                    'quantizedPulse': QuantizedPulseEffect,
+                    'quantizedAdd': QuantizedAddEffect,
+                    'quantizedRetract': QuantizedRetractEffect,
+                    'quantizedClimb': QuantizedClimbEffect,
+                    'quantizedZoom': QuantizedZoomEffect,
+                    'QuantizedBlockGenerator': QuantizedBlockGeneration
+                };
+
+                const registeredActions = new Set();
+
+                template.forEach(def => {
+                    if (def.type === 'button' && def.action) {
+                        const EffectClass = CLASS_MAP[def.action];
+                        if (EffectClass && !registeredActions.has(def.action)) {
+                            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
+                                this.register(new EffectClass(this.grid, this.config, this));
+                            } else {
+                                this.register(new EffectClass(this.grid, this.config));
+                            }
+                            registeredActions.add(def.action);
+                        }
+                    }
+                });
+
+                if (this.config.state.logErrors) {
+                    console.log(`[EffectRegistry] Auto-registered ${registeredActions.size} effects from template.`);
+                }
+            }
+
             get(name) { return this.effects.find(e => e.name === name); }
 
             isQuantizedActive() {

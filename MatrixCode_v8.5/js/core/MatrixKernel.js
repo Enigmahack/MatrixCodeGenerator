@@ -168,32 +168,15 @@ class MatrixKernel {
     }
 
     /**
-     * Registers all active visual effects with the EffectRegistry.
+     * Registers all active visual effects with the EffectRegistry using a data-driven approach.
      * @private
      */
     _initializeEffects() {
-        const effects = [
-            PulseEffect,
-            ClearPulseEffect,
-            MiniPulseEffect,
-            DejaVuEffect,
-            SupermanEffect,
-            BootEffect,
-            CrashEffect,
-            QuantizedPulseEffect,
-            QuantizedAddEffect,
-            QuantizedRetractEffect,
-            QuantizedClimbEffect,
-            QuantizedZoomEffect,
-            QuantizedBlockGeneration
-        ];
-        effects.forEach((EffectClass) => {
-            if (EffectClass === CrashEffect || EffectClass === BootEffect) {
-                this.effectRegistry.register(new EffectClass(this.grid, this.config, this.effectRegistry));
-            } else {
-                this.effectRegistry.register(new EffectClass(this.grid, this.config));
-            }
-        });
+        if (typeof ConfigTemplate !== 'undefined') {
+            this.effectRegistry.autoRegister(ConfigTemplate);
+        } else {
+            if (this.config.state.logErrors) console.error("ConfigTemplate not found. Cannot auto-register effects.");
+        }
     }
 
     /**
