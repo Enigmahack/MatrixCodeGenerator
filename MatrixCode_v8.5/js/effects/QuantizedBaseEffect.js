@@ -533,6 +533,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.g.clearAllOverrides();
             if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.hasSwapped = true;
+            
+            // PING-PONG TERMINATION:
+            // Since the swap is now instantaneous, we can immediately deactivate the effect
+            this.active = false;
+            this.state = 'IDLE';
+            window.removeEventListener('keydown', this._boundDebugHandler);
         } else {
             this.g.clearAllOverrides();
             this.active = false;

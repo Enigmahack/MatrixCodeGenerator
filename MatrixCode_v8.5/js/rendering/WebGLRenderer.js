@@ -85,6 +85,10 @@ class WebGLRenderer {
         }
     }
 
+    setGrid(grid) {
+        this.grid = grid;
+    }
+
     dispose() {
         if (this._mouseMoveHandler) window.removeEventListener('mousemove', this._mouseMoveHandler);
         if (this._touchMoveHandler) window.removeEventListener('touchmove', this._touchMoveHandler);

@@ -84,6 +84,7 @@ class CellGrid {
         
         // Auxiliary
         this.cellLocks = null;  // Uint8 (Prevent updates)
+        this.overrideOwner = null; // Ownership guard for overrides
         
         // Sparse Data (Maps for memory efficiency)
         this.complexStyles = new Map(); // Dynamic styling data
@@ -214,10 +215,14 @@ class CellGrid {
         this.effectActive[idx] = 0;
     }
 
-    clearAllOverrides() {
+    clearAllOverrides(owner = null) {
+        if (owner && this.overrideOwner && this.overrideOwner !== owner) {
+            return;
+        }
         if (this.overrideActive) {
             this.overrideActive.fill(0);
         }
+        if (!owner) this.overrideOwner = null;
     }
 
     clearAllEffects(){

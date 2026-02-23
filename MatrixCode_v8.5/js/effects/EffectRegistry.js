@@ -8,6 +8,10 @@ class EffectRegistry {
                 this.config = config; 
                 this.effects = []; 
             }
+            setGrid(grid) {
+                this.grid = grid;
+                this.effects.forEach(e => { if (e.g !== undefined) e.g = grid; });
+            }
             register(effect) { this.effects.push(effect); }
             registerDefaults() {
                 // ... (Load dynamically or manually)
@@ -43,7 +47,11 @@ class EffectRegistry {
                     }
                 }
 
-                return fx.trigger(...args);
+                const result = fx.trigger(...args);
+                if (result) {
+                    this.grid.overrideOwner = fx;
+                }
+                return result;
             }
             
             _getEditedEffect() {
@@ -54,7 +62,7 @@ class EffectRegistry {
             }
 
             update() { 
-                this.grid.clearAllOverrides();
+                this.grid.clearAllOverrides(this.grid.overrideOwner);
                 this.grid.clearAllEffects();
 
                 const isEditorActive = this._isEditorActive();

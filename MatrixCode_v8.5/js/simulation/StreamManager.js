@@ -535,22 +535,6 @@ class StreamManager {
         return stream;
     }
 
-    injectStream(x, y, forceEraser) {
-        return; // Temporarily disabled for testing
-        const s = this.config.state;
-        const stream = this._initializeStream(x, forceEraser, s);
-        stream.y = y;
-        // Approximate age based on Y
-        // CRITICAL FIX: If we set age based on Y, the stream might die immediately if it's already
-        // past the visible length scale (e.g. at slow speeds or short trail settings).
-        // Setting age to 0 ensures injected tracers start fresh and live for their intended duration.
-        stream.age = 0; 
-        stream.tickTimer = Math.random() * stream.tickInterval;
-        
-        this.modes[stream.mode].spawn(stream);
-        this.addActiveStream(stream);
-    }
-
     _writeHead(stream, frame) {
         const idx = this.grid.getIndex(stream.x, stream.y);
         if (idx === -1) return;

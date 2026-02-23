@@ -124,14 +124,61 @@ class MatrixKernel {
         this.config.clearShaderState(); // Ensure clean shader state on every load
         this.notifications = new NotificationManager(this.config);
         this.config.setNotificationManager(this.notifications);
-        this.grid = new CellGrid(this.config);
-        this.simulation = new SimulationSystem(this.grid, this.config);
+
+        // --- Ping-Pong Architecture: Dual World Setup ---
+        // World 0 (Default Primary)
+        const grid0 = new CellGrid(this.config);
+        const sim0 = new SimulationSystem(grid0, this.config, true); // Enable worker for primary
+        
+        // World 1 (Default Secondary/Shadow)
+        const grid1 = new CellGrid(this.config);
+        const sim1 = new SimulationSystem(grid1, this.config, false); // No worker for shadow to save resources
+        
+        this.worlds = [
+            { grid: grid0, sim: sim0 },
+            { grid: grid1, sim: sim1 }
+        ];
+        
+        this.activeWorldIndex = 0;
+        this.grid = grid0;
+        this.simulation = sim0;
+
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
 
-        // Initialize Global Shadow World
+        // Global Shadow World (Maintains compatibility with effects)
+        // Now it just acts as a pointer to the inactive world
         if (typeof GlobalShadowWorld !== 'undefined') {
-            window.globalShadowWorld = new GlobalShadowWorld(this.config);
+            window.globalShadowWorld = {
+                get grid() { return window.matrix.inactiveWorld.grid; },
+                get simulation() { return window.matrix.inactiveWorld.sim; },
+                get frame() { return window.matrix.frame; },
+                initialized: true,
+                init: () => {}, // No-op
+                update: () => {}, // No-op
+                resize: (w, h) => window.matrix.inactiveWorld.grid.resize(w, h)
+            };
         }
+    }
+
+    get activeWorld() { return this.worlds[this.activeWorldIndex]; }
+    get inactiveWorld() { return this.worlds[1 - this.activeWorldIndex]; }
+
+    /**
+     * Instantly swaps the Primary and Secondary worlds.
+     * Used by Quantized effects to commit their reveal.
+     */
+    swapWorlds() {
+        this.activeWorldIndex = 1 - this.activeWorldIndex;
+        const active = this.activeWorld;
+        
+        this.grid = active.grid;
+        this.simulation = active.sim;
+        
+        // Update components that rely on grid references
+        if (this.effectRegistry) this.effectRegistry.setGrid(this.grid);
+        if (this.renderer) this.renderer.setGrid(this.grid);
+        
+        if (this.config.state.logErrors) console.log(`[MatrixKernel] World Swap! New Active Index: ${this.activeWorldIndex}`);
     }
 
     /**
@@ -406,15 +453,9 @@ class MatrixKernel {
         const targetCellH = s.fontSize * vFactor;
         d.cellHeight = targetCellH * ratio;
 
-        // 3. Resize Grid
-        this.grid.resize(logicalW, logicalH);
-        if (window.globalShadowWorld) {
-            if (!window.globalShadowWorld.initialized) {
-                window.globalShadowWorld.init(logicalW, logicalH);
-            } else {
-                window.globalShadowWorld.resize(logicalW, logicalH);
-            }
-        }
+        // 3. Resize All Grids
+        this.worlds.forEach(w => w.grid.resize(logicalW, logicalH));
+        
         this.renderer.resize();
 
         if (this.overlayCanvas) {
@@ -519,11 +560,9 @@ class MatrixKernel {
     _updateFrame() {
         this.frame++;
         this.effectRegistry.update();
-        this.simulation.update(this.frame);
         
-        if (window.globalShadowWorld) {
-            window.globalShadowWorld.update(this.frame);
-        }
+        // Update both worlds independently
+        this.worlds.forEach(w => w.sim.update(this.frame));
 
         const autoEffects = [
             { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
