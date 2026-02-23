@@ -80,18 +80,17 @@ class QuantizedRenderer {
         // Populate Suppressed Fades (Keys to ignore for fading this frame)
         fx.suppressedFades.clear();
         
-        // Block Erasure Pass
+        // Block Erasure Pass - OPTIMIZED: Use a single path for all erasures
         colorLayerCtx.globalCompositeOperation = 'destination-out';
         const now = fx.animFrame;
         const fadeOutFrames = fx.getConfig('FadeFrames') || 0;
 
+        colorLayerCtx.beginPath();
+        let hasErasures = false;
+
         for (const op of fx.maskOps) {
             if (op.type !== 'removeBlock') continue;
-            let opacity = 1.0;
-            if (now > op.startFrame && fadeOutFrames > 0) {
-                opacity = Math.min(1.0, (now - op.startFrame) / fadeOutFrames);
-            }
-            colorLayerCtx.globalAlpha = opacity;
+            
             const cx = Math.floor(blocksX / 2);
             const cy = Math.floor(blocksY / 2);
             
@@ -107,17 +106,27 @@ class QuantizedRenderer {
                     if (gx < 0 || gx >= blocksX || gy < 0 || gy >= blocksY) continue;
                     
                     const idx = gy * blocksX + gx;
-                    // Only erase if this cell is NOT occupied by ANY visible layer in the final composition
                     if (fx.renderGrid[idx] === -1) {
-                        this._addBlock(fx, colorLayerCtx, l, {x: gx, y: gy}, {x: gx, y: gy});
+                        // Use a private non-filling version of block drawing
+                        this._addBlockPath(fx, colorLayerCtx, l, {x: gx, y: gy}, {x: gx, y: gy});
+                        hasErasures = true;
                     }
                 }
             }
         }
+        if (hasErasures) {
+            colorLayerCtx.fill();
+        }
 
         // Global Fade Check for Removal Grids
-        colorLayerCtx.globalCompositeOperation = 'destination-out';
         for (let by = 0; by < blocksY; by++) {
+            // Optimization: Only run this if we actually have removal grids
+            let hasRemovals = false;
+            for(let l=0; l<3; l++) if(fx.removalGrids[l]) { hasRemovals = true; break; }
+            if(!hasRemovals) break;
+
+            colorLayerCtx.beginPath();
+            let hasPath = false;
             for (let bx = 0; bx < blocksX; bx++) {
                 const idx = by * blocksX + bx;
                 if (fx.renderGrid[idx] === -1) {
@@ -139,10 +148,12 @@ class QuantizedRenderer {
                         const y = l.screenOriginY + (sy * l.screenStepY) + l.pixelOffY;
                         const w = (ex - sx) * l.screenStepX;
                         const h = (ey - sy) * l.screenStepY;
-                        colorLayerCtx.fillRect(x - 0.5, y - 0.5, w + 1.0, h + 1.0);
+                        colorLayerCtx.rect(x - 0.5, y - 0.5, w + 1.0, h + 1.0);
+                        hasPath = true;
                     }
                 }
             }
+            if (hasPath) colorLayerCtx.fill();
         }
         colorLayerCtx.globalCompositeOperation = 'source-over';
 
@@ -158,6 +169,13 @@ class QuantizedRenderer {
     }
 
     _addBlock(fx, ctx, l, blockStart, blockEnd, isExtending, visibilityCheck) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        this._addBlockPath(fx, ctx, l, blockStart, blockEnd, isExtending, visibilityCheck);
+        ctx.fill();
+    }
+
+    _addBlockPath(fx, ctx, l, blockStart, blockEnd, isExtending, visibilityCheck) {
         const offX = l.offX || 0;
         const offY = l.offY || 0;
         
@@ -171,9 +189,6 @@ class QuantizedRenderer {
         const endX = Math.floor((eBx + 1) * l.cellPitchX);
         const startY = Math.floor(sBy * l.cellPitchY);
         const endY = Math.floor((eBy + 1) * l.cellPitchY);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
 
         if (visibilityCheck) {
             const rangeMinBx = blockStart.x;
@@ -224,7 +239,6 @@ class QuantizedRenderer {
                 ctx.rect(xPos - 0.5, yPos - 0.5, w + 1.0, h + 1.0);
             }
         }
-        ctx.fill();
     }
 
     _addPerimeterFacePath(ctx, l, bx, by, faceObj, widthX, widthY) {
@@ -379,7 +393,8 @@ class QuantizedRenderer {
             let edgeBirthFrame = -1;
             let dimBirthFrame = -1;
 
-            const key = `${type}_${x}_${y}`;
+            // Fix: Use numeric key to avoid string concatenations
+            const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
             
             // 1. Foundation Layer (usually Layer 0) - Always Visible
             // We use the first layer in layerOrder as the foundation.
@@ -469,7 +484,7 @@ class QuantizedRenderer {
         };
 
         const drawEdge = (x, y, type) => {
-            const key = `${type}_${x}_${y}`;
+            const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
             const state = fx.lineStates.get(key);
             if (!state) return;
 
@@ -540,14 +555,31 @@ class QuantizedRenderer {
                     }
                 }
                 fx._lastRendererOpIndex = fx.maskOps.length;
+
+                // Optimization: Periodically purge stale entries from lineStates Map
+                // Every 300 frames (5 seconds at 60fps) or when grids changed significantly
+                if (now % 300 === 0 || orderChanged) {
+                    const maxFade = (fx.getConfig('FadeFrames') || 60) + 10;
+                    for (const [key, state] of fx.lineStates) {
+                        const isDead = !state.visible && !state.dimVisible;
+                        const normalDone = state.deathFrame === -1 || (now > state.deathFrame + maxFade);
+                        const dimDone = state.dimDeathFrame === -1 || (now > state.dimDeathFrame + maxFade);
+                        if (isDead && normalDone && dimDone) {
+                            fx.lineStates.delete(key);
+                        }
+                    }
+                }
             } else {
                 // Only resolve edges that are currently in transition
                 // (birthFrame/deathFrame/dimBirthFrame/dimDeathFrame !== -1)
                 for (const [key, state] of fx.lineStates) {
                     if (state.birthFrame !== -1 || state.deathFrame !== -1 ||
                         state.dimBirthFrame !== -1 || state.dimDeathFrame !== -1) {
-                        const [type, xStr, yStr] = key.split('_');
-                        resolveEdge(parseInt(xStr), parseInt(yStr), type);
+                        
+                        const type = (key % 2 === 0) ? 'V' : 'H';
+                        const x = Math.floor((key % 4000) / 2);
+                        const y = Math.floor(key / 4000);
+                        resolveEdge(x, y, type);
                     }
                 }
             }
@@ -557,8 +589,10 @@ class QuantizedRenderer {
         // Always draw active/fading edges
         for (const [key, state] of fx.lineStates) {
             if (state.visible || state.deathFrame !== -1 || state.dimVisible || state.dimDeathFrame !== -1) {
-                const [type, xStr, yStr] = key.split('_');
-                drawEdge(parseInt(xStr), parseInt(yStr), type);
+                const type = (key % 2 === 0) ? 'V' : 'H';
+                const x = Math.floor((key % 4000) / 2);
+                const y = Math.floor(key / 4000);
+                drawEdge(x, y, type);
             }
         }
 

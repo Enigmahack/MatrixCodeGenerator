@@ -10,6 +10,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.sequenceManager = new QuantizedSequence();
         this.shadowController = new QuantizedShadow();
         this.renderer = new QuantizedRenderer();
+        this.stateCache = new QuantizedStateCache();
 
         // Sequence State
         this.sequence = [[]];
@@ -242,15 +243,19 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _updateLayerOrder(updatedLayer) {
-        if (updatedLayer === undefined || updatedLayer === 0) return;
+        if (updatedLayer === undefined || updatedLayer === 0) return false;
         
-        // Remove the updated layer from its current position (if it's not 0)
+        // If it's already in the lead position (index 1), no change needed
+        if (this.layerOrder[1] === updatedLayer) return false;
+
         const idx = this.layerOrder.indexOf(updatedLayer);
         if (idx !== -1) {
             this.layerOrder.splice(idx, 1);
             // Insert it at index 1 (right behind Layer 0)
             this.layerOrder.splice(1, 0, updatedLayer);
+            return true;
         }
+        return false;
     }
 
     _getLooselyCentralAnchors(targetLayer, sampleSize = 30) {
@@ -337,6 +342,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.proceduralInitiated = false;
         
         this._initLogicGrid();
+        this.stateCache.clear();
 
         if (this.debugMode) {
             // Keydown handling for stepping is managed by the Editor when active
@@ -378,40 +384,54 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     jumpToStep(targetStepsCompleted) {
-        this.isReconstructing = true;
-        this.maskOps = [];
-        this.activeBlocks = []; 
-        this.nextBlockId = 0;
-        
-        // Safely re-init or ensure existence of procedural state
-        this.proceduralInitiated = false;
-        this._initProceduralState(false); 
+        // Optimization: If we are already at the target step and not dirty, skip
+        if (targetStepsCompleted === this.expansionPhase && !this._gridsDirty && !this.isReconstructing) {
+            return;
+        }
 
-        this._initLogicGrid();
-        if (this.renderGrid) this.renderGrid.fill(-1);
-        for (let i = 0; i < 3; i++) {
-            if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
-        }
-        this._lastProcessedOpIndex = 0;
+        const framesPerStep = 60;
         
-        const framesPerStep = 60; // Standardize to 60 frames per step for consistent internal timing
-        const jumpTime = targetStepsCompleted * framesPerStep;
-        for (const [key, state] of this.lineStates) {
-            if (state.visible) {
-                state.visible = false;
-                state.deathFrame = jumpTime;
-                state.birthFrame = -1;
-            } else if (state.deathFrame !== -1 && jumpTime > state.deathFrame + (this.getConfig('FadeFrames') || 60)) {
-                this.lineStates.delete(key);
-            }
+        // --- 1. Fast State Restore from Cache ---
+        const snapshot = this.stateCache.getNearest(targetStepsCompleted);
+        let startStep = 0;
+
+        if (snapshot && (targetStepsCompleted < this.expansionPhase || snapshot.stepIndex > this.expansionPhase)) {
+            // If jumping backwards OR jumping forward past a snapshot, restore it
+            this.isReconstructing = true;
+            this.stateCache.restore(this, snapshot);
+            startStep = snapshot.stepIndex;
+            this.isReconstructing = false;
+        } else if (targetStepsCompleted >= this.expansionPhase && !this.isReconstructing && this.logicGrid) {
+            // Standard Incremental Forward Jump
+            startStep = this.expansionPhase;
+        } else {
+            // Full Reconstruction from Step 0 (No snapshot found)
+            this.isReconstructing = true;
+            this.maskOps = [];
+            this.activeBlocks = []; 
+            this.nextBlockId = 0;
+            this.proceduralInitiated = false;
+            this._initProceduralState(false); 
+            this._initLogicGrid();
+            this._lastProcessedOpIndex = 0;
+            startStep = 0;
+            this.isReconstructing = false;
         }
-        
-        for (let i = 0; i < targetStepsCompleted; i++) {
+
+        // --- 2. Process Remaining Steps ---
+        for (let i = startStep; i < targetStepsCompleted; i++) {
+            const isLastStep = (i === targetStepsCompleted - 1);
+            const simFrame = isLastStep ? (targetStepsCompleted * framesPerStep) : (i * framesPerStep);
+            
             this.expansionPhase = i; 
             const step = this.sequence[i];
             if (step) {
-                const simFrame = i * framesPerStep;
                 this._executeStepOps(step, simFrame); 
+            }
+
+            // Capture snapshots periodically (e.g. every 5 steps)
+            if (this.debugMode) {
+                this.stateCache.capture(this, i + 1);
             }
         }
         
@@ -422,17 +442,23 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.renderer._edgeCacheDirty = true;
         this.renderer._distMapDirty = true;
         this._outsideMapDirty = true;
-        
-        this.isReconstructing = false;
     }
 
     refreshStep() {
+        // Force full reconstruction for refresh to ensure sequence parity
+        this.invalidateCache(this.expansionPhase);
+        this.isReconstructing = true;
         this.jumpToStep(this.expansionPhase);
+    }
+
+    invalidateCache(fromStep = 0) {
+        if (this.stateCache) {
+            this.stateCache.invalidate(fromStep);
+        }
     }
     
     // Proxy for SequenceManager
     _executeStepOps(step, startFrameOverride) {
-        if (this.activeBlocks) this.activeBlocks = [];
         this.sequenceManager.executeStepOps(this, step, startFrameOverride);
     }
 
@@ -685,6 +711,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _updateRenderGridLogic() {
         if (!this.logicGridW || !this.logicGridH) return;
+        
+        // Guard: Do not process logic updates while jumpToStep is still rebuilding the sequence.
+        // Composition will happen once isReconstructing is false.
+        if (this.isReconstructing) return;
+
         const totalBlocks = this.logicGridW * this.logicGridH;
         if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
             this.renderGrid = new Int32Array(totalBlocks);
@@ -703,23 +734,20 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cx = Math.floor(this.logicGridW / 2);
         const cy = Math.floor(this.logicGridH / 2);
         const startIndex = this._lastProcessedOpIndex || 0;
-        let processed = 0;
+        let opsProcessed = 0;
         let i = startIndex;
         
-        // Track areas that need re-compositing
         const dirtyRects = [];
 
         for (; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
             if (op.startFrame && this.animFrame < op.startFrame) break;
-            processed++;
+            opsProcessed++;
             const layerIdx = (op.layer !== undefined && op.layer >= 0 && op.layer <= 2) ? op.layer : 0;
             const targetGrid = this.layerGrids[layerIdx];
             
             if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
-                const oldOrder = this.layerOrder.join(',');
-                this._updateLayerOrder(layerIdx);
-                if (this.layerOrder.join(',') !== oldOrder) {
+                if (this._updateLayerOrder(layerIdx)) {
                     this._gridsDirty = true;
                 }
             }
@@ -769,51 +797,44 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._lastProcessedOpIndex = i;
 
-        // Skip full re-composite if nothing changed and not globally dirty
-        if (processed === 0 && !this._gridsDirty) {
-            return;
-        }
+        if (opsProcessed === 0 && !this._gridsDirty) return;
 
-        const visibleIndices = [0]; // ONLY Layer 0 reveals code fills by default
         const layerGrids = this.layerGrids;
+        const foundationIdx = 0; // Layer 0 is foundation
+
+        const compositeCell = (idx) => {
+            let finalVal = -1;
+            let anyActive = false;
+            
+            for (let l = 0; l < 3; l++) {
+                if (layerGrids[l] && layerGrids[l][idx] !== -1) {
+                    anyActive = true;
+                }
+            }
+
+            // Lead Intersection / Reveal Mask logic
+            if (layerGrids[0] && layerGrids[0][idx] !== -1) {
+                finalVal = layerGrids[0][idx];
+            } else {
+                const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
+                const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
+                if (l1Active && l2Active) {
+                    finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
+                }
+            }
+
+            this.renderGrid[idx] = finalVal;
+            if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
+            return finalVal;
+        };
 
         if (this._gridsDirty) {
-            // Full re-composite
-            if (!this._lastCoverageRect) {
-                this._updateVisibleEmptyCount();
-            }
+            if (!this._lastCoverageRect) this._updateVisibleEmptyCount();
             let emptyCount = 0;
             const r = this._lastCoverageRect;
-            const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
             
             for (let idx = 0; idx < totalBlocks; idx++) {
-                let finalVal = -1;
-                let anyActive = false;
-                
-                // Track LOGIC for all layers and determine if anything is active
-                for (let l = 0; l < 3; l++) {
-                    if (layerGrids[l] && layerGrids[l][idx] !== -1) {
-                        anyActive = true;
-                    }
-                }
-
-                // Determine if this cell should reveal the shadow world (renderGrid)
-                // 1. Layer 0 (foundation) always reveals.
-                // 2. Layers 1 and 2 ONLY reveal if they overlap with each other OR with Layer 0.
-                if (layerGrids[0] && layerGrids[0][idx] !== -1) {
-                    finalVal = layerGrids[0][idx];
-                } else {
-                    const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
-                    const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
-                    if (l1Active && l2Active) {
-                        finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
-                    }
-                }
-
-                this.renderGrid[idx] = finalVal;
-                if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
-                
-                // Track empty cells in visible area
+                const finalVal = compositeCell(idx);
                 const bx = idx % this.logicGridW;
                 const by = (idx / this.logicGridW) | 0;
                 if (finalVal === -1 && bx >= r.startX && bx < r.endX && by >= r.startY && by < r.endY) {
@@ -823,13 +844,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._visibleEmptyCount = emptyCount;
             this._gridsDirty = false;
         } else if (dirtyRects.length > 0) {
-            // Incremental re-composite for affected areas
             const r = this._lastCoverageRect;
-            if (!r || this._visibleEmptyCount === -1) {
-                this._updateVisibleEmptyCount();
-            }
-
-            const foundationIdx = (this.layerOrder && this.layerOrder.length > 0) ? this.layerOrder[0] : 0;
+            if (!r || this._visibleEmptyCount === -1) this._updateVisibleEmptyCount();
 
             for (const rect of dirtyRects) {
                 const minX = Math.max(0, cx + rect.x1);
@@ -839,37 +855,12 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 for (let by = minY; by <= maxY; by++) {
                     const rowOff = by * this.logicGridW;
-                    for (let gx = minX; gx <= maxX; gx++) {
-                        const idx = rowOff + gx;
+                    for (let bx = minX; bx <= maxX; bx++) {
+                        const idx = rowOff + bx;
                         const wasEmpty = (this.renderGrid[idx] === -1);
-                        const isVisible = (r && gx >= r.startX && gx < r.endX && by >= r.startY && by < r.endY);
+                        const isVisible = (r && bx >= r.startX && bx < r.endX && by >= r.startY && by < r.endY);
 
-                        let finalVal = -1;
-                        let anyActive = false;
-
-                        // Track LOGIC for all layers and determine if anything is active
-                        for (let l = 0; l < 3; l++) {
-                            if (layerGrids[l] && layerGrids[l][idx] !== -1) {
-                                anyActive = true;
-                            }
-                        }
-
-                        // Determine if this cell should reveal the shadow world (renderGrid)
-                        // 1. Layer 0 (foundation) always reveals.
-                        // 2. Layers 1 and 2 ONLY reveal if they overlap with each other OR with Layer 0.
-                        if (layerGrids[0] && layerGrids[0][idx] !== -1) {
-                            finalVal = layerGrids[0][idx];
-                        } else {
-                            const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
-                            const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
-                            if (l1Active && l2Active) {
-                                finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
-                            }
-                        }
-
-                        this.renderGrid[idx] = finalVal;
-                        if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
-
+                        const finalVal = compositeCell(idx);
                         const isEmpty = (finalVal === -1);
                         if (isVisible) {
                             if (wasEmpty && !isEmpty) this._visibleEmptyCount--;
@@ -879,17 +870,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
+
+        this.renderer._distMapDirty = true;
+        this._outsideMapDirty = true;
+        this._maskDirty = true;
+        this._gridCacheDirty = true;
+
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
         const bs = this.getBlockSize();
         this._lastPitchX = Math.max(1, bs.w);
         this._lastPitchY = Math.max(1, bs.h);
-        if (processed > 0 || this._gridsDirty) {
-            this.renderer._distMapDirty = true;
-            this._outsideMapDirty = true;
-            this._maskDirty = true;
-            this._gridCacheDirty = true;
-        }
     }
 
     _computeCenteredOffset(blocksX, blocksY, pitchX, pitchY) {
@@ -1039,25 +1030,38 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     renderEditorPreview(ctx, derived, previewOp) {
         const opHash = previewOp ? JSON.stringify(previewOp) : "";
-        const stateHash = `${this.maskOps.length}_${this.expansionPhase}_${opHash}`;
+        // Fix: Use base length (excluding active preview ops) for stateHash
+        const baseOpsLen = this.maskOps.length - (this._previewActive ? this._lastPreviewOpsAddedCount : 0);
+        const stateHash = `${baseOpsLen}_${this.expansionPhase}_${opHash}`;
+
         if (stateHash !== this._lastPreviewStateHash) {
-            const savedLogicGrid = new Uint8Array(this.logicGrid);
-            const savedMaskOpsLen = this.maskOps.length;
+            // Snapshot logic state before applying preview op
+            // Optimization: Only snapshot if we are transitioning FROM a clean state
+            if (!this._previewActive) {
+                this._lastPreviewSavedLogic = new Uint8Array(this.logicGrid);
+                this._lastPreviewSavedOpsLen = this.maskOps.length;
+            } else {
+                // Already in preview mode? Restore base state first to clear previous preview op
+                this.logicGrid.set(this._lastPreviewSavedLogic);
+                this.maskOps.splice(this._lastPreviewSavedOpsLen, this.maskOps.length - this._lastPreviewSavedOpsLen);
+            }
+
             if (previewOp) {
+                const startOpsLen = this.maskOps.length;
                 this._executeStepOps([previewOp], this.animFrame);
+                this._lastPreviewOpsAddedCount = this.maskOps.length - startOpsLen;
+            } else {
+                this._lastPreviewOpsAddedCount = 0;
             }
             
-            const opsAdded = this.maskOps.length - savedMaskOpsLen;
             if (typeof this._updateRenderGridLogic === 'function') {
                 this._updateRenderGridLogic();
             }
             this._maskDirty = true; 
-            this._lastPreviewSavedLogic = savedLogicGrid;
-            this._lastPreviewSavedOpsLen = savedMaskOpsLen;
-            this._lastPreviewOpsAddedCount = opsAdded;
             this._lastPreviewStateHash = stateHash;
-            this._previewActive = true;
+            this._previewActive = !!previewOp;
         }
+
         const s = this.c.state;
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
@@ -1071,27 +1075,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._updateGridCache(width, height, s, derived);
 
         if (s.renderingEngine === 'webgl') {
-            // Clean up preview state ONLY IF we are done with the frame.
-            // Note: In WebGL, the actual drawing happens after this call returns.
-            // So we delay cleanup until the NEXT frame or use a flag.
-            // For now, let's let the preview op stay in maskOps until the next trigger.
-            if (this._previewActive && !previewOp) {
-                 if (this._lastPreviewOpsAddedCount > 0) {
-                    this.maskOps.splice(this._lastPreviewSavedOpsLen, this._lastPreviewOpsAddedCount);
-                }
-                this.logicGrid.set(this._lastPreviewSavedLogic);
-                this.renderGrid.fill(-1);
-                for (let i = 0; i < 3; i++) {
-                     if (this.layerGrids[i]) this.layerGrids[i].fill(-1);
-                }
-                this._lastProcessedOpIndex = 0;
-                this._gridsDirty = true;
-                if (typeof this._updateRenderGridLogic === 'function') {
-                    this._updateRenderGridLogic();
-                }
-                this._maskDirty = true;
-                this._previewActive = false;
-            }
+            // In WebGL mode, we KEEP the preview ops in maskOps so the renderer sees them.
+            // Cleanup only happens when previewOp becomes null (handled by stateHash block above)
             return;
         }
 
@@ -1875,13 +1860,14 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Record to sequence for Editor/Step support
         if (this.manualStep && this.sequence && !this.isReconstructing) {
-            if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
+            const targetIdx = Math.max(0, this.expansionPhase - 1);
+            if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             const seqOp = {
                 op: (w === 1 && h === 1) ? 'addSmart' : 'addRect',
                 args: (w === 1 && h === 1) ? [x, y] : [x, y, x + w - 1, y + h - 1],
                 layer: layer
             };
-            this.sequence[this.expansionPhase].push(seqOp);
+            this.sequence[targetIdx].push(seqOp);
         }
         
         this._writeToGrid(x, y, w, h, (op.fade === false ? -1000 : this.animFrame), layer);
@@ -1890,42 +1876,37 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _writeToGrid(x, y, w, h, value, layer = 0) {
-        if (!this.renderGrid) return;
+        if (!this.renderGrid || !this.layerGrids[layer]) return;
+        
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
         const cx = Math.floor(blocksX / 2);
         const cy = Math.floor(blocksY / 2);
         
-        const startX = cx + x;
-        const startY = cy + y;
+        const minX = Math.max(0, cx + x);
+        const maxX = Math.min(blocksX - 1, cx + x + w - 1);
+        const minY = Math.max(0, cy + y);
+        const maxY = Math.min(blocksY - 1, cy + y + h - 1);
         
-        const minX = Math.max(0, startX);
-        const maxX = Math.min(blocksX - 1, startX + w - 1);
-        const minY = Math.max(0, startY);
-        const maxY = Math.min(blocksY - 1, startY + h - 1);
-        
+        if (minX > maxX || minY > maxY) return;
+
+        // Optimization: During reconstruction, we don't need to write to the grid 
+        // cell-by-cell because _updateRenderGridLogic will perform a full 
+        // composition pass at the end of the jump.
+        if (this.isReconstructing) {
+            this._gridsDirty = true;
+            return;
+        }
+
+        const targetGrid = this.layerGrids[layer];
         for (let gy = minY; gy <= maxY; gy++) {
-            for (let gx = minX; gx <= maxX; gx++) {
-                const idx = gy * blocksX + gx;
-                
-                // Update specific layer
-                if (this.layerGrids[layer]) {
-                    this.layerGrids[layer][idx] = value;
-                }
-                
-                // Composite to renderGrid using current layerOrder priority
-                let finalValue = -1;
-                const visibleIndices = this.layerOrder.filter(l => l >= 0 && l <= 2);
-                for (let j = 0; j < visibleIndices.length; j++) {
-                    const lIdx = visibleIndices[j];
-                    if (this.layerGrids[lIdx] && this.layerGrids[lIdx][idx] !== -1) {
-                        finalValue = this.layerGrids[lIdx][idx];
-                        break;
-                    }
-                }
-                this.renderGrid[idx] = finalValue;
+            const rowOff = gy * blocksX;
+            for (let bx = minX; bx <= maxX; bx++) {
+                targetGrid[rowOff + bx] = value;
             }
         }
+        
+        this._gridsDirty = true;
         this._outsideMapDirty = true;
     }
 
@@ -2043,8 +2024,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // 2. Synchronize shifts with maskOps (Addition-Only for continuous structure)
         for (const m of shiftedBlocks) {
-            // Keep the old position filled in maskOps (don't add a removeBlock op)
-            
             // Record addition at new position
             this.maskOps.push({ 
                 type: 'addSmart', 
@@ -2054,9 +2033,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 fade: false
             });
 
-            // IMPORTANT: Add a NEW block to activeBlocks at the OLD position 
-            // This ensures the simulation matches the physics grid (no holes in collision logic)
-            this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, m.layer, false, 0, true, true, true, false, true);
+            // Fix: Check if old position is already covered on this layer before spawning replacement
+            // This prevents exponential growth of activeBlocks/maskOps during repeated nudges
+            const oldIdx = (cy + m.oldY) * bx + (cx + m.oldX);
+            if (this.layerGrids[m.layer] && this.layerGrids[m.layer][oldIdx] === -1) {
+                this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, m.layer, false, 0, true, true, true, false, true);
+            }
         }
 
         // 3. Add the SOURCE REPLACEMENT blocks at the original origin (x, y) for all target layers
@@ -2070,8 +2052,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (success) {
             // Record to sequence for Editor/Step support (ONLY if not currently reconstructing)
             if (this.manualStep && this.sequence && !this.isReconstructing) {
-                if (!this.sequence[this.expansionPhase]) this.sequence[this.expansionPhase] = [];
-                this.sequence[this.expansionPhase].push({ 
+                const targetIdx = Math.max(0, this.expansionPhase - 1);
+                if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
+                this.sequence[targetIdx].push({ 
                     op: 'nudge', 
                     args: [x, y, w, h, face], 
                     layer: layer 

@@ -1555,8 +1555,7 @@ class QuantizedEffectEditor {
 
         this._log(`[Editor] ChangeStep: ${oldStep} -> ${newStep} (Delta: ${delta}, Len: ${this.effect.sequence.length})`);
 
-        // Force jumpToStep for all changes to ensure immediate visibility (skip fades) and state parity
-        this.effect.expansionPhase = newStep;
+        // Let jumpToStep handle updating the phase and reconstructing state
         this.effect.jumpToStep(newStep);
 
         this._updateUI();
@@ -1575,6 +1574,7 @@ class QuantizedEffectEditor {
         this._log(`[Editor] Inserting new empty step at index ${insertIdx} (Current Phase: ${this.effect.expansionPhase})`);
         
         this.effect.sequence.splice(insertIdx, 0, []); 
+        this.effect.invalidateCache(insertIdx);
         
         // If adding to a brand new effect, ensure procedural state is seeded
         if (this.effect.sequence.length <= 2 && this.effect.activeBlocks && this.effect.activeBlocks.length === 0) {
@@ -1606,6 +1606,7 @@ class QuantizedEffectEditor {
         this._log(`[Editor] Deleting step at index ${targetIdx} (Phase was ${this.effect.expansionPhase})`);
         
         this.effect.sequence.splice(targetIdx, 1);
+        this.effect.invalidateCache(targetIdx);
         
         // Step back so we are looking at the previous valid state
         this._changeStep(-1);
@@ -1622,6 +1623,8 @@ class QuantizedEffectEditor {
         this.redoStack = [];
         this.effect.sequence = [[]]; // Reset to single empty step
         this.effect.expansionPhase = 1; // Default to Step 1
+        
+        if (this.effect.stateCache) this.effect.stateCache.clear();
         
         // Clear transient mask operations
         if (this.effect.maskOps) this.effect.maskOps = [];
@@ -2079,22 +2082,47 @@ class QuantizedEffectEditor {
 
             if (opName) {
                 this.redoStack = [];
-                const argsMatch = (o, op, a) => {
-                    let oOp, oArgs;
+                const argsMatch = (o, op, a, l) => {
+                    let oOp, oArgs, oLayer;
                     if (Array.isArray(o)) {
-                        oOp = o[0]; oArgs = o.slice(1);
+                        oOp = o[0]; 
+                        // Handle decoded numeric ops which might be [op, x, y, l] or [op, x, y]
+                        if (oOp === 8 || oOp === 10 || oOp === 11) { // Layered single point
+                             oArgs = [o[1], o[2]];
+                             oLayer = o[3];
+                        } else if (oOp === 1 || oOp === 6 || oOp === 7) {
+                             oArgs = [o[1], o[2]];
+                             oLayer = 0;
+                        } else if (oOp === 9) { // Layered rect
+                             oArgs = [o[1], o[2], o[3], o[4]];
+                             oLayer = o[5];
+                        } else if (oOp === 2) { // rem
+                             oArgs = [o[1], o[2]];
+                             oLayer = (o[3] >> 4) & 0x7;
+                        } else {
+                             oArgs = o.slice(1);
+                             oLayer = 0;
+                        }
+                        // Map numeric codes to names for comparison if needed
+                        const NAMES = { 1: 'add', 6: 'addSmart', 7: 'removeBlock', 8: 'add', 9: 'addRect', 10: 'addSmart', 11: 'removeBlock' };
+                        if (NAMES[oOp]) oOp = NAMES[oOp];
                     } else {
-                        oOp = o.op; oArgs = o.args;
+                        oOp = o.op; oArgs = o.args; oLayer = o.layer || 0;
                     }
-                    return oOp === op && oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
+                    
+                    const opMatch = (oOp === op);
+                    const layerMatch = (oLayer === l);
+                    const argsMatch = oArgs.length === a.length && oArgs.every((v, i) => v === a[i]);
+                    return opMatch && layerMatch && argsMatch;
                 };
 
                 const targetIdx = Math.max(0, this.effect.expansionPhase - 1);
                 const step = this.effect.sequence[targetIdx];
-                const existingIdx = step.findIndex(o => argsMatch(o, opName, args));
+                const existingIdx = step.findIndex(o => argsMatch(o, opName, args, this.currentLayer));
                 
                 if (existingIdx !== -1) { 
                     step.splice(existingIdx, 1); 
+                    this.effect.refreshStep();
                 } else { 
                     if (opName === 'add') {
                         // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
@@ -2102,20 +2130,23 @@ class QuantizedEffectEditor {
                         const oldPhase = this.effect.expansionPhase;
                         this.effect.manualStep = true;
                         this.effect.expansionPhase = targetIdx; // Align for recording
-                        this.effect._spawnBlock(hit.x, hit.y, 1, 1, this.currentLayer);
+                        const id = this.effect._spawnBlock(hit.x, hit.y, 1, 1, this.currentLayer);
                         this.effect.expansionPhase = oldPhase;
                         this.effect.manualStep = oldManual;
+
+                        if (id === -1) {
+                            this.ui.notifications.show("Block placement rejected (Connectivity/Rules)", "warn");
+                        }
                     } else {
-                        const newOp = { op: opName, args: args };
-                        if (opName === 'nudge') newOp.layer = this.currentLayer;
-                        if (opName === 'removeBlock') newOp.layer = this.currentLayer;
+                        const newOp = { op: opName, args: args, layer: this.currentLayer };
                         step.push(newOp); 
+                        this.effect.refreshStep();
                     }
                 }
 
                 if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
-                this.effect.refreshStep();
-
+                
+                // If it was a simple add, _spawnBlock already updated the grid.
                 this.isDirty = true;
                 this._broadcastSync();
             }        }
