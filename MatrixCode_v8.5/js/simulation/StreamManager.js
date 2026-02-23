@@ -471,6 +471,7 @@ class StreamManager {
             isEraser: forceEraser,
             pIdx: Math.floor(Math.random() * (this.config.derived.paletteColorsUint32?.length || 1)),
             fontIndex: fontIdx,
+            brightnessSeed: Math.floor(Math.random() * 255),
             tickInterval: tickInterval,
             tickTimer: 0
         };
@@ -643,9 +644,17 @@ class StreamManager {
             }
             
             // Brightness / Alpha
-            const b = s.variableBrightnessEnabled
-                ? Utils.randomFloat(d.varianceMin, 1.0)
-                : 1.0;
+            let b;
+            if (s.lockBrightnessToCharacters) {
+                b = Utils.calculateCharBrightness(charStr.charCodeAt(0), stream.brightnessSeed || 0, d.varianceMin);
+                if (grid.streamSeeds) {
+                    grid.streamSeeds[idx] = stream.brightnessSeed || 0;
+                }
+            } else {
+                b = s.variableBrightnessEnabled
+                    ? Utils.randomFloat(d.varianceMin, 1.0)
+                    : 1.0;
+            }
             grid.brightness[idx] = b;
             
             // Set Primary (Visual = Tracer Color initially)
@@ -693,6 +702,7 @@ class StreamManager {
             isUpward: true,
             visibleLen: 1000, // Long life
             mode: 'STANDARD',
+            brightnessSeed: Math.floor(Math.random() * 255),
             tickInterval: tickInterval,
             tickTimer: 0
         };

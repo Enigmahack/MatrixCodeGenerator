@@ -174,6 +174,7 @@ class SimulationSystem {
             maxDecays: new Uint16Array(createSAB(uint16Size)),
             ages: new Int32Array(createSAB(int32Size)),
             brightness: new Float32Array(createSAB(float32Size)),
+            streamSeeds: new Uint8Array(createSAB(uint8Size)),
             rotatorOffsets: new Uint8Array(createSAB(uint8Size)),
             cellLocks: new Uint8Array(createSAB(uint8Size)),
 
@@ -587,7 +588,13 @@ class SimulationSystem {
         if (newMix >= 1.0) {
             const target = grid.getRotatorTarget(idx, false); 
             if (target) {
-                grid.chars[idx] = target.charCodeAt(0);
+                const charCode = target.charCodeAt(0);
+                grid.chars[idx] = charCode;
+                
+                if (this.config.state.lockBrightnessToCharacters) {
+                    grid.brightness[idx] = Utils.calculateCharBrightness(charCode, grid.streamSeeds[idx], this.config.derived.varianceMin);
+                }
+
                 if (this.config.state.overlapEnabled) {
                     const ovTarget = grid.getRotatorTarget(idx, true);
                     if (ovTarget) {
@@ -641,6 +648,9 @@ class SimulationSystem {
 
             if (crossfadeFrames <= 1) {
                 grid.chars[idx] = nextCode;
+                if (this.config.state.lockBrightnessToCharacters) {
+                    grid.brightness[idx] = Utils.calculateCharBrightness(nextCode, grid.streamSeeds[idx], this.config.derived.varianceMin);
+                }
                 if (nextOvCode) grid.secondaryChars[idx] = nextOvCode;
             } else {
                 grid.mix[idx] = 0.01; 

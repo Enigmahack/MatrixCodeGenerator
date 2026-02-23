@@ -375,7 +375,11 @@ class WorkerSimulationSystem {
             if (newMix >= 1.0) {
                 const target = grid.getRotatorTarget(idx, false); 
                 if (target) {
-                    grid.chars[idx] = target.charCodeAt(0);
+                    const charCode = target.charCodeAt(0);
+                    grid.chars[idx] = charCode;
+                    if (s.lockBrightnessToCharacters) {
+                        grid.brightness[idx] = Utils.calculateCharBrightness(charCode, grid.streamSeeds[idx], d.varianceMin);
+                    }
                     if (s.overlapEnabled) {
                         const ovTarget = grid.getRotatorTarget(idx, true);
                         if (ovTarget) grid.secondaryChars[idx] = ovTarget.charCodeAt(0);
@@ -427,6 +431,9 @@ class WorkerSimulationSystem {
 
                 if (s.rotatorCrossfadeFrames <= 1) {
                     grid.chars[idx] = nextCode;
+                    if (s.lockBrightnessToCharacters) {
+                        grid.brightness[idx] = Utils.calculateCharBrightness(nextCode, grid.streamSeeds[idx], d.varianceMin);
+                    }
                     if (nextOvCode) grid.secondaryChars[idx] = nextOvCode;
                 } else {
                     grid.mix[idx] = 0.01; 

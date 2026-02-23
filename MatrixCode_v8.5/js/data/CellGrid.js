@@ -79,6 +79,7 @@ class CellGrid {
         this.maxDecays = null;  // Uint16 (Per-cell fade duration)
         this.ages = null;       // Int32
         this.brightness = null; // Float32
+        this.streamSeeds = null; // Uint8 (New: For character-locked brightness)
         this.rotatorOffsets = null; // Uint8 (Static noise for desync)
         
         // Auxiliary
@@ -308,6 +309,7 @@ class CellGrid {
             this.maxDecays = buffers.maxDecays;
             this.ages = buffers.ages;
             this.brightness = buffers.brightness;
+            this.streamSeeds = buffers.streamSeeds;
             this.rotatorOffsets = buffers.rotatorOffsets;
             this.cellLocks = buffers.cellLocks;
 
@@ -363,6 +365,7 @@ class CellGrid {
             this.maxDecays = new Uint16Array(total);
             this.ages = new Int32Array(total);
             this.brightness = new Float32Array(total);
+            this.streamSeeds = new Uint8Array(total);
             this.rotatorOffsets = new Uint8Array(total);
             this.cellLocks = new Uint8Array(total);
             

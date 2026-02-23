@@ -47,6 +47,7 @@ class ConfigurationManager {
             'fontFamily',
             'fontWeight',
             'italicEnabled',
+            'lockBrightnessToCharacters',
             'fontSettings'
         ]);
 
@@ -99,6 +100,7 @@ class ConfigurationManager {
             "italicEnabled": false,
             "mirrorEnabled": false,
             "variableBrightnessEnabled": true,
+            "lockBrightnessToCharacters": false,
             "brightnessVariance": 15,
             "overlapEnabled": false,
             "overlapColor": "#fff5b8",

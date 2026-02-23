@@ -87,6 +87,21 @@ const Utils = {
     }),
 
     /**
+     * Calculates a deterministic brightness for a character given a seed.
+     * @param {number} charCode - The character code.
+     * @param {number} seed - The stream-specific seed [0..255].
+     * @param {number} varianceMin - The minimum brightness allowed [0..1].
+     * @returns {number} The calculated brightness [varianceMin..1.0].
+     */
+    calculateCharBrightness: (charCode, seed, varianceMin) => {
+        // Deterministic hash based on charCode and seed
+        const h = (charCode * 12.9898 + seed * 78.233) % 1.0;
+        const hash = Math.abs(Math.sin(h) * 43758.5453) % 1.0;
+        // Map [0..1] to [varianceMin..1.0]
+        return varianceMin + hash * (1.0 - varianceMin);
+    },
+
+    /**
      * Converts HSL (hue, saturation, lightness) to RGB { r, g, b }.
      * @param {number} h - Hue (0-360).
      * @param {number} s - Saturation (0-100).
