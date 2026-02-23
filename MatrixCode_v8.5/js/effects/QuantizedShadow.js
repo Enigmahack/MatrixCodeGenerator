@@ -176,36 +176,10 @@ class QuantizedShadow {
                 window.matrix.swapWorlds();
                 return 'SYNC';
             }
-
-            // Legacy Fallback (Commented out for transition)
-            /*
-            const g = fx.g;
-            const sg = this.shadowGrid;
-            
-            // --- FULL STATE REPLACEMENT ---
-            // Overwrite entire grid memory with shadow world memory
-            this._copyGridBuffers(g, sg);
-            ...
-            */
             return 'SYNC';
         } catch (e) {
             console.error("[QuantizedShadow] Swap failed:", e);
             return false;
         }
     }
-
-    /*
-    _copyGridBuffers(g, sg) {
-        // Rigorous buffer-by-buffer overwrite. 
-        // This ensures the main memory is identical to the shadow universe.
-        const copyBuffer = (name) => {
-            if (g[name] && sg[name] && g[name].length === sg[name].length) {
-                g[name].set(sg[name]);
-            }
-        };
-        
-        copyBuffer('state');
-        ...
-    }
-    */
 }
