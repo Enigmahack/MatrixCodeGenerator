@@ -11,7 +11,9 @@ const OPS = {
     'rem': 2,
     'addRect': 3,
     'addSmart': 6,
-    'removeBlock': 7
+    'removeBlock': 7,
+    'nudge': 12,
+    'nudgeML': 13
 };
 
 const FACES = {
@@ -66,6 +68,17 @@ function encodeSequence(sequence) {
                     mask = FACES[args[2].toUpperCase()] || 0;
                 }
                 stepData.push(mask);
+            } else if (opCode === 12 || opCode === 13) {
+                // nudge: x, y, w, h, layer, faceMask
+                // args: [x, y, w, h, face]
+                stepData.push(args[0], args[1], args[2], args[3]);
+                const layer = opObj.layer || 0;
+                stepData.push(layer);
+                let faceMask = 0;
+                if (args.length > 4 && typeof args[4] === 'string') {
+                    faceMask = FACES[args[4].toUpperCase()] || 0;
+                }
+                stepData.push(faceMask);
             }
         }
         packedSequence.push(stepData);

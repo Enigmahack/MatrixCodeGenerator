@@ -1,6 +1,6 @@
 class QuantizedSequence {
     constructor() {
-        this.OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 6: 'addSmart', 7: 'removeBlock', 12: 'nudge' };
+        this.OPS_INV = { 1: 'add', 2: 'rem', 3: 'addRect', 6: 'addSmart', 7: 'removeBlock', 12: 'nudge', 13: 'nudgeML' };
     }
 
     executeStepOps(fx, step, startFrameOverride) {
@@ -166,7 +166,7 @@ class QuantizedSequence {
             ctx.setLayerInactive(dx, dy, l);
             ctx.setLocalInactive(dx, dy);
             if (fx.activeBlocks) fx.activeBlocks = fx.activeBlocks.filter(b => !(b.layer === l && b.x === dx && b.y === dy && b.w === 1 && b.h === 1));
-        } else if (opCode === 12) { // nudge(dx, dy, w, h, layer, faceMask)
+        } else if (opCode === 12 || opCode === 13) { // nudge(dx, dy, w, h, layer, faceMask)
             const dx = step[i++];
             const dy = step[i++];
             const w = step[i++];
@@ -175,7 +175,7 @@ class QuantizedSequence {
             const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
             const fMask = step[i++];
             const face = FACES_INV[fMask] || null;
-            this._executeNudge(fx, dx, dy, w, h, face, l, ctx);
+            this._executeNudge(fx, dx, dy, w, h, face, l, ctx, opCode === 13);
         }
         return i;
     }
@@ -241,16 +241,16 @@ class QuantizedSequence {
                     return !overlap;
                 });
             }
-        } else if (op === 'nudge') {
+        } else if (op === 'nudge' || op === 'nudgeML') {
             const [dx, dy, w, h, face] = args;
-            this._executeNudge(fx, dx, dy, w, h, face, targetLayer, ctx);
+            this._executeNudge(fx, dx, dy, w, h, face, targetLayer, ctx, op === 'nudgeML');
         }
     }
 
-    _executeNudge(fx, dx, dy, w, h, face, layer, ctx) {
+    _executeNudge(fx, dx, dy, w, h, face, layer, ctx, multiLayer = false) {
         const oldFrame = fx.animFrame;
         fx.animFrame = ctx.now;
-        fx._nudge(dx, dy, w, h, face, layer);
+        fx._nudge(dx, dy, w, h, face, layer, multiLayer);
         fx.animFrame = oldFrame;
     }
 }

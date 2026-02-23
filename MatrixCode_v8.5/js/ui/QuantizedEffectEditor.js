@@ -381,7 +381,7 @@ class QuantizedEffectEditor {
                         const l = step[i++];
                         decodedStep.push({ op: 'removeBlock', args: [x, y], layer: l });
                         continue;
-                    } else if (opCode === 12) { // nudge
+                    } else if (opCode === 12 || opCode === 13) { // nudge / nudgeML
                         const x = step[i++];
                         const y = step[i++];
                         const w = step[i++];
@@ -390,7 +390,7 @@ class QuantizedEffectEditor {
                         const fMask = step[i++];
                         const FACES_INV = { 1: 'N', 2: 'S', 4: 'E', 8: 'W' };
                         const face = FACES_INV[fMask] || 'N';
-                        decodedStep.push({ op: 'nudge', args: [x, y, w, h, face], layer: l });
+                        decodedStep.push({ op: (opCode === 13 ? 'nudgeML' : 'nudge'), args: [x, y, w, h, face], layer: l });
                         continue;
                     } else if (opCode === 2) {
                         const x = step[i++];
@@ -1112,7 +1112,8 @@ class QuantizedEffectEditor {
 
         addTool('select', 'Select', "Drag to select blocks");
         addTool('add', 'Add Block', "Click to toggle block existence");
-        addTool('nudge', 'Nudge Block', "Drag to shift existing blocks");
+        addTool('nudge', 'SL Nudge', "Drag to shift blocks on current layer only");
+        addTool('nudgeML', 'ML Nudge', "Drag to shift blocks across all layers");
         addTool('removeBlock', 'Rem Block', "Click to force remove block");
         addTool('addRect', 'Add Rect', "Drag to add multiple blocks");
         
@@ -1501,7 +1502,7 @@ class QuantizedEffectEditor {
             });
         }
 
-        const showFaces = (this.currentTool === 'nudge');
+        const showFaces = (this.currentTool === 'nudge' || this.currentTool === 'nudgeML');
         if (this.faceControls) {
             this.faceControls.style.display = showFaces ? 'block' : 'none';
             if (showFaces) {
@@ -1555,7 +1556,8 @@ class QuantizedEffectEditor {
 
         this._log(`[Editor] ChangeStep: ${oldStep} -> ${newStep} (Delta: ${delta}, Len: ${this.effect.sequence.length})`);
 
-        // Let jumpToStep handle updating the phase and reconstructing state
+        // Force full reconstruction to ensure all previous step logic is visible
+        this.effect.isReconstructing = true;
         this.effect.jumpToStep(newStep);
 
         this._updateUI();
@@ -1722,7 +1724,7 @@ class QuantizedEffectEditor {
     }
 
     _encodeSequence(sequence) {
-        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12 };
+        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12, 'nudgeML': 13 };
         const FACES = { 'N': 1, 'n': 1, 'S': 2, 's': 2, 'E': 4, 'e': 4, 'W': 8, 'w': 8 };
         
         const packedSequence = [];
@@ -1778,7 +1780,7 @@ class QuantizedEffectEditor {
                     } else {
                          stepData.push(7, args[0], args[1]);
                     }
-                } else if (opCode === 12) { // nudge
+                } else if (opCode === 12 || opCode === 13) { // nudge / nudgeML
                     const dx = args[0];
                     const dy = args[1];
                     let face = args[4];
@@ -1790,7 +1792,7 @@ class QuantizedEffectEditor {
                     }
                     
                     const fMask = FACES[face.toUpperCase()] || 0;
-                    stepData.push(12, args[0], args[1], args[2], args[3], layer, fMask);
+                    stepData.push(opCode, args[0], args[1], args[2], args[3], layer, fMask);
                 } else if (opCode === 2) { // rem
                     stepData.push(2, args[0], args[1]);
                     let mask = 0;
@@ -1967,10 +1969,10 @@ class QuantizedEffectEditor {
         // Optimize: Check if hover changed
         const hoverHash = hit ? `${hit.x},${hit.y}` : "null";
         
-        if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge') {
+        if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge' || this.currentTool === 'nudgeML') {
             if (this.dragStart && hit) {
                 // Update Preview op for drawing
-                if (this.currentTool === 'nudge') {
+                if (this.currentTool === 'nudge' || this.currentTool === 'nudgeML') {
                     // Nudge preview: Just the block itself, or the shift?
                     // Just showing the block being added is enough for now.
                     // Nudge op args: x, y, w, h
@@ -2067,7 +2069,7 @@ class QuantizedEffectEditor {
                 return;
             }
 
-            if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge') {
+            if (this.currentTool === 'addRect' || this.currentTool === 'select' || this.currentTool === 'nudge' || this.currentTool === 'nudgeML') {
                 this.dragStart = hit;
                 this._broadcastSync();
                 return; // Wait for mouse up
@@ -2104,7 +2106,7 @@ class QuantizedEffectEditor {
                              oLayer = 0;
                         }
                         // Map numeric codes to names for comparison if needed
-                        const NAMES = { 1: 'add', 6: 'addSmart', 7: 'removeBlock', 8: 'add', 9: 'addRect', 10: 'addSmart', 11: 'removeBlock' };
+                        const NAMES = { 1: 'add', 6: 'addSmart', 7: 'removeBlock', 8: 'add', 9: 'addRect', 10: 'addSmart', 11: 'removeBlock', 12: 'nudge', 13: 'nudgeML' };
                         if (NAMES[oOp]) oOp = NAMES[oOp];
                     } else {
                         oOp = o.op; oArgs = o.args; oLayer = o.layer || 0;
@@ -2127,11 +2129,10 @@ class QuantizedEffectEditor {
                     if (opName === 'add') {
                         // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
                         const oldManual = this.effect.manualStep;
-                        const oldPhase = this.effect.expansionPhase;
                         this.effect.manualStep = true;
-                        this.effect.expansionPhase = targetIdx; // Align for recording
+                        
+                        // DO NOT manipulate expansionPhase here; _spawnBlock/recordOp already use expansionPhase - 1
                         const id = this.effect._spawnBlock(hit.x, hit.y, 1, 1, this.currentLayer);
-                        this.effect.expansionPhase = oldPhase;
                         this.effect.manualStep = oldManual;
 
                         if (id === -1) {
@@ -2177,17 +2178,14 @@ class QuantizedEffectEditor {
 
                     // Use _spawnBlock to trigger procedural behaviors (Balancing, Rules)
                     const oldManual = this.effect.manualStep;
-                    const oldPhase = this.effect.expansionPhase;
                     this.effect.manualStep = true;
-                    this.effect.expansionPhase = targetIdx; // Align for recording
                     this.effect._spawnBlock(minX, minY, w, h, this.currentLayer);
-                    this.effect.expansionPhase = oldPhase;
                     this.effect.manualStep = oldManual;
 
                     if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                     this.effect.refreshStep();
                     this.isDirty = true;
-                } else if (this.currentTool === 'nudge') {
+                } else if (this.currentTool === 'nudge' || this.currentTool === 'nudgeML') {
                     this.redoStack = [];
                     
                     let targetX, targetY, targetW, targetH;
@@ -2231,11 +2229,20 @@ class QuantizedEffectEditor {
                         targetH = y2 - targetY + 1;
                     }
 
-                    step.push({ 
-                        op: 'nudge', 
-                        args: [targetX, targetY, targetW, targetH, this.currentFace],
-                        layer: this.currentLayer
-                    });
+                    const isML = (this.currentTool === 'nudgeML');
+                    const oldManual = this.effect.manualStep;
+                    this.effect.manualStep = true;
+                    
+                    const success = this.effect._nudge(targetX, targetY, targetW, targetH, this.currentFace, this.currentLayer, isML);
+                    
+                    this.effect.manualStep = oldManual;
+
+                    if (success) {
+                        if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
+                        this.effect.refreshStep();
+                        this.isDirty = true;
+                    }
+                } else if (this.currentTool === 'select') {
                     if (this.effect.expansionPhase === 0) this.effect.expansionPhase = 1;
                     this.effect.refreshStep();
                     this.isDirty = true;

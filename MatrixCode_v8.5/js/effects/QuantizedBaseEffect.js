@@ -438,6 +438,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.expansionPhase = targetStepsCompleted; 
         this.animFrame = targetStepsCompleted * framesPerStep;
 
+        this._updateRenderGridLogic(); // Force immediate logical update
+
         this._maskDirty = true;
         this.renderer._edgeCacheDirty = true;
         this.renderer._distMapDirty = true;
@@ -1980,7 +1982,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
     */
 
-    _nudge(x, y, w, h, face, layer = 0) {
+    _nudge(x, y, w, h, face, layer = 0, multiLayer = false) {
         const bs = this.getBlockSize();
         const now = this.animFrame;
         const bx = this.logicGridW, by = this.logicGridH;
@@ -1996,8 +1998,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         const shiftAmt = (axis === 'X' ? w : h);
 
-        // Determine which layers are affected. If layer 0 is nudged, affect 0, 1, and 2.
-        const targetLayers = (layer === 0) ? [0, 1, 2] : [layer];
+        // Determine which layers are affected.
+        // ML Nudge affects 0, 1, and 2 if multiLayer is true.
+        const targetLayers = (multiLayer) ? [0, 1, 2] : [layer];
         const targetLayersSet = new Set(targetLayers);
 
         // 1. Identify and Shift blocks across all target layers
@@ -2055,13 +2058,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const targetIdx = Math.max(0, this.expansionPhase - 1);
                 if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
                 this.sequence[targetIdx].push({ 
-                    op: 'nudge', 
+                    op: multiLayer ? 'nudgeML' : 'nudge', 
                     args: [x, y, w, h, face], 
                     layer: layer 
                 });
             }
 
             this._log(`Nudge: Solid Shifted ${shiftedBlocks.length} blocks across layers [${targetLayers.join(',')}], continuous mass preserved.`);
+            this._gridsDirty = true;
+            this._maskDirty = true;
             return true;
         }
         return false;
@@ -2076,7 +2081,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         else if (dy === -1) face = 'N';
         
         // _nudge already contains anchoring and occupancy checks
-        return this._nudge(block.x, block.y, block.w, block.h, face, block.layer);
+        // Default behavior: ML nudge for layer 0, SL nudge for others
+        return this._nudge(block.x, block.y, block.w, block.h, face, block.layer, block.layer === 0);
     }
 
     _attemptSpokeShiftGrowth(ignored, targetLayer = 0) {
