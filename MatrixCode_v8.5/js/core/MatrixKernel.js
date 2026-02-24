@@ -16,6 +16,12 @@ class MatrixKernel {
         this._effectTimers = {}; // Initialize map for effect timers
         this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
         this._lastResetReason = "Startup"; // Track last reset
+        
+        // Idle Detection State
+        this.isIdle = false;
+        this._idleTimer = null;
+        this._setupIdleDetection();
+
         this._setupResizeListener();
         this._setupInputListener();
         
@@ -82,6 +88,16 @@ class MatrixKernel {
         this._resize();
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
+
+        // Handle Page Visibility to prevent catch-up delays when returning from background
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                // Reset timing to prevent "catch-up" hang
+                this.lastTime = performance.now();
+                this.accumulator = 0;
+                if (this.config.state.logErrors) console.log("[MatrixKernel] Tab visible. Timing reset to prevent hang.");
+            }
+        });
 
         // Trigger Boot Sequence on startup if enabled
         if (this.config.get('bootSequenceEnabled')) {
@@ -211,6 +227,34 @@ class MatrixKernel {
 
         // Initialize font manager and await its completion
         await this.fontMgr.init();
+    }
+
+    /**
+     * Sets up listeners to detect user inactivity and pause the simulation if configured.
+     * @private
+     */
+    _setupIdleDetection() {
+        const resetIdle = () => {
+            if (this.isIdle) {
+                this.isIdle = false;
+                // If we were paused due to idle, reset timing to prevent catch-up
+                if (this.config.state.pauseWhenIdle) {
+                    this.lastTime = performance.now();
+                    this.accumulator = 0;
+                }
+            }
+            clearTimeout(this._idleTimer);
+            // Idle after 5 minutes of no input
+            this._idleTimer = setTimeout(() => {
+                this.isIdle = true;
+            }, 5 * 60 * 1000); 
+        };
+
+        window.addEventListener('mousemove', resetIdle);
+        window.addEventListener('keydown', resetIdle);
+        window.addEventListener('mousedown', resetIdle);
+        window.addEventListener('touchstart', resetIdle);
+        resetIdle();
     }
 
     /**
@@ -439,7 +483,16 @@ class MatrixKernel {
      * @param {DOMHighResTimeStamp} time - The current time provided by requestAnimationFrame.
      */
     _loop(time) {
-    // 1. Calculate Delta and FPS
+        // Handle optional pausing
+        const shouldPause = (document.hidden && this.config.state.pauseWhenHidden) || 
+                            (this.isIdle && this.config.state.pauseWhenIdle);
+
+        if (shouldPause) {
+            requestAnimationFrame((nextTime) => this._loop(nextTime));
+            return;
+        }
+
+        // 1. Calculate Delta and FPS
     const now = performance.now();
     const deltaFPS = now - this.lastFrameTime;
     this.lastFrameTime = now;
@@ -501,8 +554,16 @@ class MatrixKernel {
 
         // Start main rendering loop
         if (!this.lastTime) this.lastTime = time;
-        const delta = time - this.lastTime;
+        let delta = time - this.lastTime;
         this.lastTime = time;
+
+        // CAP DELTA to prevent massive catch-up loops (e.g. after backgrounding or system sleep)
+        // If the gap is more than 500ms, just reset to avoid a "fast-forward" effect and hang.
+        const maxDelta = 500;
+        if (delta > maxDelta) {
+            if (this.config.state.logErrors) console.warn(`[MatrixKernel] Large frame delta detected (${Math.round(delta)}ms). Capping to prevent hang.`);
+            delta = this.timestep; // Reset to a single frame's worth of time
+        }
 
         this.accumulator += delta;
         while (this.accumulator >= this.timestep) {

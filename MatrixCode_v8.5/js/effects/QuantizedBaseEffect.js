@@ -86,6 +86,108 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
         this._gridsDirty = true;
         this._lastRendererOpIndex = 0;
+
+        // --- ADVANCED PROCEDURAL ENGINE ---
+        this.finishedBranches = new Set();
+        this.nudgeAxisBalance = 0;
+        this.usedCardinalIndices = [];
+        
+        this.RULES = {
+            bounds: (c) => {
+                const w = this.logicGridW, h = this.logicGridH;
+                const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+                if (cx + c.x < 0 || cx + c.x + c.w > w || cy + c.y < 0 || cy + c.y + c.h > h) return false;
+                return true;
+            },
+            occupancy: (c) => {
+                if (c.bypassOccupancy || !this._stepOccupancy) return true;
+                const w = this.logicGridW, h = this.logicGridH;
+                const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+                const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y);
+                const x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) {
+                        if (this._stepOccupancy[rowOff + gx] === 1) return false;
+                    }
+                }
+                return true;
+            },
+            connectivity: (c) => {
+                if (c.skipConnectivity || this.debugMode) return true;
+                const grid = this.layerGrids[c.layer];
+                if (!grid) return false;
+                const w = this.logicGridW, h = this.logicGridH;
+                const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+                const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y);
+                const x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
+                let connected = false, overlapCount = 0, area = c.w * c.h;
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) {
+                        const idx = rowOff + gx;
+                        if (grid[idx] !== -1) { overlapCount++; connected = true; c._foundAnchorIdx = idx; }
+                    }
+                }
+                if (!c.isShifter && !c.allowInternal && overlapCount >= area) return false;
+                if (connected) return true;
+                if (y1 > 0) {
+                    const rowOff = (y1 - 1) * w;
+                    for (let gx = x1; gx <= x2; gx++) if (grid[rowOff + gx] !== -1) { c._foundAnchorIdx = rowOff + gx; return true; }
+                }
+                if (y2 < h - 1) {
+                    const rowOff = (y2 + 1) * w;
+                    for (let gx = x1; gx <= x2; gx++) if (grid[rowOff + gx] !== -1) { c._foundAnchorIdx = rowOff + gx; return true; }
+                }
+                if (x1 > 0) {
+                    for (let gy = y1; gy <= y2; gy++) if (grid[gy * w + x1 - 1] !== -1) { c._foundAnchorIdx = gy * w + x1 - 1; return true; }
+                }
+                if (x2 < w - 1) {
+                    for (let gy = y1; gy <= y2; gy++) if (grid[gy * w + x2 + 1] !== -1) { c._foundAnchorIdx = gy * w + x2 + 1; return true; }
+                }
+                return false;
+            },
+            direction: (c) => {
+                if (c.isShifter || c.isMirroredSpawn || c.skipConnectivity || this.debugMode) return true;
+                const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
+                const nx = c.x + c.w / 2, ny = c.y + c.h / 2, newDistSq = nx * nx + ny * ny;
+                if (c._foundAnchorIdx !== undefined) {
+                    const ax_abs = c._foundAnchorIdx % this.logicGridW, ay_abs = Math.floor(c._foundAnchorIdx / this.logicGridW);
+                    const ax = ax_abs - cx + 0.5, ay = ay_abs - cy + 0.5, anchorDistSq = ax * ax + ay * ay;
+                    if (newDistSq < anchorDistSq - 0.01) return false;
+                }
+                return true;
+            },
+            spatial: (c) => {
+                if (c.isMirroredSpawn || c.isShifter || c.bypassSpatial || this.debugMode) return true;
+                if (!this._currentStepActions || this._currentStepActions.length === 0) return true;
+                const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+                const bs = this.getBlockSize(), screenW = Math.ceil(this.g.cols / bs.w), screenH = Math.ceil(this.g.rows / bs.h);
+                const minDistance = Math.max(1, Math.floor(Math.max(screenW, screenH) * 0.05));
+                for (const action of this._currentStepActions) {
+                    if (action.x === c.x && action.y === c.y) return false;
+                    const ax = action.x + action.w / 2, ay = action.y + action.h / 2, dist = Math.abs(cx - ax) + Math.abs(cy - ay);
+                    if (dist < minDistance) return false;
+                }
+                return true;
+            },
+            vacated: (c) => {
+                if (c.bypassOccupancy) return true;
+                const grid = this.removalGrids[c.layer];
+                if (!grid) return true;
+                const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+                const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y), x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
+                const cooldownSteps = 3;
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) {
+                        const remPhase = grid[rowOff + gx];
+                        if (remPhase !== -1 && this.expansionPhase - remPhase < cooldownSteps) return false;
+                    }
+                }
+                return true;
+            }
+        };
     }
 
     _getBuffer(key, length, type = Uint8Array) {
@@ -340,6 +442,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.overlapState = { step: 0 };
         this.cycleState = null;
         this.proceduralInitiated = false;
+        this.finishedBranches.clear();
+        this.nudgeAxisBalance = 0;
+        this.usedCardinalIndices = [];
+        this._syncFrame = -1;
+        this._lastSyncOpCount = -1;
+        this._currentStepActions = [];
         
         this._initLogicGrid();
         this.stateCache.clear();
@@ -513,9 +621,11 @@ class QuantizedBaseEffect extends AbstractEffect {
     _getEffectiveInterval() {
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const userSpeed = this.getConfig('Speed') || 5;
-        // Map 1 (Slowest) -> 10 (Fastest) to internal delayMult 10 -> 1
         const delayMult = 11 - userSpeed;
-        return baseDuration * (delayMult / 4.0);
+        
+        const enNudge = (this.getConfig('EnableNudge') === true);
+        const intervalMult = enNudge ? 0.15 : 0.25; 
+        return Math.max(1, baseDuration * (delayMult * intervalMult));
     }
 
     update() {
@@ -1563,14 +1673,19 @@ class QuantizedBaseEffect extends AbstractEffect {
             return s['quantizedGenerateV2' + key];
         };
 
+        const mode = getGenConfig('Mode') || 'default';
+        
+        // If mode is 'advanced' (Spines/Wings) or if it's the BlockGenerator effect, use advanced logic
+        if (mode === 'advanced' || this.name === "QuantizedBlockGenerator") {
+            return this._attemptAdvancedGrowth();
+        }
+
         const enUnfold = getGenConfig('EnableUnfold');
         const enNudge = getGenConfig('EnableNudge');
         const enCluster = getGenConfig('EnableCluster');
         const enShift = getGenConfig('EnableShift');
         const enCentered = getGenConfig('EnableCentered');
         
-        // Default behaviors if nothing is explicitly configured for this effect
-        // Most effects should at least Nudge and Cluster to ensure coverage.
         const useUnfold = (enUnfold === true);
         const useNudge = (enNudge === true || enNudge === undefined);
         const useCluster = (enCluster === true || enCluster === undefined);
@@ -1579,33 +1694,30 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const quota = getGenConfig('SimultaneousSpawns') || 1;
         const maxLayer = getGenConfig('LayerCount') || 0; 
-
-        // Determine target layer for THIS step (Sequential Rotation)
         const targetLayer = this.proceduralLayerIndex;
         
         const pool = [];
-        if (useUnfold) pool.push(() => this._attemptUnfoldGrowth(null, targetLayer));
+        if (useUnfold) pool.push({ name: 'Unfold', fn: () => this._attemptUnfoldGrowth(null, targetLayer) });
         if (useNudge) {
-            pool.push(() => {
+            pool.push({ name: 'Nudge', fn: () => {
                 const sw = getGenConfig('MinBlockWidth') || 1;
-                const mw = getGenConfig('MaxBlockWidth') || 3;
+                const mw = getGenConfig('MaxBlockWidth') * 1.5 || 3;
                 const sh = getGenConfig('MinBlockHeight') || 1;
-                const mh = getGenConfig('MaxBlockHeight') || 3;
+                const mh = getGenConfig('MaxBlockHeight') * 1.5 || 3;
                 const bw = Math.floor(Math.random() * (mw - sw + 1)) + sw;
                 const bh = Math.floor(Math.random() * (mh - sh + 1)) + sh;
                 return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
-            });
+            }});
         }
-        if (useCluster) pool.push(() => this._attemptClusterGrowth(null, targetLayer));
+        if (useCluster) pool.push({ name: 'Cluster', fn: () => this._attemptClusterGrowth(null, targetLayer) });
         if (useShift) {
-            pool.push(() => this._attemptSpokeShiftGrowth(null, targetLayer));
-            pool.push(() => this._attemptQuadrantShiftGrowth(null, targetLayer));
+            pool.push({ name: 'SpokeShift', fn: () => this._attemptSpokeShiftGrowth(null, targetLayer) });
+            pool.push({ name: 'QuadShift', fn: () => this._attemptQuadrantShiftGrowth(null, targetLayer) });
         }
-        if (useCentered) pool.push(() => this._attemptCenteredGrowth(null, targetLayer));
+        if (useCentered) pool.push({ name: 'Centered', fn: () => this._attemptCenteredGrowth(null, targetLayer) });
 
-        // Execute total quota of actions
         let actionsPerformed = 0;
-        const maxAttempts = quota * 2; 
+        const maxAttempts = quota * 3; 
         let attempts = 0;
 
         while (actionsPerformed < quota && attempts < maxAttempts) {
@@ -1613,14 +1725,153 @@ class QuantizedBaseEffect extends AbstractEffect {
             let success = false;
             if (pool.length > 0) {
                 const behavior = pool[Math.floor(Math.random() * pool.length)];
-                if (behavior()) success = true;
+                if (behavior.fn()) success = true;
             }
-
             if (success) actionsPerformed++;
         }
 
-        // Rotate layer for NEXT step
+        // If Behavior Pool stalled but screen isn't full, fallback to Advanced Growth
+        if (actionsPerformed === 0 && attempts >= maxAttempts) {
+            return this._attemptAdvancedGrowth();
+        }
+
         this.proceduralLayerIndex = (this.proceduralLayerIndex + 1) % (maxLayer + 1);
+    }
+
+    _attemptAdvancedGrowth() {
+        if (this.expansionComplete) return;
+        this._initProceduralState(false); 
+        this._syncSubLayers();
+        this._updateInternalLogicGrid();
+
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const chance = 0.66, reversionChance = 0.15;
+        const maxLayer = this.getConfig('LayerCount') || 1;
+
+        const bs = this.getBlockSize();
+        const xVisible = Math.ceil(this.g.cols / bs.w / 2), yVisible = Math.ceil(this.g.rows / bs.h / 2);
+        const xGrowthLimit = xVisible + 3, yGrowthLimit = yVisible + 3;
+        const xFinishLimit = xVisible + 1, yFinishLimit = yVisible + 1;
+
+        const ratio = this.g.cols / this.g.rows;
+        const xBias = Math.max(1.0, ratio), yBias = Math.max(1.0, 1.0 / ratio);
+        const getBurst = (bias) => {
+            let b = 1; if (bias > 1.2) { if (Math.random() < (bias - 1.0) * 0.8) b = 2; if (b === 2 && Math.random() < (bias - 2.0) * 0.5) b = 3; }
+            return b;
+        };
+        const xBurst = getBurst(xBias), yBurst = getBurst(yBias);
+
+        const getGridVal = (layer, bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return -2; 
+            return this.layerGrids[layer][gy * w + gx];
+        };
+
+        let successInStep = false;
+        const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
+        for (const spine of xSpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeX = spine.dx;
+                    while (true) {
+                        const val = getGridVal(l, freeX, 0);
+                        if (val === -2 || Math.abs(freeX) >= xFinishLimit) { if (l === maxLayer) finished = true; break; }
+                        if (val === -1) break;
+                        freeX += spine.dx;
+                    }
+                    if (Math.abs(freeX) < xFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = freeX + (b * spine.dx);
+                            if (getGridVal(l, tx, 0) === -1 && Math.abs(tx) <= xGrowthLimit) {
+                                if (this._spawnBlock(tx, 0, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
+                        }
+                    }
+                }
+                if (finished) this.finishedBranches.add(spine.id);
+            }
+        }
+        const ySpines = [{id: 'spine_north', dy: -1}, {id: 'spine_south', dy: 1}];
+        for (const spine of ySpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeY = spine.dy;
+                    while (true) {
+                        const val = getGridVal(l, 0, freeY);
+                        if (val === -2 || Math.abs(freeY) >= yFinishLimit) { if (l === 1) finished = true; break; }
+                        if (val === -1) break;
+                        freeY += spine.dy;
+                    }
+                    if (Math.abs(freeY) < yFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = freeY + (b * spine.dy);
+                            if (getGridVal(l, 0, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
+                                if (this._spawnBlock(0, ty, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            } else break;
+                        }
+                    }
+                }
+                if (finished) this.finishedBranches.add(spine.id);
+            }
+        }
+        for (const spine of xSpines) {
+            for (let x = spine.dx; Math.abs(x) <= xGrowthLimit; x += spine.dx) {
+                let anyLeading = false;
+                for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, 0) !== -1) anyLeading = true;
+                if (getGridVal(0, x, 0) === -1 && anyLeading) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = x + (b * spine.dx);
+                            if (getGridVal(0, tx, 0) === -1) { if (this._spawnBlock(tx, 0, 1, 1, 0, false, 0, true, true, true, false, true) !== -1) successInStep = true; } else break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        let minX = 0, maxX = 0;
+        for (let x = -1; ; x--) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { minX = x + 1; break; } }
+        for (let x = 1; ; x++) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { maxX = x - 1; break; } }
+        for (let x = minX; x <= maxX; x++) {
+            const directions = [{ id: 'n', dy: -1 }, { id: 's', dy: 1 }];
+            for (const d of directions) {
+                const branchId = `wing_${d.id}_${x}`;
+                let wingFinished = this.finishedBranches.has(branchId), wingFreeY = d.dy;
+                if (!wingFinished) {
+                    while (true) {
+                        const val = getGridVal(maxLayer, x, wingFreeY);
+                        if (val === -2 || Math.abs(wingFreeY) >= yFinishLimit) { wingFinished = true; this.finishedBranches.add(branchId); break; }
+                        if (val === -1) break; wingFreeY += d.dy;
+                    }
+                }
+                if (!wingFinished) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = wingFreeY + (b * d.dy);
+                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) { if (this._spawnBlock(x, ty, 1, 1, maxLayer, false, 0, true, true, true, false, true) !== -1) successInStep = true; } else break;
+                        }
+                    }
+                    this._revertFrontier(x, 0, 0, d.dy, maxLayer, reversionChance, branchId);
+                }
+                const searchLimitY = wingFinished ? yGrowthLimit : Math.abs(wingFreeY);
+                for (let y = d.dy; Math.abs(y) <= searchLimitY; y += d.dy) {
+                    if (getGridVal(0, x, y) === -1 && getGridVal(maxLayer, x, y) !== -1) {
+                        if (Math.random() < chance) {
+                            for (let b = 0; b < yBurst; b++) {
+                                const ty = y + (b * d.dy);
+                                if (getGridVal(0, x, ty) === -1 && getGridVal(maxLayer, x, ty) !== -1) { if (this._spawnBlock(x, ty, 1, 1, 0, false, 0, true, true, true, false, true) !== -1) successInStep = true; } else break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if (this.getConfig('EnableAutoFillHoles')) this._maintainStructuralIntegrity();
+        this._updateInternalLogicGrid();
     }
 
     _isNudgePathFull(x, y, w, h, face, layer) {
@@ -1900,7 +2151,276 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
+    _proposeCandidate(c) {
+        if (!this.RULES.bounds(c)) {
+            if (!this._redirectOffscreen(c)) return -1;
+        }
+        if (!this._validateCandidate(c)) return -1;
+        const id = this._commitCandidate(c);
+        if (id === -1) return -1;
+        if (!c.isShifter && !c.isMirroredSpawn && this.getConfig('EnableAxisBalancing')) {
+            this._handleAxisBalancing(c);
+        }
+        return id;
+    }
+
+    _redirectOffscreen(c) {
+        if (c.skipConnectivity) return false;
+        const bs = this.getBlockSize(), xLimit = Math.floor((this.g.cols / bs.w) / 2), yLimit = Math.floor((this.g.rows / bs.h) / 2);
+        const total = this.activeBlocks.length;
+        if (total === 0) return false;
+        const sampleSize = Math.min(total, 50), candidates = [], tx = c.x, ty = c.y;
+        for (let i = total - 1; i >= 0 && candidates.length < sampleSize; i--) {
+            const b = this.activeBlocks[i];
+            if (b.layer !== c.layer) continue;
+            if (!(b.x < -xLimit || b.x > xLimit || b.y < -yLimit || b.y > yLimit)) {
+                const dist = Math.abs(b.x - tx) + Math.abs(b.y - ty);
+                candidates.push({ b, dist });
+            }
+        }
+        if (candidates.length === 0) return false;
+        candidates.sort((a, b) => a.dist - b.dist);
+        const dirs = this._getBiasedDirections();
+        for (let i = 0; i < Math.min(10, candidates.length); i++) {
+            const a = candidates[i].b;
+            for (const dir of dirs) {
+                let nx = a.x, ny = a.y;
+                if (dir === 'N') ny = a.y - c.h;
+                else if (dir === 'S') ny = a.y + a.h;
+                else if (dir === 'E') nx = a.x + a.w;
+                else if (dir === 'W') nx = a.x - c.w;
+                if (nx >= -xLimit && nx + c.w - 1 <= xLimit && ny >= -yLimit && ny + c.h - 1 <= yLimit) {
+                    c.x = nx; c.y = ny; return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    _validateCandidate(c) {
+        if (!this.RULES.bounds(c)) return false;
+        if (!this.RULES.occupancy(c)) return false;
+        if (!this.RULES.vacated(c)) return false;
+        if (c.isShifter) return true;
+        if (!this.RULES.connectivity(c)) return false;
+        if (!this.RULES.direction(c)) return false;
+        if (!this.RULES.spatial(c)) return false;
+        return true;
+    }
+
+    _commitCandidate(c) {
+        const id = this._spawnBlockCore(
+            c.x, c.y, c.w, c.h, c.layer,
+            c.isShifter, c.expireFrames,
+            true, 
+            c.allowInternal, c.suppressFades, c.isMirroredSpawn, c.bypassOccupancy
+        );
+        if (id !== -1) {
+            if (!this._currentStepActions) this._currentStepActions = [];
+            this._currentStepActions.push(c);
+        }
+        return id;
+    }
+
+    _handleAxisBalancing(c) {
+        const mirrorType = Math.floor(Math.random() * 3); // 0: X, 1: Y, 2: Both
+        let flipX = (mirrorType === 0 || mirrorType === 2), flipY = (mirrorType === 1 || mirrorType === 2);
+        let targetX = flipX ? -c.x - c.w : c.x, targetY = flipY ? -c.y - c.h : c.y;
+        const candidate = { ...c, x: targetX, y: targetY, isMirroredSpawn: true };
+        if (this._validateCandidate(candidate)) { this._commitCandidate(candidate); return; }
+        const searchRange = 5, attempts = [];
+        for (let dy = -searchRange; dy <= searchRange; dy++) {
+            for (let dx = -searchRange; dx <= searchRange; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                attempts.push({ x: targetX + dx, y: targetY + dy, dist: Math.abs(dx) + Math.abs(dy) });
+            }
+        }
+        attempts.sort((a, b) => a.dist - b.dist);
+        for (const att of attempts) {
+            const searchCandidate = { ...candidate, x: att.x, y: att.y };
+            if (this._validateCandidate(searchCandidate)) { this._commitCandidate(searchCandidate); return; }
+        }
+        const anchors = this.activeBlocks.filter(b => b.layer === c.layer);
+        if (anchors.length > 0) {
+            Utils.shuffle(anchors);
+            for (let i = 0; i < Math.min(10, anchors.length); i++) {
+                const a = anchors[i];
+                const dirs = [{dx:1, dy:0}, {dx:-1, dy:0}, {dx:0, dy:1}, {dx:0, dy:-1}];
+                Utils.shuffle(dirs);
+                for (const d of dirs) {
+                    let tx = (d.dx === 1) ? a.x + a.w : (d.dx === -1 ? a.x - c.w : a.x);
+                    let ty = (d.dy === 1) ? a.y + a.h : (d.dy === -1 ? a.y - c.h : a.y);
+                    const finalAttempt = { ...candidate, x: tx, y: ty };
+                    if (this._validateCandidate(finalAttempt)) { this._commitCandidate(finalAttempt); return; }
+                }
+            }
+        }
+    }
+
     _spawnBlock(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
+        const candidate = {
+            x, y, w, h, layer,
+            isShifter, expireFrames, skipConnectivity, allowInternal,
+            suppressFades, isMirroredSpawn, bypassOccupancy,
+            bypassSpatial: skipConnectivity
+        };
+        return this._proposeCandidate(candidate);
+    }
+
+    _maintainStructuralIntegrity() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const bs = this.getBlockSize(), xVisible = Math.ceil(this.g.cols / bs.w / 2), yVisible = Math.ceil(this.g.rows / bs.h / 2);
+        const minX = -xVisible - 2, maxX = xVisible + 2, minY = -yVisible - 2, maxY = yVisible + 2;
+        const scanW = maxX - minX + 1, scanH = maxY - minY + 1;
+        const reachGrid = new Uint8Array(scanW * scanH);
+        const getIdx = (bx, by) => (by - minY) * scanW + (bx - minX);
+        for (let bx = minX; bx <= maxX; bx++) {
+            for (let by = minY; by <= maxY; by++) {
+                const gx = cx + bx, gy = cy + by;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+                if (this.renderGrid[gy * w + gx] !== -1) reachGrid[getIdx(bx, by)] = 2;
+            }
+        }
+        const queue = [];
+        const pushIfOutside = (bx, by) => {
+            if (bx < minX || bx > maxX || by < minY || by > maxY) return;
+            const idx = getIdx(bx, by);
+            if (reachGrid[idx] === 0) { reachGrid[idx] = 1; queue.push({x: bx, y: by}); }
+        };
+        for (let x = minX; x <= maxX; x++) { pushIfOutside(x, minY); pushIfOutside(x, maxY); }
+        for (let y = minY; y <= maxY; y++) { pushIfOutside(minX, y); pushIfOutside(maxX, y); }
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            const ds = [[1,0], [-1,0], [0,1], [0,-1]];
+            for (const [dx, dy] of ds) pushIfOutside(curr.x + dx, curr.y + dy);
+        }
+        const maxLayer = this.getConfig('LayerCount') || 0;
+        for (let bx = minX; bx <= maxX; bx++) {
+            for (let by = minY; by <= maxY; by++) {
+                const idx = getIdx(bx, by);
+                if (reachGrid[idx] === 0) {
+                    for (let l = 0; l <= maxLayer; l++) this._spawnBlock(bx, by, 1, 1, l, false, 0, true, true, true, false, true);
+                }
+            }
+        }
+    }
+
+    _revertFrontier(ox, oy, dx, dy, layer, chance, branchId) {
+        if (this.finishedBranches.has(branchId)) return false;
+        if (layer === 0 || Math.random() > chance) return false;
+        const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        let tx = ox, ty = oy, lastOccupied = null;
+        const isOcc = (l, bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return false;
+            return this.layerGrids[l][gy * w + gx] !== -1;
+        };
+        while (true) {
+            const ntx = tx + dx, nty = ty + dy;
+            if (!isOcc(layer, ntx, nty)) break;
+            tx = ntx; ty = nty; lastOccupied = { x: tx, y: ty };
+            if (Math.abs(tx) > w || Math.abs(ty) > h) break;
+        }
+        if (lastOccupied && (lastOccupied.x !== 0 || lastOccupied.y !== 0)) {
+            if (isOcc(0, lastOccupied.x, lastOccupied.y)) return false;
+            this.maskOps.push({ type: 'removeBlock', x1: lastOccupied.x, y1: lastOccupied.y, x2: lastOccupied.x, y2: lastOccupied.y, layer: layer, startFrame: this.animFrame, fade: false });
+            this.activeBlocks = this.activeBlocks.filter(b => !(b.x === lastOccupied.x && b.y === lastOccupied.y && b.layer === layer));
+            this.layerGrids[layer][(cy + lastOccupied.y) * w + (cx + lastOccupied.x)] = -1;
+            this._gridsDirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    _syncSubLayers() {
+        const s = this.c.state;
+        const pref = this.configPrefix;
+        if (!s[pref + 'EnableSyncSubLayers'] && !s.quantizedGenerateV2EnableSyncSubLayers) return;
+        if (this._syncFrame === this.animFrame) return;
+        if (this._lastSyncOpCount === this.maskOps.length) return;
+        this._lastSyncOpCount = this.maskOps.length;
+        this._syncFrame = this.animFrame;
+        const maxLayer = this.getConfig('LayerCount') || 1;
+        if (maxLayer < 1) return;
+        const w = this.logicGridW, h = this.logicGridH, l0Grid = this.layerGrids[0];
+        if (!l0Grid) return;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const syncGrid = this._getBuffer('syncGrid', w * h, Uint8Array);
+        syncGrid.fill(0);
+        for (let i = 0; i < l0Grid.length; i++) if (l0Grid[i] !== -1) syncGrid[i] = 1;
+        const rects = [];
+        for (let gy = 0; gy < h; gy++) {
+            const rowOffBase = gy * w;
+            for (let gx = 0; gx < w; gx++) {
+                if (syncGrid[rowOffBase + gx] === 1) {
+                    let rw = 0; while (gx + rw < w && syncGrid[rowOffBase + gx + rw] === 1) rw++;
+                    let rh = 1;
+                    while (gy + rh < h) {
+                        let lineFull = true;
+                        const targetRowOff = (gy + rh) * w;
+                        for (let ix = 0; ix < rw; ix++) if (syncGrid[targetRowOff + gx + ix] !== 1) { lineFull = false; break; }
+                        if (!lineFull) break;
+                        rh++;
+                    }
+                    rects.push({ x: gx - cx, y: gy - cy, w: rw, h: rh });
+                    for (let iy = 0; iy < rh; iy++) {
+                        const markRowOff = (gy + iy) * w;
+                        for (let ix = 0; ix < rw; ix++) syncGrid[markRowOff + gx + ix] = 0;
+                    }
+                }
+            }
+        }
+        for (const r of rects) {
+            const rx = cx + r.x, ry = cy + r.y;
+            for (let l = 1; l <= maxLayer; l++) {
+                const targetGrid = this.layerGrids[l];
+                let fullyCovered = true;
+                for (let iy = 0; iy < r.h; iy++) {
+                    const rowOff = (ry + iy) * w;
+                    for (let ix = 0; ix < r.w; ix++) if (targetGrid[rowOff + rx + ix] === -1) { fullyCovered = false; break; }
+                    if (!fullyCovered) break;
+                }
+                if (!fullyCovered) this._spawnBlock(r.x, r.y, r.w, r.h, l, false, 0, true, true, true, true, true);
+            }
+        }
+    }
+
+    _updateInternalLogicGrid() {
+        if (!this.logicGridW || !this.logicGridH) return;
+        const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
+        const w = this.logicGridW, h = this.logicGridH;
+        if (this._gridsDirty) {
+            this.logicGrid.fill(0);
+            for (let i = 0; i < this.activeBlocks.length; i++) {
+                const b = this.activeBlocks[i];
+                const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
+                const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
+                for (let gy = y1; gy <= y2; gy++) {
+                    const rowOff = gy * w;
+                    for (let gx = x1; gx <= x2; gx++) this.logicGrid[rowOff + gx] = 1;
+                }
+            }
+            this._lastProcessedBlockCount = this.activeBlocks.length;
+        } else {
+            const startIdx = this._lastProcessedBlockCount || 0;
+            if (startIdx < this.activeBlocks.length) {
+                for (let i = startIdx; i < this.activeBlocks.length; i++) {
+                    const b = this.activeBlocks[i];
+                    const x1 = Math.max(0, cx + b.x), x2 = Math.min(w - 1, cx + b.x + b.w - 1);
+                    const y1 = Math.max(0, cy + b.y), y2 = Math.min(h - 1, cy + b.y + b.h - 1);
+                    for (let gy = y1; gy <= y2; gy++) {
+                        const rowOff = gy * w;
+                        for (let gx = x1; gx <= x2; gx++) this.logicGrid[rowOff + gx] = 1;
+                    }
+                }
+                this._lastProcessedBlockCount = this.activeBlocks.length;
+            }
+        }
+    }
+
+    _spawnBlockCore(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
         const bs = this.getBlockSize();
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
