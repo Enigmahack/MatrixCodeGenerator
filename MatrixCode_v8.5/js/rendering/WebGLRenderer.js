@@ -357,6 +357,22 @@ class WebGLRenderer {
 
                         vec4 base = texture(u_characterBuffer, v_uv);
                         float lineMask = texture(u_persistenceBuffer, v_uv).r;
+
+                        // Shared Character Mask Calculation
+                        vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
+                        float charLuma = 0.0;
+                        if (u_maskSoftness > 0.0) {
+                            float s = u_maskSoftness / u_resolution.x;
+                            charLuma += texture(u_sourceGrid, sourceUV).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
+                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
+                            charLuma /= 5.0;
+                        } else {
+                            vec4 sourceChar = texture(u_sourceGrid, sourceUV);
+                            charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                        }
                         
                         if (u_glassEnabled) {
                             float blockMask = texture(u_shadowMask, v_uv).r;
@@ -397,7 +413,7 @@ class WebGLRenderer {
                                 bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
                                 
                                 // Bloom & Interior Brightness
-                                glassCode *= u_glassBloom * opacityOverlap;
+                                glassCode *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
                                 
                                 // COLOR & OVERRIDES FROM EFFECT
                                 // lineMask already has the correct weighted intensity from Mode 0 (including Thickness)
@@ -408,7 +424,8 @@ class WebGLRenderer {
                                 edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
 
                                 // Final Glass Pixel: Refracted Code + Fresnel + Bevel + Weighted Tinted Edges
-                                vec3 edgeHighlight = edgeColor * lineMask * u_glassEdgeGlow * u_intensity;
+                                // RESTORED: Multiply edgeHighlight by charLuma to keep the "broken lines" mask effect
+                                vec3 edgeHighlight = edgeColor * lineMask * charLuma * u_glassEdgeGlow * u_intensity * u_additiveStrength;
                                 vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + edgeHighlight;
                                 
                                 fragColor = vec4(finalGlass, base.a);
@@ -422,19 +439,15 @@ class WebGLRenderer {
                         }
                         
                         // STANDARD QUANTIZED LINES LOGIC
-                        vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-                        float charLuma = 0.0;
-                        if (u_maskSoftness > 0.0) {
-                            float s = u_maskSoftness / u_resolution.x;
-                            charLuma += texture(u_sourceGrid, sourceUV).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
-                            charLuma /= 5.0;
+                        float blockMask = texture(u_shadowMask, v_uv).r;
+                        float isVisible = step(0.001, blockMask);
+                        float opacityOverlap = 1.0 + max(0.0, blockMask - 1.0) * u_glassOverlapOpacity;
+
+                        vec3 finalBase = base.rgb;
+                        if (isVisible > 0.5) {
+                            finalBase *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
                         } else {
-                            vec4 sourceChar = texture(u_sourceGrid, sourceUV);
-                            charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                            finalBase *= (1.0 - u_glassDarkness);
                         }
 
                         float colorT = clamp(lineMask, 0.0, 1.0);
@@ -444,7 +457,7 @@ class WebGLRenderer {
                         dynamicColor = boostSaturation(dynamicColor, u_saturation) * u_brightness;
                         
                         vec3 highlight = dynamicColor * lineMask * charLuma * u_additiveStrength * u_intensity;
-                        fragColor = vec4(base.rgb + highlight, base.a);
+                        fragColor = vec4(finalBase + highlight, base.a);
                         return;
                     }
 

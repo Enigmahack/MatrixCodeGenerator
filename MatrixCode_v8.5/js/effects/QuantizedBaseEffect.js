@@ -66,7 +66,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Procedural Generation State
         this.blockMap = new Map();
         this.activeBlocks = [];
-        this.unfoldSequences = [];
+        this.unfoldSequences = [[], [], []];
         this.visibleLayers = [true, true, true];
         this.layerOrder = [0, 1, 2];
         this.proceduralLayerIndex = 0;
@@ -444,7 +444,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this.blockMap.clear();
         this.activeBlocks = [];
-        this.unfoldSequences = [];
+        this.unfoldSequences = [[], [], []];
         this.nextBlockId = 0;
         this.nudgeState = null;
         this.overlapState = { step: 0 };
@@ -3109,6 +3109,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // Local throttle per layer
+        if (!this.unfoldSequences[targetLayer]) this.unfoldSequences[targetLayer] = [];
         if (this.unfoldSequences[targetLayer].length >= 5) return false;
         
         const grid = this.layerGrids[targetLayer];
