@@ -201,7 +201,12 @@ class MatrixKernel {
      */
     async _initializeRendererAndUI() {
         if (typeof WebGLRenderer !== 'undefined') {
-             this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+            try {
+                this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+            } catch (e) {
+                if (this.config.state.logErrors) console.error("[MatrixKernel] WebGLRenderer initialization failed:", e);
+                this.renderer = null;
+            }
         } else {
              if (this.config.state.logErrors) console.error("WebGLRenderer not found. Application cannot start.");
              this.notifications.show("Critical Error: WebGL Renderer missing.", "error");
@@ -375,7 +380,7 @@ class MatrixKernel {
             }
 
             // Update renderer when smoothing settings change
-            if (smoothingTriggers.has(key)) {
+            if (smoothingTriggers.has(key) && this.renderer) {
                 this.renderer.updateSmoothing();
             }
 
@@ -468,7 +473,9 @@ class MatrixKernel {
         // 3. Resize All Grids
         this.worlds.forEach(w => w.grid.resize(logicalW, logicalH));
         
-        this.renderer.resize();
+        if (this.renderer) {
+            this.renderer.resize();
+        }
 
         if (this.overlayCanvas) {
             this.overlayCanvas.width = window.innerWidth;
@@ -571,7 +578,9 @@ class MatrixKernel {
             this.accumulator -= this.timestep;
         }
 
-        this.renderer.render(this.frame);
+        if (this.renderer) {
+            this.renderer.render(this.frame);
+        }
 
         // Render Overlay Effects
         if (this.overlayCtx) {

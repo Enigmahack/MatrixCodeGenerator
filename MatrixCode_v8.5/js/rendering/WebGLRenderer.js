@@ -186,10 +186,18 @@ class WebGLRenderer {
 
     _createShader(type, source) {
         const shader = this.gl.createShader(type);
-        this.gl.shaderSource(shader, source);
+        this.gl.shaderSource(shader, source.trim());
         this.gl.compileShader(shader);
         if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-            console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+            const err = this.gl.getShaderInfoLog(shader);
+            const typeStr = (type === this.gl.VERTEX_SHADER) ? "VERTEX" : "FRAGMENT";
+            console.error(`[WebGLRenderer] ${typeStr} Shader compile error:\n${err}`);
+            
+            // Log source with line numbers for easier debugging
+            const lines = source.trim().split('\n');
+            const numberedSource = lines.map((line, i) => `${(i + 1).toString().padStart(3, ' ')}: ${line}`).join('\n');
+            console.error(`[WebGLRenderer] ${typeStr} Shader Source:\n${numberedSource}`);
+            
             this.gl.deleteShader(shader);
             return null;
         }
@@ -199,6 +207,12 @@ class WebGLRenderer {
     _createProgram(vsSource, fsSource) {
         const vs = this._createShader(this.gl.VERTEX_SHADER, vsSource);
         const fs = this._createShader(this.gl.FRAGMENT_SHADER, fsSource);
+        
+        if (!vs || !fs) {
+            if (this.config.state.logErrors) console.error('[WebGLRenderer] Failed to create program: Shader compilation failed.');
+            return null;
+        }
+
         const prog = this.gl.createProgram();
         this.gl.attachShader(prog, vs);
         this.gl.attachShader(prog, fs);
@@ -215,6 +229,7 @@ class WebGLRenderer {
         _initShaders() {
             // --- SHADOW MASK SHADER ---
             const shadowVS = `#version 300 es
+                precision highp float;
                 layout(location=0) in vec2 a_quad;
                 layout(location=1) in vec4 a_rect;
                 layout(location=2) in float a_alpha;
@@ -236,7 +251,7 @@ class WebGLRenderer {
             `;
     
             const shadowFS = `#version 300 es
-                precision mediump float;
+                precision highp float;
                 in vec2 v_uv;
                 in float v_alpha;
                 in float v_blur;
@@ -328,7 +343,7 @@ class WebGLRenderer {
 
                 vec3 boostSaturation(vec3 c, float s) {
                     float luma = dot(c, vec3(0.299, 0.587, 0.114));
-                    return mix(vec4(luma).rgb, c, s);
+                    return mix(vec3(luma), c, s);
                 }
 
                 void main() {
@@ -538,7 +553,7 @@ class WebGLRenderer {
             // --- MATRIX SHADERS (SPLIT 2D/3D) ---
             
             const matrixVS_Common = `#version 300 es
-                precision mediump float;
+                precision highp float;
                 layout(location=0) in vec2 a_quad;
                 layout(location=1) in vec2 a_pos;
                 layout(location=2) in float a_charIdx;
@@ -649,7 +664,7 @@ class WebGLRenderer {
     
             // Optimized Fragment Shader (Shared)
             const matrixFS = `#version 300 es
-                precision mediump float;
+                precision highp float;
                 in vec2 v_uv;
                 in vec2 v_uv2;
                 in vec4 v_color;
@@ -835,7 +850,7 @@ class WebGLRenderer {
                             p = abs(p);
                             
                             float r = 0.01; // Sharp corners
-                            float d = length(max(p - sizeBounds, 0.0)) + min(max(p.x - sizeBounds.x, p.y - sizeBounds.y), 0.0) - r;
+                            float d = length(max(p - sizeBounds, vec2(0.0))) + min(max(p.x - sizeBounds.x, p.y - sizeBounds.y), 0.0) - r;
                             
                             float core = 1.0 - smoothstep(-0.01, 0.01, d);
                             float halo = 1.0 - smoothstep(0.0, 0.15, d);
@@ -938,7 +953,7 @@ class WebGLRenderer {
                     // Apply Shadow Darkening
                     // shadow = 0..1 (0=No Shadow, 1=Black)
                     // glassMask = 0..1 (quantized blocks)
-                    float shadow = texture(u_shadowMask, v_screenUV).a;
+                    // REMOVED REDECLARATION OF 'shadow' HERE
                     float glassMask = texture(u_shadowMask, v_screenUV).r;
                     
                     if (!isHighPriority) {
@@ -991,11 +1006,11 @@ class WebGLRenderer {
     
             // Keep existing Bloom/Color programs
             const bloomVS = `#version 300 es\nlayout(location=0) in vec2 a_position; out vec2 v_uv; void main(){ v_uv=a_position*0.5+0.5; gl_Position=vec4(a_position, 0.0, 1.0); }`;
-            const bloomFS = `#version 300 es\nprecision mediump float; in vec2 v_uv; uniform sampler2D u_image; uniform bool u_horizontal; uniform float u_weight[5]; uniform float u_spread; uniform float u_opacity; out vec4 fragColor; void main(){ vec2 tex_offset=(1.0/vec2(textureSize(u_image, 0)))*u_spread; vec3 result=texture(u_image, v_uv).rgb*u_weight[0]; if(u_horizontal){ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; } }else{ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; } } fragColor=vec4(result*u_opacity, 1.0); }`;
+            const bloomFS = `#version 300 es\nprecision highp float; in vec2 v_uv; uniform sampler2D u_image; uniform bool u_horizontal; uniform float u_weight[5]; uniform float u_spread; uniform float u_opacity; out vec4 fragColor; void main(){ vec2 tex_offset=(vec2(1.0)/vec2(textureSize(u_image, 0)))*u_spread; vec3 result=texture(u_image, v_uv).rgb*u_weight[0]; if(u_horizontal){ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; } }else{ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; } } fragColor=vec4(result*u_opacity, 1.0); }`;
             this.bloomProgram = this._createProgram(bloomVS, bloomFS);
     
             const colorVS = `#version 300 es\nlayout(location=0) in vec2 a_position; void main(){ gl_Position=vec4(a_position, 0.0, 1.0); }`;
-            const colorFS = `#version 300 es\nprecision mediump float; uniform vec4 u_color; out vec4 fragColor; void main(){ fragColor=u_color; }`;
+            const colorFS = `#version 300 es\nprecision highp float; uniform vec4 u_color; out vec4 fragColor; void main(){ fragColor=u_color; }`;
             this.colorProgram = this._createProgram(colorVS, colorFS);
         }
     _initBuffers() {
@@ -1142,6 +1157,7 @@ class WebGLRenderer {
 
         // --- Resize Buffers ---
         const totalCells = this.grid.cols * this.grid.rows;
+        this.instanceCapacity = totalCells;
         
         // Helper to recreate buffer
         const ensureBuf = (buf, size, drawType = this.gl.DYNAMIC_DRAW) => {
@@ -1636,6 +1652,7 @@ class WebGLRenderer {
         
         const { state: s, derived: d } = this.config;
         const grid = this.grid;
+        const totalCells = grid.cols * grid.rows;
         const activeFonts = d.activeFonts;
         const gl = this.gl;
 
@@ -1692,7 +1709,6 @@ class WebGLRenderer {
         this.needsAtlasUpdate = false;
 
         // --- MERGE & MAP ---
-        const totalCells = grid.cols * grid.rows;
         if (this.mappedChars.length !== totalCells) return;
 
         const gChars = grid.chars;
@@ -2239,9 +2255,10 @@ class WebGLRenderer {
 
         // 2. Draw Cells
         // Respect layerEnablePrimaryCode
-        if (s.layerEnablePrimaryCode !== false) {
+        if (s.layerEnablePrimaryCode !== false && this.program2D) {
             // Determine Program based on mode
             const activeProgram = this.program2D;
+
         this.gl.useProgram(activeProgram);
         
         // --- Shared Uniforms ---
@@ -2315,7 +2332,7 @@ class WebGLRenderer {
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
         
         // Draw Main Pass
-        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
         this.gl.bindVertexArray(null);
 
         // --- 3rd Pass: Quantized Line GFX ---

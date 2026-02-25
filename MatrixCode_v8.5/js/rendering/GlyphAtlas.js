@@ -265,6 +265,7 @@ class GlyphAtlas {
         
         // Update fast lookup
         const code = char.charCodeAt(0);
+        if (code < 65536) this.codeToId[code] = index;
     }
 
     resetChanges() {
