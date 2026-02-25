@@ -38,10 +38,17 @@ class WebGLRenderer {
         
         // --- Buffers ---
         this.instanceCapacity = 0; 
-        this.instanceData = null; 
         this.instanceBuffer = null;
-        this.depthBuffer = null; // New Depth Buffer
+        this.instanceData = null; // Interleaved Float32Array
+        this.instanceDataU32 = null; // Uint32 view for colors
+        this.instanceDataU16 = null; // Uint16 view for chars
+        this.instanceDataU8 = null; // Uint8 view for decays
 
+        this.depthBuffer = null; 
+
+        // --- Uniform Location Cache ---
+        this.uLocs = new Map();
+        
         // --- Framebuffers for Bloom ---
         this.fboA = null; 
         this.fboB = null; 
@@ -69,17 +76,7 @@ class WebGLRenderer {
         console.log("Rendering Engine: WebGL 2 (v8 CellGrid Optimized Fixed)");
 
         if (typeof PostProcessor !== 'undefined') {
-            this.postProcessor = new PostProcessor(config);
-            this.postProcessor.canvas.id = 'shaderCanvas';
-            this.postProcessor.canvas.style.position = 'absolute';
-            this.postProcessor.canvas.style.top = '0';
-            this.postProcessor.canvas.style.left = '0';
-            this.postProcessor.canvas.style.zIndex = '2'; 
-            this.postProcessor.canvas.style.display = 'none'; 
-            
-            if (this.cvs.parentNode) {
-                this.cvs.parentNode.insertBefore(this.postProcessor.canvas, this.cvs.nextSibling);
-            }
+            this.postProcessor = new PostProcessor(config, this.gl);
             this.lastShaderSource = null;
             this.lastEffectSource = null;
         }
@@ -222,8 +219,23 @@ class WebGLRenderer {
             console.error('Program link error:', err);
             return null;
         }
-        if (this.config.state.logErrors) console.log(`[WebGLRenderer] Shader Program created successfully.`);
+
+        // Cache all uniforms
+        const count = this.gl.getProgramParameter(prog, this.gl.ACTIVE_UNIFORMS);
+        const locs = {};
+        for (let i = 0; i < count; i++) {
+            const info = this.gl.getActiveUniform(prog, i);
+            locs[info.name] = this.gl.getUniformLocation(prog, info.name);
+        }
+        this.uLocs.set(prog, locs);
+
+        if (this.config.state.logErrors) console.log(`[WebGLRenderer] Shader Program created successfully. Cached ${count} uniforms.`);
         return prog;
+    }
+
+    _u(prog, name) {
+        const locs = this.uLocs.get(prog);
+        return locs ? locs[name] : null;
     }
 
         _initShaders() {
@@ -1029,23 +1041,12 @@ class WebGLRenderer {
         this.shadowInstanceBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
         this.shadowInstanceCapacity = 1000;
-        // Initial capacity: 1000 sheets * 20 bytes (x,y,w,h,a)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * 20, this.gl.DYNAMIC_DRAW);
+        // Initial capacity: 1000 sheets * 24 bytes (x,y,w,h,alpha,blur)
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * 24, this.gl.DYNAMIC_DRAW);
 
         // Instance buffers will be created in resize()
         this.posBuffer = null;
-        this.charBuffer = null;
-        this.colorBuffer = null;
-        this.alphaBuffer = null;
-        this.decayBuffer = null;
-        this.glowBuffer = null;
-        this.mixBuffer = null;
-        this.nextCharBuffer = null;
-        this.maxDecayBuffer = null;
-        
-        // Mapped Arrays (CPU side)
-        this.mappedChars = null;
-        this.mappedNextChars = null;
+        this.instanceBuffer = null;
     }
 
     _initBloomBuffers() {
@@ -1153,59 +1154,47 @@ class WebGLRenderer {
                 this._configureFramebuffer(this.shadowMaskFbo, this.shadowMaskTex, this.fboWidth, this.fboHeight);
             }
         }
-        if (this.postProcessor) { this.postProcessor.resize(pw, ph); this.postProcessor.canvas.style.width = `${this.w}px`; this.postProcessor.canvas.style.height = `${this.h}px`; }
+        if (this.postProcessor) { 
+            this.postProcessor.resize(pw, ph); 
+            if (this.postProcessor.canvas) {
+                this.postProcessor.canvas.style.width = `${this.w}px`; 
+                this.postProcessor.canvas.style.height = `${this.h}px`; 
+            }
+        }
 
         // --- Resize Buffers ---
         const totalCells = this.grid.cols * this.grid.rows;
         this.instanceCapacity = totalCells;
         
-        // Helper to recreate buffer
-        const ensureBuf = (buf, size, drawType = this.gl.DYNAMIC_DRAW) => {
-             if (buf) this.gl.deleteBuffer(buf);
-             const newBuf = this.gl.createBuffer();
-             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, newBuf);
-             this.gl.bufferData(this.gl.ARRAY_BUFFER, size, drawType);
-             return newBuf;
-        };
-
         // Static Position Buffer
-        this.posBuffer = ensureBuf(this.posBuffer, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
+        if (this.posBuffer) this.gl.deleteBuffer(this.posBuffer);
+        this.posBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 8, this.gl.STATIC_DRAW); // 2 floats * 4 bytes
         
         const posData = new Float32Array(totalCells * 2);
         const cw = d.cellWidth; const ch = d.cellHeight;
-        const xOff = 0; const yOff = 0;
         for (let i = 0; i < totalCells; i++) {
              const col = i % this.grid.cols;
              const row = Math.floor(i / this.grid.cols);
-             posData[i*2] = col * cw + cw * 0.5 + xOff;
-             posData[i*2+1] = row * ch + ch * 0.5 + yOff;
+             posData[i*2] = col * cw + cw * 0.5;
+             posData[i*2+1] = row * ch + ch * 0.5;
         }
-        
-        // Fix: Explicitly bind posBuffer before uploading posData
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
 
-        // Dynamic Buffers
-        this.charBuffer = ensureBuf(this.charBuffer, totalCells * 2); // Uint16
-        this.colorBuffer = ensureBuf(this.colorBuffer, totalCells * 4); // Uint32 (RGBA)
-        this.alphaBuffer = ensureBuf(this.alphaBuffer, totalCells * 4); // Float32
-        this.decayBuffer = ensureBuf(this.decayBuffer, totalCells); // Uint8
-        this.glowBuffer = ensureBuf(this.glowBuffer, totalCells * 4); // Float32
-        this.mixBuffer = ensureBuf(this.mixBuffer, totalCells * 4); // Float32
-        this.nextCharBuffer = ensureBuf(this.nextCharBuffer, totalCells * 2); // Uint16
-        this.maxDecayBuffer = ensureBuf(this.maxDecayBuffer, totalCells * 2); // Uint16
+        // Interleaved Dynamic Buffer
+        // Stride = 24 bytes
+        if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
+        this.instanceBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 24, this.gl.DYNAMIC_DRAW);
 
-        // Mapped Arrays
-        this.mappedChars = new Uint16Array(totalCells);
-        this.mappedNextChars = new Uint16Array(totalCells);
-        
-        // Upload Buffers (CPU merging for overrides/effects)
-        this.uploadColors = new Uint32Array(totalCells);
-        this.uploadAlphas = new Float32Array(totalCells);
-        this.uploadDecays = new Uint8Array(totalCells); // Decays usually don't have overrides but safe to copy
-        this.uploadMaxDecays = new Uint16Array(totalCells);
-        this.uploadGlows = new Float32Array(totalCells);
-        this.uploadMix = new Float32Array(totalCells);
+        const bufferSize = totalCells * 24;
+        this.instanceBufferData = new ArrayBuffer(bufferSize);
+        this.instanceData = new Float32Array(this.instanceBufferData);
+        this.instanceDataU32 = new Uint32Array(this.instanceBufferData);
+        this.instanceDataU16 = new Uint16Array(this.instanceBufferData);
+        this.instanceDataU8 = new Uint8Array(this.instanceBufferData);
 
         this._setupVAO();
     }
@@ -1226,53 +1215,47 @@ class WebGLRenderer {
         this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(1, 1);
 
-        // 2: CharIdx (Dynamic Instance, Uint16 -> Float/Int)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.charBuffer);
+        // Interleaved Attributes (Stride = 24 bytes)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+
+        // 2: CharIdx (U16 at offset 0)
         this.gl.enableVertexAttribArray(2);
-        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
+        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 24, 0);
         this.gl.vertexAttribDivisor(2, 1);
 
-        // 3: Color (Dynamic Instance, Uint32 -> Vec4 Normalized)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
-        this.gl.enableVertexAttribArray(3);
-        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 0, 0);
-        this.gl.vertexAttribDivisor(3, 1);
-
-        // 4: Alpha (Dynamic Instance, Float)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
-        this.gl.enableVertexAttribArray(4);
-        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 0, 0);
-        this.gl.vertexAttribDivisor(4, 1);
-
-        // 5: Decay (Dynamic Instance, Uint8 -> Float)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.decayBuffer);
-        this.gl.enableVertexAttribArray(5);
-        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 0, 0);
-        this.gl.vertexAttribDivisor(5, 1);
-
-        // 6: Glow (Dynamic Instance, Float)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glowBuffer);
-        this.gl.enableVertexAttribArray(6);
-        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 0, 0);
-        this.gl.vertexAttribDivisor(6, 1);
-
-        // 7: Mix (Dynamic Instance, Float)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.mixBuffer);
-        this.gl.enableVertexAttribArray(7);
-        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 0, 0);
-        this.gl.vertexAttribDivisor(7, 1);
-
-        // 8: NextChar (Dynamic Instance, Uint16 -> Float/Int)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.nextCharBuffer);
+        // 8: NextChar (U16 at offset 2)
         this.gl.enableVertexAttribArray(8);
-        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
+        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 24, 2);
         this.gl.vertexAttribDivisor(8, 1);
 
-        // 10: MaxDecay (Dynamic Instance, Uint16 -> Float)
-        // Location 9 is depth (unused in 2D but reserved), skipping to 10
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.maxDecayBuffer);
+        // 3: Color (U32 at offset 4, normalized)
+        this.gl.enableVertexAttribArray(3);
+        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 24, 4);
+        this.gl.vertexAttribDivisor(3, 1);
+
+        // 4: Alpha (F32 at offset 8)
+        this.gl.enableVertexAttribArray(4);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 24, 8);
+        this.gl.vertexAttribDivisor(4, 1);
+
+        // 6: Glow (F32 at offset 12)
+        this.gl.enableVertexAttribArray(6);
+        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 24, 12);
+        this.gl.vertexAttribDivisor(6, 1);
+
+        // 7: Mix (F32 at offset 16)
+        this.gl.enableVertexAttribArray(7);
+        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 24, 16);
+        this.gl.vertexAttribDivisor(7, 1);
+
+        // 5: Decay (U8 at offset 20)
+        this.gl.enableVertexAttribArray(5);
+        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 24, 20);
+        this.gl.vertexAttribDivisor(5, 1);
+
+        // 10: MaxDecay (U16 at offset 22 - aligned to multiple of 2)
         this.gl.enableVertexAttribArray(10);
-        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 0, 0);
+        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 24, 22);
         this.gl.vertexAttribDivisor(10, 1);
 
         this.gl.bindVertexArray(null);
@@ -1557,60 +1540,49 @@ class WebGLRenderer {
 
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-                this.gl.uniform1i(uLoc('u_logicGrid'), 1);
+                this.gl.uniform1i(this._u(prog, 'u_logicGrid'), 1);
         
                 this.gl.activeTexture(this.gl.TEXTURE3);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex); // Use raw shadow mask for body/masking
-                this.gl.uniform1i(uLoc('u_shadowMask'), 3);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex); 
+                this.gl.uniform1i(this._u(prog, 'u_shadowMask'), 3);
 
-                // Re-bind Source Grid for Standard Line Mode (Unit 4)
                 this.gl.activeTexture(this.gl.TEXTURE4);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-                this.gl.uniform1i(uLoc('u_sourceGrid'), 4);
+                this.gl.uniform1i(this._u(prog, 'u_sourceGrid'), 4);
         
                 // PASS 1: GENERATE
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
                 this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
                 
-                // IMPORTANT: Prevent feedback loop if unit 2 was left bound to texLinePersist
                 this.gl.activeTexture(this.gl.TEXTURE2);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, null);
 
                 this.gl.enable(this.gl.BLEND);
                 this.gl.blendFunc(this.gl.ZERO, this.gl.SRC_COLOR); 
                 const persistence = fx.getLineGfxValue('Persistence') ?? 0.0;
-                this.gl.uniform1f(uLoc('u_persistence'), persistence); // Set uniform for Mode 0
+                this.gl.uniform1f(this._u(prog, 'u_persistence'), persistence); 
                 
                 this.gl.useProgram(this.colorProgram);
-                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-                this.gl.enableVertexAttribArray(0);
-                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-                this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), persistence, persistence, persistence, 1.0);
+                this.gl.uniform4f(this._u(this.colorProgram, 'u_color'), persistence, persistence, persistence, 1.0);
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
                 this.gl.useProgram(prog);
-                this.gl.uniform1i(uLoc('u_mode'), 0); 
+                this.gl.uniform1i(this._u(prog, 'u_mode'), 0); 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
                 // PASS 2: COMPOSITE
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
                 this.gl.disable(this.gl.BLEND);
                 
-                if (this.config.state.logErrors && this.animFrame % 60 === 0) {
-                    console.log(`[WebGLRenderer] _renderQuantizedLineGfx: PASS 2 (COMPOSITE) executing. glassEnabled=${s.quantizedGlassEnabled}`);
-                }
-
-                // Pure blit (Mode 2) is NOT needed here if we do everything in Mode 1
-                // Standard highlights pass (Mode 1)
-                this.gl.uniform1i(uLoc('u_mode'), 1);
+                this.gl.uniform1i(this._u(prog, 'u_mode'), 1);
                 this.gl.activeTexture(this.gl.TEXTURE0);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex); // Unmasked (if glass on) or Masked (if glass off) code
-                this.gl.uniform1i(uLoc('u_characterBuffer'), 0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex); 
+                this.gl.uniform1i(this._u(prog, 'u_characterBuffer'), 0);
 
                 this.gl.activeTexture(this.gl.TEXTURE2);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.texLinePersist);
-                this.gl.uniform1i(uLoc('u_persistenceBuffer'), 2);
+                this.gl.uniform1i(this._u(prog, 'u_persistenceBuffer'), 2);
                 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
@@ -1635,14 +1607,14 @@ class WebGLRenderer {
         
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
-        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+        this.gl.uniform1i(this._u(this.bloomProgram, 'u_image'), 0);
         
         const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
-        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+        this.gl.uniform1fv(this._u(this.bloomProgram, 'u_weight'), weights);
         
-        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), strength);
-        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_opacity'), opacity);
-        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
+        this.gl.uniform1f(this._u(this.bloomProgram, 'u_spread'), strength);
+        this.gl.uniform1f(this._u(this.bloomProgram, 'u_opacity'), opacity);
+        this.gl.uniform1i(this._u(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
         
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
@@ -1709,7 +1681,7 @@ class WebGLRenderer {
         this.needsAtlasUpdate = false;
 
         // --- MERGE & MAP ---
-        if (this.mappedChars.length !== totalCells) return;
+        if (!this.instanceData) return;
 
         const gChars = grid.chars;
         const gNext = grid.nextChars;
@@ -1739,14 +1711,10 @@ class WebGLRenderer {
 
         const lookup = atlas.codeToId;
         
-        const mChars = this.mappedChars;
-        const mNext = this.mappedNextChars;
-        const uColors = this.uploadColors;
-        const uAlphas = this.uploadAlphas;
-        const uDecays = this.uploadDecays;
-        const uMaxDecays = this.uploadMaxDecays;
-        const uGlows = this.uploadGlows;
-        const uMix = this.uploadMix;
+        const m16 = this.instanceDataU16;
+        const m32 = this.instanceDataU32;
+        const mF32 = this.instanceData;
+        const mU8 = this.instanceDataU8;
 
         const mapChar = (c) => {
             if (c <= 32) return 65535;
@@ -1759,182 +1727,139 @@ class WebGLRenderer {
         };
         
         for (let i = 0; i < totalCells; i++) {
+            const baseOff = i * 6; // Float32 index (24 bytes / 4)
+            const u16Off = i * 12; // Uint16 index (24 bytes / 2)
+            const u8Off = i * 24;  // Uint8 index
+
+            // Initialize defaults
+            mF32[baseOff + 2] = 0; // Alpha
+            mF32[baseOff + 3] = 0; // Glow
+            mF32[baseOff + 4] = 0; // Mix
+            mU8[u8Off + 20] = 0;   // Decay
+            m16[u16Off + 11] = 0; // MaxDecay (at byte 22)
+            
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
             if (effActive && effActive[i]) {
                 if (effActive[i] === 3) {
                     // SHADOW MODE
-                    const c = gChars[i];
-                    mChars[i] = mapChar(c);
-                    uColors[i] = gColors[i];
-                    uAlphas[i] = 1.0; // Force full alpha, let ovAlpha handle opacity
-                    uDecays[i] = gDecays[i];
-                    uMaxDecays[i] = 0; // Effects don't use variable decay
-                    uGlows[i] = 0.0; // Disable glow for shadowboxes
+                    m16[u16Off + 0] = mapChar(gChars[i]);
+                    m32[baseOff + 1] = gColors[i];
+                    mF32[baseOff + 2] = 1.0; 
+                    mU8[u8Off + 20] = gDecays[i];
                     
                     let eAlpha = effAlphas[i];
                     if (eAlpha > 0.99) eAlpha = 0.99;
-                    uMix[i] = 5.0 + eAlpha; 
-                    mNext[i] = 65535;
+                    mF32[baseOff + 4] = 5.0 + eAlpha; 
+                    m16[u16Off + 1] = 65535;
                     continue;
                 }
 
                 if (effActive[i] === 2) {
-                    // OVERLAY MODE: Draw Sim + White Effect
-                    // 1. Load Simulation
-                    const c = gChars[i];
-                    mChars[i] = mapChar(c);
-                    uColors[i] = effColors[i]; // Use effect-provided color (allows dimming)
-                    uAlphas[i] = gAlphas[i];
-                    uDecays[i] = gDecays[i];
-                    uGlows[i] = gGlows[i] + effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    // OVERLAY MODE
+                    m16[u16Off + 0] = mapChar(gChars[i]);
+                    m32[baseOff + 1] = effColors[i];
+                    mF32[baseOff + 2] = gAlphas[i];
+                    mU8[u8Off + 20] = gDecays[i];
+                    mF32[baseOff + 3] = gGlows[i] + effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                     
-                    // 2. Load Effect
-                    mNext[i] = mapChar(effChars[i]);
+                    m16[u16Off + 1] = mapChar(effChars[i]);
                     let eAlpha = effAlphas[i];
                     if (eAlpha > 0.99) eAlpha = 0.99;
-                    uMix[i] = 4.0 + eAlpha; 
+                    mF32[baseOff + 4] = 4.0 + eAlpha; 
                     continue;
                 }
 
                 if (effActive[i] === 4) {
-                    // HIGH PRIORITY OVERRIDE (Superman/Lightning)
-                    // Behaves like Standard Override but sets Mix >= 10.0 to signal "Ignore Shadow"
-                    mChars[i] = mapChar(effChars[i]);
-                    uColors[i] = effColors[i];
-                    uAlphas[i] = effAlphas[i];
-                    uGlows[i] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-                    
-                    uDecays[i] = 0; 
-                    uMix[i] = 10.0; // Signal Value
-                    mNext[i] = 65535;
+                    // HIGH PRIORITY
+                    m16[u16Off + 0] = mapChar(effChars[i]);
+                    m32[baseOff + 1] = effColors[i];
+                    mF32[baseOff + 2] = effAlphas[i];
+                    mF32[baseOff + 3] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    mF32[baseOff + 4] = 10.0;
+                    m16[u16Off + 1] = 65535;
                     continue;
                 }
 
-                // STANDARD OVERRIDE (Replace)
-                mChars[i] = mapChar(effChars[i]);
-                uColors[i] = effColors[i];
-                uAlphas[i] = effAlphas[i];
-                uGlows[i] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-                
-                // Force "Solid" render behavior for effects to prevent simulation fading
-                uDecays[i] = 0; 
-                uMix[i] = 0.0; // Treat as solid/override in shader
-                mNext[i] = 65535;
+                // STANDARD OVERRIDE
+                m16[u16Off + 0] = mapChar(effChars[i]);
+                m32[baseOff + 1] = effColors[i];
+                mF32[baseOff + 2] = effAlphas[i];
+                mF32[baseOff + 3] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                mF32[baseOff + 4] = 0.0;
+                m16[u16Off + 1] = 65535;
                 continue; 
             }
 
-            // PRIORITY 2: HARD OVERRIDE (Deja Vu, etc.)
-            // These usually indicate a logic change or interruption.
+            // PRIORITY 2: HARD OVERRIDE
             const ov = ovActive[i];
             if (ov) {
                 if (ov === 5) {
-                    // DUAL WORLD MODE (Transition overlap)
-                    // Slot 1 = Old World (Simulation)
-                    // Slot 2 = New World (Shadow)
-                    mChars[i] = mapChar(gChars[i]);
-                    uColors[i] = gColors[i]; 
-                    uAlphas[i] = gAlphas[i] * ovAlphas[i]; // OW Alpha (Simulation * World Fade)
+                    m16[u16Off + 0] = mapChar(gChars[i]);
+                    m32[baseOff + 1] = gColors[i]; 
+                    mF32[baseOff + 2] = gAlphas[i] * ovAlphas[i];
+                    mF32[baseOff + 3] = grid.overrideGlows[i]; 
                     
-                    // Passing NW Alpha (Shadow Sim * World Fade) via uGlows
-                    uGlows[i] = grid.overrideGlows[i]; 
-                    
-                    // NW Character selection (Snap during transition due to slot limit)
                     const nwRotMix = (grid.overrideMix[i] || 0.0);
-                    if (nwRotMix > 0.5) {
-                        mNext[i] = mapChar(ovNextChars[i]);
-                    } else {
-                        mNext[i] = mapChar(ovChars[i]);
-                    }
-                    
-                    // Pass DUAL mode signal (5.0) + the Shadow World's own rotator mix
-                    // This allows the NW character to potentially rotate if we find a way later,
-                    // but for now it helps keep the mode signal separate.
-                    uMix[i] = 5.0 + nwRotMix; 
-                    
-                    uDecays[i] = gDecays[i];
-                    uMaxDecays[i] = gMaxDecays ? gMaxDecays[i] : 0;
-                }
-                                
-                 else if (ov === 2) { // SOLID
-                    mChars[i] = 65535;
-                    mNext[i] = 65535;
-                    uMix[i] = 3.0; // Trigger SOLID mode in shader
-                    uColors[i] = ovColors[i];
-                    uAlphas[i] = ovAlphas[i];
-                    uDecays[i] = 0;
-                    uGlows[i] = (gEnvGlows ? gEnvGlows[i] : 0);
-                } else { // CHAR (Mode 1) or FULL (Mode 3)
-                    mChars[i] = mapChar(ovChars[i]);
-                    
+                    m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : mapChar(ovChars[i]);
+                    mF32[baseOff + 4] = 5.0 + nwRotMix; 
+                    mU8[u8Off + 20] = gDecays[i];
+                    m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
+                } else if (ov === 2) {
+                    m16[u16Off + 0] = 65535;
+                    m16[u16Off + 1] = 65535;
+                    mF32[baseOff + 4] = 3.0;
+                    m32[baseOff + 1] = ovColors[i];
+                    mF32[baseOff + 2] = ovAlphas[i];
+                    mF32[baseOff + 3] = (gEnvGlows ? gEnvGlows[i] : 0);
+                } else {
+                    m16[u16Off + 0] = mapChar(ovChars[i]);
                     const mode = gMode[i];
-                    if (mode === 1) { // OVERLAP
-                        mNext[i] = mapChar(gSecChars[i]);
-                        uMix[i] = 2.0; 
+                    if (mode === 1) {
+                        m16[u16Off + 1] = mapChar(gSecChars[i]);
+                        mF32[baseOff + 4] = 2.0; 
                     } else {
-                        mNext[i] = 65535;
-                        uMix[i] = 0.0;
+                        m16[u16Off + 1] = 65535;
+                        mF32[baseOff + 4] = 0.0;
                     }
-                    
-                    uColors[i] = ovColors[i];
-                    uAlphas[i] = ovAlphas[i];
-                    uDecays[i] = 0;
-                    uGlows[i] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    m32[baseOff + 1] = ovColors[i];
+                    mF32[baseOff + 2] = ovAlphas[i];
+                    mF32[baseOff + 3] = ovGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                     
                     if (ov === 3) {
-                         // FULL OVERRIDE: Use Override Mix (New World state)
                          const mixVal = grid.overrideMix[i];
-                         uMix[i] = mixVal;
-                         if (mixVal > 0.0) {
-                             mNext[i] = mapChar(ovNextChars[i]);
-                         } else {
-                             mNext[i] = 65535;
-                         }
-                         // Fixed: Use provided transition alpha (ovAlphas contains the world fade)
-                         // Do NOT multiply by rotator mix (mixVal), which causes flickering
-                         uAlphas[i] = ovAlphas[i];
-                    }
-                     else {
-                         // CHAR OVERRIDE: Inherit Main Mix (Old World state)
-                         if (gMix[i] > 0) {
-                             uMix[i] = gMix[i];
-                         }
+                         mF32[baseOff + 4] = mixVal;
+                         if (mixVal > 0.0) m16[u16Off + 1] = mapChar(ovNextChars[i]);
+                    } else if (gMix[i] > 0) {
+                         mF32[baseOff + 4] = gMix[i];
                     }
                 }
                 continue;
             }
 
             // PRIORITY 3: STANDARD SIMULATION
-            // Check for Glimmer (mix >= 30.0) which uses effectChars for non-destructive cycling
             const mix = gMix[i];
             let c = gChars[i];
-            
             if (mix >= 30.0) {
-                // Use visual override from effectChars if available
                 const ec = effChars[i];
                 if (ec > 0) c = ec;
             }
 
-            mChars[i] = mapChar(c);
-            uColors[i] = gColors[i];
-            uAlphas[i] = gAlphas[i];
-            uDecays[i] = gDecays[i];
-            uMaxDecays[i] = gMaxDecays ? gMaxDecays[i] : 0;
-            uGlows[i] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+            m16[u16Off + 0] = mapChar(c);
+            m32[baseOff + 1] = gColors[i];
+            mF32[baseOff + 2] = gAlphas[i];
+            mU8[u8Off + 20] = gDecays[i];
+            m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
+            mF32[baseOff + 3] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
             
             const mode = gMode[i];
-            if (mode === 1) { // OVERLAP
-                mNext[i] = mapChar(gSecChars[i]);
-                uMix[i] = 2.0; 
+            if (mode === 1) {
+                m16[u16Off + 1] = mapChar(gSecChars[i]);
+                mF32[baseOff + 4] = 2.0; 
             } else {
-                uMix[i] = mix;
-                if (mix > 0.0) {
-                    mNext[i] = mapChar(gNext[i]);
-                } else {
-                    mNext[i] = 65535;
-                }
+                mF32[baseOff + 4] = mix;
+                m16[u16Off + 1] = (mix > 0.0) ? mapChar(gNext[i]) : 65535;
             }
         }
-
 
         if (atlas.hasChanges) {
              this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
@@ -1943,29 +1868,8 @@ class WebGLRenderer {
         }
 
         // --- UPLOAD ---
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.charBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, mChars);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.colorBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uColors);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.alphaBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uAlphas);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.decayBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uDecays);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.maxDecayBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uMaxDecays);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glowBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uGlows);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.mixBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, uMix);
-
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.nextCharBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, mNext);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
 
 
         // --- SHADOW MASK PASS ---
@@ -2080,7 +1984,7 @@ class WebGLRenderer {
                 this.gl.vertexAttribPointer(3, 1, this.gl.FLOAT, false, stride, 20);
                 this.gl.vertexAttribDivisor(3, 1);
                 
-                this.gl.uniform2f(this.gl.getUniformLocation(this.shadowProgram, 'u_gridSize'), grid.cols, grid.rows);
+                this.gl.uniform2f(this._u(this.shadowProgram, 'u_gridSize'), grid.cols, grid.rows);
                 
                 this.gl.enable(this.gl.BLEND);
                 this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
@@ -2139,7 +2043,7 @@ class WebGLRenderer {
                             const alpha = r.alpha;
                             if (alpha <= 0.01) continue;
     
-                            this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), 0, 0, 0, alpha);
+                            this.gl.uniform4f(this._u(this.colorProgram, 'u_color'), 0, 0, 0, alpha);
                             
                             let vertices = null;
 
@@ -2230,23 +2134,17 @@ class WebGLRenderer {
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
         if (this.colorProgram) {
-            // Respect layerEnableBackground (Default: true)
-            // If disabled, we don't clear/fade, which might look glitchy (hall of mirrors), but it's what was asked.
-            // Actually, usually "disable background" means transparent background. 
-            // But here we are drawing a full screen quad.
-            // If layerEnableBackground is false, we skip this draw call.
             if (s.layerEnableBackground !== false) {
                 this.gl.useProgram(this.colorProgram);
                 this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
                 this.gl.enableVertexAttribArray(0); 
                 this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
                 
-                // Apply Background Color for Fade
                 const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
                 const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
                 const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
                 
-                this.gl.uniform4f(this.gl.getUniformLocation(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
+                this.gl.uniform4f(this._u(this.colorProgram, 'u_color'), br, bg, bb, s.clearAlpha);
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
             }
         }
@@ -2254,183 +2152,153 @@ class WebGLRenderer {
         let finalMainTex = this.texA;
 
         // 2. Draw Cells
-        // Respect layerEnablePrimaryCode
         if (s.layerEnablePrimaryCode !== false && this.program2D) {
-            // Determine Program based on mode
             const activeProgram = this.program2D;
-
-        this.gl.useProgram(activeProgram);
-        
-        // --- Shared Uniforms ---
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_resolution'), this.w, this.h);
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
-        
-        // Calculate Grid Size in Pixels for Centering
-        const gridPixW = grid.cols * d.cellWidth;
-        const gridPixH = grid.rows * d.cellHeight;
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
-
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cellSize'), atlas.cellSize);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cols'), atlas._lastCols);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
-        
-        // Grid Layout Stretch
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
-        
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_texture'), 0);
-        
-        // Bind Shadow Mask
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
-        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_shadowMask'), 1);
-        
-        // Bind Glimmer Optimization Texture
-        this.gl.activeTexture(this.gl.TEXTURE2);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
-        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glimmerNoise'), 2);
-        
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_time'), performance.now() / 1000.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
-        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
-        
-        // Decoupled: Shader blink speed is constant, Slider controls Char Cycle speed
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
-        
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
-
-        // Calculate Cell Scale (Aspect Ratio Correction)
-        const scaleMult = 1.0;
-        const cellScaleX = (d.cellWidth / atlas.cellSize) * scaleMult;
-        const cellScaleY = (d.cellHeight / atlas.cellSize) * scaleMult;
-        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
-
-        
-        // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
-        const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
-        const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
-        
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveScale'), dissolveScale);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
-        
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
-        
-        // Pass Overlap Color
-        const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
-        this.gl.uniform4f(this.gl.getUniformLocation(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
-
-        this.gl.bindVertexArray(this.vao);
-        
-        // Ensure blending is enabled for the main draw
-        this.gl.enable(this.gl.BLEND);
-        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-        
-        // Draw Main Pass
-        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
-        this.gl.bindVertexArray(null);
-
-        // --- 3rd Pass: Quantized Line GFX ---
-        if (this.effects) {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-            this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
-            this.gl.clearColor(0, 0, 0, 0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            this.gl.useProgram(activeProgram);
             
-            if (this._renderQuantizedLineGfx(s, d, this.texA)) {
-                finalMainTex = this.texA2;
-            } else {
-                // If GFX enabled but no active effect, we should probably clear persistence
-                // so old lines don't get stuck.
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
+            this.gl.uniform2f(this._u(activeProgram, 'u_resolution'), this.w, this.h);
+            this.gl.uniform2f(this._u(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
+            
+            const gridPixW = grid.cols * d.cellWidth;
+            const gridPixH = grid.rows * d.cellHeight;
+            this.gl.uniform2f(this._u(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
+
+            this.gl.uniform1f(this._u(activeProgram, 'u_cellSize'), atlas.cellSize);
+            this.gl.uniform1f(this._u(activeProgram, 'u_cols'), atlas._lastCols);
+            this.gl.uniform1f(this._u(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
+            this.gl.uniform2f(this._u(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
+            this.gl.uniform1f(this._u(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
+            
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+            this.gl.uniform1i(this._u(activeProgram, 'u_texture'), 0);
+            
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
+            this.gl.uniform1i(this._u(activeProgram, 'u_shadowMask'), 1);
+            
+            this.gl.activeTexture(this.gl.TEXTURE2);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
+            this.gl.uniform1i(this._u(activeProgram, 'u_glimmerNoise'), 2);
+            
+            this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+            this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
+
+            const cellScaleX = (d.cellWidth / atlas.cellSize);
+            const cellScaleY = (d.cellHeight / atlas.cellSize);
+            this.gl.uniform2f(this._u(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
+
+            const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
+            const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
+            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveScale'), dissolveScale);
+            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
+            
+            this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
+            
+            const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
+            this.gl.uniform4f(this._u(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
+
+            this.gl.bindVertexArray(this.vao);
+            this.gl.enable(this.gl.BLEND);
+            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
+            this.gl.bindVertexArray(null);
+
+            // --- 3rd Pass: Quantized Line GFX ---
+            if (this.effects) {
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
                 this.gl.clearColor(0, 0, 0, 0);
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                 
-                // Still need to blit texA to fboA2 if we want to use finalMainTex consistently
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-                this._drawFullscreenTexture(this.texA, 1.0, 0);
-                finalMainTex = this.texA2;
+                if (this._renderQuantizedLineGfx(s, d, this.texA)) {
+                    finalMainTex = this.texA2;
+                } else {
+                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
+                    this.gl.clearColor(0, 0, 0, 0);
+                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                    
+                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                    this._drawFullscreenTexture(this.texA, 1.0, 0);
+                    finalMainTex = this.texA2;
+                }
             }
-        }
+        } 
 
-        } // End layerEnablePrimaryCode check
-
-        // --- POST PROCESS (Bloom) ---
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-        
-        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-        
-        this.gl.clearColor(br, bg, bb, 1);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-
-        this.gl.enable(this.gl.BLEND);
-        this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
-        
-        const blurAmt = s.smoothingEnabled ? s.smoothingAmount : 0;
-        this._drawFullscreenTexture(finalMainTex, 1.0, blurAmt);
-
+        // --- BLOOM ---
         if (s.enableBloom) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
             this.gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
             let spread = s.bloomStrength * 1.0; 
             this._runBlur(finalMainTex, true, spread, this.fboWidth, this.fboHeight); 
 
-            const iterations = 3;
-            for (let i = 0; i < iterations; i++) {
+            for (let i = 0; i < 3; i++) {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboC);
                 this._runBlur(this.texB, false, spread, this.bloomWidth, this.bloomHeight);
-                
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
                 this._runBlur(this.texC, true, spread, this.bloomWidth, this.bloomHeight);
             }
-
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-            
-            this.gl.enable(this.gl.BLEND);
-            this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
-            this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
         }
+
+        // --- FINAL COMPOSITION & POST PROCESS ---
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        
+        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+        this.gl.clearColor(br, bg, bb, 1);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         if (this.postProcessor) {
             const customSource = s.shaderEnabled ? s.customShader : null;
             const effectSource = s.effectShader;
 
-            // Compile Custom Shader if changed
             if (customSource !== this.lastShaderSource) {
                 this.postProcessor.compileShader(customSource);
                 this.lastShaderSource = customSource;
             }
-            
-            // Compile Effect Shader if changed
             if (effectSource !== this.lastEffectSource) {
                 this.postProcessor.compileEffectShader(effectSource);
                 this.lastEffectSource = effectSource;
             }
 
-            const isActive = (s.shaderEnabled && customSource) || effectSource;
-
-            if (isActive) {
-                const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
-                const effectParam = s.effectParameter !== undefined ? s.effectParameter : 0.0;
-                this.postProcessor.render(this.cvs, performance.now() / 1000, this.mouseX, this.mouseY, param, effectParam);
-                
-                if (this.postProcessor.canvas.style.display === 'none') {
-                    this.postProcessor.canvas.style.display = 'block';
-                }
-            } else {
-                if (this.postProcessor.canvas.style.display !== 'none') {
-                    this.postProcessor.canvas.style.display = 'none';
-                }
+            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
+            const effectParam = s.effectParameter !== undefined ? s.effectParameter : 0.0;
+            
+            // Render directly to screen through PostProcessor
+            this.postProcessor.render(finalMainTex, performance.now() / 1000, this.mouseX, this.mouseY, param, effectParam);
+            
+            // If bloom is enabled, we need to blend it on top of the post-processed result
+            if (s.enableBloom) {
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+                this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
             }
+        } else {
+            // Fallback: Just draw the main texture
+            this.gl.enable(this.gl.BLEND);
+            this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+            this._drawFullscreenTexture(finalMainTex, 1.0, 0);
+            
+            if (s.enableBloom) {
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+                this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
+            }
+        }
+
+        // Cleanup: Unbind all textures to prevent feedback in next frame
+        for (let i = 0; i < 8; i++) {
+            this.gl.activeTexture(this.gl.TEXTURE0 + i);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
         }
     }
 }

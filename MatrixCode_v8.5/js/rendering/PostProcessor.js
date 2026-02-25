@@ -3,12 +3,12 @@
 // =========================================================================
 
 class PostProcessor {
-    constructor(config) {
+    constructor(config, gl = null) {
         this.config = config;
-        this.gl = null;
+        this.gl = gl;
         this.program = null; // Custom User Shader
         this.effectProgram = null; // System Effect Shader (e.g. Deja Vu)
-        this.canvas = document.createElement('canvas'); // Offscreen WebGL canvas
+        this.canvas = gl ? null : document.createElement('canvas'); // Only create canvas if no GL provided
         
         // Textures
         this.texture = null; // Source Input
@@ -46,7 +46,42 @@ class PostProcessor {
             }
         `;
         
-        this._initWebGL();
+        if (this.gl) {
+            this._setupSharedGL();
+        } else {
+            this._initWebGL();
+        }
+    }
+
+    _setupSharedGL() {
+        // Full screen quad
+        const vertices = new Float32Array([
+            -1, -1,
+             1, -1,
+            -1,  1,
+            -1,  1,
+             1, -1,
+             1,  1
+        ]);
+        
+        this.positionBuffer = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        
+        // We do NOT create our own textures here if we are sharing.
+        // Or we do, but we expect them to be managed by the parent?
+        // Let's create intermediate ones for the post-processing chain.
+        this.texture = this._createTexture();
+        this.intermediateTexture = this._createTexture();
+        
+        this.framebuffer = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTexture, 0);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
+        this.compileShader(this.config.get('customShader'));
+        this.compileEffectShader(this.config.get('effectShader'));
     }
 
     _initWebGL() {
@@ -151,8 +186,10 @@ class PostProcessor {
 
     resize(width, height) {
         if (!this.gl) return;
-        this.canvas.width = width;
-        this.canvas.height = height;
+        if (this.canvas) {
+            this.canvas.width = width;
+            this.canvas.height = height;
+        }
         
         // Resize textures
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
@@ -162,29 +199,36 @@ class PostProcessor {
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
     }
 
-    render(sourceCanvas, time, mouseX = 0, mouseY = 0, param = 0.5, effectParam = 0.0) {
+    render(source, time, mouseX = 0, mouseY = 0, param = 0.5, effectParam = 0.0) {
         if (!this.gl) return;
+
+        let inputTex;
+        let flipY = 0.0;
+
+        if (source instanceof WebGLTexture || (typeof WebGLTexture !== 'undefined' && source instanceof WebGLTexture)) {
+            inputTex = source;
+            flipY = 0.0;
+        } else {
+            // Upload Source to Input Texture
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, source);
+            inputTex = this.texture;
+            flipY = 1.0;
+        }
 
         // Ensure state is clean before we start
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-        this.gl.clearColor(0, 0, 0, 0);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-
-        // Upload Source to Input Texture
-        this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
-
-        let inputTex = this.texture;
-        let flipY = 1.0; // Default: Flip Y for Canvas source
+        // Do NOT clear if we are drawing to the main screen in the last pass
+        // But we DO clear our intermediate FBO
 
         // PASS 1: Effect Shader (e.g. Deja Vu)
         if (this.effectProgram) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
-            this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT); // Clear intermediate FBO
+            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+            this.gl.clearColor(0, 0, 0, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT); 
             
             this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, effectParam, flipY);
             
@@ -194,9 +238,7 @@ class PostProcessor {
         }
 
         // PASS 2: Custom Shader (Final Post-Process)
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null); // Draw to screen (canvas)
-        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        
+        // Draw to whatever is currently bound (usually null/screen)
         const prog = this.program || this.defaultProgram;
         this._drawPass(prog, inputTex, time, mouseX, mouseY, param, flipY);
     }
@@ -216,7 +258,7 @@ class PostProcessor {
         this.gl.uniform1i(uTex, 0);
         
         const uRes = this.gl.getUniformLocation(prog, 'uResolution');
-        this.gl.uniform2f(uRes, this.canvas.width, this.canvas.height);
+        this.gl.uniform2f(uRes, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
         
         const uTime = this.gl.getUniformLocation(prog, 'uTime');
         this.gl.uniform1f(uTime, time);
