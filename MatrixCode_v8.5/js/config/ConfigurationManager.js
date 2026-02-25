@@ -24,6 +24,17 @@ class ConfigurationManager {
             'doubleClickToReset',
             'suppressToasts',
             'renderingEngine',
+            'quantizedGlassEnabled',
+            'quantizedGlassBodyOpacity',
+            'quantizedGlassEdgeGlow',
+            'quantizedGlassRefraction',
+            'quantizedGlassChromaticAberration',
+            'quantizedGlassFresnel',
+            'quantizedGlassBevel',
+            'quantizedGlassOverlapScale',
+            'quantizedGlassBloom',
+            'quantizedGlassLensCurvature',
+            'quantizedGlassDarkness'
             // 'savedPresets' is handled by this.slots
         ]);
 
@@ -565,7 +576,18 @@ class ConfigurationManager {
             "quantEditorEnabled": false,
             "streamVisibleLengthScale": 0.8,
             "pauseWhenHidden": false,
-            "pauseWhenIdle": false
+            "pauseWhenIdle": false,
+            "quantizedGlassEnabled": false,
+            "quantizedGlassBodyOpacity": 0.3,
+            "quantizedGlassEdgeGlow": 5.0,
+            "quantizedGlassRefraction": 0.02,
+            "quantizedGlassChromaticAberration": 0.01,
+            "quantizedGlassFresnel": 1.0,
+            "quantizedGlassBevel": 0.5,
+            "quantizedGlassOverlapScale": 1.5,
+            "quantizedGlassBloom": 1.2,
+            "quantizedGlassLensCurvature": 1.0,
+            "quantizedGlassDarkness": 0.5
         };
     }
 
@@ -1991,6 +2013,15 @@ void main() {
      */
     set(key, value) {
         if (this.state[key] === value) return; // Skip if no change in value
+
+        // Special handling for Glass Rendering
+        if (key === 'quantizedGlassEnabled') {
+            if (value === true) {
+                this.set('layerEnableQuantizedLines', false);
+            } else {
+                this.set('layerEnableQuantizedLines', true);
+            }
+        }
 
         // Special handling for performanceMode
         if (key === 'performanceMode') {

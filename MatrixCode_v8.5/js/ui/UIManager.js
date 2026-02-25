@@ -923,7 +923,6 @@ class UIManager {
             icon.onmouseleave = () => this.hideTooltip();
             // Handle touch events for mobile tooltips
             icon.addEventListener('touchstart', (e) => { 
-                e.preventDefault(); 
                 e.stopPropagation(); 
                 if (this.dom.tooltip.classList.contains('visible')) { 
                     this.hideTooltip(); 
@@ -932,7 +931,7 @@ class UIManager {
                     // Automatically hide tooltip after a short delay on touch devices
                     setTimeout(() => this.hideTooltip(), 3000); 
                 } 
-            });
+            }, { passive: true });
             group.appendChild(icon);
         }
         return group;

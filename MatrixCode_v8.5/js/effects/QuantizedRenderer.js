@@ -410,29 +410,41 @@ class QuantizedRenderer {
             }
 
                         // 2. Lead Convergence (Overlap of subsequent layers, usually L1 & L2)
-                        // "Lines are only drawn for layer 1 and 2 where they both exist in the same spot."
                         const lead1Idx = (fx.layerOrder && fx.layerOrder.length > 1) ? fx.layerOrder[1] : 1;
                         const lead2Idx = (fx.layerOrder && fx.layerOrder.length > 2) ? fx.layerOrder[2] : 2;
                         const grid1 = fx.layerGrids[lead1Idx];
                         const grid2 = fx.layerGrids[lead2Idx];
             
-                        if (grid1 && grid2) {
-                            const aBoth = (getBlock(grid1, ax, ay) !== -1 && getBlock(grid2, ax, ay) !== -1);
-                            const bBoth = (getBlock(grid1, bx, by) !== -1 && getBlock(grid2, bx, by) !== -1);
+                        if (grid1 || grid2) {
+                            const a1 = grid1 ? (getBlock(grid1, ax, ay) !== -1) : false;
+                            const b1 = grid1 ? (getBlock(grid1, bx, by) !== -1) : false;
+                            const a2 = grid2 ? (getBlock(grid2, ax, ay) !== -1) : false;
+                            const b2 = grid2 ? (getBlock(grid2, bx, by) !== -1) : false;
+
+                            const aBoth = a1 && a2;
+                            const bBoth = b1 && b2;
             
-                            if (aBoth !== bBoth) {
-                                // Check if this lead edge is obscured by the Foundation Layer (Z-order)
-                                const obscured = (grid0 && (getBlock(grid0, ax, ay) !== -1 || getBlock(grid0, bx, by) !== -1));
-                                
-                                if (!obscured) {
-                                    const birth = Math.max(
-                                        Math.max(getBlock(grid1, ax, ay), getBlock(grid2, ax, ay)),
-                                        Math.max(getBlock(grid1, bx, by), getBlock(grid2, bx, by))
+                            const obscuredA = (grid0 && getBlock(grid0, ax, ay) !== -1);
+                            const obscuredB = (grid0 && getBlock(grid0, bx, by) !== -1);
+
+                            if (aBoth !== bBoth && !(obscuredA || obscuredB)) {
+                                isVisibleNormally = true;
+                                edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(
+                                    a1 && a2 ? Math.max(getBlock(grid1, ax, ay), getBlock(grid2, ax, ay)) : -1,
+                                    b1 && b2 ? Math.max(getBlock(grid1, bx, by), getBlock(grid2, bx, by)) : -1
+                                ));
+                            }
+
+                            // 3. Individual Sub-layers (Dim Visibility)
+                            if (!isVisibleNormally) {
+                                if ((a1 !== b1 && !obscuredA && !obscuredB) || (a2 !== b2 && !obscuredA && !obscuredB)) {
+                                    isVisibleDimly = true;
+                                    dimBirthFrame = Math.max(
+                                        a1 ? getBlock(grid1, ax, ay) : -1,
+                                        b1 ? getBlock(grid1, bx, by) : -1,
+                                        a2 ? getBlock(grid2, ax, ay) : -1,
+                                        b2 ? getBlock(grid2, bx, by) : -1
                                     );
-            
-                                    // For the Lead Intersection, we use "Normally Visible"
-                                    isVisibleNormally = true;
-                                    if (birth > edgeBirthFrame) edgeBirthFrame = birth;
                                 }
                             }
                         }

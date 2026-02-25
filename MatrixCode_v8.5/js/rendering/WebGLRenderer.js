@@ -264,6 +264,7 @@ class WebGLRenderer {
                 in vec2 v_uv;
                 uniform sampler2D u_characterBuffer;
                 uniform sampler2D u_persistenceBuffer;
+                uniform sampler2D u_shadowMask;
                 uniform sampler2D u_sourceGrid;
                 uniform sampler2D u_logicGrid;
                 uniform vec2 u_logicGridSize; 
@@ -293,6 +294,19 @@ class WebGLRenderer {
                 uniform float u_maskSoftness;
                 uniform float u_persistence;
                 uniform bool u_showInterior;
+                
+                // Glass Rendering Uniforms
+                uniform bool u_glassEnabled;
+                uniform float u_glassBodyOpacity;
+                uniform float u_glassEdgeGlow;
+                uniform float u_glassRefraction;
+                uniform float u_glassChromaticAberration;
+                uniform float u_glassFresnel;
+                uniform float u_glassBevel;
+                uniform float u_glassOverlapScale;
+                uniform float u_glassBloom;
+                uniform float u_glassLensCurvature;
+                uniform float u_glassDarkness;
                 
                 out vec4 fragColor;
 
@@ -326,18 +340,70 @@ class WebGLRenderer {
                         for(int i=0; i<3; i++) {
                             mask = max(mask, getLayerVal(occ, u_layerOrder[i]));
                         }
-                        fragColor = vec4(0.0, 0.0, 0.0, mask);
+                        // Write mask to both Red and Alpha for compatibility and visibility
+                        fragColor = vec4(mask, 0.0, 0.0, mask);
                         return;
                     }
 
                     if (u_mode == 1) {
+                        vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
+                        vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
+                        vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
+                        vec2 cellLocal = fract(logicPos);
+
                         vec4 base = texture(u_characterBuffer, v_uv);
-                        float persist = texture(u_persistenceBuffer, v_uv).r;
+                        float lineMask = texture(u_persistenceBuffer, v_uv).r;
                         
-                        // Sample Source Grid for illumination points
+                        if (u_glassEnabled) {
+                            float blockMask = texture(u_shadowMask, v_uv).r;
+                            float isVisible = step(0.001, blockMask);
+                            float stackCount = blockMask; 
+                            float overlapMult = 1.0 + max(0.0, stackCount - 1.0) * (u_glassOverlapScale - 1.0);
+
+                            if (isVisible > 0.5) {
+                                // GLASS LENS MODEL
+                                vec2 centerOffset = cellLocal - 0.5;
+                                float distToCenter = length(centerOffset);
+                                
+                                // Refraction Displacement
+                                float refraction = u_glassRefraction * overlapMult;
+                                float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
+                                vec2 displacement = centerOffset * lensCurv * refraction;
+                                
+                                // Chromatic Aberration (RGB Shift)
+                                float ab = u_glassChromaticAberration;
+                                vec3 glassCode;
+                                glassCode.r = texture(u_characterBuffer, v_uv + displacement * (1.0 + ab)).r;
+                                glassCode.g = texture(u_characterBuffer, v_uv + displacement).g;
+                                glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
+                                
+                                // Fresnel Glow (Inner perimeter)
+                                float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * overlapMult;
+                                
+                                // Specular Bevel (3D Effect)
+                                float bevel = 0.0;
+                                float edgeSoft = 0.05;
+                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.x)) * u_glassBevel;
+                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.y)) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.x) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
+                                
+                                glassCode *= u_glassBloom * overlapMult;
+                                
+                                vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + (lineMask * u_glassEdgeGlow * u_intensity * pow(max(1.0, stackCount), 2.0));
+                                
+                                fragColor = vec4(finalGlass, base.a);
+                                return;
+                            } else {
+                                // Background: Darken characters not behind glass
+                                vec3 background = base.rgb * (1.0 - u_glassDarkness);
+                                fragColor = vec4(background, base.a);
+                                return;
+                            }
+                        }
+                        
+                        // STANDARD QUANTIZED LINES LOGIC
                         vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-                        
-                        // Soft Sampling for character mask
                         float charLuma = 0.0;
                         if (u_maskSoftness > 0.0) {
                             float s = u_maskSoftness / u_resolution.x;
@@ -351,30 +417,19 @@ class WebGLRenderer {
                             vec4 sourceChar = texture(u_sourceGrid, sourceUV);
                             charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
                         }
-                        
-                        // Calculate Dynamic Color based on normalized persistence (0..1)
-                        float colorT = clamp(persist, 0.0, 1.0);
-                        
-                        // Line Roundness affects color transition dynamics
+
+                        float colorT = clamp(lineMask, 0.0, 1.0);
                         float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
                         vec3 dynamicColor = mix(u_fadeColor, u_color, profileT);
-                        
-                        // Add a "hot core" boost if roundness is high
                         dynamicColor = mix(dynamicColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
+                        dynamicColor = boostSaturation(dynamicColor, u_saturation) * u_brightness;
                         
-                        // Apply Saturation and Brightness to the highlight color
-                        dynamicColor = boostSaturation(dynamicColor, u_saturation);
-                        dynamicColor *= u_brightness;
-                        
-                        // Additive highlight based on Source Grid characters
-                        vec3 highlight = dynamicColor * persist * charLuma * u_additiveStrength * u_intensity;
-                        
+                        vec3 highlight = dynamicColor * lineMask * charLuma * u_additiveStrength * u_intensity;
                         fragColor = vec4(base.rgb + highlight, base.a);
                         return;
                     }
 
                     // GENERATE MODE (u_mode == 0)
-                    // Standardize to 0=Top coordinate system
                     vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                     vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                     vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
@@ -383,7 +438,6 @@ class WebGLRenderer {
                     vec2 cellLocal = fract(logicPos);
                     
                     vec3 centerOcc = getOccupancy(blockCoord);
-                    // In 0=Top, +1 is Below, -1 is Above
                     vec3 leftOcc = getOccupancy(blockCoord + vec2(-1.0, 0.0));
                     vec3 rightOcc = getOccupancy(blockCoord + vec2(1.0, 0.0));
                     vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
@@ -392,19 +446,16 @@ class WebGLRenderer {
                     float total = 0.0;
                     float halfThick = (u_thickness / 10.0) * 0.5;
 
-                    // Identify layers using u_layerOrder
                     int L0 = u_layerOrder[0];
                     int L1 = u_layerOrder[1];
                     int L2 = u_layerOrder[2];
 
-                    // 1. Foundation (L0) - Always contributes to perimeter
                     float a0 = getLayerVal(centerOcc, L0);
                     float nN0 = getLayerVal(aboveOcc, L0);
                     float nS0 = getLayerVal(belowOcc, L0);
                     float nW0 = getLayerVal(leftOcc, L0);
                     float nE0 = getLayerVal(rightOcc, L0);
 
-                    // 2. Lead Convergence (L1 & L2 Intersection) - Contributes where overlap zone boundary exists
                     float a1 = getLayerVal(centerOcc, L1); float a2 = getLayerVal(centerOcc, L2);
                     float nN1 = getLayerVal(aboveOcc, L1); float nN2 = getLayerVal(aboveOcc, L2);
                     float nS1 = getLayerVal(belowOcc, L1); float nS2 = getLayerVal(belowOcc, L2);
@@ -417,9 +468,6 @@ class WebGLRenderer {
                     float nWBoth = min(nW1, nW2);
                     float nEBoth = min(nE1, nE2);
 
-                    // Combined Edge Detection
-                    // An edge exists if the Foundation (L0) has a boundary, 
-                    // OR if the Lead Intersection has a boundary that is NOT obscured by L0.
                     bool isEdgeN = (a0 > 0.01 != nN0 > 0.01) || ((aBoth > 0.01 != nNBoth > 0.01) && !(a0 > 0.01 || nN0 > 0.01));
                     bool isEdgeS = (a0 > 0.01 != nS0 > 0.01) || ((aBoth > 0.01 != nSBoth > 0.01) && !(a0 > 0.01 || nS0 > 0.01));
                     bool isEdgeW = (a0 > 0.01 != nW0 > 0.01) || ((aBoth > 0.01 != nWBoth > 0.01) && !(a0 > 0.01 || nW0 > 0.01));
@@ -429,23 +477,10 @@ class WebGLRenderer {
                         float layerDist = 1e10;
                         float edgeW = 0.0;
                         
-                        // Line intensity follows the max alpha of contributing elements
-                        if (isEdgeW) { 
-                            layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); 
-                            edgeW = max(edgeW, max(max(a0, nW0), max(aBoth, nWBoth)));
-                        }
-                        if (isEdgeE) { 
-                            layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); 
-                            edgeW = max(edgeW, max(max(a0, nE0), max(aBoth, nEBoth)));
-                        }
-                        if (isEdgeN) { 
-                            layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); 
-                            edgeW = max(edgeW, max(max(a0, nN0), max(aBoth, nNBoth)));
-                        }
-                        if (isEdgeS) { 
-                            layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); 
-                            edgeW = max(edgeW, max(max(a0, nS0), max(aBoth, nSBoth)));
-                        }
+                        if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(max(a0, nW0), max(aBoth, nWBoth))); }
+                        if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(max(a0, nE0), max(aBoth, nEBoth))); }
+                        if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(max(a0, nN0), max(aBoth, nNBoth))); }
+                        if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(max(a0, nS0), max(aBoth, nSBoth))); }
 
                         float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
                         if (u_roundness > 0.0 && halfThick > 0.0) {
@@ -456,7 +491,6 @@ class WebGLRenderer {
                         total = max(line, glow) * edgeW;
                     }
 
-                    // Apply (1 - p) scaling here to prevent additive saturation
                     total *= (1.0 - u_persistence);
                     fragColor = vec4(total, 0.0, 0.0, 1.0);
                 }
@@ -612,6 +646,7 @@ class WebGLRenderer {
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
+                uniform bool u_glassEnabled;
                 
                 out vec4 fragColor;
     
@@ -868,7 +903,7 @@ class WebGLRenderer {
                     // 1. Background Code & Tracers -> Affect by Shadow
                     // 2. High Priority Effects (Lightning) -> Ignore Shadow (v_mix >= 10.0)
                     
-                    if (!isHighPriority) {
+                    if (!isHighPriority && !u_glassEnabled) {
                         baseColor.rgb *= (1.0 - shadow);
                     }
     
@@ -882,7 +917,7 @@ class WebGLRenderer {
                         // Otherwise a black char will still emit light.
                         
                         float glowFactor = v_glow;
-                        if (!isHighPriority) {
+                        if (!isHighPriority && !u_glassEnabled) {
                             glowFactor *= (1.0 - shadow);
                         }
                         
@@ -890,7 +925,7 @@ class WebGLRenderer {
                     }
     
                     // Base Alpha (Stream Fade)
-                    float streamAlpha = col.a * finalAlpha * (isHighPriority ? 1.0 : (1.0 - shadow));
+                    float streamAlpha = col.a * finalAlpha * (isHighPriority || u_glassEnabled ? 1.0 : (1.0 - shadow));
     
                     if (glimmer > 0.0) {
                         // 1. Turn the block White (mix base color to white)
@@ -991,6 +1026,14 @@ class WebGLRenderer {
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.lastSourceGridSeed = -1;
+
+        // Initialize VAO for line/glass rendering (Mode 0, 1, 2)
+        this.vaoLine = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.vaoLine);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+        this.gl.enableVertexAttribArray(0);
+        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.bindVertexArray(null);
     }
 
     _configureFramebuffer(fbo, tex, width, height) {
@@ -1283,7 +1326,7 @@ class WebGLRenderer {
         this.gl.uniform1i(uLoc('u_logicGrid'), 1);
 
         this.gl.bindVertexArray(this.vaoLine);
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
         this.gl.disable(this.gl.BLEND);
     }
@@ -1409,10 +1452,10 @@ class WebGLRenderer {
                 this.gl.uniform3f(uLoc('u_fadeColor'), fCol.r/255, fCol.g/255, fCol.b/255);
 
                 const intensity = fx.getLineGfxValue('Intensity');
-                this.gl.uniform1f(uLoc('u_intensity'), intensity * fx.alpha); 
+                this.gl.uniform1f(uLoc('u_intensity'), (intensity ?? 1.0) * fx.alpha); 
                 
                 const glow = fx.getLineGfxValue('Glow');
-                this.gl.uniform1f(uLoc('u_glow'), glow);
+                this.gl.uniform1f(uLoc('u_glow'), glow ?? 1.0);
                 
                 this.gl.uniform1f(uLoc('u_saturation'), fx.getLineGfxValue('Saturation'));
                 this.gl.uniform1f(uLoc('u_brightness'), fx.getLineGfxValue('Brightness'));
@@ -1422,13 +1465,32 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_roundness'), fx.getLineGfxValue('Roundness'));
                 this.gl.uniform1f(uLoc('u_maskSoftness'), fx.getLineGfxValue('MaskSoftness'));
         
+                // Glass Rendering Uniforms
+                const glassEnabled = s.quantizedGlassEnabled;
+                this.gl.uniform1i(uLoc('u_glassEnabled'), glassEnabled ? 1 : 0);
+                this.gl.uniform1f(uLoc('u_glassBodyOpacity'), s.quantizedGlassBodyOpacity);
+                this.gl.uniform1f(uLoc('u_glassEdgeGlow'), s.quantizedGlassEdgeGlow);
+                this.gl.uniform1f(uLoc('u_glassRefraction'), s.quantizedGlassRefraction);
+                this.gl.uniform1f(uLoc('u_glassChromaticAberration'), s.quantizedGlassChromaticAberration);
+                this.gl.uniform1f(uLoc('u_glassFresnel'), s.quantizedGlassFresnel);
+                this.gl.uniform1f(uLoc('u_glassBevel'), s.quantizedGlassBevel);
+                this.gl.uniform1f(uLoc('u_glassOverlapScale'), s.quantizedGlassOverlapScale);
+                this.gl.uniform1f(uLoc('u_glassBloom'), s.quantizedGlassBloom);
+                this.gl.uniform1f(uLoc('u_glassLensCurvature'), s.quantizedGlassLensCurvature);
+                this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness);
+
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
                 this.gl.uniform1i(uLoc('u_logicGrid'), 1);
         
                 this.gl.activeTexture(this.gl.TEXTURE3);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex); // Use raw shadow mask for body/masking
+                this.gl.uniform1i(uLoc('u_shadowMask'), 3);
+
+                // Re-bind Source Grid for Standard Line Mode (Unit 4)
+                this.gl.activeTexture(this.gl.TEXTURE4);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-                this.gl.uniform1i(uLoc('u_sourceGrid'), 3);
+                this.gl.uniform1i(uLoc('u_sourceGrid'), 4);
         
                 // PASS 1: GENERATE
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
@@ -1455,21 +1517,17 @@ class WebGLRenderer {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
                 this.gl.disable(this.gl.BLEND);
                 
-                // A. Pure blit (Mode 2) - Preserves original alpha
-                this.gl.useProgram(prog);
-                this.gl.uniform1i(uLoc('u_mode'), 2);
-                this.gl.activeTexture(this.gl.TEXTURE0);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
-                this.gl.uniform1i(uLoc('u_characterBuffer'), 0);
-                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-        
-                // B. Apply highlights (Mode 1)
+                // Pure blit (Mode 2) is NOT needed here if we do everything in Mode 1
+                // Standard highlights pass (Mode 1)
                 this.gl.uniform1i(uLoc('u_mode'), 1);
+                this.gl.activeTexture(this.gl.TEXTURE0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex); // Unmasked (if glass on) or Masked (if glass off) code
+                this.gl.uniform1i(uLoc('u_characterBuffer'), 0);
+
                 this.gl.activeTexture(this.gl.TEXTURE2);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.texLinePersist);
                 this.gl.uniform1i(uLoc('u_persistenceBuffer'), 2);
                 
-                // Ensure u_sourceGrid is also bound for mode 1 (already bound to unit 3 above)
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
                 this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
@@ -2133,6 +2191,7 @@ class WebGLRenderer {
         
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), s.quantizedGlassEnabled ? 1 : 0);
         
         // Decoupled: Shader blink speed is constant, Slider controls Char Cycle speed
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
