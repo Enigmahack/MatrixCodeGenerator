@@ -396,60 +396,27 @@ class QuantizedRenderer {
             // Fix: Use numeric key to avoid string concatenations
             const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
             
-            // 1. Foundation Layer (usually Layer 0) - Always Visible
-            // We use the first layer in layerOrder as the foundation.
-            const foundationLayerIdx = (fx.layerOrder && fx.layerOrder.length > 0) ? fx.layerOrder[0] : 0;
-            const grid0 = fx.layerGrids[foundationLayerIdx];
-            if (grid0) {
-                const a0 = (getBlock(grid0, ax, ay) !== -1);
-                const b0 = (getBlock(grid0, bx, by) !== -1);
-                if (a0 !== b0) {
-                    isVisibleNormally = true;
-                    edgeBirthFrame = Math.max(getBlock(grid0, ax, ay), getBlock(grid0, bx, by));
-                }
+            // Strict Perimeter Logic: Detect boundary of the combined glass mass
+            const isOcc = (bx, by) => {
+                if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
+                const idx = by * blocksX + bx;
+                for (let l = 0; l < 3; l++) if (fx.layerGrids[l] && fx.layerGrids[l][idx] !== -1) return true;
+                return false;
+            };
+
+            const aAny = isOcc(ax, ay), bAny = isOcc(bx, by);
+            if (aAny !== bAny) {
+                isVisibleNormally = true;
+                // Birth frame is the max of all active layers at that spot
+                const getBirth = (tx, ty) => {
+                    if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
+                    let maxB = -1;
+                    const idx = ty * blocksX + tx;
+                    for (let l = 0; l < 3; l++) if (fx.layerGrids[l]) maxB = Math.max(maxB, fx.layerGrids[l][idx]);
+                    return maxB;
+                };
+                edgeBirthFrame = Math.max(getBirth(ax, ay), getBirth(bx, by));
             }
-
-                        // 2. Lead Convergence (Overlap of subsequent layers, usually L1 & L2)
-                        const lead1Idx = (fx.layerOrder && fx.layerOrder.length > 1) ? fx.layerOrder[1] : 1;
-                        const lead2Idx = (fx.layerOrder && fx.layerOrder.length > 2) ? fx.layerOrder[2] : 2;
-                        const grid1 = fx.layerGrids[lead1Idx];
-                        const grid2 = fx.layerGrids[lead2Idx];
-            
-                        if (grid1 || grid2) {
-                            const a1 = grid1 ? (getBlock(grid1, ax, ay) !== -1) : false;
-                            const b1 = grid1 ? (getBlock(grid1, bx, by) !== -1) : false;
-                            const a2 = grid2 ? (getBlock(grid2, ax, ay) !== -1) : false;
-                            const b2 = grid2 ? (getBlock(grid2, bx, by) !== -1) : false;
-
-                            const aBoth = a1 && a2;
-                            const bBoth = b1 && b2;
-            
-                            const obscuredA = (grid0 && getBlock(grid0, ax, ay) !== -1);
-                            const obscuredB = (grid0 && getBlock(grid0, bx, by) !== -1);
-
-                            if (aBoth !== bBoth && !(obscuredA || obscuredB)) {
-                                isVisibleNormally = true;
-                                edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(
-                                    a1 && a2 ? Math.max(getBlock(grid1, ax, ay), getBlock(grid2, ax, ay)) : -1,
-                                    b1 && b2 ? Math.max(getBlock(grid1, bx, by), getBlock(grid2, bx, by)) : -1
-                                ));
-                            }
-
-                            // 3. Individual Sub-layers (Dim Visibility)
-                            if (!isVisibleNormally) {
-                                if ((a1 !== b1 && !obscuredA && !obscuredB) || (a2 !== b2 && !obscuredA && !obscuredB)) {
-                                    isVisibleDimly = true;
-                                    dimBirthFrame = Math.max(
-                                        a1 ? getBlock(grid1, ax, ay) : -1,
-                                        b1 ? getBlock(grid1, bx, by) : -1,
-                                        a2 ? getBlock(grid2, ax, ay) : -1,
-                                        b2 ? getBlock(grid2, bx, by) : -1
-                                    );
-                                }
-                            }
-                        }
-                        // Normal visibility takes precedence
-            if (isVisibleNormally) isVisibleDimly = false;
 
             let state = fx.lineStates.get(key);
             if (!state) {

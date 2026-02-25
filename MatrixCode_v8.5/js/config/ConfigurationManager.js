@@ -31,7 +31,9 @@ class ConfigurationManager {
             'quantizedGlassChromaticAberration',
             'quantizedGlassFresnel',
             'quantizedGlassBevel',
-            'quantizedGlassOverlapScale',
+            'quantizedGlassOverlapRefraction',
+            'quantizedGlassOverlapGlow',
+            'quantizedGlassOverlapOpacity',
             'quantizedGlassBloom',
             'quantizedGlassLensCurvature',
             'quantizedGlassDarkness'
@@ -584,7 +586,9 @@ class ConfigurationManager {
             "quantizedGlassChromaticAberration": 0.01,
             "quantizedGlassFresnel": 1.0,
             "quantizedGlassBevel": 0.5,
-            "quantizedGlassOverlapScale": 1.5,
+            "quantizedGlassOverlapRefraction": 1.0,
+            "quantizedGlassOverlapGlow": 1.0,
+            "quantizedGlassOverlapOpacity": 1.0,
             "quantizedGlassBloom": 1.2,
             "quantizedGlassLensCurvature": 1.0,
             "quantizedGlassDarkness": 0.5

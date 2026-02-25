@@ -305,7 +305,9 @@ class WebGLRenderer {
                 uniform float u_glassChromaticAberration;
                 uniform float u_glassFresnel;
                 uniform float u_glassBevel;
-                uniform float u_glassOverlapScale;
+                uniform float u_glassOverlapRefraction;
+                uniform float u_glassOverlapGlow;
+                uniform float u_glassOverlapOpacity;
                 uniform float u_glassBloom;
                 uniform float u_glassLensCurvature;
                 uniform float u_glassDarkness;
@@ -470,19 +472,25 @@ class WebGLRenderer {
                     float nWBoth = min(nW1, nW2);
                     float nEBoth = min(nE1, nE2);
 
-                    bool isEdgeN = (a0 > 0.01 != nN0 > 0.01) || ((aBoth > 0.01 != nNBoth > 0.01) && !(a0 > 0.01 || nN0 > 0.01));
-                    bool isEdgeS = (a0 > 0.01 != nS0 > 0.01) || ((aBoth > 0.01 != nSBoth > 0.01) && !(a0 > 0.01 || nS0 > 0.01));
-                    bool isEdgeW = (a0 > 0.01 != nW0 > 0.01) || ((aBoth > 0.01 != nWBoth > 0.01) && !(a0 > 0.01 || nW0 > 0.01));
-                    bool isEdgeE = (a0 > 0.01 != nE0 > 0.01) || ((aBoth > 0.01 != nEBoth > 0.01) && !(a0 > 0.01 || nE0 > 0.01));
+                    float aAny = max(a0, max(a1, a2));
+                    float nNAny = max(nN0, max(nN1, nN2));
+                    float nSAny = max(nS0, max(nS1, nS2));
+                    float nWAny = max(nW0, max(nW1, nW2));
+                    float nEAny = max(nE0, max(nE1, nE2));
+
+                    bool isEdgeN = (aAny > 0.01 != nNAny > 0.01);
+                    bool isEdgeS = (aAny > 0.01 != nSAny > 0.01);
+                    bool isEdgeW = (aAny > 0.01 != nWAny > 0.01);
+                    bool isEdgeE = (aAny > 0.01 != nEAny > 0.01);
 
                     if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
                         float layerDist = 1e10;
                         float edgeW = 0.0;
                         
-                        if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(max(a0, nW0), max(aBoth, nWBoth))); }
-                        if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(max(a0, nE0), max(aBoth, nEBoth))); }
-                        if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(max(a0, nN0), max(aBoth, nNBoth))); }
-                        if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(max(a0, nS0), max(aBoth, nSBoth))); }
+                        if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(aAny, nWAny)); }
+                        if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(aAny, nEAny)); }
+                        if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(aAny, nNAny)); }
+                        if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(aAny, nSAny)); }
 
                         float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
                         if (u_roundness > 0.0 && halfThick > 0.0) {
