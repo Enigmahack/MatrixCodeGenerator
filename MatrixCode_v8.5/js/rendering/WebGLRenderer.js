@@ -204,9 +204,11 @@ class WebGLRenderer {
         this.gl.attachShader(prog, fs);
         this.gl.linkProgram(prog);
         if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
-            console.error('Program link error:', this.gl.getProgramInfoLog(prog));
+            const err = this.gl.getProgramInfoLog(prog);
+            console.error('Program link error:', err);
             return null;
         }
+        if (this.config.state.logErrors) console.log(`[WebGLRenderer] Shader Program created successfully.`);
         return prog;
     }
 
@@ -1326,8 +1328,19 @@ class WebGLRenderer {
         this.gl.uniform1i(uLoc('u_logicGrid'), 1);
 
         this.gl.bindVertexArray(this.vaoLine);
+        
+        if (this.config.state.logErrors && this.animFrame % 120 === 0) {
+            console.log(`[WebGLRenderer] _renderQuantizedShadows: Drawing mask for ${fx.name}, gw=${gw}, gh=${gh}`);
+        }
+        
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
+        // Cleanup to prevent feedback loops in subsequent passes
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.activeTexture(this.gl.TEXTURE3);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
         this.gl.disable(this.gl.BLEND);
     }
 
@@ -1346,6 +1359,10 @@ class WebGLRenderer {
         const gw = fx.logicGridW;
         const gh = fx.logicGridH;
         if (gw <= 0 || gh <= 0) return false;
+
+        if (this.config.state.logErrors && this.animFrame % 60 === 0) {
+            console.log(`[WebGLRenderer] _renderQuantizedLineGfx: Active FX=${fx.name}, glassEnabled=${s.quantizedGlassEnabled}`);
+        }
         
         if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight) {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
@@ -1465,9 +1482,13 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_roundness'), fx.getLineGfxValue('Roundness'));
                 this.gl.uniform1f(uLoc('u_maskSoftness'), fx.getLineGfxValue('MaskSoftness'));
         
-                // Glass Rendering Uniforms
-                const glassEnabled = s.quantizedGlassEnabled;
-                this.gl.uniform1i(uLoc('u_glassEnabled'), glassEnabled ? 1 : 0);
+        // Glass Rendering Uniforms
+        const glassEnabled = s.quantizedGlassEnabled;
+        if (this.config.state.logErrors && this.animFrame % 60 === 0) {
+            console.log(`[WebGLRenderer] _renderQuantizedLineGfx: glassEnabled=${glassEnabled}, alpha=${fx.alpha.toFixed(2)}, intensity=${s.quantizedLineGfxIntensity}`);
+        }
+        
+        this.gl.uniform1i(uLoc('u_glassEnabled'), glassEnabled ? 1 : 0);
                 this.gl.uniform1f(uLoc('u_glassBodyOpacity'), s.quantizedGlassBodyOpacity);
                 this.gl.uniform1f(uLoc('u_glassEdgeGlow'), s.quantizedGlassEdgeGlow);
                 this.gl.uniform1f(uLoc('u_glassRefraction'), s.quantizedGlassRefraction);
@@ -1496,6 +1517,10 @@ class WebGLRenderer {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
                 this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
                 
+                // IMPORTANT: Prevent feedback loop if unit 2 was left bound to texLinePersist
+                this.gl.activeTexture(this.gl.TEXTURE2);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
                 this.gl.enable(this.gl.BLEND);
                 this.gl.blendFunc(this.gl.ZERO, this.gl.SRC_COLOR); 
                 const persistence = fx.getLineGfxValue('Persistence') ?? 0.0;
@@ -1517,6 +1542,10 @@ class WebGLRenderer {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
                 this.gl.disable(this.gl.BLEND);
                 
+                if (this.config.state.logErrors && this.animFrame % 60 === 0) {
+                    console.log(`[WebGLRenderer] _renderQuantizedLineGfx: PASS 2 (COMPOSITE) executing. glassEnabled=${s.quantizedGlassEnabled}`);
+                }
+
                 // Pure blit (Mode 2) is NOT needed here if we do everything in Mode 1
                 // Standard highlights pass (Mode 1)
                 this.gl.uniform1i(uLoc('u_mode'), 1);
@@ -1530,6 +1559,13 @@ class WebGLRenderer {
                 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
+                // Final Cleanup to prevent feedback loops in the next frame or other passes
+                this.gl.activeTexture(this.gl.TEXTURE0); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                this.gl.activeTexture(this.gl.TEXTURE1); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                this.gl.activeTexture(this.gl.TEXTURE2); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                this.gl.activeTexture(this.gl.TEXTURE3); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                this.gl.activeTexture(this.gl.TEXTURE4); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
                 this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
                 return true;
             }
