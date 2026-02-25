@@ -86,287 +86,6 @@ class UIManager {
         return ConfigTemplate;
     }
 
-
-        /**
-         * Generates definitions for the 'Behavior' settings category.
-     * @private
-     * @returns {Array<Object>} An array of UI control definition objects.
-     */
-    /**
-     * Retrieves the list of available shaders.
-            { cat: 'Effects', id: 'clearPulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
-            { cat: 'Effects', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: "Start at a full square" },
-            { cat: 'Effects', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Pulse Storm' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn' },
-            { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms' },
-            { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled', description: "Honor blank spaces within the code streams." },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 150, unit: 'px', dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled' },
-            { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled' },
-        
-            { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn' },
-            { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu' },
-            { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Maximum Thickness', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Enable Color Writing', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled' },
-            { cat: 'Effects', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled' },
-            
-            { cat: 'Effects', type: 'accordion_header', label: 'Superman' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn' },
-            { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects' },
-            { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'supermanEnabled' },
-            { cat: 'Effects', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
-            { cat: 'Effects', id: 'supermanGlow', type: 'range', label: 'Glow amount', min: 1, max: 10, dep: 'supermanEnabled' },
-            { cat: 'Effects', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', description: 'Higher values mean trails last longer.' },
-            { cat: 'Effects', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'supermanEnabled' },
-            { cat: 'Effects', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', description: 'Lower is faster electricity.' },
-            { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', description: 'How vertically erratic the lightning path is.' },
-            { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', description: 'Speed from left to right' },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
-            { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn' },
-            
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-            { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash' },
-            { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled' },
-            
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Visuals', dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashSheetCount', type: 'range', label: 'Shadowbox Density', min: 0, max: 200, step: 1, dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashSheetSpeed', type: 'range', label: 'Shadowbox Speed', min: 0.1, max: 3.0, step: 0.1, dep: 'crashEnabled', transform: v=>v+'x' },
-            { cat: 'Effects', id: 'crashSheetOpacity', type: 'range', label: 'Shadowbox Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashStationaryChance', type: 'range', label: 'Shadowbox Movement Level', min: 0, max: 100, unit: '%', invert: true, dep: 'crashEnabled', description: "How likely a shadow box is to move when spawned." },
-            { cat: 'Effects', id: 'crashFlashDelayMin', type: 'range', label: 'Flash Delay Min', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashFlashDelayMax', type: 'range', label: 'Flash Delay Max', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled' },
-            
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Features', dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashMovieFps', type: 'checkbox', label: 'Movie FPS', dep: 'crashEnabled', description: "When enabled, locks the rendering to 30 fps for most effects." },
-            { cat: 'Effects', id: 'crashEnableSmith', type: 'checkbox', label: 'Enable Agent Smith', description: "Randomly introduces agent Smith within the crash. Subtle.", dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashEnableSuperman', type: 'checkbox', label: 'Enable Code Bolts', dep: 'crashEnabled' },
-            { cat: 'Effects', id: 'crashEnableFlash', type: 'checkbox', label: 'Enable Flash/Fade', dep: 'crashEnabled' },
-
-            { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', dep: 'crashEnabled' },
-
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Macros' },
-            { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Run Both in Order', description: 'Automatically triggers the Crash sequence after the Boot sequence completes.' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Sequence Now', action: 'boot_crash_sequence', class: 'btn-warn' },
-
-            { cat: 'Effects', type: 'header', label: 'Resurrections' }, // Sub-header
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Line Defaults' },
-            { cat: 'Effects', id: 'quantizedShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Speed', min: 0, max: 2, step: 0.1, unit: 's', description: "Fading between current world and shadow world when blocks are added/removed." },
-            { cat: 'Effects', id: 'quantizedLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
-            { cat: 'Effects', id: 'quantizedLineGfxColor', type: 'color', label: 'Line Tint' },
-            { cat: 'Effects', id: 'quantizedLineGfxFadeColor', type: 'color', label: 'Line Fade Color', description: "The color the lines fade into as they disappear." },
-            { cat: 'Effects', id: 'quantizedLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01 },
-            { cat: 'Effects', id: 'quantizedLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01 },
-            { cat: 'Effects', id: 'quantizedLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, description: "Boosts color saturation of the lines." },
-            { cat: 'Effects', id: 'quantizedLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, description: "Scales the overall brightness of the lines." },
-            { cat: 'Effects', id: 'quantizedLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, description: "Controls how strongly the lines add to the underlying character color." },
-            { cat: 'Effects', id: 'quantizedLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, description: "Controls the hardness of the line edges." },
-            { cat: 'Effects', id: 'quantizedLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, description: "Applies a circular intensity profile across the line thickness for a rounded look." },
-            { cat: 'Effects', id: 'quantizedLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, description: "Controls how quickly the glow intensity drops off with distance." },
-            { cat: 'Effects', id: 'quantizedLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness horizontally." },
-            { cat: 'Effects', id: 'quantizedLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness vertically." },
-            { cat: 'Effects', id: 'quantizedLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, description: "Softens the character highlights for a smoother, antialiased look within the lines." },
-            { cat: 'Effects', id: 'quantizedLineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px' },
-            { cat: 'Effects', id: 'quantizedLineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px' },
-            { cat: 'Effects', id: 'quantizedLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, description: "Similar to burn-in, controls how long lines linger." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Pulse' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse', action: 'quantizedPulse', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedPulseEnabled', type: 'checkbox', label: 'Enable Quantized Pulse' },
-            { cat: 'Effects', id: 'quantizedPulseAutoGenerateRemaining', type: 'checkbox', label: 'Auto generate remaining animation', dep: 'quantizedPulseEnabled', description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
-            { cat: 'Effects', id: 'quantizedPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseDurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedPulseEnabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedBlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedPulseEnabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedBlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedPulseEnabled', description: "Height of each grid block in character cells." },
-
-            { cat: 'Effects', id: 'quantizedPulseLineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedPulseEnabled' },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedPulseLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedPulseEnabled', 'quantizedPulseLineGfxOverride'], description: "Overrides global line persistence for this effect." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Add' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add', action: 'quantizedAdd', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedAddEnabled', type: 'checkbox', label: 'Enable Quantized Add' },
-            { cat: 'Effects', id: 'quantizedAddAutoGenerateRemaining', type: 'checkbox', label: 'Auto generate remaining animation', dep: 'quantizedAddEnabled', description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
-            { cat: 'Effects', id: 'quantizedAddFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddDurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedAddEnabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedAddBlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedAddEnabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedAddBlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedAddEnabled', description: "Height of each grid block in character cells." },
-
-            { cat: 'Effects', id: 'quantizedAddLineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedAddEnabled' },
-            { cat: 'Effects', id: 'quantizedAddLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedAddLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedAddEnabled', 'quantizedAddLineGfxOverride'], description: "Overrides global line persistence for this effect." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Retract' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract', action: 'quantizedRetract', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedRetractEnabled', type: 'checkbox', label: 'Enable Quantized Retract' },
-            { cat: 'Effects', id: 'quantizedRetractAutoGenerateRemaining', type: 'checkbox', label: 'Auto generate remaining animation', dep: 'quantizedRetractEnabled', description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
-            { cat: 'Effects', id: 'quantizedRetractFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractDurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedRetractEnabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedRetractBlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedRetractEnabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedRetractBlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedRetractEnabled', description: "Height of each grid block in character cells." },
-
-            { cat: 'Effects', id: 'quantizedRetractLineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedRetractEnabled' },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedRetractLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedRetractEnabled', 'quantizedRetractLineGfxOverride'], description: "Overrides global line persistence for this effect." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Climb' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb', action: 'quantizedClimb', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedClimbEnabled', type: 'checkbox', label: 'Enable Quantized Climb' },
-            { cat: 'Effects', id: 'quantizedClimbAutoGenerateRemaining', type: 'checkbox', label: 'Auto generate remaining animation', dep: 'quantizedClimbEnabled', description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
-            { cat: 'Effects', id: 'quantizedClimbFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedClimbEnabled' },
-            { cat: 'Effects', id: 'quantizedClimbDurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedClimbEnabled' },
-            { cat: 'Effects', id: 'quantizedClimbSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedClimbEnabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedClimbBlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedClimbEnabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedClimbBlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedClimbEnabled', description: "Height of each grid block in character cells." },
-
-            { cat: 'Effects', id: 'quantizedClimbLineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedClimbEnabled' },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedClimbLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedClimbEnabled', 'quantizedClimbLineGfxOverride'], description: "Overrides global line persistence for this effect." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Zoom' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom', action: 'quantizedZoom', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedZoomEnabled', type: 'checkbox', label: 'Enable Quantized Zoom' },
-            { cat: 'Effects', id: 'quantizedZoomAutoGenerateRemaining', type: 'checkbox', label: 'Auto generate remaining animation', dep: 'quantizedZoomEnabled', description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
-            { cat: 'Effects', id: 'quantizedZoomFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedZoomEnabled' },
-            { cat: 'Effects', id: 'quantizedZoomDurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedZoomEnabled' },
-            { cat: 'Effects', id: 'quantizedZoomSpeed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedZoomEnabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedZoomZoomRate', type: 'range', label: 'Zoom Rate', min: 0.1, max: 5, step: 0.1, dep: 'quantizedZoomEnabled', description: "Controls how fast the inner content zooms in." },
-            { cat: 'Effects', id: 'quantizedZoomDelay', type: 'range', label: 'Zoom Start Delay', min: 0, max: 5, step: 0.1, unit: 's', dep: 'quantizedZoomEnabled', description: "Time to wait before starting the zoom effect." },
-            { cat: 'Effects', id: 'quantizedZoomHoldSeconds', type: 'range', label: 'Hold Time', min: 0, max: 10, step: 0.1, unit: 's', dep: 'quantizedZoomEnabled', description: "How long the effect stays on screen after expansion completes." },
-            { cat: 'Effects', id: 'quantizedZoomBlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedZoomEnabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedZoomBlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedZoomEnabled', description: "Height of each grid block in character cells." },
-
-            { cat: 'Effects', id: 'quantizedZoomLineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedZoomEnabled' },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedZoomLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedZoomEnabled', 'quantizedZoomLineGfxOverride'], description: "Overrides global line persistence for this effect." },
-
-            { cat: 'Effects', type: 'accordion_header', label: 'Quantized Block Generator' },
-            { cat: 'Effects', type: 'button', label: 'Trigger Quantized Block Generator', action: 'QuantizedBlockGenerator', class: 'btn-warn' },
-            { cat: 'Effects', id: 'quantizedGenerateV2Enabled', type: 'checkbox', label: 'Enable Quantized Block Generator' },
-            
-            { cat: 'Effects', type: 'accordion_subheader', label: 'General', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2FrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2DurationSeconds', type: 'range', label: 'Max Duration', min: 1, max: 30, step: 0.1, unit: 's', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2Speed', type: 'range', label: 'Speed', min: 1, max: 10, step: 0.1, dep: 'quantizedGenerateV2Enabled', description: "Controls the animation update rate. 1 = Slowest, 10 = Fastest." },
-            { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
-
-            { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Number of additional layers to generate (Layer 0 is always base, max 2 additional = 3 total)." },
-            { cat: 'Effects', id: 'quantizedGenerateV2BlockWidthCells', type: 'range', label: 'Grid Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Width of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateV2BlockHeightCells', type: 'range', label: 'Grid Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Height of each grid block in character cells." },
-            { cat: 'Effects', id: 'quantizedGenerateV2MinBlockWidth', type: 'range', label: 'Min Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockWidth', type: 'range', label: 'Max Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2MinBlockHeight', type: 'range', label: 'Min Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockHeight', type: 'range', label: 'Max Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2FadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2FadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
-            
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxOverride', type: 'checkbox', label: 'Override Line Defaults', dep: 'quantizedGenerateV2Enabled' },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxColor', type: 'color', label: 'Line Tint', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxFadeColor', type: 'color', label: 'Line Fade Color', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxGlow', type: 'range', label: 'Glow Intensity', min: 0.01, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-            { cat: 'Effects', id: 'quantizedGenerateV2LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
     /**
      * Initialize the events, tabs, and UI components.
      */
@@ -471,7 +190,8 @@ class UIManager {
 
         // Activate selected tab and content
         button.classList.add('active');
-        document.getElementById(`tab-content-${category}`).classList.add('active');
+        const content = document.getElementById(`tab-content-${category}`);
+        if (content) content.classList.add('active');
     }
 
     /**
@@ -489,77 +209,127 @@ class UIManager {
     }
 
     /**
-     * Populates tabs with content, including accordions and controls.
+     * Populates tabs with content using a stack-based container system.
      * @private
      * @param {Object} tabContentContainers - A map of category names to their content container elements.
      */
     _populateTabContent(tabContentContainers) {
-        let currentAccordionBody = null;
-        let lastCat = null;
+        const containerStacks = {}; // category -> [tabGroup, currentAccordion, currentSubAccordion]
 
         this.defs.forEach(def => {
-            const container = tabContentContainers[def.cat];
-            if (!container) return;
+            const tabGroup = tabContentContainers[def.cat];
+            if (!tabGroup) return;
 
-            // Reset accordion context when switching tabs/categories
-            if (def.cat !== lastCat) {
-                currentAccordionBody = null;
-                lastCat = def.cat;
+            // Initialize stack for category if needed
+            if (!containerStacks[def.cat]) {
+                containerStacks[def.cat] = [tabGroup];
             }
+            const stack = containerStacks[def.cat];
 
-            // Handle Accordion Headers (Start new accordion)
+            // 1. Handle Structural Types (Accordion Headers, Sub-Accordions, End Groups)
+            
+            // Accordion Header: Pops everything except tab root, pushes new accordion
             if (def.type === 'accordion_header') {
-                currentAccordionBody = this._createAccordion(container, def.label);
+                while (stack.length > 1) stack.pop(); 
+                const accordionBody = this._createAccordion(tabGroup, def.label);
+                stack.push(accordionBody);
                 return;
             } 
-            // Handle Accordion Subheaders
-            else if (def.type === 'accordion_subheader') {
-                if (currentAccordionBody) {
-                    const sub = document.createElement('div'); sub.className = 'accordion-subheader'; sub.textContent = def.label;
-                    if (def.dep) sub.setAttribute('data-dep', JSON.stringify(def.dep));
-                    currentAccordionBody.appendChild(sub);
-                }
+
+            // Sub Accordion: Pushes new nested body onto the stack
+            if (def.type === 'sub_accordion' || def.type === 'accordion_subheader_group') {
+                const parent = stack[stack.length - 1];
+                const subBody = this._createSubAccordion(parent, def.label, def.dep);
+                stack.push(subBody);
                 return;
             }
-            // Handle Section Headers
+
+            // End Group: Manually return to previous nesting level
+            if (def.type === 'end_group') {
+                if (stack.length > 1) stack.pop();
+                return;
+            }
+
+            // Standard Section Header
             if (def.type === 'header') {
-                // CAUTION ZONE has special logic to stay nested in its parent accordion
+                // CAUTION ZONE: Stays nested in current stack, but adds visual grouping
                 if (def.label === 'CAUTION ZONE') {
+                    const parent = stack[stack.length - 1];
                     const cautionZoneDiv = document.createElement('div');
                     cautionZoneDiv.className = 'caution-zone';
                     const headerEl = this.renderControl(def);
                     cautionZoneDiv.appendChild(headerEl);
-                    if (currentAccordionBody) currentAccordionBody.appendChild(cautionZoneDiv);
-                    else container.appendChild(cautionZoneDiv);
+                    parent.appendChild(cautionZoneDiv);
                     return;
                 }
 
-                // Standard headers break the accordion context to become top-level titles
-                currentAccordionBody = null;
+                // Standard headers pop everything to become top-level tab titles
+                while (stack.length > 1) stack.pop();
                 const el = this.renderControl(def);
-                if (el) container.appendChild(el);
+                if (el) tabGroup.appendChild(el);
                 return;
             }
 
-            // Handle Controls
-            if (currentAccordionBody) {
-                // Special handling for Caution Zone items
-                if (def.caution) {
-                    const cautionZone = currentAccordionBody.querySelector('.caution-zone');
-                    if (cautionZone) {
-                        const el = this.renderControl(def);
-                        if (el) cautionZone.appendChild(el);
-                        return;
-                    }
-                }
+            // 2. Handle Content Controls
+            const target = stack[stack.length - 1];
 
-                const controlElement = this.renderControl(def);
-                if (controlElement) currentAccordionBody.appendChild(controlElement);
-            } else {
-                const controlElement = this.renderControl(def);
-                if (controlElement) container.appendChild(controlElement);
+            // Subheader: Logic simplified to append to top of current stack
+            if (def.type === 'accordion_subheader') {
+                const sub = document.createElement('div');
+                sub.className = 'accordion-subheader';
+                sub.textContent = def.label;
+                if (def.dep) sub.setAttribute('data-dep', JSON.stringify(def.dep));
+                target.appendChild(sub);
+                return;
             }
+
+            // Special handling for Caution Zone items
+            if (def.caution) {
+                const cautionZone = target.querySelector('.caution-zone');
+                if (cautionZone) {
+                    const el = this.renderControl(def);
+                    if (el) cautionZone.appendChild(el);
+                    return;
+                }
+            }
+
+            const controlElement = this.renderControl(def);
+            if (controlElement) target.appendChild(controlElement);
         });
+    }
+
+    /**
+     * Creates a sub-accordion nested inside another container.
+     */
+    _createSubAccordion(parent, label, dep) {
+        const subAcc = document.createElement('div');
+        subAcc.className = 'sub-accordion';
+        if (dep) subAcc.setAttribute('data-dep', JSON.stringify(dep));
+
+        const header = document.createElement('div');
+        header.className = 'sub-accordion-header';
+        header.innerHTML = `
+            <span>${label}</span>
+            <span class="accordion-icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </span>
+        `;
+
+        const body = document.createElement('div');
+        body.className = 'sub-accordion-content';
+
+        header.onclick = (e) => {
+            e.stopPropagation();
+            this._toggleAccordion(header, body);
+        };
+
+        subAcc.appendChild(header);
+        subAcc.appendChild(body);
+        parent.appendChild(subAcc);
+
+        return body;
     }
 
     /**
@@ -593,44 +363,35 @@ class UIManager {
         accordionItem.appendChild(body);
         tabContentGroup.appendChild(accordionItem);
 
-        // Default open logic: REMOVED per user request
-        // const accordionsInTab = Array.from(tabContentGroup.children).filter(child => child.classList.contains('accordion-item'));
-        // if (accordionsInTab.length === 1) { 
-        //     body.classList.add('open');
-        //     header.classList.add('active');
-        //     header.querySelector('.accordion-icon').classList.add('rotated');
-        // }
-
         return body;
     }
 
     /**
-     * Toggles the visibility of an accordion section and manages sibling accordions.
+     * Unified logic for toggling accordion visibility.
      * @private
      * @param {HTMLElement} header - The header element of the accordion.
      * @param {HTMLElement} body - The body element of the accordion.
-     * @param {HTMLElement} group - The parent group containing all accordions (tabContentGroup).
+     * @param {HTMLElement} [group] - Optional parent to handle exclusive opening (Accordion mode).
      */
     _toggleAccordion(header, body, group) {
-        const isOpen = body.classList.contains('open');
+        const isOpening = !body.classList.contains('open');
 
-        // Close other accordions in the group
-        group.querySelectorAll('.accordion-content').forEach(siblingBody => {
-            siblingBody.classList.remove('open');
-            siblingBody.previousElementSibling?.classList.remove('active');
-            siblingBody.previousElementSibling?.querySelector('.accordion-icon')?.classList.remove('rotated');
-        });
+        // Close other accordions in the group (Exclusive accordion mode)
+        if (group && isOpening) {
+            group.querySelectorAll('.accordion-content.open').forEach(openBody => {
+                if (openBody !== body) {
+                    openBody.classList.remove('open');
+                    const otherHeader = openBody.previousElementSibling;
+                    otherHeader?.classList.remove('active');
+                    otherHeader?.querySelector('.accordion-icon')?.classList.remove('rotated');
+                }
+            });
+        }
 
         // Toggle the current accordion
-        if (isOpen) {
-            body.classList.remove('open');
-            header.classList.remove('active');
-            header.querySelector('.accordion-icon')?.classList.remove('rotated');
-        } else {
-            body.classList.add('open');
-            header.classList.add('active');
-            header.querySelector('.accordion-icon')?.classList.add('rotated');
-        }
+        body.classList.toggle('open');
+        header.classList.toggle('active');
+        header.querySelector('.accordion-icon')?.classList.toggle('rotated');
     }
 
     /**
@@ -938,6 +699,103 @@ class UIManager {
     }
 
     /**
+     * Renders a sortable list of behaviors for the Block Generator.
+     * @private
+     */
+    _renderSortableList(wrapper, def) {
+        wrapper.className = 'sortable-list-wrapper';
+        const list = document.createElement('div');
+        list.className = 'sortable-list';
+        list.id = `sortable-${def.id}`;
+        wrapper.appendChild(list);
+
+        const updateList = () => {
+            list.innerHTML = '';
+            // Get current effect and its growth pool
+            const effect = window.matrix?.effects?.get('QuantizedBlockGenerator');
+            if (!effect || !effect.growthPool) {
+                list.innerHTML = '<div class="status-msg">Block Generator not active or no behaviors found.</div>';
+                return;
+            }
+
+            const behaviors = Array.from(effect.growthPool.entries());
+            
+            behaviors.forEach(([id, data], index) => {
+                const item = document.createElement('div');
+                item.className = 'sortable-item';
+                item.draggable = true;
+                item.dataset.id = id;
+                item.dataset.index = index;
+
+                item.innerHTML = `
+                    <div class="sortable-handle">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                            <line x1="3" y1="12" x2="21" y2="12"></line>
+                            <line x1="3" y1="6" x2="21" y2="6"></line>
+                            <line x1="3" y1="18" x2="21" y2="18"></line>
+                        </svg>
+                    </div>
+                    <div class="sortable-label">${id.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div class="sortable-toggle">
+                        <input type="checkbox" ${data.enabled ? 'checked' : ''} id="toggle-${id}">
+                    </div>
+                `;
+
+                // Toggle logic
+                const toggle = item.querySelector(`#toggle-${id}`);
+                toggle.onclick = (e) => {
+                    e.stopPropagation();
+                    effect.setBehaviorFlag(id, toggle.checked);
+                };
+
+                // Drag & Drop Logic
+                item.addEventListener('dragstart', (e) => {
+                    item.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', index);
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                    list.querySelectorAll('.sortable-item').forEach(i => i.style.borderTop = '');
+                });
+
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const draggingItem = list.querySelector('.dragging');
+                    if (draggingItem !== item) {
+                        const rect = item.getBoundingClientRect();
+                        const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+                        list.insertBefore(draggingItem, next ? item.nextSibling : item);
+                    }
+                });
+
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    // Finalize order in growthPool
+                    const newPool = new Map();
+                    list.querySelectorAll('.sortable-item').forEach(el => {
+                        const behaviorId = el.dataset.id;
+                        newPool.set(behaviorId, effect.growthPool.get(behaviorId));
+                    });
+                    effect.growthPool = newPool;
+                    this.notifications.show('Behavior Priority Updated', 'success');
+                });
+
+                list.appendChild(item);
+            });
+        };
+
+        // Initial render
+        updateList();
+        
+        // Refresh when effect is triggered
+        window.addEventListener('effect_triggered', (e) => {
+            if (e.detail === 'QuantizedBlockGenerator') updateList();
+        });
+    }
+
+    /**
      * Renders the content of a color list control into the provided wrapper.
      * @private
      * @param {HTMLElement} wrapper - The container element.
@@ -1057,6 +915,8 @@ class UIManager {
         const row = document.createElement('div');
         if (def.type === 'button') {
             const btn = document.createElement('button'); btn.className = `action-btn ${def.class||'btn-info'}`; btn.textContent = def.label; btn.id = `btn-${def.action}`; btn.name = def.action; btn.onclick = () => this.handleAction(def.action); row.appendChild(btn);
+        } else if (def.type === 'sortable_list') {
+            this._renderSortableList(row, def);
         } else if (def.type === 'slot') {
             row.className = 'slot-container';
             const inp = document.createElement('input'); inp.className = 'slot-name-input'; inp.value = this.c.slots[def.idx].name; inp.id = `slot-input-${def.idx}`; inp.name = `slot_name_${def.idx}`; inp.onchange = e => this.c.renameSlot(def.idx, e.target.value);
@@ -1091,7 +951,6 @@ class UIManager {
                     if (valDisp.querySelector('input')) return;
                     
                     const currentVal = this.c.get(def.id);
-                    const savedText = valDisp.textContent;
                     valDisp.textContent = '';
                     
                     const numInput = document.createElement('input');
@@ -1435,7 +1294,7 @@ class UIManager {
         if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd')) this.notifications.show('Quantized Add Triggered', 'success'); else this.notifications.show('Quantized Add active...', 'info'); }
         if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
-                if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
+        if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
@@ -1449,131 +1308,94 @@ class UIManager {
         try {
             if(key === 'ALL') { 
                 this.defs.forEach(d => { if(d.id) this.refresh(d.id, true); }); 
-                
-                // Refresh Slot Names
                 this.updateSlotNames();
-
-                this.refresh('fontFamily', true); // Special refresh for font list
+                this.refresh('fontFamily', true);
+                
+                // Unified initial dependency refresh
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
-                    try {
-                        const depRule = JSON.parse(row.getAttribute('data-dep')); 
-                        const rules = Array.isArray(depRule) ? depRule : [depRule]; 
-                        let conditionsMet = true;
-                        for (let rule of rules) { 
-                            let target = rule; 
-                            let expected = true; 
-                            if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
-                            let actualVal = this.c.get(target);
-                            if (actualVal === 'true') actualVal = true;
-                            if (actualVal === 'false') actualVal = false;
-                            const actual = !!actualVal; 
-                            if (actual !== expected) { conditionsMet = false; break; } 
-                        }
-                        if(conditionsMet) row.classList.remove('control-disabled'); 
-                        else row.classList.add('control-disabled');
-                    } catch(e) { console.warn("Error processing dependency row:", e); }
+                    this._updateRowVisibility(row);
                 });
                 return; 
             }
+
             if (key === 'keyBindings') {
                 this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
                 return;
             }
+
             if (key === 'debugTabEnabled') {
                 this._setupTabs();
                 return;
             }
-                        if (key === 'fontFamily' || key === 'fontSettings') { // Now also refreshes on fontSettings changes
-                            const sel = document.getElementById('in-fontFamily');
-                            if(sel) { 
-                                sel.innerHTML = ''; 
-                                this._getFonts().forEach(o => { 
-                                    const opt = document.createElement('option'); 
-                                    opt.value = o.value; 
-                                    opt.textContent = o.label; 
-                                    if(o.custom) opt.className = 'custom-font-opt'; 
-                                    if(this.c.get('fontFamily') === o.value) opt.selected = true; 
-                                    sel.appendChild(opt); 
-                                }); 
-                            }
-                            const list = document.getElementById('fontListUI'); 
-                            if (list) this.updateFontList(list); 
-                            // Update logo and favicon when font family or settings change, re-randomize char
-                            const currentPrimaryColor = this.c.get('streamPalette')[0]; // Use primary palette color
-                            
-                            const logo = document.getElementById('matrixLogo');
-                            if (logo) {
-                                const randomChar = Utils.getRandomKatakanaChar();
-                                logo.src = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 48, this.c.get('fontFamily'));
-                            }
-                            const favicon = document.getElementById('favicon');
-                            if (favicon) {
-                                const randomChar = Utils.getRandomKatakanaChar();
-                                favicon.href = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 32, this.c.get('fontFamily')); // Use a smaller size for favicon
-                            }
-                            return;
-                        }
-                        // Removed the separate `if (key === 'streamColor')` block as its functionality
-                        // is now handled by the 'streamPalette' block, and this 'fontFamily'/'fontSettings' block.
-                        // ... the rest of the refresh method ...
-                        if (key === 'customShader' || key === 'shaderEnabled' || key === 'ALL') {
-                            const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
+
+            if (key === 'fontFamily' || key === 'fontSettings') {
+                const sel = document.getElementById('in-fontFamily');
+                if(sel) { 
+                    sel.innerHTML = ''; 
+                    this._getFonts().forEach(o => { 
+                        const opt = document.createElement('option'); 
+                        opt.value = o.value; 
+                        opt.textContent = o.label; 
+                        if(o.custom) opt.className = 'custom-font-opt'; 
+                        if(this.c.get('fontFamily') === o.value) opt.selected = true; 
+                        sel.appendChild(opt); 
+                    }); 
+                }
+                const list = document.getElementById('fontListUI'); 
+                if (list) this.updateFontList(list); 
+                
+                const currentPrimaryColor = this.c.get('streamPalette')[0];
+                const logo = document.getElementById('matrixLogo');
+                if (logo) {
+                    const randomChar = Utils.getRandomKatakanaChar();
+                    logo.src = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 48, this.c.get('fontFamily'));
+                }
+                const favicon = document.getElementById('favicon');
+                if (favicon) {
+                    const randomChar = Utils.getRandomKatakanaChar();
+                    favicon.href = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 32, this.c.get('fontFamily'));
+                }
+                return;
+            }
+
+            if (key === 'customShader' || key === 'shaderEnabled') {
+                const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
                 if (shaderNameDisplay) {
                     let name = 'No shader loaded.';
                     const customShaderSource = this.c.get('customShader');
                     const shaderEnabled = this.c.get('shaderEnabled');
                     
                     if (shaderEnabled && customShaderSource) {
-                        // 1. Try to find a name metadata tag in the first 500 chars
-                        // Matches "// Name: My Shader" or "// Shader: My Shader" case-insensitive
                         const nameMatch = customShaderSource.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
-                        
-                        if (nameMatch && nameMatch[1]) {
-                            name = nameMatch[1].trim();
-                        } 
-                        // 2. Fallback: Check if it's standard code
-                        else if (customShaderSource.trim().startsWith('precision')) {
-                            name = 'Custom Shader (No Name)';
-                        }
-                        // 3. Fallback: If it doesn't look like code (maybe it really is a path?)
+                        if (nameMatch && nameMatch[1]) name = nameMatch[1].trim();
+                        else if (customShaderSource.trim().startsWith('precision')) name = 'Custom Shader (No Name)';
                         else if (customShaderSource.length < 200 && (customShaderSource.includes('/') || customShaderSource.includes('\\'))) {
                              const parts = customShaderSource.split(/[\/\\]/);
                              name = parts[parts.length - 1];
                         }
-                        else {
-                             name = 'Custom Shader';
-                        }
-                    } else if (shaderEnabled) {
-                         name = 'Unnamed/Default Shader'; 
-                    }
+                        else name = 'Custom Shader';
+                    } else if (shaderEnabled) name = 'Unnamed/Default Shader'; 
                     shaderNameDisplay.textContent = `Loaded: ${name}`;
                 }
             }
+
             if (key === 'streamPalette') {
                  const palette = this.c.get('streamPalette');
                  const biasRow = document.getElementById('row-paletteBias');
                  if (biasRow) {
-                     if (palette && palette.length > 1) {
-                         biasRow.classList.remove('control-disabled');
-                     } else {
-                         biasRow.classList.add('control-disabled');
-                     }
+                     if (palette && palette.length > 1) biasRow.classList.remove('control-disabled');
+                     else biasRow.classList.add('control-disabled');
                  }
                  
-                 // Update UI Elements based on primary color
                  if (palette && palette.length > 0) {
                      const color = palette[0];
-                     
-                     // Update Settings Wheel
                      const toggle = this.dom.toggle;
                      if (toggle) {
                          toggle.style.setProperty('--accent', color);
                          toggle.style.borderColor = color;
-                         // toggle.style.color = color; // Removed to allow CSS hover override
-                         toggle.style.boxShadow = `0 0 5px ${color}40`; // Subtle glow using hex alpha
+                         toggle.style.boxShadow = `0 0 5px ${color}40`;
                      }
 
-                     // Update Logo & Favicon
                      const logo = document.getElementById('matrixLogo');
                      if (logo) {
                         const randomChar = Utils.getRandomKatakanaChar();
@@ -1587,29 +1409,21 @@ class UIManager {
                  }
             }
 
-            if (key === 'quantEditorEnabled' || key === 'ALL') {
+            if (key === 'quantEditorEnabled') {
                 const enabled = this.c.get('quantEditorEnabled');
-                console.log("UIManager: quantEditorEnabled refresh", enabled);
-                
-                // Force reload on user toggle to ensure clean state
-                if (key === 'quantEditorEnabled' && !isRecursive) {
+                if (!isRecursive) {
                      location.reload(); 
                      return; 
                 }
-
                 if (typeof QuantizedEffectEditor !== 'undefined') {
-                    if (!this.quantEditor) {
-                        this.quantEditor = new QuantizedEffectEditor(this.effects, this);
-                    }
+                    if (!this.quantEditor) this.quantEditor = new QuantizedEffectEditor(this.effects, this);
                     this.quantEditor.toggle(enabled);
                 }
             }
 
-            if (key === 'hideMenuIcon' || key === 'ALL') {
+            if (key === 'hideMenuIcon') {
                 const shouldHide = this.c.get('hideMenuIcon');
                 const toggleBtn = this.dom.toggle;
-                
-                // Clear any existing listeners/timeouts
                 if (this._menuIconTimeout) clearTimeout(this._menuIconTimeout);
                 if (this._menuMouseMoveHandler) {
                     document.removeEventListener('mousemove', this._menuMouseMoveHandler);
@@ -1618,47 +1432,32 @@ class UIManager {
 
                 if (shouldHide) {
                     toggleBtn.style.transition = 'opacity 0.5s ease-in-out, transform 0.3s ease';
-                    
                     const showIcon = () => {
                         toggleBtn.style.opacity = '1';
                         toggleBtn.style.pointerEvents = 'auto';
                         clearTimeout(this._menuIconTimeout);
-                        
-                        // Hide again after 1s of no activity near it? 
-                        // Or just 1s after showing? The prompt says "hide itself after one second".
                         this._menuIconTimeout = setTimeout(() => {
-                            // Only hide if panel is CLOSED
                             if (!this.dom.panel.classList.contains('open')) {
                                 toggleBtn.style.opacity = '0';
                                 toggleBtn.style.pointerEvents = 'none';
                             }
                         }, 1000);
                     };
-
-                    // Initial hide after delay
                     showIcon(); 
-
-                    // Hot-zone detection
                     this._menuMouseMoveHandler = (e) => {
-                        // Top right corner hot-zone (100x100px)
                         const isHotZone = (e.clientX > window.innerWidth - 100) && (e.clientY < 100);
-                        if (isHotZone || this.dom.panel.classList.contains('open')) {
-                            showIcon();
-                        }
+                        if (isHotZone || this.dom.panel.classList.contains('open')) showIcon();
                     };
                     document.addEventListener('mousemove', this._menuMouseMoveHandler);
                 } else {
-                    // Reset to always visible
                     toggleBtn.style.opacity = '1';
                     toggleBtn.style.pointerEvents = 'auto';
                 }
             }
 
+            // Update specific control values
             if(key) {
-                // Keybinder Refresh Logic
-                if (document.getElementById(`btn-key-${key}`)) {
-                    this.updateKeyBinderVisuals(key);
-                }
+                if (document.getElementById(`btn-key-${key}`)) this.updateKeyBinderVisuals(key);
 
                 const inp = document.getElementById(`in-${key}`);
                 if(inp) { 
@@ -1681,35 +1480,51 @@ class UIManager {
                             }
                         } else if (def.type === 'text') {
                             inp.value = def.transform ? def.transform(val) : (val || "");
-                        } else {
-                            // Handle boolean values in select dropdowns correctly
-                            inp.value = String(val);
-                        }
+                        } else inp.value = String(val);
                     } 
                 }
             }
+
             // Update dependents
             this.dom.content.querySelectorAll(`[data-dep*="${key}"]`).forEach(row => {
-                try {
-                    const depRule = JSON.parse(row.getAttribute('data-dep')); 
-                    const rules = Array.isArray(depRule) ? depRule : [depRule]; 
-                    let conditionsMet = true;
-                    for (let rule of rules) { 
-                        let target = rule; 
-                        let expected = true; 
-                        if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
-                        // Handle boolean vs string "true"/"false" mismatch
-                        let actualVal = this.c.get(target);
-                        if (actualVal === 'true') actualVal = true;
-                        if (actualVal === 'false') actualVal = false;
-                        const actual = !!actualVal; 
-                        if (actual !== expected) { conditionsMet = false; break; } 
-                    }
-                    if(conditionsMet) row.classList.remove('control-disabled'); 
-                    else row.classList.add('control-disabled');
-                } catch(e) { console.warn("Error processing dependency row:", e); }
+                this._updateRowVisibility(row);
             });
         } catch(e) { console.warn("UI Refresh Error:", e); }
     }
-}
 
+    /**
+     * Updates visibility and disabled state of a UI row based on its dependencies.
+     * @private
+     */
+    _updateRowVisibility(row) {
+        try {
+            const depRule = JSON.parse(row.getAttribute('data-dep')); 
+            const rules = Array.isArray(depRule) ? depRule : [depRule]; 
+            let conditionsMet = true;
+            for (let rule of rules) { 
+                let target = rule; 
+                let expected = true; 
+                if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
+                let actualVal = this.c.get(target);
+                if (actualVal === 'true') actualVal = true;
+                if (actualVal === 'false') actualVal = false;
+                if (!!actualVal !== expected) { conditionsMet = false; break; } 
+            }
+
+            // Apply visibility logic
+            if(conditionsMet) {
+                row.classList.remove('control-disabled');
+                // Structural elements should be fully shown
+                if (row.classList.contains('sub-accordion') || row.classList.contains('accordion-subheader')) {
+                    row.style.display = '';
+                }
+            } else {
+                row.classList.add('control-disabled');
+                // Structural elements should be fully hidden when dependencies fail
+                if (row.classList.contains('sub-accordion') || row.classList.contains('accordion-subheader')) {
+                    row.style.display = 'none';
+                }
+            }
+        } catch(e) {}
+    }
+}

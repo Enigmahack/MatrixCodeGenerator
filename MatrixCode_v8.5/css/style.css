@@ -266,6 +266,78 @@
     display: flex; /* Shown when open */
 }
 
+/* --- SUB-ACCORDION STYLES --- */
+.sub-accordion {
+    margin-top: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    overflow: hidden;
+}
+.sub-accordion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+    user-select: none;
+}
+.sub-accordion-header:hover { background: rgba(255, 255, 255, 0.08); }
+.sub-accordion-header.active { background: rgba(34, 197, 94, 0.15); color: var(--text-main); }
+.sub-accordion-content {
+    display: none;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.2);
+}
+.sub-accordion-content.open { display: flex; }
+
+/* --- SORTABLE LIST STYLES --- */
+.sortable-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 5px;
+}
+.sortable-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: grab;
+    transition: all 0.2s;
+    user-select: none;
+}
+.sortable-item:active { cursor: grabbing; }
+.sortable-item.dragging {
+    opacity: 0.5;
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    transform: scale(0.98);
+}
+.sortable-handle {
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+.sortable-label {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #fff;
+}
+.sortable-toggle {
+    pointer-events: auto;
+}
+
 /* Specific styling for caution zone in System tab */
 .caution-zone {
     border: 1px solid var(--danger);
