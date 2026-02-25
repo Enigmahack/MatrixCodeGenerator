@@ -243,6 +243,14 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     getLineGfxValue(suffix) {
+        // Special case for Thickness: prioritze the 'PerimeterThickness' slider in the effect UI
+        if (suffix === 'Thickness') {
+            const effectThick = this.getConfig('PerimeterThickness');
+            if (effectThick !== undefined && effectThick !== null) {
+                return effectThick;
+            }
+        }
+
         const useOverride = this.getConfig('LineGfxOverride');
         if (useOverride) {
             const override = this.getConfig('LineGfx' + suffix);

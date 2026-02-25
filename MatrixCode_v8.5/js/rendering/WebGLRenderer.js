@@ -333,19 +333,19 @@ class WebGLRenderer {
 
                 void main() {
                     if (u_mode == 2) {
-                        // Render Shadow Mask (Inside areas) - GPU Accelerated
+                        // Render Additive Shadow Mask (sum of layers)
                         vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                         vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                         vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                         vec2 blockCoord = floor(logicPos);
                         
                         vec3 occ = getOccupancy(blockCoord);
-                        float mask = 0.0;
+                        float maskSum = 0.0;
                         for(int i=0; i<3; i++) {
-                            mask = max(mask, getLayerVal(occ, u_layerOrder[i]));
+                            maskSum += getLayerVal(occ, u_layerOrder[i]);
                         }
                         // Write mask to both Red and Alpha for compatibility and visibility
-                        fragColor = vec4(mask, 0.0, 0.0, mask);
+                        fragColor = vec4(maskSum, 0.0, 0.0, maskSum);
                         return;
                     }
 
@@ -362,7 +362,11 @@ class WebGLRenderer {
                             float blockMask = texture(u_shadowMask, v_uv).r;
                             float isVisible = step(0.001, blockMask);
                             float stackCount = blockMask; 
-                            float overlapMult = 1.0 + max(0.0, stackCount - 1.0) * (u_glassOverlapScale - 1.0);
+                            
+                            // Specific stacking multipliers
+                            float refOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapRefraction;
+                            float glowOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapGlow;
+                            float opacityOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapOpacity;
 
                             if (isVisible > 0.5) {
                                 // GLASS LENS MODEL
@@ -370,7 +374,7 @@ class WebGLRenderer {
                                 float distToCenter = length(centerOffset);
                                 
                                 // Refraction Displacement
-                                float refraction = u_glassRefraction * overlapMult;
+                                float refraction = u_glassRefraction * refOverlap;
                                 float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
                                 vec2 displacement = centerOffset * lensCurv * refraction;
                                 
@@ -382,7 +386,7 @@ class WebGLRenderer {
                                 glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
                                 
                                 // Fresnel Glow (Inner perimeter)
-                                float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * overlapMult;
+                                float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * glowOverlap;
                                 
                                 // Specular Bevel (3D Effect)
                                 float bevel = 0.0;
@@ -392,9 +396,20 @@ class WebGLRenderer {
                                 bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.x) * u_glassBevel;
                                 bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
                                 
-                                glassCode *= u_glassBloom * overlapMult;
+                                // Bloom & Interior Brightness
+                                glassCode *= u_glassBloom * opacityOverlap;
                                 
-                                vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + (lineMask * u_glassEdgeGlow * u_intensity * pow(max(1.0, stackCount), 2.0));
+                                // COLOR & OVERRIDES FROM EFFECT
+                                // lineMask already has the correct weighted intensity from Mode 0 (including Thickness)
+                                float colorT = clamp(lineMask, 0.0, 1.0);
+                                float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
+                                vec3 edgeColor = mix(u_fadeColor, u_color, profileT);
+                                edgeColor = mix(edgeColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
+                                edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
+
+                                // Final Glass Pixel: Refracted Code + Fresnel + Bevel + Weighted Tinted Edges
+                                vec3 edgeHighlight = edgeColor * lineMask * u_glassEdgeGlow * u_intensity;
+                                vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + edgeHighlight;
                                 
                                 fragColor = vec4(finalGlass, base.a);
                                 return;
@@ -454,43 +469,43 @@ class WebGLRenderer {
                     int L1 = u_layerOrder[1];
                     int L2 = u_layerOrder[2];
 
-                    float a0 = getLayerVal(centerOcc, L0);
-                    float nN0 = getLayerVal(aboveOcc, L0);
-                    float nS0 = getLayerVal(belowOcc, L0);
-                    float nW0 = getLayerVal(leftOcc, L0);
-                    float nE0 = getLayerVal(rightOcc, L0);
+                    float a0 = getLayerVal(centerOcc, L0); float a1 = getLayerVal(centerOcc, L1); float a2 = getLayerVal(centerOcc, L2);
+                    float nN0 = getLayerVal(aboveOcc, L0); float nN1 = getLayerVal(aboveOcc, L1); float nN2 = getLayerVal(aboveOcc, L2);
+                    float nS0 = getLayerVal(belowOcc, L0); float nS1 = getLayerVal(belowOcc, L1); float nS2 = getLayerVal(belowOcc, L2);
+                    float nW0 = getLayerVal(leftOcc, L0);  float nW1 = getLayerVal(leftOcc, L1);  float nW2 = getLayerVal(leftOcc, L2);
+                    float nE0 = getLayerVal(rightOcc, L0); float nE1 = getLayerVal(rightOcc, L1); float nE2 = getLayerVal(rightOcc, L2);
 
-                    float a1 = getLayerVal(centerOcc, L1); float a2 = getLayerVal(centerOcc, L2);
-                    float nN1 = getLayerVal(aboveOcc, L1); float nN2 = getLayerVal(aboveOcc, L2);
-                    float nS1 = getLayerVal(belowOcc, L1); float nS2 = getLayerVal(belowOcc, L2);
-                    float nW1 = getLayerVal(leftOcc, L1);  float nW2 = getLayerVal(leftOcc, L2);
-                    float nE1 = getLayerVal(rightOcc, L1); float nE2 = getLayerVal(rightOcc, L2);
+                    // INDEPENDENT PER-LAYER EDGE DETECTION
+                    bool isEdgeN0 = (a0 > 0.01 != nN0 > 0.01); bool isEdgeN1 = (a1 > 0.01 != nN1 > 0.01); bool isEdgeN2 = (a2 > 0.01 != nN2 > 0.01);
+                    bool isEdgeS0 = (a0 > 0.01 != nS0 > 0.01); bool isEdgeS1 = (a1 > 0.01 != nS1 > 0.01); bool isEdgeS2 = (a2 > 0.01 != nS2 > 0.01);
+                    bool isEdgeW0 = (a0 > 0.01 != nW0 > 0.01); bool isEdgeW1 = (a1 > 0.01 != nW1 > 0.01); bool isEdgeW2 = (a2 > 0.01 != nW2 > 0.01);
+                    bool isEdgeE0 = (a0 > 0.01 != nE0 > 0.01); bool isEdgeE1 = (a1 > 0.01 != nE1 > 0.01); bool isEdgeE2 = (a2 > 0.01 != nE2 > 0.01);
 
-                    float aBoth = min(a1, a2);
-                    float nNBoth = min(nN1, nN2);
-                    float nSBoth = min(nS1, nS2);
-                    float nWBoth = min(nW1, nW2);
-                    float nEBoth = min(nE1, nE2);
-
-                    float aAny = max(a0, max(a1, a2));
-                    float nNAny = max(nN0, max(nN1, nN2));
-                    float nSAny = max(nS0, max(nS1, nS2));
-                    float nWAny = max(nW0, max(nW1, nW2));
-                    float nEAny = max(nE0, max(nE1, nE2));
-
-                    bool isEdgeN = (aAny > 0.01 != nNAny > 0.01);
-                    bool isEdgeS = (aAny > 0.01 != nSAny > 0.01);
-                    bool isEdgeW = (aAny > 0.01 != nWAny > 0.01);
-                    bool isEdgeE = (aAny > 0.01 != nEAny > 0.01);
-
-                    if (isEdgeN || isEdgeS || isEdgeW || isEdgeE) {
-                        float layerDist = 1e10;
-                        float edgeW = 0.0;
+                    if (isEdgeN0 || isEdgeN1 || isEdgeN2 || isEdgeS0 || isEdgeS1 || isEdgeS2 || 
+                        isEdgeW0 || isEdgeW1 || isEdgeW2 || isEdgeE0 || isEdgeE1 || isEdgeE2) {
                         
-                        if (isEdgeW) { layerDist = min(layerDist, cellLocal.x * u_cellPitch.x); edgeW = max(edgeW, max(aAny, nWAny)); }
-                        if (isEdgeE) { layerDist = min(layerDist, (1.0 - cellLocal.x) * u_cellPitch.x); edgeW = max(edgeW, max(aAny, nEAny)); }
-                        if (isEdgeN) { layerDist = min(layerDist, cellLocal.y * u_cellPitch.y); edgeW = max(edgeW, max(aAny, nNAny)); }
-                        if (isEdgeS) { layerDist = min(layerDist, (1.0 - cellLocal.y) * u_cellPitch.y); edgeW = max(edgeW, max(aAny, nSAny)); }
+                        float layerDist = 1e10;
+                        float edgeWeight = 0.0;
+                        
+                        float distW = cellLocal.x * u_cellPitch.x; float distE = (1.0 - cellLocal.x) * u_cellPitch.x;
+                        float distN = cellLocal.y * u_cellPitch.y; float distS = (1.0 - cellLocal.y) * u_cellPitch.y;
+
+                        // Layer 0 is base (1.0 weight), others are scaled by u_glassOverlapGlow
+                        if (isEdgeW0) { layerDist = min(layerDist, distW); edgeWeight += max(a0, nW0); }
+                        if (isEdgeW1) { layerDist = min(layerDist, distW); edgeWeight += max(a1, nW1) * u_glassOverlapGlow; }
+                        if (isEdgeW2) { layerDist = min(layerDist, distW); edgeWeight += max(a2, nW2) * u_glassOverlapGlow; }
+                        
+                        if (isEdgeE0) { layerDist = min(layerDist, distE); edgeWeight += max(a0, nE0); }
+                        if (isEdgeE1) { layerDist = min(layerDist, distE); edgeWeight += max(a1, nE1) * u_glassOverlapGlow; }
+                        if (isEdgeE2) { layerDist = min(layerDist, distE); edgeWeight += max(a2, nE2) * u_glassOverlapGlow; }
+
+                        if (isEdgeN0) { layerDist = min(layerDist, distN); edgeWeight += max(a0, nN0); }
+                        if (isEdgeN1) { layerDist = min(layerDist, distN); edgeWeight += max(a1, nN1) * u_glassOverlapGlow; }
+                        if (isEdgeN2) { layerDist = min(layerDist, distN); edgeWeight += max(a2, nN2) * u_glassOverlapGlow; }
+
+                        if (isEdgeS0) { layerDist = min(layerDist, distS); edgeWeight += max(a0, nS0); }
+                        if (isEdgeS1) { layerDist = min(layerDist, distS); edgeWeight += max(a1, nS1) * u_glassOverlapGlow; }
+                        if (isEdgeS2) { layerDist = min(layerDist, distS); edgeWeight += max(a2, nS2) * u_glassOverlapGlow; }
 
                         float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
                         if (u_roundness > 0.0 && halfThick > 0.0) {
@@ -498,7 +513,7 @@ class WebGLRenderer {
                             line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
                         }
                         float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
-                        total = max(line, glow) * edgeW;
+                        total = max(line, glow) * edgeWeight;
                     }
 
                     total *= (1.0 - u_persistence);
@@ -1503,7 +1518,9 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_glassChromaticAberration'), s.quantizedGlassChromaticAberration);
                 this.gl.uniform1f(uLoc('u_glassFresnel'), s.quantizedGlassFresnel);
                 this.gl.uniform1f(uLoc('u_glassBevel'), s.quantizedGlassBevel);
-                this.gl.uniform1f(uLoc('u_glassOverlapScale'), s.quantizedGlassOverlapScale);
+                this.gl.uniform1f(uLoc('u_glassOverlapRefraction'), s.quantizedGlassOverlapRefraction);
+                this.gl.uniform1f(uLoc('u_glassOverlapGlow'), s.quantizedGlassOverlapGlow);
+                this.gl.uniform1f(uLoc('u_glassOverlapOpacity'), s.quantizedGlassOverlapOpacity);
                 this.gl.uniform1f(uLoc('u_glassBloom'), s.quantizedGlassBloom);
                 this.gl.uniform1f(uLoc('u_glassLensCurvature'), s.quantizedGlassLensCurvature);
                 this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness);
