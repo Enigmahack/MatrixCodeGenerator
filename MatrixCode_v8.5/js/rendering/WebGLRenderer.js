@@ -937,33 +937,34 @@ class WebGLRenderer {
     
                     // Apply Shadow Darkening
                     // shadow = 0..1 (0=No Shadow, 1=Black)
-                    // LAYER PRECEDENCE:
-                    // 1. Background Code & Tracers -> Affect by Shadow
-                    // 2. High Priority Effects (Lightning) -> Ignore Shadow (v_mix >= 10.0)
+                    // glassMask = 0..1 (quantized blocks)
+                    float shadow = texture(u_shadowMask, v_screenUV).a;
+                    float glassMask = texture(u_shadowMask, v_screenUV).r;
                     
-                    if (!isHighPriority && !u_glassEnabled) {
-                        baseColor.rgb *= (1.0 - shadow);
+                    if (!isHighPriority) {
+                        float sMult = 1.0 - shadow;
+                        if (u_glassEnabled && glassMask > 0.001) sMult = 1.0;
+                        baseColor.rgb *= sMult;
                     }
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger)
                     // Multiply by alpha to ensure it fades out with the character
                     if (v_glow > 0.0) {
-                        // GLOW logic must also respect shadow for non-high-priority effects!
-                        // If shadow is active, the baseColor is darkened.
-                        // The GLOW should also be darkened/suppressed.
-                        // Otherwise a black char will still emit light.
-                        
                         float glowFactor = v_glow;
-                        if (!isHighPriority && !u_glassEnabled) {
-                            glowFactor *= (1.0 - shadow);
+                        if (!isHighPriority) {
+                            float gSMult = 1.0 - shadow;
+                            if (u_glassEnabled && glassMask > 0.001) gSMult = 1.0;
+                            glowFactor *= gSMult;
                         }
                         
                         col.rgb += (glowFactor * 0.3 * col.a);
                     }
     
                     // Base Alpha (Stream Fade)
-                    float streamAlpha = col.a * finalAlpha * (isHighPriority || u_glassEnabled ? 1.0 : (1.0 - shadow));
+                    float sAlphaMult = 1.0 - shadow;
+                    if (isHighPriority || (u_glassEnabled && glassMask > 0.001)) sAlphaMult = 1.0;
+                    float streamAlpha = col.a * finalAlpha * sAlphaMult;
     
                     if (glimmer > 0.0) {
                         // 1. Turn the block White (mix base color to white)
@@ -1536,7 +1537,7 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_glassOverlapOpacity'), s.quantizedGlassOverlapOpacity);
                 this.gl.uniform1f(uLoc('u_glassBloom'), s.quantizedGlassBloom);
                 this.gl.uniform1f(uLoc('u_glassLensCurvature'), s.quantizedGlassLensCurvature);
-                this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness);
+                this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness * fx.alpha);
 
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
@@ -1637,6 +1638,17 @@ class WebGLRenderer {
         const grid = this.grid;
         const activeFonts = d.activeFonts;
         const gl = this.gl;
+
+        // Determine if any quantized effect is truly active for shader logic
+        let hasActiveQuantizedEffect = false;
+        if (this.effects) {
+             const effectList = (Array.isArray(this.effects.effects)) 
+                ? this.effects.effects 
+                : (this.effects.effects instanceof Map) 
+                    ? Array.from(this.effects.effects.values()) 
+                    : [];
+             hasActiveQuantizedEffect = effectList.some(e => e.active && e.name.startsWith('Quantized'));
+        }
 
         gl.enable(gl.BLEND);
         // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -2265,7 +2277,7 @@ class WebGLRenderer {
         
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_time'), performance.now() / 1000.0);
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
-        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), s.quantizedGlassEnabled ? 1 : 0);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
         
         // Decoupled: Shader blink speed is constant, Slider controls Char Cycle speed
         this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
@@ -2396,12 +2408,10 @@ class WebGLRenderer {
                 
                 if (this.postProcessor.canvas.style.display === 'none') {
                     this.postProcessor.canvas.style.display = 'block';
-                    this.cvs.style.opacity = '0'; 
                 }
             } else {
                 if (this.postProcessor.canvas.style.display !== 'none') {
                     this.postProcessor.canvas.style.display = 'none';
-                    this.cvs.style.opacity = '1';
                 }
             }
         }

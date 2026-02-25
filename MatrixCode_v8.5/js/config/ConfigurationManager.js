@@ -2004,8 +2004,9 @@ void main() {
      * Used on startup to prevent persistence of old shaders.
      */
     clearShaderState() {
-        this.state.shaderEnabled = false;
-        this.state.customShader = null;
+        // Only clear the temporary effect shader used by system sequences.
+        // We preserve shaderEnabled and customShader so user preferences persist across refreshes
+        // and to prevent visual flickers during initialization.
         this.state.effectShader = null;
         this.save();
     }
