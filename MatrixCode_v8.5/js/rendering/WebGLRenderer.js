@@ -82,18 +82,6 @@ class WebGLRenderer {
             }
             this.lastShaderSource = null;
             this.lastEffectSource = null;
-
-            // Pre-compile initial shaders to prevent first-run flicker
-            const initialCustom = config.state.shaderEnabled ? config.state.customShader : null;
-            const initialEffect = config.state.effectShader;
-            if (initialCustom) {
-                this.postProcessor.compileShader(initialCustom);
-                this.lastShaderSource = initialCustom;
-            }
-            if (initialEffect) {
-                this.postProcessor.compileEffectShader(initialEffect);
-                this.lastEffectSource = initialEffect;
-            }
         }
     }
 
@@ -211,20 +199,13 @@ class WebGLRenderer {
     _createProgram(vsSource, fsSource) {
         const vs = this._createShader(this.gl.VERTEX_SHADER, vsSource);
         const fs = this._createShader(this.gl.FRAGMENT_SHADER, fsSource);
-        
-        if (!vs || !fs) {
-            console.error(`[WebGLRenderer] Failed to create shaders for program. VS=${!!vs}, FS=${!!fs}`);
-            return null;
-        }
-
         const prog = this.gl.createProgram();
         this.gl.attachShader(prog, vs);
         this.gl.attachShader(prog, fs);
         this.gl.linkProgram(prog);
         if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
             const err = this.gl.getProgramInfoLog(prog);
-            console.error('[WebGLRenderer] Program link error:', err);
-            this.gl.deleteProgram(prog);
+            console.error('Program link error:', err);
             return null;
         }
         if (this.config.state.logErrors) console.log(`[WebGLRenderer] Shader Program created successfully.`);
@@ -395,7 +376,7 @@ class WebGLRenderer {
                         
                         if (u_glassEnabled) {
                             float blockMask = texture(u_shadowMask, v_uv).r;
-                            float glassAlpha = clamp(blockMask, 0.0, 1.0);
+                            float isVisible = step(0.001, blockMask);
                             float stackCount = blockMask; 
                             
                             // Specific stacking multipliers
@@ -403,63 +384,71 @@ class WebGLRenderer {
                             float glowOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapGlow;
                             float opacityOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapOpacity;
 
-                            // GLASS LENS MODEL
-                            vec2 centerOffset = cellLocal - 0.5;
-                            float distToCenter = length(centerOffset);
-                            
-                            // Refraction Displacement (Scaled by glassAlpha)
-                            float refraction = u_glassRefraction * refOverlap * glassAlpha;
-                            float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
-                            vec2 displacement = centerOffset * lensCurv * refraction;
-                            
-                            // Chromatic Aberration (RGB Shift)
-                            float ab = u_glassChromaticAberration;
-                            vec3 glassCode;
-                            glassCode.r = texture(u_characterBuffer, v_uv + displacement * (1.0 + ab)).r;
-                            glassCode.g = texture(u_characterBuffer, v_uv + displacement).g;
-                            glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
-                            
-                            // Fresnel Glow (Inner perimeter)
-                            float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * glowOverlap * glassAlpha;
-                            
-                            // Specular Bevel (3D Effect)
-                            float bevel = 0.0;
-                            float edgeSoft = 0.05;
-                            bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.x)) * u_glassBevel;
-                            bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.y)) * u_glassBevel;
-                            bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.x) * u_glassBevel;
-                            bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
-                            bevel *= glassAlpha;
-                            
-                            // Bloom & Interior Brightness
-                            vec3 glassBody = glassCode * u_glassBloom * opacityOverlap * u_glassBodyOpacity;
-                            vec3 dimmedBackground = base.rgb * (1.0 - u_glassDarkness);
-                            
-                            // Smoothly blend between dimmed background and glass body
-                            vec3 finalBase = mix(dimmedBackground, glassBody, glassAlpha);
-                            
-                            // COLOR & OVERRIDES FROM EFFECT
-                            float colorT = clamp(lineMask, 0.0, 1.0);
-                            float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
-                            vec3 edgeColor = mix(u_fadeColor, u_color, profileT);
-                            edgeColor = mix(edgeColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
-                            edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
+                            if (isVisible > 0.5) {
+                                // GLASS LENS MODEL
+                                vec2 centerOffset = cellLocal - 0.5;
+                                float distToCenter = length(centerOffset);
+                                
+                                // Refraction Displacement
+                                float refraction = u_glassRefraction * refOverlap;
+                                float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
+                                vec2 displacement = centerOffset * lensCurv * refraction;
+                                
+                                // Chromatic Aberration (RGB Shift)
+                                float ab = u_glassChromaticAberration;
+                                vec3 glassCode;
+                                glassCode.r = texture(u_characterBuffer, v_uv + displacement * (1.0 + ab)).r;
+                                glassCode.g = texture(u_characterBuffer, v_uv + displacement).g;
+                                glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
+                                
+                                // Fresnel Glow (Inner perimeter)
+                                float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * glowOverlap;
+                                
+                                // Specular Bevel (3D Effect)
+                                float bevel = 0.0;
+                                float edgeSoft = 0.05;
+                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.x)) * u_glassBevel;
+                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.y)) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.x) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
+                                
+                                // Bloom & Interior Brightness
+                                glassCode *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
+                                
+                                // COLOR & OVERRIDES FROM EFFECT
+                                // lineMask already has the correct weighted intensity from Mode 0 (including Thickness)
+                                float colorT = clamp(lineMask, 0.0, 1.0);
+                                float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
+                                vec3 edgeColor = mix(u_fadeColor, u_color, profileT);
+                                edgeColor = mix(edgeColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
+                                edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
 
-                            vec3 edgeHighlight = edgeColor * lineMask * charLuma * u_glassEdgeGlow * u_intensity * u_additiveStrength;
-                            vec3 finalGlass = finalBase + (fresnel * 0.5) + bevel + edgeHighlight;
-                            
-                            fragColor = vec4(finalGlass, base.a);
-                            return;
+                                // Final Glass Pixel: Refracted Code + Fresnel + Bevel + Weighted Tinted Edges
+                                // RESTORED: Multiply edgeHighlight by charLuma to keep the "broken lines" mask effect
+                                vec3 edgeHighlight = edgeColor * lineMask * charLuma * u_glassEdgeGlow * u_intensity * u_additiveStrength;
+                                vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + edgeHighlight;
+                                
+                                fragColor = vec4(finalGlass, base.a);
+                                return;
+                            } else {
+                                // Background: Darken characters not behind glass
+                                vec3 background = base.rgb * (1.0 - u_glassDarkness);
+                                fragColor = vec4(background, base.a);
+                                return;
+                            }
                         }
                         
-                        // STANDARD QUANTIZED LINES LOGIC (Smooth)
+                        // STANDARD QUANTIZED LINES LOGIC
                         float blockMask = texture(u_shadowMask, v_uv).r;
-                        float glassAlpha = clamp(blockMask, 0.0, 1.0);
+                        float isVisible = step(0.001, blockMask);
                         float opacityOverlap = 1.0 + max(0.0, blockMask - 1.0) * u_glassOverlapOpacity;
 
-                        vec3 glassBody = base.rgb * u_glassBloom * opacityOverlap * u_glassBodyOpacity;
-                        vec3 dimmedBackground = base.rgb * (1.0 - u_glassDarkness);
-                        vec3 finalBase = mix(dimmedBackground, glassBody, glassAlpha);
+                        vec3 finalBase = base.rgb;
+                        if (isVisible > 0.5) {
+                            finalBase *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
+                        } else {
+                            finalBase *= (1.0 - u_glassDarkness);
+                        }
 
                         float colorT = clamp(lineMask, 0.0, 1.0);
                         float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
@@ -746,6 +735,9 @@ class WebGLRenderer {
                     bool isHighPriority = (v_mix >= 9.5);
                     float useMix = isHighPriority ? v_mix - 10.0 : v_mix;
     
+                    // Sample Shadow Mask using screen coordinates for perfect alignment
+                    float shadow = texture(u_shadowMask, v_screenUV).a;
+                    
                     // Sample Texture with Effects
                     float tex1 = getProcessedAlpha(v_uv);
                     vec4 baseColor = v_color;
@@ -951,10 +943,7 @@ class WebGLRenderer {
                     
                     if (!isHighPriority) {
                         float sMult = 1.0 - shadow;
-                        if (u_glassEnabled) {
-                            // Smoothly blend from shadowed state to full brightness based on glass mask
-                            sMult = mix(sMult, 1.0, clamp(glassMask, 0.0, 1.0));
-                        }
+                        if (u_glassEnabled && glassMask > 0.001) sMult = 1.0;
                         baseColor.rgb *= sMult;
                     }
     
@@ -965,9 +954,7 @@ class WebGLRenderer {
                         float glowFactor = v_glow;
                         if (!isHighPriority) {
                             float gSMult = 1.0 - shadow;
-                            if (u_glassEnabled) {
-                                gSMult = mix(gSMult, 1.0, clamp(glassMask, 0.0, 1.0));
-                            }
+                            if (u_glassEnabled && glassMask > 0.001) gSMult = 1.0;
                             glowFactor *= gSMult;
                         }
                         
@@ -976,11 +963,7 @@ class WebGLRenderer {
     
                     // Base Alpha (Stream Fade)
                     float sAlphaMult = 1.0 - shadow;
-                    if (isHighPriority) {
-                        sAlphaMult = 1.0;
-                    } else if (u_glassEnabled) {
-                        sAlphaMult = mix(sAlphaMult, 1.0, clamp(glassMask, 0.0, 1.0));
-                    }
+                    if (isHighPriority || (u_glassEnabled && glassMask > 0.001)) sAlphaMult = 1.0;
                     float streamAlpha = col.a * finalAlpha * sAlphaMult;
     
                     if (glimmer > 0.0) {
@@ -1554,10 +1537,7 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_glassOverlapOpacity'), s.quantizedGlassOverlapOpacity);
                 this.gl.uniform1f(uLoc('u_glassBloom'), s.quantizedGlassBloom);
                 this.gl.uniform1f(uLoc('u_glassLensCurvature'), s.quantizedGlassLensCurvature);
-                
-                // Interpolate darkness: 0.0 (no darkness) when alpha is 0, s.quantizedGlassDarkness when alpha is 1
-                const currentDarkness = s.quantizedGlassDarkness * fx.alpha;
-                this.gl.uniform1f(uLoc('u_glassDarkness'), currentDarkness);
+                this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness * fx.alpha);
 
                 this.gl.activeTexture(this.gl.TEXTURE1);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
@@ -1661,20 +1641,13 @@ class WebGLRenderer {
 
         // Determine if any quantized effect is truly active for shader logic
         let hasActiveQuantizedEffect = false;
-        let maxEffectAlpha = 0;
         if (this.effects) {
              const effectList = (Array.isArray(this.effects.effects)) 
                 ? this.effects.effects 
                 : (this.effects.effects instanceof Map) 
                     ? Array.from(this.effects.effects.values()) 
                     : [];
-             
-             for (const e of effectList) {
-                 if (e.active && e.name.startsWith('Quantized')) {
-                     hasActiveQuantizedEffect = true;
-                     maxEffectAlpha = Math.max(maxEffectAlpha, e.alpha || 0);
-                 }
-             }
+             hasActiveQuantizedEffect = effectList.some(e => e.active && e.name.startsWith('Quantized'));
         }
 
         gl.enable(gl.BLEND);
@@ -2269,103 +2242,105 @@ class WebGLRenderer {
         if (s.layerEnablePrimaryCode !== false) {
             // Determine Program based on mode
             const activeProgram = this.program2D;
-            this.gl.useProgram(activeProgram);
-            
-            // --- Shared Uniforms ---
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_resolution'), this.w, this.h);
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
-            
-            // Calculate Grid Size in Pixels for Centering
-            const gridPixW = grid.cols * d.cellWidth;
-            const gridPixH = grid.rows * d.cellHeight;
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
+        this.gl.useProgram(activeProgram);
+        
+        // --- Shared Uniforms ---
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_resolution'), this.w, this.h);
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
+        
+        // Calculate Grid Size in Pixels for Centering
+        const gridPixW = grid.cols * d.cellWidth;
+        const gridPixH = grid.rows * d.cellHeight;
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
 
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cellSize'), atlas.cellSize);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cols'), atlas._lastCols);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
-            
-            // Grid Layout Stretch
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
-            
-            this.gl.activeTexture(this.gl.TEXTURE0);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-            this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_texture'), 0);
-            
-            // Bind Shadow Mask
-            this.gl.activeTexture(this.gl.TEXTURE1);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
-            this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_shadowMask'), 1);
-            
-            // Bind Glimmer Optimization Texture
-            this.gl.activeTexture(this.gl.TEXTURE2);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
-            this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glimmerNoise'), 2);
-            
-                    this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_time'), performance.now() / 1000.0);
-                    this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
-                    this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect && maxEffectAlpha > 0.01) ? 1 : 0);
-                    
-                    // Decoupled: Shader blink speed is constant, Slider controls Char Cycle speed            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
-            
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cellSize'), atlas.cellSize);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_cols'), atlas._lastCols);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
+        
+        // Grid Layout Stretch
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
+        
+        this.gl.activeTexture(this.gl.TEXTURE0);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_texture'), 0);
+        
+        // Bind Shadow Mask
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_shadowMask'), 1);
+        
+        // Bind Glimmer Optimization Texture
+        this.gl.activeTexture(this.gl.TEXTURE2);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glimmerNoise'), 2);
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_time'), performance.now() / 1000.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+        this.gl.uniform1i(this.gl.getUniformLocation(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
+        
+        // Decoupled: Shader blink speed is constant, Slider controls Char Cycle speed
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
 
-            // Calculate Cell Scale (Aspect Ratio Correction)
-            const scaleMult = 1.0;
-            const cellScaleX = (d.cellWidth / atlas.cellSize) * scaleMult;
-            const cellScaleY = (d.cellHeight / atlas.cellSize) * scaleMult;
-            this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
+        // Calculate Cell Scale (Aspect Ratio Correction)
+        const scaleMult = 1.0;
+        const cellScaleX = (d.cellWidth / atlas.cellSize) * scaleMult;
+        const cellScaleY = (d.cellHeight / atlas.cellSize) * scaleMult;
+        this.gl.uniform2f(this.gl.getUniformLocation(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
 
-            
-            // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
-            const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
-            const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
-            
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveScale'), dissolveScale);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
-            
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
-            this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
-            
-            // Pass Overlap Color
-            const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
-            this.gl.uniform4f(this.gl.getUniformLocation(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
+        
+        // Target Scale: 1.0 + percent/100. e.g. -20% -> 0.8
+        const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
+        const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveScale'), dissolveScale);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
+        
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
+        this.gl.uniform1f(this.gl.getUniformLocation(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
+        
+        // Pass Overlap Color
+        const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
+        this.gl.uniform4f(this.gl.getUniformLocation(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
 
-            this.gl.bindVertexArray(this.vao);
-            
-            // Ensure blending is enabled for the main draw
-            this.gl.enable(this.gl.BLEND);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            
-            // Draw Main Pass
-            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
-            this.gl.bindVertexArray(null);
+        this.gl.bindVertexArray(this.vao);
+        
+        // Ensure blending is enabled for the main draw
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        
+        // Draw Main Pass
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, totalCells);
+        this.gl.bindVertexArray(null);
 
-            // --- 3rd Pass: Quantized Line GFX ---
-            if (this.effects) {
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-                this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+        // --- 3rd Pass: Quantized Line GFX ---
+        if (this.effects) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+            this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+            this.gl.clearColor(0, 0, 0, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            
+            if (this._renderQuantizedLineGfx(s, d, this.texA)) {
+                finalMainTex = this.texA2;
+            } else {
+                // If GFX enabled but no active effect, we should probably clear persistence
+                // so old lines don't get stuck.
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
                 this.gl.clearColor(0, 0, 0, 0);
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                 
-                if (this._renderQuantizedLineGfx(s, d, this.texA)) {
-                    finalMainTex = this.texA2;
-                } else {
-                    // If GFX enabled but no active effect, we should probably clear persistence
-                    // so old lines don't get stuck.
-                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
-                    this.gl.clearColor(0, 0, 0, 0);
-                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-                    
-                    // Still need to blit texA to fboA2 if we want to use finalMainTex consistently
-                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-                    this._drawFullscreenTexture(this.texA, 1.0, 0);
-                    finalMainTex = this.texA2;
-                }
+                // Still need to blit texA to fboA2 if we want to use finalMainTex consistently
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                this._drawFullscreenTexture(this.texA, 1.0, 0);
+                finalMainTex = this.texA2;
             }
+        }
+
         } // End layerEnablePrimaryCode check
 
         // --- POST PROCESS (Bloom) ---
