@@ -107,6 +107,7 @@ class ConfigurationManager {
             "debugEnabled": false,
             "highlightErasers": false,
             "simulationPaused": false,
+            "effectSimulationFreeze": false,
             "logErrors": true,
             "fontFamily": "CustomFont_5e2697679380fc43",
             "fontWeight": "normal",

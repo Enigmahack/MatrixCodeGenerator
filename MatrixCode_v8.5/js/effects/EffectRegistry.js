@@ -166,10 +166,24 @@ class EffectRegistry {
             }
 
             e.update();
+        });
+    }
+
+    /**
+     * Final visual application pass. 
+     * Executed AFTER simulation to ensure effects can mask simulation activity.
+     */
+    postUpdate() {
+        const isEditorActive = this._isEditorActive();
+        const editedEffect = this._getEditedEffect();
+
+        this.effects.forEach(e => {
             if (!e.active) return;
+            if (isEditorActive && e !== editedEffect) return;
 
             // Lifecycle 3: Apply to Grid
             if (typeof e.applyToGrid === 'function') {
+                this.grid.overrideOwner = e;
                 e.applyToGrid(this.grid);
             } else if (typeof e.getOverride === 'function') {
                 this._applyLegacyOverride(e);

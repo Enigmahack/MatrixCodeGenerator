@@ -2016,10 +2016,15 @@ class WebGLRenderer {
             // Copy Optimized Parameters
             if (gParams) {
                 const gIdx = i * 4;
-                mF32[baseOff + 6] = gParams[gIdx];     // GlimmerFlicker
-                mU8[u8Off + 21]   = gParams[gIdx + 1]; // ShapeID
-                mF32[baseOff + 7] = gParams[gIdx + 2]; // GlimmerAlpha
-                mF32[baseOff + 8] = gParams[gIdx + 3]; // Dissolve
+                // Solution 2: Isolate Scene from Memory
+                // If the cell is using a high-level visual override (Mode 1 or 4),
+                // we must suppress simulation-driven parameters like Dissolve and Flicker.
+                const isOverridden = effActive && (effActive[i] === 1 || effActive[i] === 4);
+                
+                mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
+                mU8[u8Off + 21]   = isOverridden ? 0 : gParams[gIdx + 1];   // ShapeID
+                mF32[baseOff + 7] = isOverridden ? 0 : gParams[gIdx + 2];   // GlimmerAlpha
+                mF32[baseOff + 8] = isOverridden ? 0 : gParams[gIdx + 3];   // Dissolve
             }
         }
 

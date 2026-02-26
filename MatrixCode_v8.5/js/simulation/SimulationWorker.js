@@ -70,7 +70,7 @@ class WorkerSimulationSystem {
             if (!style || style.type !== 'glimmer') continue;
 
             const ov = this.grid.overrideActive[idx];
-            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 5)) continue;
+            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) continue;
 
             if (style.mobile === undefined) {
                 if (Math.random() < 0.2) {
@@ -217,7 +217,7 @@ class WorkerSimulationSystem {
         const grid = this.grid;
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         const ov = grid.overrideActive[idx];
-        if (ov !== 0 && ov !== 3 && ov !== 5) return;
+        if (grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;
@@ -363,7 +363,9 @@ self.onmessage = function(e) {
             }
             break;
         case 'update':
-            if (simSystem) simSystem.update(msg.frame);
+            if (simSystem) {
+                simSystem.update(msg.frame);
+            }
             break;
     }
 };

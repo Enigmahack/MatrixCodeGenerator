@@ -139,6 +139,10 @@ class PulseEffect extends AbstractEffect {
     
     update() {
         const s = this._getEffectiveState();
+        
+        // If simulation is paused, freeze the effect's internal animation state
+        if (this.c.state.simulationPaused) return;
+
         const fps = s.pulseMovieAccurate ? 30 : 60;
 
         if (s.pulseMovieAccurate) {
@@ -154,12 +158,22 @@ class PulseEffect extends AbstractEffect {
         const d = this.c.derived;
         
         if(this.state === 'WAITING') { 
-            if(--this.timer <= 0) { this.state = 'EXPANDING'; }
+            this.c.state.effectSimulationFreeze = true;
+            if(--this.timer <= 0) { 
+                this.state = 'EXPANDING'; 
+            }
         } else {
+            // Keep time frozen while the wave passes
+            this.c.state.effectSimulationFreeze = true;
+
             const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
             this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
             this.radius += this.speed; 
-            if(this.radius > maxDim + 400) { this.active = false; this.snap = null; this.renderData = null; return; }
+            if(this.radius > maxDim + 400) { 
+                this.active = false; this.snap = null; this.renderData = null; 
+                this.c.state.effectSimulationFreeze = false;
+                return; 
+            }
 
             // --- Chunk Lifecycle & Spawning ---
             if (s.pulseMovieAccurate) {
@@ -323,9 +337,9 @@ class PulseEffect extends AbstractEffect {
                      if (isTracer) {
                          const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
                          // Tracers REMAIN BRIGHT (Ignore fadeMult)
-                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
+                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                      } else {
-                         grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * fadeMult, fontIdx, 0);
+                         grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * fadeMult, fontIdx, 0);
                      }
                      continue;
                  }
@@ -386,9 +400,9 @@ class PulseEffect extends AbstractEffect {
                          if (isTracer) {
                              // Tracers remain bright outside
                              const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
-                             grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
+                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                          } else {
-                             grid.setHighPriorityEffect(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
+                             grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
                          }
                      }
                  } 

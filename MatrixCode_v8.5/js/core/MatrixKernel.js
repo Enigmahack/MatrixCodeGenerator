@@ -558,6 +558,9 @@ class MatrixKernel {
         
         // Update both worlds independently
         this.worlds.forEach(w => w.sim.update(this.frame));
+
+        // Final application of visual overrides AFTER simulation
+        this.effectRegistry.postUpdate();
     }
 }
 

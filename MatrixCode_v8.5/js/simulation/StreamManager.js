@@ -269,7 +269,8 @@ class StreamManager {
                         continue;
                     }
             const headIdx = grid.getIndex(stream.x, Math.max(0, stream.y));
-            if (headIdx !== -1 && cellLocks && cellLocks[headIdx] === 1) {
+            const isEffectActive = headIdx !== -1 && grid.effectActive[headIdx] !== 0;
+            if (headIdx !== -1 && (cellLocks && cellLocks[headIdx] === 1 || isEffectActive)) {
                 continue;
             }
 

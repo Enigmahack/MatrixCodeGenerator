@@ -461,7 +461,7 @@ class SimulationSystem {
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         // If an effect is overriding this cell, pause simulation updates (Freeze)
         // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
-        if (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3 && grid.overrideActive[idx] !== 5) return;
+        if (grid.effectActive[idx] !== 0 || (grid.overrideActive[idx] !== 0 && grid.overrideActive[idx] !== 3 && grid.overrideActive[idx] !== 5)) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;
