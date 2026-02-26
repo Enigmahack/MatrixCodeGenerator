@@ -1,11 +1,12 @@
 ToDo: 
+Run tests on all effects, behaviors, sliders, settings, etc. 
+
 <- Bugs: 
+There is an issue with the pulse effect - everything should freeze during the effect, but I see a remenant of something that is blocking up code and is moving when everything should be stationary. 
+
 
 <- Behavior:
-[ ] 3. Abstract Configuration Mapping: Dynamically generate UI controls in UIManager.js based on ConfigTemplate.
-[ ] 5. Effect Initialization: Implement EffectRegistry.autoRegister() for data-driven effect management.
-[ ] 2. (Optional) Shared Buffer Pool: Refactor procedural growth to use a robust kernel-level buffer pool for high-frequency pathfinding.
+Get the quantized effects working as intended. 
 
 <- Look:
-[DONE] Ping-Pong Architecture: Dual-world simulation for seamless transitions.
-[DONE] Unified Quantized Update Loop: Abstracted lifecycle and timing into QuantizedBaseEffect.
+Clean up UI. 

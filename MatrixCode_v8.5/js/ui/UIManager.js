@@ -1282,21 +1282,61 @@ class UIManager {
      * @private
      */
     _loadShaderSource(filename, configId) {
-        fetch(`shaders/${filename}`)
+        const relativePath = `shaders/${filename}`;
+        
+        // --- ELECTRON / LOCAL FILE SUPPORT ---
+        // Resolve absolute path using URL API to match how the browser sees it
+        const url = new URL(relativePath, window.location.href);
+        
+        if (url.protocol === 'file:' && window.process && typeof window.require === 'function') {
+            try {
+                const fs = window.require('fs');
+                let fullPath = url.pathname;
+                
+                // On Windows, URL.pathname often starts with a leading slash (e.g., /C:/...)
+                if (window.process.platform === 'win32' && fullPath.startsWith('/')) {
+                    fullPath = fullPath.substring(1);
+                }
+                
+                // Decode URI components (e.g., %20 to spaces)
+                fullPath = decodeURIComponent(fullPath);
+                
+                if (fs.existsSync(fullPath)) {
+                    const source = fs.readFileSync(fullPath, 'utf8');
+                    this._applyShaderSource(source, configId, filename);
+                    return;
+                } else {
+                    console.warn("[UIManager] Resolved path does not exist:", fullPath);
+                }
+            } catch (err) {
+                console.warn("[UIManager] Failed to load shader via fs, falling back to fetch:", err);
+            }
+        }
+
+        // --- WEB / FETCH FALLBACK ---
+        fetch(relativePath)
             .then(response => {
                 if (!response.ok) throw new Error(`Failed to load shader: ${filename}`);
                 return response.text();
             })
             .then(source => {
-                if (configId === 'shaderSelect') this.c.set('customShader', source);
-                else if (configId === 'codeShader1') this.c.set('codeShader1Content', source);
-                else if (configId === 'codeShader2') this.c.set('codeShader2Content', source);
-                this.notifications.show(`Shader Loaded: ${filename}`, 'success');
+                this._applyShaderSource(source, configId, filename);
             })
             .catch(err => {
                 console.error(err);
-                this.notifications.show(`Error loading shader`, 'error');
+                this.notifications.show(`Error loading shader: ${filename}`, 'error');
             });
+    }
+
+    /**
+     * Internal helper to apply loaded shader source to the configuration.
+     * @private
+     */
+    _applyShaderSource(source, configId, filename) {
+        if (configId === 'shaderSelect') this.c.set('customShader', source);
+        else if (configId === 'codeShader1') this.c.set('codeShader1Content', source);
+        else if (configId === 'codeShader2') this.c.set('codeShader2Content', source);
+        this.notifications.show(`Shader Loaded: ${filename}`, 'success');
     }
 
     /**

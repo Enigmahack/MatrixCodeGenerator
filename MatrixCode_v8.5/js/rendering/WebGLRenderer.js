@@ -243,10 +243,10 @@ class WebGLRenderer {
 
         if (typeof PostProcessor !== 'undefined') {
             this.postProcessor = new PostProcessor(config, this.gl);
-            this.lastShaderSource = null;
-            this.lastEffectSource = null;
-            this.lastCode1Source = null;
-            this.lastCode2Source = null;
+            this.lastShaderSource = undefined;
+            this.lastEffectSource = undefined;
+            this.lastCode1Source = undefined;
+            this.lastCode2Source = undefined;
         }
 
         // Initialize Render Pipeline

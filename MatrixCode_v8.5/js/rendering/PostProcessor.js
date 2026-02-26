@@ -77,10 +77,6 @@ class PostProcessor {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
-        this.compileShader(this.config.get('customShader'));
-        this.compileEffectShader(this.config.get('effectShader'));
-        this.compileCodeShader1(this.config.get('codeShader1'));
-        this.compileCodeShader2(this.config.get('codeShader2'));
     }
 
     _initWebGL() {
@@ -107,10 +103,6 @@ class PostProcessor {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
-        this.compileShader(this.config.get('customShader'));
-        this.compileEffectShader(this.config.get('effectShader'));
-        this.compileCodeShader1(this.config.get('codeShader1'));
-        this.compileCodeShader2(this.config.get('codeShader2'));
     }
 
     _createTexture() {

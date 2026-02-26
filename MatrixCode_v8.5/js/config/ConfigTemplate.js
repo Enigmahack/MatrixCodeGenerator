@@ -452,20 +452,9 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled' },
 
     { cat: 'Effects', type: 'header', label: 'Post Processing' },
-    { cat: 'Effects', type: 'accordion_header', label: 'Shader Pass 1: Code-Level (Burn-in)' },
-    { cat: 'Effects', id: 'codeShader1', type: 'select', label: 'Active Shader', options: 'shaders' },
-    { cat: 'Effects', id: 'codeParameter1', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01 },
-
-    { cat: 'Effects', type: 'accordion_header', label: 'Shader Pass 2: Code-Level (Glow)' },
-    { cat: 'Effects', id: 'codeShader2', type: 'select', label: 'Active Shader', options: 'shaders' },
-    { cat: 'Effects', id: 'codeParameter2', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01 },
-
-    { cat: 'Effects', type: 'accordion_header', label: 'Shader Pass 3: Global (Effect)' },
-    { cat: 'Effects', id: 'effectParameter', type: 'range', label: 'Effect Parameter', min: 0.0, max: 1.0, step: 0.01 },
-
-    { cat: 'Effects', type: 'accordion_header', label: 'Shader Pass 4: Global (Custom)' },
+    { cat: 'Effects', type: 'accordion_header', label: 'User Shader' },
     { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
-    { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable Custom Shader' },
+    { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader' },
     { cat: 'Effects', id: 'shaderSelect', type: 'select', label: 'Active Shader', options: 'shaders', dep: 'shaderEnabled' },
     { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled' },
     { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
