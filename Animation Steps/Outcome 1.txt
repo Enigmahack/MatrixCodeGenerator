@@ -1,0 +1,78 @@
+# Analysis Outcome: Quantized Mosaic Growth Algorithms
+**Project:** Animation Algorithm - Matrix-Style Blocky Growth
+**Date:** Wednesday, February 25, 2026
+
+## 1. Objective
+Analyze a sequence of 71 frames (labeled "real") to computationally describe the growth patterns of the quantized/blocky mosaic seen in the Matrix-style falling code environment. The goal is to derive an algorithm that matches the randomness and accuracy of the source material.
+
+---
+
+## 2. Morphological Observations
+The growth follows a structured, quantized logic that mimics cellular aggregation within a digital grid.
+
+*   **Quantization:** Every element is strictly snapped to the character grid.
+*   **Structural Primitives:** The fundamental unit is a **Block**—a solid rectangular cluster of cells (ranging from 1x1 to 5x15).
+*   **Growth Phases:**
+    1.  **Selection:** Stochastic choice of a frontier cell.
+    2.  **Projection:** Initial "wireframe" appearance (often a rendering artifact of high-speed state transitions).
+    3.  **Realization:** High-intensity "Gold/Green" character fill.
+*   **Symmetry & Axis Bias:** Growth oscillates between vertical "Spines" and horizontal "Branches."
+
+---
+
+## 3. Algorithmic Evolution
+
+### Phase A: Stochastic Frontier Expansion (QMG)
+Initially modeled as a stochastic expansion where blocks are added to the "frontier" (empty neighbors) of existing clusters.
+*   **Logic:** `P_EXPAND` chance to pick a neighbor and attach a random `[W, H]` block.
+
+### Phase B: Moving Boolean Intersection
+To explain "islands" and sudden "jagged line" connections, the algorithm was refined into a layered intersection model.
+*   **Hypothesis:** Two invisible layers (Structure Field and Expansion Domain).
+*   **Logic:** `Visible = Structure AND Domain`.
+*   **Outcome:** Explains how blocks can appear isolated (revealed by the domain) or morph as the boundaries sweep across them.
+
+### Phase C: Sequential Priority Generation (The "Last-Write-Wins" Logic)
+To explain non-monotonic behavior (blocks shrinking or changing shape), a chronological stack was introduced.
+*   **Logic:** Newer operations (ADD or REMOVE) overwrite older ones.
+*   **Outcome:** Explains complex "glitchy" morphing where a 2x3 block becomes a 1x3 block via a prioritized erasure layer.
+
+### Phase D: The Final Multi-Layered Quantized Growth Algorithm
+The definitive model for the movie-accurate effect.
+*   **Structure:** 3 Independent Generative Layers (Base, Mid, Micro) + 1 Master Shadow Mask.
+*   **Independence:** Each layer runs its own growth/erasure logic.
+*   **Compositing:** 
+    *   **Glass Mask:** A global Boolean OR of all 3 layers creates the transparent "window."
+    *   **Perimeters:** Each layer calculates and renders its own perimeter *independently*, creating the overlapping "internal lines" visible through the glass.
+
+---
+
+## 4. Behavioral Pools & Controls
+
+### Pool 1: Spawning & Seeding
+*   **Behavior:** Manages the birth of "Spines."
+*   **Controls:** `SpawnMode` [Radial|Linear|Random], `SpawnRate`, `MaxActiveSeeds`.
+
+### Pool 2: Structural Aggregator
+*   **Behavior:** The geometric engine for block attachment.
+*   **Controls:** `BlockDimRange`, `AxisBias` (0.0 Horiz to 1.0 Vert), `AttachmentDrift` (staggered edges).
+
+### Pool 3: Temporal Sequencer
+*   **Behavior:** Manages the Add/Remove glitch dynamics.
+*   **Controls:** `DestructiveRatio` (erasure freq), `IslandJumpProbability`, `MorphSpeed`.
+
+### Pool 4: Multi-Layer Compositor
+*   **Behavior:** Manages Z-plane overlap and internal detail.
+*   **Controls:** `LayerCount`, `InterLayerMasking` (toggle internal lines), `MasterMaskThreshold`.
+
+### Pool 5: VFX & Glass Renderer
+*   **Behavior:** The final aesthetic pass.
+*   **Controls:** `LineStyle`, `PerimeterThickness`, `GlassOpacity`, `RealizationGlow`.
+
+---
+
+## 5. Implementation Benchmarks
+*   **Center-Out (real_step):** High `BranchProbability`, balanced `AxisBias`, Radial `SpawnMode`.
+*   **Vertical-Only (real_vert_step):** Low `BranchProbability`, heavy `AxisBias` (0.9), Linear `SpawnMode`.
+
+**Conclusion:** The "cleanup" seen in late frames is an emergent property of the layers reaching critical mass; as independent layers merge into contiguous blobs, their internal perimeters vanish, naturally revealing the "Glass" window.

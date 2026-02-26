@@ -13,8 +13,6 @@ class MatrixKernel {
         this.lastTime = 0;
         this.accumulator = 0;
         this.timestep = 1000 / 60;
-        this._effectTimers = {}; // Initialize map for effect timers
-        this._supermanTimer = 0; // Initialize Superman effect timer (will be managed in _effectTimers)
         this._lastResetReason = "Startup"; // Track last reset
         
         // Idle Detection State
@@ -388,48 +386,7 @@ class MatrixKernel {
             if ((atlasTriggers.has(key) || key === 'ALL') && this.renderer && this.renderer.handleAppearanceChange) {
                 this.renderer.handleAppearanceChange();
             }
-
-            const autoEffects = [
-                { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
-                { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
-                { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
-                { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
-                { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-                { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
-                { enabledKey: 'quantizedAddEnabled', frequencyKey: 'quantizedAddFrequencySeconds', effectName: 'QuantizedAdd' },
-                { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
-                { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
-                { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
-                { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
-                { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
-            ];
-
-            autoEffects.forEach(effect => {
-                if ((key === effect.enabledKey && this.config.state[effect.enabledKey]) || key === 'ALL') {
-                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                } else if (key === effect.enabledKey && !this.config.state[effect.enabledKey]) {
-                    // If an effect is specifically disabled, remove its timer
-                    delete this._effectTimers[effect.effectName];
-                }
-            });
         });
-    }
-
-    /**
-     * Calculates the minimum frequency in frames, handling the "Random" (500s) special case for Quantized effects.
-     * @private
-     * @param {string} effectName - The name of the effect.
-     * @param {string} frequencyKey - The configuration key for the frequency.
-     * @returns {number} The calculated frequency in frames.
-     */
-    _getMinFrequencyFrames(effectName, frequencyKey) {
-        let seconds = this.config.state[frequencyKey];
-        if (seconds === 500) {
-            seconds = Utils.randomInt(50, 500);
-        }
-        return seconds * 60;
     }
 
     /**
@@ -601,51 +558,6 @@ class MatrixKernel {
         
         // Update both worlds independently
         this.worlds.forEach(w => w.sim.update(this.frame));
-
-        const autoEffects = [
-            { enabledKey: 'pulseEnabled', frequencyKey: 'pulseFrequencySeconds', effectName: 'Pulse' },
-            { enabledKey: 'clearPulseEnabled', frequencyKey: 'clearPulseFrequencySeconds', effectName: 'ClearPulse' },
-            { enabledKey: 'miniPulseEnabled', frequencyKey: 'miniPulseFrequencySeconds', effectName: 'MiniPulse' },
-            { enabledKey: 'dejaVuEnabled', frequencyKey: 'dejaVuFrequencySeconds', effectName: 'DejaVu' },
-            { enabledKey: 'supermanEnabled', frequencyKey: 'supermanFrequencySeconds', effectName: 'Superman' },
-            { enabledKey: 'quantizedPulseEnabled', frequencyKey: 'quantizedPulseFrequencySeconds', effectName: 'QuantizedPulse' },
-            { enabledKey: 'quantizedAddEnabled', frequencyKey: 'quantizedAddFrequencySeconds', effectName: 'QuantizedAdd' },
-            { enabledKey: 'quantizedRetractEnabled', frequencyKey: 'quantizedRetractFrequencySeconds', effectName: 'QuantizedRetract' },
-            { enabledKey: 'quantizedClimbEnabled', frequencyKey: 'quantizedClimbFrequencySeconds', effectName: 'QuantizedClimb' },
-            { enabledKey: 'quantizedZoomEnabled', frequencyKey: 'quantizedZoomFrequencySeconds', effectName: 'QuantizedZoom' },
-            { enabledKey: 'quantizedGenerateV2Enabled', frequencyKey: 'quantizedGenerateV2FrequencySeconds', effectName: 'QuantizedBlockGenerator' },
-            { enabledKey: 'crashEnabled', frequencyKey: 'crashFrequencySeconds', effectName: 'CrashSequence' }
-        ];
-
-        const isEditorActive = this.config.get('quantEditorEnabled') === true;
-
-        autoEffects.forEach(effect => {
-            if (this.config.state[effect.enabledKey]) {
-                if (!this._effectTimers[effect.effectName]) {
-                    // Initialize timer with randomization if not already set
-                    const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
-                    const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5); // Up to 50% random offset
-                    this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                }
-
-                if (!isEditorActive) {
-                    this._effectTimers[effect.effectName]--;
-
-                    if (this._effectTimers[effect.effectName] <= 0) {
-                        this.effectRegistry.trigger(effect.effectName);
-                        // Reset timer with randomization
-                        const minFrequencyFrames = this._getMinFrequencyFrames(effect.effectName, effect.frequencyKey);
-                        const randomOffsetFrames = Utils.randomInt(0, minFrequencyFrames * 0.5);
-                        this._effectTimers[effect.effectName] = minFrequencyFrames + randomOffsetFrames;
-                    }
-                }
-            } else {
-                // If effect is disabled, ensure its timer is reset or cleared
-                if (this._effectTimers[effect.effectName]) {
-                    delete this._effectTimers[effect.effectName];
-                }
-            }
-        });
     }
 }
 

@@ -4,7 +4,6 @@ class MiniPulseEffect extends AbstractEffect {
         this.name = "MiniPulse";
         this.active = false;
         this.sessionTimer = 0;
-        this.autoTimer = c.state.miniPulseFrequencySeconds * 60;
         this.pulses = [];
         this.renderPulses = [];
     }
@@ -20,11 +19,6 @@ class MiniPulseEffect extends AbstractEffect {
     update() {
         const s = this.c.state;
         const d = this.c.derived;
-
-        if (!this.active && s.miniPulseEnabled && this.autoTimer-- <= 0) {
-            this.trigger();
-            this.autoTimer = s.miniPulseFrequencySeconds * 60;
-        }
 
         if (this.active) {
             this.sessionTimer--;

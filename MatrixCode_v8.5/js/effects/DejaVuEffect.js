@@ -3,7 +3,6 @@ class DejaVuEffect extends AbstractEffect {
         super(g, c); 
         this.name = "DejaVu"; 
         this.active = false; 
-        this.autoTimer = c.state.dejaVuFrequencySeconds * 60; 
         this.map = null;
         this.bars = [];
         
@@ -87,7 +86,6 @@ void main() {
     
     update() {
         const s = this.c.state;
-        if(!this.active && s.dejaVuEnabled && s.dejaVuAutoMode && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.dejaVuFrequencySeconds * 60; }
         if(!this.active) return;
         if(this.timer-- <= 0) { 
             this.active = false; 

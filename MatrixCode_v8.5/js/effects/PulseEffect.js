@@ -3,9 +3,6 @@ class PulseEffect extends AbstractEffect {
         super(g, c); this.name = "Pulse"; 
         this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
         this.snap = null; 
-        const s = this._getEffectiveState();
-        const fps = s.pulseMovieAccurate ? 30 : 60;
-        this.autoTimer = s.pulseFrequencySeconds * fps;
         this.renderData = null; 
         this.frameAccumulator = 0;
     }
@@ -152,7 +149,6 @@ class PulseEffect extends AbstractEffect {
              this.frameAccumulator = 0;
         }
 
-        if(!this.active && s.pulseEnabled && this.autoTimer-- <= 0) { this.trigger(); this.autoTimer = s.pulseFrequencySeconds * fps; }
         if(!this.active) { this.renderData = null; return; }
         
         const d = this.c.derived;

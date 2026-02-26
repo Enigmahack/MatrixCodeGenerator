@@ -6,9 +6,6 @@ class ClearPulseEffect extends AbstractEffect {
         this.origin = { x: 0, y: 0 };
         this.radius = 0;
         this.snap = null;
-        const s = this._getEffectiveState();
-        const fps = s.clearPulseMovieAccurate ? 30 : 60;
-        this.autoTimer = s.clearPulseFrequencySeconds * fps;
         this.renderData = null;
         this.chunks = []; // For Movie Accurate Lag
         this.frameAccumulator = 0;
@@ -150,10 +147,6 @@ class ClearPulseEffect extends AbstractEffect {
              this.frameAccumulator = 0;
         }
 
-        if (!this.active && s.clearPulseEnabled && this.autoTimer-- <= 0) {
-            this.trigger();
-            this.autoTimer = s.clearPulseFrequencySeconds * fps;
-        }
         if (!this.active) { this.renderData = null; return; }
 
         const d = this.c.derived;

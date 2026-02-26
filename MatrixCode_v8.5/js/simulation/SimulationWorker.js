@@ -286,7 +286,14 @@ self.onmessage = function(e) {
             simSystem = new WorkerSimulationSystem(grid, configManagerMock);
             break;
         case 'config':
-            config.state = msg.config.state; config.derived = msg.config.derived;
+            if (msg.key === 'ALL') {
+                config.state = msg.config.state;
+            } else if (msg.key) {
+                config.state[msg.key] = msg.value;
+            }
+            if (msg.config.derived) {
+                config.derived = msg.config.derived;
+            }
             break;
         case 'resize':
             if (grid) {

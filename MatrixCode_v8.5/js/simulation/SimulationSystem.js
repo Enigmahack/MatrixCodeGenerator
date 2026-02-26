@@ -64,11 +64,8 @@ class SimulationSystem {
                     height: height,
                     buffers: this.workerBuffers,
                     config: {
-                        state: JSON.parse(JSON.stringify(this.config.state)),
-                        derived: this.config.derived // Derived often has getters, ensure it's serializable or plain object?
-                        // ConfigurationManager.derived is usually a proxy or object. 
-                        // We might need to extract values if it's a Proxy.
-                        // Assuming standard object for now or that structuredClone handles it.
+                        state: this.config.state,
+                        derived: this.config.derived 
                     }
                 });
             };
@@ -84,17 +81,27 @@ class SimulationSystem {
         
         // Subscribe to config changes to keep worker in sync
         if (this.useWorker) {
-            this.config.subscribe((key) => {
-                // Simple sync: send entire state on change. Optimized? No. Robust? Yes.
+            this.config.subscribe((key, state) => {
+                // Differential sync: send only the changed key/value.
                 // We avoid sending on 'resolution' changes here because 'resize' handles that.
                 if (key !== 'resolution' && key !== 'stretchX' && key !== 'stretchY') {
-                    this.worker.postMessage({
+                    const msg = {
                         type: 'config',
+                        key: key,
                         config: {
-                            state: JSON.parse(JSON.stringify(this.config.state)),
                             derived: this.config.derived
                         }
-                    });
+                    };
+
+                    if (key === 'ALL') {
+                        // For bulk updates (presets), send the whole state
+                        msg.config.state = state;
+                    } else {
+                        // For surgical updates, send just the value
+                        msg.value = state[key];
+                    }
+
+                    this.worker.postMessage(msg);
                 }
             });
         }
