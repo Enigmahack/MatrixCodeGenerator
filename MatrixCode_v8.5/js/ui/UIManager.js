@@ -896,7 +896,7 @@ class UIManager {
             const div = document.createElement('div');
             div.className = 'info-description';
             div.textContent = def.text;
-            if (def.id) div.id = `in-${def.id}`;
+            if (def.id) div.id = def.id;
             return div;
         }
         if (def.type === 'faq_item') {
@@ -927,6 +927,11 @@ class UIManager {
             grp.append(save, load); row.append(inp, grp);
         } else if (def.type === 'font_list') {
             row.className = 'font-manager-list'; row.id = 'fontListUI'; this.updateFontList(row);
+        } else if (def.type === 'container') {
+             const div = document.createElement('div');
+             if (def.id) div.id = def.id;
+             if (def.dep) div.setAttribute('data-dep', JSON.stringify(def.dep));
+             return div;
         } else {
             row.className = def.type === 'checkbox' ? 'checkbox-row' : 'control-row';
             const labelGroup = this.createLabelGroup(def);
@@ -1333,10 +1338,92 @@ class UIManager {
      * @private
      */
     _applyShaderSource(source, configId, filename) {
-        if (configId === 'shaderSelect') this.c.set('customShader', source);
+        if (configId === 'shaderSelect' || configId === 'importShader') {
+            this.c.set('customShader', source);
+            this.c.set('customShaderName', filename);
+            this._updateDynamicShaderControls(source);
+            
+            const nameEl = document.getElementById('currentShaderNameDisplay');
+            if (nameEl) nameEl.textContent = `Loaded: ${filename}`;
+        }
         else if (configId === 'codeShader1') this.c.set('codeShader1Content', source);
         else if (configId === 'codeShader2') this.c.set('codeShader2Content', source);
         this.notifications.show(`Shader Loaded: ${filename}`, 'success');
+    }
+
+    /**
+     * Parses shader source for 'uniform float' declarations and generates UI sliders.
+     * Supports metadata in comments: uniform float u_name; // [min, max, step, label]
+     * @private
+     */
+    _updateDynamicShaderControls(source) {
+        const container = document.getElementById('dynamicShaderControls');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (!source) {
+            this.c.set('customShaderParams', {});
+            return;
+        }
+
+        const standardUniforms = new Set(['uTime', 'uParameter', 'uResolution', 'uMouse', 'uTexture', 'uFlipY']);
+        const floatRegex = /uniform\s+float\s+(\w+)\s*;(?:\s*\/\/\s*\[(.*)\])?/g;
+        const params = this.c.get('customShaderParams') || {};
+        const newParams = {};
+        
+        let match;
+        while ((match = floatRegex.exec(source)) !== null) {
+            const name = match[1];
+            if (standardUniforms.has(name)) continue;
+
+            let min = 0, max = 1, step = 0.01, label = name;
+            if (match[2]) {
+                const meta = match[2].split(',').map(s => s.trim());
+                if (meta[0] !== undefined) min = parseFloat(meta[0]);
+                if (meta[1] !== undefined) max = parseFloat(meta[1]);
+                if (meta[2] !== undefined) step = parseFloat(meta[2]);
+                if (meta[3] !== undefined) label = meta[3];
+            }
+
+            // Preserve existing value if name matches, else use min or 0.5
+            newParams[name] = params[name] !== undefined ? params[name] : (min + (max - min) * 0.5);
+
+            // Create Slider UI
+            const row = document.createElement('div');
+            row.className = 'config-row range-control';
+            
+            const labelEl = document.createElement('label');
+            labelEl.textContent = label;
+            row.appendChild(labelEl);
+
+            const rangeWrapper = document.createElement('div');
+            rangeWrapper.className = 'range-wrapper';
+
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = min;
+            input.max = max;
+            input.step = step;
+            input.value = newParams[name];
+            
+            const valDisplay = document.createElement('span');
+            valDisplay.className = 'range-value';
+            valDisplay.textContent = input.value;
+
+            input.oninput = () => {
+                valDisplay.textContent = input.value;
+                const current = this.c.get('customShaderParams');
+                current[name] = parseFloat(input.value);
+                this.c.set('customShaderParams', current);
+            };
+
+            rangeWrapper.appendChild(input);
+            rangeWrapper.appendChild(valDisplay);
+            row.appendChild(rangeWrapper);
+            container.appendChild(row);
+        }
+
+        this.c.set('customShaderParams', newParams);
     }
 
     /**
@@ -1387,6 +1474,14 @@ class UIManager {
                 this.updateSlotNames();
                 this.refresh('fontFamily', true);
                 
+                // Initialize Dynamic Shader Controls
+                this._updateDynamicShaderControls(this.c.get('customShader'));
+                const nameEl = document.getElementById('currentShaderNameDisplay');
+                if (nameEl) {
+                    const savedName = this.c.get('customShaderName');
+                    nameEl.textContent = (savedName && savedName !== 'none') ? `Loaded: ${savedName}` : 'none';
+                }
+
                 // Unified initial dependency refresh
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
                     this._updateRowVisibility(row);
@@ -1435,13 +1530,16 @@ class UIManager {
             }
 
             if (key === 'customShader' || key === 'shaderEnabled') {
-                const shaderNameDisplay = document.getElementById('in-currentShaderNameDisplay');
+                const shaderNameDisplay = document.getElementById('currentShaderNameDisplay');
                 if (shaderNameDisplay) {
-                    let name = 'No shader loaded.';
+                    let name = 'none';
                     const customShaderSource = this.c.get('customShader');
                     const shaderEnabled = this.c.get('shaderEnabled');
+                    const savedName = this.c.get('customShaderName');
                     
-                    if (shaderEnabled && customShaderSource) {
+                    if (shaderEnabled && savedName && savedName !== 'none') {
+                        name = savedName;
+                    } else if (shaderEnabled && customShaderSource) {
                         const nameMatch = customShaderSource.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
                         if (nameMatch && nameMatch[1]) name = nameMatch[1].trim();
                         else if (customShaderSource.trim().startsWith('precision')) name = 'Custom Shader (No Name)';
@@ -1450,8 +1548,8 @@ class UIManager {
                              name = parts[parts.length - 1];
                         }
                         else name = 'Custom Shader';
-                    } else if (shaderEnabled) name = 'Unnamed/Default Shader'; 
-                    shaderNameDisplay.textContent = `Loaded: ${name}`;
+                    }
+                    shaderNameDisplay.textContent = (name === 'none') ? 'none' : `Loaded: ${name}`;
                 }
             }
 

@@ -151,7 +151,8 @@ class FinalShaderPass extends RenderPass {
 
             const params = {
                 custom: s.shaderParameter !== undefined ? s.shaderParameter : 0.5,
-                effect: s.effectParameter !== undefined ? s.effectParameter : 0.0
+                effect: s.effectParameter !== undefined ? s.effectParameter : 0.0,
+                customParams: s.customShaderParams || {}
             };
             
             renderer.postProcessor.renderFinalPasses(sourceTex, time, renderer.mouseX, renderer.mouseY, params, null);

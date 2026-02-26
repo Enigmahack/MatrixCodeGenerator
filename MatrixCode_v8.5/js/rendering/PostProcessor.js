@@ -195,7 +195,7 @@ class PostProcessor {
             this.gl.clearColor(0, 0, 0, 0);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT);
             
-            this._drawPass(activePasses[i].prog, input, time, mouseX, mouseY, activePasses[i].param, flip);
+            this._drawPass(activePasses[i].prog, input, time, mouseX, mouseY, activePasses[i].param, flip, activePasses[i].customParams);
             
             if (!isLast) {
                 input = activeTex;
@@ -235,7 +235,7 @@ class PostProcessor {
         if (!this.gl) return;
         const activePasses = [
             { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
-            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5 }
+            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5, customParams: params.customParams }
         ].filter(p => p.prog !== null);
 
         this._applyChain(activePasses, source, 0.0, targetFBO, time, mouseX, mouseY);
@@ -266,7 +266,7 @@ class PostProcessor {
             { prog: this.codeProgram1, param: params.code1 !== undefined ? params.code1 : 0.5 },
             { prog: this.codeProgram2, param: params.code2 !== undefined ? params.code2 : 0.5 },
             { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
-            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5 }
+            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5, customParams: params.customParams }
         ].filter(p => p.prog !== null);
         
         if (activePasses.length === 0) {
@@ -280,7 +280,7 @@ class PostProcessor {
     }
 
     
-    _drawPass(prog, texture, time, mouseX, mouseY, param, flipY) {
+    _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, customParams = null) {
         this.gl.useProgram(prog);
 
         const posLoc = this.gl.getAttribLocation(prog, 'aPosition');
@@ -308,6 +308,16 @@ class PostProcessor {
         
         const uFlip = this.gl.getUniformLocation(prog, 'uFlipY');
         if (uFlip) this.gl.uniform1f(uFlip, flipY);
+
+        // Apply Custom Parameters
+        if (customParams) {
+            for (const [key, value] of Object.entries(customParams)) {
+                const loc = this.gl.getUniformLocation(prog, key);
+                if (loc) {
+                    this.gl.uniform1f(loc, value);
+                }
+            }
+        }
 
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }

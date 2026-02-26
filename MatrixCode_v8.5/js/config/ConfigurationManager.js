@@ -180,6 +180,8 @@ class ConfigurationManager {
             "rotatorRandomSpeedEnabled": false,
             "shaderEnabled": false,
             "customShader": null,
+            "customShaderName": "none",
+            "customShaderParams": {},
             "codeShader1": "none",
             "codeShader2": "none",
             "codeShader1Content": null,

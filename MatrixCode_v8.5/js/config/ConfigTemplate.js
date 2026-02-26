@@ -453,11 +453,11 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'header', label: 'Post Processing' },
     { cat: 'Effects', type: 'accordion_header', label: 'User Shader' },
-    { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'Loaded: No shader.' },
     { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader' },
-    { cat: 'Effects', id: 'shaderSelect', type: 'select', label: 'Active Shader', options: 'shaders', dep: 'shaderEnabled' },
-    { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Shader Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled' },
+    { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'none' },
     { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled' },
+    { cat: 'Effects', type: 'container', id: 'dynamicShaderControls', dep: 'shaderEnabled' },
+    { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Global Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled' },
     { cat: 'Effects', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
 
     // 5. DEBUG TAB
