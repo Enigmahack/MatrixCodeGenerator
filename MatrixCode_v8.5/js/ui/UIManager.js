@@ -1244,7 +1244,21 @@ class UIManager {
                     if(this.c.get(def.id) === o.value) opt.selected = true; 
                     inp.appendChild(opt); 
                 }); 
-                inp.onchange = e => this.c.set(def.id, e.target.value); 
+                
+                inp.onchange = e => {
+                    const val = e.target.value;
+                    this.c.set(def.id, val);
+                    
+                    // If it's a shader select, we need to load the content into the corresponding source slot
+                    if (def.options === 'shaders' && val !== 'none') {
+                        this._loadShaderSource(val, def.id);
+                    } else if (def.options === 'shaders' && val === 'none') {
+                        // Clear the source slot
+                        if (def.id === 'shaderSelect') this.c.set('customShader', null);
+                        if (def.id === 'codeShader1') this.c.set('codeShader1Content', null);
+                        if (def.id === 'codeShader2') this.c.set('codeShader2Content', null);
+                    }
+                }; 
             }
             else if(def.type === 'text') {
                 inp = document.createElement('input');
@@ -1261,6 +1275,28 @@ class UIManager {
             if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`;
         }
         return row;
+    }
+
+    /**
+     * Loads a shader file from the shaders directory and updates the config.
+     * @private
+     */
+    _loadShaderSource(filename, configId) {
+        fetch(`shaders/${filename}`)
+            .then(response => {
+                if (!response.ok) throw new Error(`Failed to load shader: ${filename}`);
+                return response.text();
+            })
+            .then(source => {
+                if (configId === 'shaderSelect') this.c.set('customShader', source);
+                else if (configId === 'codeShader1') this.c.set('codeShader1Content', source);
+                else if (configId === 'codeShader2') this.c.set('codeShader2Content', source);
+                this.notifications.show(`Shader Loaded: ${filename}`, 'success');
+            })
+            .catch(err => {
+                console.error(err);
+                this.notifications.show(`Error loading shader`, 'error');
+            });
     }
 
     /**

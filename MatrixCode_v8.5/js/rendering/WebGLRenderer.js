@@ -2,6 +2,168 @@
 // WEBGL RENDERER
 // =========================================================================
 
+// =========================================================================
+// RENDER PIPELINE PASSES (SOLID / Open-Closed Architecture)
+// =========================================================================
+
+class RenderPass {
+    constructor(name, enabled = true) {
+        this.name = name;
+        this.enabled = enabled;
+    }
+    
+    // Abstract method
+    // Returns the texture that should be used as input for the next pass
+    execute(renderer, sourceTex, s, d, time) {
+        throw new Error("RenderPass.execute() must be implemented.");
+    }
+}
+
+class CodeShadersPass extends RenderPass {
+    execute(renderer, sourceTex, s, d, time) {
+        if (!renderer.postProcessor) return sourceTex;
+        
+        const params = {
+            code1: s.codeParameter1 !== undefined ? s.codeParameter1 : 0.5,
+            code2: s.codeParameter2 !== undefined ? s.codeParameter2 : 0.5
+        };
+        
+        const code1Source = s.codeShader1Content;
+        const code2Source = s.codeShader2Content;
+        
+        if (code1Source !== renderer.lastCode1Source) {
+            renderer.postProcessor.compileCodeShader1(code1Source);
+            renderer.lastCode1Source = code1Source;
+        }
+        if (code2Source !== renderer.lastCode2Source) {
+            renderer.postProcessor.compileCodeShader2(code2Source);
+            renderer.lastCode2Source = code2Source;
+        }
+
+        if (renderer.postProcessor.codeProgram1 || renderer.postProcessor.codeProgram2) {
+            renderer.postProcessor.renderCodePasses(sourceTex, time, renderer.mouseX, renderer.mouseY, params, renderer.fboCodeProcessed);
+            return renderer.texCodeProcessed;
+        }
+        return sourceTex;
+    }
+}
+
+class BloomPass extends RenderPass {
+    execute(renderer, sourceTex, s, d, time) {
+        if (!s.enableBloom) return sourceTex;
+
+        const gl = renderer.gl;
+        let spread = (s.bloomStrength !== undefined ? s.bloomStrength : 5.0); 
+
+        // 1. Extract Highlights and Downsample
+        gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboB);
+        gl.viewport(0, 0, renderer.bloomWidth, renderer.bloomHeight);
+        renderer._runBlur(sourceTex, true, spread, renderer.fboWidth, renderer.fboHeight, 1.0, true);
+
+        // 2. Ping-pong Blur
+        for (let i = 0; i < 3; i++) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboC);
+            renderer._runBlur(renderer.texB, false, spread, renderer.bloomWidth, renderer.bloomHeight, 1.0, false);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboB);
+            renderer._runBlur(renderer.texC, true, spread, renderer.bloomWidth, renderer.bloomHeight, 1.0, false);
+        }
+
+        // 3. Blend Bloom with sourceTex
+        let blendTargetFBO = renderer.fboA2;
+        let blendTargetTex = renderer.texA2;
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, blendTargetFBO);
+        gl.viewport(0, 0, renderer.fboWidth, renderer.fboHeight);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        // EXACT COPY of original source (prevent alpha double-multiply darkening)
+        gl.disable(gl.BLEND);
+        renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
+        
+        // Additive Blend Bloom
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE);
+        let bloomOpacity = (s.bloomOpacity !== undefined ? s.bloomOpacity : 1.0);
+        renderer._drawFullscreenTexture(renderer.texB, bloomOpacity, 0);
+        
+        return blendTargetTex;
+    }
+}
+class QuantizedEffectsPass extends RenderPass {
+    execute(renderer, sourceTex, s, d, time) {
+        if (!renderer.effects) return sourceTex;
+
+        const gl = renderer.gl;
+        // The Quantized logic expects to render TO fboA2. 
+        // If sourceTex is already texA2 (e.g. from BloomPass), we need to render to a different FBO to avoid Read/Write feedback loop.
+        let targetFBO = renderer.fboCodeProcessed; 
+        let targetTex = renderer.texCodeProcessed;
+
+        if (sourceTex === renderer.texCodeProcessed) {
+             targetFBO = renderer.fboA2;
+             targetTex = renderer.texA2;
+        }
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+        gl.viewport(0, 0, renderer.fboWidth, renderer.fboHeight);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        if (renderer._renderQuantizedLineGfx(s, d, sourceTex, targetFBO)) {
+            return targetTex;
+        } else {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboLinePersist);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+            renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
+            return targetTex;
+        }
+    }
+}
+
+class FinalShaderPass extends RenderPass {
+    execute(renderer, sourceTex, s, d, time) {
+        const gl = renderer.gl;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        
+        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+        gl.clearColor(br, bg, bb, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        if (renderer.postProcessor) {
+            const customSource = s.shaderEnabled ? s.customShader : null;
+            const effectSource = s.effectShader;
+
+            if (customSource !== renderer.lastShaderSource) {
+                renderer.postProcessor.compileShader(customSource);
+                renderer.lastShaderSource = customSource;
+            }
+            if (effectSource !== renderer.lastEffectSource) {
+                renderer.postProcessor.compileEffectShader(effectSource);
+                renderer.lastEffectSource = effectSource;
+            }
+
+            const params = {
+                custom: s.shaderParameter !== undefined ? s.shaderParameter : 0.5,
+                effect: s.effectParameter !== undefined ? s.effectParameter : 0.0
+            };
+            
+            renderer.postProcessor.renderFinalPasses(sourceTex, time, renderer.mouseX, renderer.mouseY, params, null);
+        } else {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+            renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
+        }
+        return null;
+    }
+}
+
 class WebGLRenderer {
     constructor(canvasId, grid, config, effects) {
         this.cvs = document.getElementById(canvasId);
@@ -51,9 +213,13 @@ class WebGLRenderer {
         
         // --- Framebuffers for Bloom ---
         this.fboA = null; 
+        this.fboA2 = null;
+        this.fboCodeProcessed = null; 
         this.fboB = null; 
         this.fboC = null; // New Scratch FBO
         this.texA = null; 
+        this.texA2 = null;
+        this.texCodeProcessed = null; 
         this.texB = null; 
         this.texC = null; // New Scratch Texture
         this.bloomWidth = 0;
@@ -79,7 +245,17 @@ class WebGLRenderer {
             this.postProcessor = new PostProcessor(config, this.gl);
             this.lastShaderSource = null;
             this.lastEffectSource = null;
+            this.lastCode1Source = null;
+            this.lastCode2Source = null;
         }
+
+        // Initialize Render Pipeline
+        this.pipeline = [
+            new CodeShadersPass('CodeShaders'),
+            new BloomPass('Bloom'),
+            new QuantizedEffectsPass('QuantizedLineGfx'),
+            new FinalShaderPass('FinalShaders')
+        ];
     }
 
     setGrid(grid) {
@@ -575,8 +751,11 @@ class WebGLRenderer {
                 layout(location=6) in float a_glow;
                 layout(location=7) in float a_mix;
                 layout(location=8) in float a_nextChar;
-                layout(location=9) in vec3 a_depth;
                 layout(location=10) in float a_maxDecay;
+                layout(location=11) in float a_shapeID;
+                layout(location=12) in float a_glimmerFlicker;
+                layout(location=13) in float a_glimmerAlpha;
+                layout(location=14) in float a_dissolve;
     
                 out vec2 v_uv;
                 out vec2 v_uv2;
@@ -587,6 +766,9 @@ class WebGLRenderer {
                 out vec2 v_screenUV;
                 out vec2 v_cellPos;
                 out vec2 v_cellUV;
+                out float v_glimmerFlicker;
+                out float v_glimmerAlpha;
+                out float v_shapeID;
             `;
     
             // 2D Vertex Shader
@@ -603,20 +785,19 @@ class WebGLRenderer {
                 uniform float u_dissolveScale;
     
                 void main() {
-                    // Decay Scale Logic
+                    // Optimized Effect Passing
+                    v_glimmerFlicker = a_glimmerFlicker;
+                    v_glimmerAlpha = a_glimmerAlpha;
+                    v_shapeID = a_shapeID;
+                    v_prog = a_dissolve;
+                    
+                    // Decay Scale Logic (Legacy support for non-optimized effects if needed)
                     float scale = 1.0;
-                    v_prog = 0.0;
-                    v_cellUV = a_quad;
-                    if (a_decay >= 2.0) {
-                        float duration = (a_maxDecay > 0.0) ? a_maxDecay : u_decayDur;
-                        v_prog = (a_decay - 2.0) / duration;
-                        if (u_dissolveEnabled > 0.5) {
-                            scale = mix(1.0, u_dissolveScale, v_prog);
-                        } else {
-                            scale = 1.0;
-                        }
+                    if (v_prog > 0.0 && u_dissolveEnabled > 0.5) {
+                        scale = mix(1.0, u_dissolveScale, v_prog);
                     }
                     
+                    v_cellUV = a_quad;
                     // Position Calculation (2D)
                     vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
                     vec2 worldPos = a_pos + centerPos2D;
@@ -686,10 +867,13 @@ class WebGLRenderer {
                 in vec2 v_screenUV;
                 in vec2 v_cellPos;
                 in vec2 v_cellUV;
+                in float v_glimmerFlicker;
+                in float v_glimmerAlpha;
+                in float v_shapeID;
                 
                 uniform sampler2D u_texture;
                 uniform sampler2D u_shadowMask; 
-                uniform sampler2D u_glimmerNoise; // <-- Optimization Texture
+                uniform sampler2D u_glimmerNoise; 
                 
                 uniform float u_time;
                 uniform float u_dissolveEnabled; 
@@ -705,9 +889,8 @@ class WebGLRenderer {
                 uniform vec4 u_overlapColor;
                 uniform float u_glimmerSpeed;
                 uniform float u_glimmerSize;
-                uniform float u_glimmerFill; // Unused in optimized version (baked into texture density)
                 uniform float u_glimmerIntensity;
-                uniform float u_glimmerFlicker; // Controls spread of flicker
+                uniform float u_glimmerFlicker; 
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
@@ -715,43 +898,29 @@ class WebGLRenderer {
                 
                 out vec4 fragColor;
     
-                // Pseudo-random function
-                float random(vec2 st) {
-                    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
-                }
-                
-                vec2 random2(vec2 st) {
-                    st = vec2( dot(st,vec2(127.1,311.7)),
-                               dot(st,vec2(269.5,183.3)) );
-                    return -1.0 + 2.0*fract(sin(st)*43758.5453123);
-                }
-
                 // Helper to apply all visual degradations (Dissolve + Ghosting) identically
                 float getProcessedAlpha(vec2 uv) {
                     if (uv.x < 0.0) return 0.0;
                     float a = texture(u_texture, uv).a;
-                    float ghost1 = 0.0;
-                    float ghost2 = 0.0;
     
-                    // Trail Ghosting (Vertical Blur) - Sample first
+                    // Optimized Trail Ghosting (Vertical Blur)
                     if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
                         float blurDist = (u_deteriorationStrength * v_prog) / u_atlasSize.y;
-                        ghost1 = texture(u_texture, uv + vec2(0.0, blurDist)).a;
-                        ghost2 = texture(u_texture, uv - vec2(0.0, blurDist)).a;
-                    }
-    
-                    // Alpha Erosion Dissolve (Burn away from edges)
-                    // Apply to MAIN char AND GHOSTS
-                    if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
+                        float g1 = texture(u_texture, uv + vec2(0.0, blurDist)).a;
+                        float g2 = texture(u_texture, uv - vec2(0.0, blurDist)).a;
+                        
+                        // Alpha Erosion Dissolve (Burn away from edges)
+                        if (u_dissolveEnabled > 0.5) {
+                            float erosion = v_prog * 1.2; 
+                            float threshold = erosion + 0.1;
+                            a = min(a, smoothstep(erosion, threshold, a));
+                            g1 = min(g1, smoothstep(erosion, threshold, g1));
+                            g2 = min(g2, smoothstep(erosion, threshold, g2));
+                        }
+                        a = max(a, max(g1, g2) * 0.5);
+                    } else if (u_dissolveEnabled > 0.5 && v_prog > 0.0) {
                         float erosion = v_prog * 1.2; 
                         a = min(a, smoothstep(erosion, erosion + 0.1, a));
-                        if (ghost1 > 0.0) ghost1 = min(ghost1, smoothstep(erosion, erosion + 0.1, ghost1));
-                        if (ghost2 > 0.0) ghost2 = min(ghost2, smoothstep(erosion, erosion + 0.1, ghost2));
-                    }
-    
-                    // Combine
-                    if (u_deteriorationEnabled > 0.5 && v_prog > 0.0) {
-                        a = max(a, max(ghost1, ghost2) * 0.5);
                     }
                     
                     return a;
@@ -772,138 +941,41 @@ class WebGLRenderer {
                     // Default Standard Mode
                     float finalAlpha = tex1;
                     
-                    // GLIMMER LOGIC (State 30.0 -> useMix 20.0)
+                    // --- OPTIMIZED GLIMMER LOGIC ---
                     float glimmer = 0.0;
-                    if (useMix >= 19.5) {
-                        float gOpacity = clamp(useMix - 20.0, 0.0, 1.0);
-                        useMix = 0.0; // Reset
-                        
+                    if (v_glimmerAlpha > 0.0) {
                         float rawTex = texture(u_texture, v_uv).a;
                         if (rawTex > 0.3) {
-                            // 1. Calculate Seed with Time Step (Pattern Switching)
-                            // u_glimmerSpeed controls the frequency of pattern changes (Hz)
-                            float switchFreq = max(0.01, u_glimmerSpeed);
-                            float timeStep = floor(u_time * switchFreq);
-                            
-                            vec2 cellGridPos = v_cellPos;
-                            
-                            // Perturb seed with timeStep to switch patterns
-                            vec2 seed = cellGridPos + vec2(timeStep * 37.0, timeStep * 11.0);
-                            float cellRand = random(seed);
-
-                            // 2. Determine Shape/Position
-                            // "Lamp illuminating pattern from behind" - Shapes are geometric/tech
                             vec2 center = vec2(0.5);
-                            vec2 sizeBounds = vec2(0.1, 0.1); // Default
+                            vec2 sizeBounds = vec2(0.1, 0.1); 
                             float rotation = 0.0;
                             
-                            // Probability Distribution (Refactored for Balance):
-                            // 0.00 - 0.40: Vertical Bars (40%) -> High priority per user request
-                            // 0.40 - 0.60: Horizontal Bars (20%)
-                            // 0.60 - 0.70: Small Rects (10%)
-                            // 0.70 - 1.00: Diagonals (30%) -> Split evenly 15% each
-                            
-                            if (cellRand < 0.20) {
-                                // Vertical Left
-                                center = vec2(0.2, 0.5);
-                                sizeBounds = vec2(0.08, 0.45);
-                            } else if (cellRand < 0.40) {
-                                // Vertical Right
-                                center = vec2(0.8, 0.5);
-                                sizeBounds = vec2(0.08, 0.45);
-                            } else if (cellRand < 0.47) {
-                                // Horizontal Top
-                                center = vec2(0.5, 0.8);
-                                sizeBounds = vec2(0.45, 0.08);
-                            } else if (cellRand < 0.54) {
-                                // Horizontal Bottom
-                                center = vec2(0.5, 0.2);
-                                sizeBounds = vec2(0.45, 0.08);
-                            } else if (cellRand < 0.60) {
-                                // Horizontal Middle
-                                center = vec2(0.5, 0.5);
-                                sizeBounds = vec2(0.45, 0.06);
-                            } else if (cellRand < 0.70) {
-                                // Small Rect Center
-                                center = vec2(0.5, 0.5);
-                                sizeBounds = vec2(0.15, 0.15);
-                            } else if (cellRand < 0.85) {
-                                // Diagonal 1: Bottom-Left to Top-Right (/)
-                                // Rotation +45 deg aligns local X with diagonal
-                                rotation = 0.785398; 
-                                sizeBounds = vec2(0.05, 0.55); 
-                            } else {
-                                // Diagonal 2: Top-Left to Bottom-Right (\)
-                                // Rotation -45 deg
-                                rotation = -0.785398; 
-                                sizeBounds = vec2(0.05, 0.55);
-                            }
+                            // Shape ID Decoding (CPU Determined)
+                            int sID = int(v_shapeID + 0.5);
+                            if (sID == 1) { center = vec2(0.2, 0.5); sizeBounds = vec2(0.08, 0.45); }
+                            else if (sID == 2) { center = vec2(0.8, 0.5); sizeBounds = vec2(0.08, 0.45); }
+                            else if (sID == 3) { center = vec2(0.5, 0.8); sizeBounds = vec2(0.45, 0.08); }
+                            else if (sID == 4) { center = vec2(0.5, 0.2); sizeBounds = vec2(0.45, 0.08); }
+                            else if (sID == 5) { center = vec2(0.5, 0.5); sizeBounds = vec2(0.45, 0.06); }
+                            else if (sID == 6) { center = vec2(0.5, 0.5); sizeBounds = vec2(0.15, 0.15); }
+                            else if (sID == 7) { rotation = 0.785398; sizeBounds = vec2(0.05, 0.55); }
+                            else if (sID == 8) { rotation = -0.785398; sizeBounds = vec2(0.05, 0.55); }
 
-                            // 3. Sample Noise Texture (Luminosity Modulator)
-                            // Remove continuous scrolling. Pattern is static per timeStep.
-                            
-                            // Map Cell Position to Texture Space
-                            vec2 noiseUV = vec2(cellGridPos.x / 64.0, cellGridPos.y / 64.0);
-                            // Apply random offset based on seed
-                            noiseUV += vec2(cellRand * 123.0, cellRand * 456.0);
-
+                            // Sample Noise Texture (Static per cell seed offset)
+                            vec2 noiseUV = (v_cellPos / 64.0) + (v_shapeID * 0.123);
                             float activeVal = texture(u_glimmerNoise, noiseUV).r;
                             
-                            // 4. Draw Shape (Geometry is Constant per Cell)
+                            // Draw Shape
                             vec2 p = v_cellUV - center;
-                            
-                            // Apply Rotation if needed
                             if (rotation != 0.0) {
-                                float s = sin(rotation);
-                                float c = cos(rotation);
+                                float s = sin(rotation); float c = cos(rotation);
                                 p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
                             }
-                            
                             p = abs(p);
-                            
-                            float r = 0.01; // Sharp corners
-                            float d = length(max(p - sizeBounds, vec2(0.0))) + min(max(p.x - sizeBounds.x, p.y - sizeBounds.y), 0.0) - r;
-                            
-                            float core = 1.0 - smoothstep(-0.01, 0.01, d);
-                            float halo = 1.0 - smoothstep(0.0, 0.15, d);
-                            
-                            float shape = core + (halo * 0.4);
+                            float d = length(max(p - sizeBounds, vec2(0.0))) + min(max(p.x - sizeBounds.x, p.y - sizeBounds.y), 0.0) - 0.01;
+                            float shape = (1.0 - smoothstep(-0.01, 0.01, d)) + (1.0 - smoothstep(0.0, 0.15, d)) * 0.4;
 
-                            // 5. Apply Luminosity & Flicker
-                            // "Bad Connection / Fluorescent" Flicker
-                            float flicker = 1.0;
-                            
-                            // Flicker Spread Control:
-                            // u_glimmerFlicker determines probability of a cell being "faulty"
-                            if (cellRand < u_glimmerFlicker) {
-                                // 1. Primary Flicker Cycle (Variable speed per cell)
-                                float cycleSpeed = 10.0 + (cellRand * 20.0);
-                                float flickerBase = sin(u_time * cycleSpeed + (cellRand * 100.0));
-                                
-                                // 2. Hard Cutout (Thresholding)
-                                // Occasional complete dropouts. If base wave is low, light cuts out.
-                                float cutout = smoothstep(-0.4, -0.2, flickerBase);
-                                
-                                // 3. High Frequency Jitter (When ON)
-                                // Simulates the electrical noise
-                                float jitter = 0.7 + 0.6 * fract(sin(dot(vec2(u_time, cellRand), vec2(12.9898,78.233))) * 43758.5453);
-                                
-                                flicker = cutout * jitter;
-                                
-                                // 4. Long Random Dropouts (The "Dead Cell" Effect)
-                                // Sample noise at a very slow speed
-                                vec2 dropoutUV = vec2(cellGridPos.x / 13.0, (u_time * 0.5) + cellRand * 50.0);
-                                float dropoutVal = texture(u_glimmerNoise, dropoutUV).r;
-                                // 20% chance to be completely dead at any moment for flickering cells
-                                if (dropoutVal < 0.2) {
-                                    flicker = 0.0;
-                                }
-                            }
-                            
-                            // Combine: Shape * NoiseModulation * Flicker * Opacity
-                            glimmer = shape * (0.4 + (0.6 * activeVal)) * flicker;
-                            glimmer *= gOpacity;
-
+                            glimmer = shape * (0.4 + (0.6 * activeVal)) * v_glimmerFlicker * v_glimmerAlpha;
                         }
                     }
     
@@ -1017,8 +1089,70 @@ class WebGLRenderer {
             this.program = this.program2D; // Default fallback
     
             // Keep existing Bloom/Color programs
-            const bloomVS = `#version 300 es\nlayout(location=0) in vec2 a_position; out vec2 v_uv; void main(){ v_uv=a_position*0.5+0.5; gl_Position=vec4(a_position, 0.0, 1.0); }`;
-            const bloomFS = `#version 300 es\nprecision highp float; in vec2 v_uv; uniform sampler2D u_image; uniform bool u_horizontal; uniform float u_weight[5]; uniform float u_spread; uniform float u_opacity; out vec4 fragColor; void main(){ vec2 tex_offset=(vec2(1.0)/vec2(textureSize(u_image, 0)))*u_spread; vec3 result=texture(u_image, v_uv).rgb*u_weight[0]; if(u_horizontal){ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(tex_offset.x*float(i), 0.0)).rgb*u_weight[i]; } }else{ for(int i=1; i<5; ++i){ result+=texture(u_image, v_uv+vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; result+=texture(u_image, v_uv-vec2(0.0, tex_offset.y*float(i))).rgb*u_weight[i]; } } fragColor=vec4(result*u_opacity, 1.0); }`;
+            const bloomVS = `#version 300 es
+                layout(location=0) in vec2 a_position; 
+                out vec2 v_uv; 
+                void main(){ 
+                    v_uv = a_position * 0.5 + 0.5; 
+                    gl_Position = vec4(a_position, 0.0, 1.0); 
+                }`;
+            const bloomFS = `#version 300 es
+                precision highp float; 
+                in vec2 v_uv; 
+                uniform sampler2D u_image; 
+                uniform bool u_horizontal; 
+                uniform float u_weight[5]; 
+                uniform float u_spread; 
+                uniform float u_opacity; 
+                uniform bool u_extract; // NEW: Highlight Extraction Flag
+                
+                out vec4 fragColor; 
+                
+                vec4 getSample(vec2 uv) {
+                    vec4 col = texture(u_image, uv);
+                    if (u_extract) {
+                        float brightness = max(max(col.r, col.g), col.b);
+                        
+                        // If it's too dark, it doesn't contribute to bloom at all
+                        if (brightness < 0.1) return vec4(0.0);
+                        
+                        // Otherwise, scale it based on how bright it is, boosting the core
+                        float extractAmt = smoothstep(0.1, 0.9, brightness);
+                        // Multiply RGB by alpha to premultiply it, preventing dark halos when blended
+                        vec3 rgb = col.rgb * extractAmt * 2.0;
+                        float a = col.a * extractAmt;
+                        return vec4(rgb * a, a);
+                    }
+                    return col;
+                }
+
+                void main(){ 
+                    // Increase the perceived spread by multiplying the offset significantly
+                    vec2 tex_offset = (vec2(1.0) / vec2(textureSize(u_image, 0))) * u_spread; 
+                    
+                    vec4 result = getSample(v_uv) * u_weight[0]; 
+                    if(u_horizontal){ 
+                        // Widen the loop to reach further pixels (simulate 11-tap)
+                        for(int i=1; i<5; ++i){ 
+                            float dist = float(i) * 2.0; // Step twice as far for each weight
+                            result += getSample(v_uv + vec2(tex_offset.x * dist, 0.0)) * u_weight[i]; 
+                            result += getSample(v_uv - vec2(tex_offset.x * dist, 0.0)) * u_weight[i]; 
+                        } 
+                    } else { 
+                        for(int i=1; i<5; ++i){ 
+                            float dist = float(i) * 2.0;
+                            result += getSample(v_uv + vec2(0.0, tex_offset.y * dist)) * u_weight[i]; 
+                            result += getSample(v_uv - vec2(0.0, tex_offset.y * dist)) * u_weight[i]; 
+                        } 
+                    } 
+                    
+                    if (u_extract) {
+                         fragColor = result * u_opacity;
+                    } else {
+                         // Normal blur passes (already premultiplied by extraction pass)
+                         fragColor = result * u_opacity;
+                    }
+                }`;
             this.bloomProgram = this._createProgram(bloomVS, bloomFS);
     
             const colorVS = `#version 300 es\nlayout(location=0) in vec2 a_position; void main(){ gl_Position=vec4(a_position, 0.0, 1.0); }`;
@@ -1052,6 +1186,7 @@ class WebGLRenderer {
     _initBloomBuffers() {
         this.fboA = this.gl.createFramebuffer(); this.texA = this.gl.createTexture();
         this.fboA2 = this.gl.createFramebuffer(); this.texA2 = this.gl.createTexture();
+        this.fboCodeProcessed = this.gl.createFramebuffer(); this.texCodeProcessed = this.gl.createTexture();
         this.fboB = this.gl.createFramebuffer(); this.texB = this.gl.createTexture();
         this.fboC = this.gl.createFramebuffer(); this.texC = this.gl.createTexture();
         
@@ -1144,10 +1279,10 @@ class WebGLRenderer {
             this.fboWidth = pw; this.fboHeight = ph;
             this.bloomWidth = Math.floor(pw * 0.5); this.bloomHeight = Math.floor(ph * 0.5);
             if (pw > 0 && ph > 0) {
-                this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
-                this._configureFramebuffer(this.fboA2, this.texA2, this.fboWidth, this.fboHeight);
-                this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);
-                this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
+                        this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
+                        this._configureFramebuffer(this.fboA2, this.texA2, this.fboWidth, this.fboHeight);
+                        this._configureFramebuffer(this.fboCodeProcessed, this.texCodeProcessed, this.fboWidth, this.fboHeight);
+                        this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);                this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
                 this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
                 
                 // Shadow Mask (Matches Render Resolution)
@@ -1183,13 +1318,13 @@ class WebGLRenderer {
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
 
         // Interleaved Dynamic Buffer
-        // Stride = 24 bytes
+        // Stride = 40 bytes (Optimized & Aligned)
         if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
         this.instanceBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 24, this.gl.DYNAMIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 40, this.gl.DYNAMIC_DRAW);
 
-        const bufferSize = totalCells * 24;
+        const bufferSize = totalCells * 40;
         this.instanceBufferData = new ArrayBuffer(bufferSize);
         this.instanceData = new Float32Array(this.instanceBufferData);
         this.instanceDataU32 = new Uint32Array(this.instanceBufferData);
@@ -1215,48 +1350,68 @@ class WebGLRenderer {
         this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.vertexAttribDivisor(1, 1);
 
-        // Interleaved Attributes (Stride = 24 bytes)
+        // Interleaved Attributes (Stride = 40 bytes)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
 
         // 2: CharIdx (U16 at offset 0)
         this.gl.enableVertexAttribArray(2);
-        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 24, 0);
+        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 40, 0);
         this.gl.vertexAttribDivisor(2, 1);
 
         // 8: NextChar (U16 at offset 2)
         this.gl.enableVertexAttribArray(8);
-        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 24, 2);
+        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 40, 2);
         this.gl.vertexAttribDivisor(8, 1);
 
         // 3: Color (U32 at offset 4, normalized)
         this.gl.enableVertexAttribArray(3);
-        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 24, 4);
+        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 40, 4);
         this.gl.vertexAttribDivisor(3, 1);
 
         // 4: Alpha (F32 at offset 8)
         this.gl.enableVertexAttribArray(4);
-        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 24, 8);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 40, 8);
         this.gl.vertexAttribDivisor(4, 1);
 
         // 6: Glow (F32 at offset 12)
         this.gl.enableVertexAttribArray(6);
-        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 24, 12);
+        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 40, 12);
         this.gl.vertexAttribDivisor(6, 1);
 
         // 7: Mix (F32 at offset 16)
         this.gl.enableVertexAttribArray(7);
-        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 24, 16);
+        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 40, 16);
         this.gl.vertexAttribDivisor(7, 1);
 
         // 5: Decay (U8 at offset 20)
         this.gl.enableVertexAttribArray(5);
-        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 24, 20);
+        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 40, 20);
         this.gl.vertexAttribDivisor(5, 1);
+        
+        // 11: ShapeID (U8 at offset 21)
+        this.gl.enableVertexAttribArray(11);
+        this.gl.vertexAttribPointer(11, 1, this.gl.UNSIGNED_BYTE, false, 40, 21);
+        this.gl.vertexAttribDivisor(11, 1);
 
-        // 10: MaxDecay (U16 at offset 22 - aligned to multiple of 2)
+        // 10: MaxDecay (U16 at offset 22)
         this.gl.enableVertexAttribArray(10);
-        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 24, 22);
+        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 40, 22);
         this.gl.vertexAttribDivisor(10, 1);
+
+        // 12: GlimmerFlicker (F32 at offset 24)
+        this.gl.enableVertexAttribArray(12);
+        this.gl.vertexAttribPointer(12, 1, this.gl.FLOAT, false, 40, 24);
+        this.gl.vertexAttribDivisor(12, 1);
+        
+        // 13: GlimmerAlpha (F32 at offset 28)
+        this.gl.enableVertexAttribArray(13);
+        this.gl.vertexAttribPointer(13, 1, this.gl.FLOAT, false, 40, 28);
+        this.gl.vertexAttribDivisor(13, 1);
+
+        // 14: Dissolve (F32 at offset 32)
+        this.gl.enableVertexAttribArray(14);
+        this.gl.vertexAttribPointer(14, 1, this.gl.FLOAT, false, 40, 32);
+        this.gl.vertexAttribDivisor(14, 1);
 
         this.gl.bindVertexArray(null);
     }
@@ -1272,16 +1427,16 @@ class WebGLRenderer {
         
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
+                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
         
-        const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
-        this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
-        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), 0.0);
-        this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_opacity'), opacity);
-        this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), 1);
+                const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
+                this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
+                this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), 0.0);
+                this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_opacity'), opacity);
+                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), 1);
+                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_extract'), 0);
         
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    }
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);    }
 
     _renderQuantizedShadows(fx) {
         if (!fx || !fx.renderGrid) return;
@@ -1380,7 +1535,7 @@ class WebGLRenderer {
         this.gl.disable(this.gl.BLEND);
     }
 
-    _renderQuantizedLineGfx(s, d, sourceTex) {
+    _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
         let fx = null;
         if (this.effects && this.effects.effects) {
             const effectList = (Array.isArray(this.effects.effects)) 
@@ -1572,7 +1727,7 @@ class WebGLRenderer {
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
         
                 // PASS 2: COMPOSITE
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO || this.fboA2);
                 this.gl.disable(this.gl.BLEND);
                 
                 this.gl.uniform1i(this._u(prog, 'u_mode'), 1);
@@ -1597,29 +1752,31 @@ class WebGLRenderer {
                 return true;
             }
 
-    _runBlur(sourceTex, horizontal, strength, width, height, opacity = 1.0) {
-        if (!this.bloomProgram) return;
-        this.gl.disable(this.gl.BLEND);
-        this.gl.useProgram(this.bloomProgram);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-        this.gl.enableVertexAttribArray(0);
-        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+            _runBlur(sourceTex, horizontal, strength, width, height, opacity = 1.0, extract = false) {
+                if (!this.bloomProgram) return;
+                this.gl.disable(this.gl.BLEND);
+                this.gl.useProgram(this.bloomProgram);
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+                this.gl.enableVertexAttribArray(0);
+                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
         
-        this.gl.activeTexture(this.gl.TEXTURE0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
-        this.gl.uniform1i(this._u(this.bloomProgram, 'u_image'), 0);
+                this.gl.activeTexture(this.gl.TEXTURE0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
+                this.gl.uniform1i(this._u(this.bloomProgram, 'u_image'), 0);
         
-        const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
-        this.gl.uniform1fv(this._u(this.bloomProgram, 'u_weight'), weights);
+                // Broader Gaussian weights to actually push the glow out further
+                const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
+                this.gl.uniform1fv(this._u(this.bloomProgram, 'u_weight'), weights);
         
-        this.gl.uniform1f(this._u(this.bloomProgram, 'u_spread'), strength);
-        this.gl.uniform1f(this._u(this.bloomProgram, 'u_opacity'), opacity);
-        this.gl.uniform1i(this._u(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
+                // Multiply the strength slider by a base factor to ensure it creates a wide radius
+                // Base strength goes up to 10. Multiplying by 10.0 means we get up to 100 pixel offsets.
+                this.gl.uniform1f(this._u(this.bloomProgram, 'u_spread'), strength * 10.0);
+                this.gl.uniform1f(this._u(this.bloomProgram, 'u_opacity'), opacity);
+                this.gl.uniform1i(this._u(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
+                this.gl.uniform1i(this._u(this.bloomProgram, 'u_extract'), extract ? 1 : 0);
         
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    }
-
-    render(frame) {
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+            }    render(frame) {
         if (!this.posBuffer || this.fboWidth === 0) return; 
         
         const { state: s, derived: d } = this.config;
@@ -1716,6 +1873,8 @@ class WebGLRenderer {
         const mF32 = this.instanceData;
         const mU8 = this.instanceDataU8;
 
+        const gParams = grid.genericParams;
+
         const mapChar = (c) => {
             if (c <= 32) return 65535;
             let id = lookup[c];
@@ -1727,16 +1886,20 @@ class WebGLRenderer {
         };
         
         for (let i = 0; i < totalCells; i++) {
-            const baseOff = i * 6; // Float32 index (24 bytes / 4)
-            const u16Off = i * 12; // Uint16 index (24 bytes / 2)
-            const u8Off = i * 24;  // Uint8 index
+            const baseOff = i * 10; // Float32 index (40 bytes / 4)
+            const u16Off = i * 20;  // Uint16 index (40 bytes / 2)
+            const u8Off = i * 40;   // Uint8 index
 
             // Initialize defaults
             mF32[baseOff + 2] = 0; // Alpha
             mF32[baseOff + 3] = 0; // Glow
             mF32[baseOff + 4] = 0; // Mix
             mU8[u8Off + 20] = 0;   // Decay
-            m16[u16Off + 11] = 0; // MaxDecay (at byte 22)
+            mU8[u8Off + 21] = 0;   // ShapeID
+            m16[u16Off + 11] = 0;  // MaxDecay (at byte 22)
+            mF32[baseOff + 6] = 1.0; // GlimmerFlicker (at byte 24)
+            mF32[baseOff + 7] = 0;   // GlimmerAlpha (at byte 28)
+            mF32[baseOff + 8] = 0;   // Dissolve (at byte 32)
             
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
             if (effActive && effActive[i]) {
@@ -1751,10 +1914,7 @@ class WebGLRenderer {
                     if (eAlpha > 0.99) eAlpha = 0.99;
                     mF32[baseOff + 4] = 5.0 + eAlpha; 
                     m16[u16Off + 1] = 65535;
-                    continue;
-                }
-
-                if (effActive[i] === 2) {
+                } else if (effActive[i] === 2) {
                     // OVERLAY MODE
                     m16[u16Off + 0] = mapChar(gChars[i]);
                     m32[baseOff + 1] = effColors[i];
@@ -1766,10 +1926,7 @@ class WebGLRenderer {
                     let eAlpha = effAlphas[i];
                     if (eAlpha > 0.99) eAlpha = 0.99;
                     mF32[baseOff + 4] = 4.0 + eAlpha; 
-                    continue;
-                }
-
-                if (effActive[i] === 4) {
+                } else if (effActive[i] === 4) {
                     // HIGH PRIORITY
                     m16[u16Off + 0] = mapChar(effChars[i]);
                     m32[baseOff + 1] = effColors[i];
@@ -1777,22 +1934,18 @@ class WebGLRenderer {
                     mF32[baseOff + 3] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                     mF32[baseOff + 4] = 10.0;
                     m16[u16Off + 1] = 65535;
-                    continue;
+                } else {
+                    // STANDARD OVERRIDE
+                    m16[u16Off + 0] = mapChar(effChars[i]);
+                    m32[baseOff + 1] = effColors[i];
+                    mF32[baseOff + 2] = effAlphas[i];
+                    mF32[baseOff + 3] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                    mF32[baseOff + 4] = 0.0;
+                    m16[u16Off + 1] = 65535;
                 }
-
-                // STANDARD OVERRIDE
-                m16[u16Off + 0] = mapChar(effChars[i]);
-                m32[baseOff + 1] = effColors[i];
-                mF32[baseOff + 2] = effAlphas[i];
-                mF32[baseOff + 3] = effGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-                mF32[baseOff + 4] = 0.0;
-                m16[u16Off + 1] = 65535;
-                continue; 
-            }
-
-            // PRIORITY 2: HARD OVERRIDE
-            const ov = ovActive[i];
-            if (ov) {
+            } else if (ovActive && ovActive[i]) {
+                // PRIORITY 2: HARD OVERRIDE
+                const ov = ovActive[i];
                 if (ov === 5) {
                     m16[u16Off + 0] = mapChar(gChars[i]);
                     m32[baseOff + 1] = gColors[i]; 
@@ -1833,31 +1986,39 @@ class WebGLRenderer {
                          mF32[baseOff + 4] = gMix[i];
                     }
                 }
-                continue;
-            }
-
-            // PRIORITY 3: STANDARD SIMULATION
-            const mix = gMix[i];
-            let c = gChars[i];
-            if (mix >= 30.0) {
-                const ec = effChars[i];
-                if (ec > 0) c = ec;
-            }
-
-            m16[u16Off + 0] = mapChar(c);
-            m32[baseOff + 1] = gColors[i];
-            mF32[baseOff + 2] = gAlphas[i];
-            mU8[u8Off + 20] = gDecays[i];
-            m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
-            mF32[baseOff + 3] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
-            
-            const mode = gMode[i];
-            if (mode === 1) {
-                m16[u16Off + 1] = mapChar(gSecChars[i]);
-                mF32[baseOff + 4] = 2.0; 
             } else {
-                mF32[baseOff + 4] = mix;
-                m16[u16Off + 1] = (mix > 0.0) ? mapChar(gNext[i]) : 65535;
+                // PRIORITY 3: STANDARD SIMULATION
+                const mix = gMix[i];
+                let c = gChars[i];
+                if (mix >= 30.0) {
+                    const ec = effChars[i];
+                    if (ec > 0) c = ec;
+                }
+
+                m16[u16Off + 0] = mapChar(c);
+                m32[baseOff + 1] = gColors[i];
+                mF32[baseOff + 2] = gAlphas[i];
+                mU8[u8Off + 20] = gDecays[i];
+                m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
+                mF32[baseOff + 3] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
+                
+                const mode = gMode[i];
+                if (mode === 1) {
+                    m16[u16Off + 1] = mapChar(gSecChars[i]);
+                    mF32[baseOff + 4] = 2.0; 
+                } else {
+                    mF32[baseOff + 4] = mix;
+                    m16[u16Off + 1] = (mix > 0.0) ? mapChar(gNext[i]) : 65535;
+                }
+            }
+
+            // Copy Optimized Parameters
+            if (gParams) {
+                const gIdx = i * 4;
+                mF32[baseOff + 6] = gParams[gIdx];     // GlimmerFlicker
+                mU8[u8Off + 21]   = gParams[gIdx + 1]; // ShapeID
+                mF32[baseOff + 7] = gParams[gIdx + 2]; // GlimmerAlpha
+                mF32[baseOff + 8] = gParams[gIdx + 3]; // Dissolve
             }
         }
 
@@ -2210,89 +2371,27 @@ class WebGLRenderer {
             this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
             this.gl.bindVertexArray(null);
-
-            // --- 3rd Pass: Quantized Line GFX ---
-            if (this.effects) {
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-                this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
-                this.gl.clearColor(0, 0, 0, 0);
-                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-                
-                if (this._renderQuantizedLineGfx(s, d, this.texA)) {
-                    finalMainTex = this.texA2;
-                } else {
-                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
-                    this.gl.clearColor(0, 0, 0, 0);
-                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-                    
-                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboA2);
-                    this._drawFullscreenTexture(this.texA, 1.0, 0);
-                    finalMainTex = this.texA2;
-                }
-            }
-        } 
-
-        // --- BLOOM ---
-        if (s.enableBloom) {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
-            this.gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
-            let spread = s.bloomStrength * 1.0; 
-            this._runBlur(finalMainTex, true, spread, this.fboWidth, this.fboHeight); 
-
-            for (let i = 0; i < 3; i++) {
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboC);
-                this._runBlur(this.texB, false, spread, this.bloomWidth, this.bloomHeight);
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboB);
-                this._runBlur(this.texC, true, spread, this.bloomWidth, this.bloomHeight);
-            }
         }
 
-        // --- FINAL COMPOSITION & POST PROCESS ---
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        // --- RENDER PIPELINE EXECUTION ---
+        let currentTex = this.texA;
         
-        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-        this.gl.clearColor(br, bg, bb, 1);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-
-        if (this.postProcessor) {
-            const customSource = s.shaderEnabled ? s.customShader : null;
-            const effectSource = s.effectShader;
-
-            if (customSource !== this.lastShaderSource) {
-                this.postProcessor.compileShader(customSource);
-                this.lastShaderSource = customSource;
-            }
-            if (effectSource !== this.lastEffectSource) {
-                this.postProcessor.compileEffectShader(effectSource);
-                this.lastEffectSource = effectSource;
-            }
-
-            const param = s.shaderParameter !== undefined ? s.shaderParameter : 0.5;
-            const effectParam = s.effectParameter !== undefined ? s.effectParameter : 0.0;
-            
-            // Render directly to screen through PostProcessor
-            this.postProcessor.render(finalMainTex, performance.now() / 1000, this.mouseX, this.mouseY, param, effectParam);
-            
-            // If bloom is enabled, we need to blend it on top of the post-processed result
-            if (s.enableBloom) {
-                this.gl.enable(this.gl.BLEND);
-                this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
-                this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
+        if (this.pipeline) {
+            for (const pass of this.pipeline) {
+                if (pass.enabled) {
+                    const result = pass.execute(this, currentTex, s, d, performance.now() / 1000);
+                    if (result !== null) {
+                        currentTex = result;
+                    }
+                }
             }
         } else {
-            // Fallback: Just draw the main texture
+            // Fallback if pipeline fails to initialize
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
             this.gl.enable(this.gl.BLEND);
             this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
-            this._drawFullscreenTexture(finalMainTex, 1.0, 0);
-            
-            if (s.enableBloom) {
-                this.gl.enable(this.gl.BLEND);
-                this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
-                this._drawFullscreenTexture(this.texB, s.bloomOpacity, 0);
-            }
+            this._drawFullscreenTexture(currentTex, 1.0, 0);
         }
 
         // Cleanup: Unbind all textures to prevent feedback in next frame

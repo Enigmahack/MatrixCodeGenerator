@@ -92,6 +92,9 @@ class CellGrid {
         // Rotator Targets (Dense for GPU upload)
         this.nextChars = null;     // Uint16Array
         this.nextOverlapChars = null; // Uint16Array
+
+        // --- Optimized Effects Data ---
+        this.genericParams = null; // Float32Array (4 floats per cell)
     }
 
     /**
@@ -258,6 +261,14 @@ class CellGrid {
         this.complexStyles.delete(idx);
         this.nextChars[idx] = 0;
         this.nextOverlapChars[idx] = 0;
+
+        if (this.genericParams) {
+            const gOff = idx * 4;
+            this.genericParams[gOff] = 0;
+            this.genericParams[gOff+1] = 0;
+            this.genericParams[gOff+2] = 0;
+            this.genericParams[gOff+3] = 0;
+        }
     }
 
     getChar(idx) {
@@ -321,6 +332,7 @@ class CellGrid {
             this.nextChars = buffers.nextChars;
             this.nextOverlapChars = buffers.nextOverlapChars;
             this.envGlows = buffers.envGlows;
+            this.genericParams = buffers.genericParams;
 
         } else {
             // Core
@@ -380,6 +392,9 @@ class CellGrid {
 
             // Environmental Glows (Additive, per frame)
             this.envGlows = new Float32Array(total);
+
+            // Optimized Effects Data (4 floats per cell)
+            this.genericParams = new Float32Array(total * 4);
         }
 
         // Initialize static data

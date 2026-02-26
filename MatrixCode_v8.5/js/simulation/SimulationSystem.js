@@ -101,7 +101,7 @@ class SimulationSystem {
                         msg.value = state[key];
                     }
 
-                    this.worker.postMessage(msg);
+                    if (this.worker) this.worker.postMessage(msg);
                 }
             });
         }
@@ -187,7 +187,8 @@ class SimulationSystem {
 
             nextChars: new Uint16Array(createSAB(uint16Size)),
             nextOverlapChars: new Uint16Array(createSAB(uint16Size)),
-            envGlows: new Float32Array(createSAB(float32Size))
+            envGlows: new Float32Array(createSAB(float32Size)),
+            genericParams: new Float32Array(createSAB(float32Size * 4))
         };
         
         return buffers;
@@ -312,8 +313,44 @@ class SimulationSystem {
                 if (activeAge <= totalDuration) {
                     // Keep alive even if alpha is 0 (start of attack)
                     this.grid.mix[currentIdx] = 30.0 + alpha;
+
+                    // --- CPU OPTIMIZATION: Pre-calculate Glimmer State ---
+                    const gOff = currentIdx * 4;
+                    const cellRand = style.seed || (style.seed = Math.random());
+                    
+                    // 1. Flicker Logic
+                    let flicker = 1.0;
+                    if (cellRand < s.glimmerFlicker) {
+                        const cycleSpeed = 0.2 + (cellRand * 0.4); // Adjusted for frame-based frequency
+                        const flickerBase = Math.sin(frame * cycleSpeed + (cellRand * 100.0));
+                        const cutout = Math.max(0, Math.min(1, (flickerBase + 0.4) / 0.2)); 
+                        const jitter = 0.7 + 0.6 * (Math.sin(frame * 2.0 + cellRand * 678.9) * 0.5 + 0.5); 
+                        flicker = cutout * jitter;
+                        
+                        // Dead Cell Effect
+                        const dropoutVal = Math.abs(Math.sin(frame * 0.05 + cellRand * 50.0 + (currentIdx % 13) / 13.0));
+                        if (dropoutVal < 0.2) flicker = 0.0;
+                    }
+
+                    // 2. Shape Selection (Packed into gOff + 1)
+                    // We store: ShapeID + 1.0
+                    let shapeID = 0;
+                    if (cellRand < 0.20) shapeID = 1;
+                    else if (cellRand < 0.40) shapeID = 2;
+                    else if (cellRand < 0.47) shapeID = 3;
+                    else if (cellRand < 0.54) shapeID = 4;
+                    else if (cellRand < 0.60) shapeID = 5;
+                    else if (cellRand < 0.70) shapeID = 6;
+                    else if (cellRand < 0.85) shapeID = 7;
+                    else shapeID = 8;
+
+                    this.grid.genericParams[gOff + 0] = flicker;
+                    this.grid.genericParams[gOff + 1] = shapeID;
+                    this.grid.genericParams[gOff + 2] = alpha;
+                    this.grid.genericParams[gOff + 3] = 0; // Dissolve (calculated in _updateCell)
                 } else {
                     this.grid.mix[currentIdx] = 0;
+                    this.grid.genericParams[currentIdx * 4] = 0;
                     this.grid.complexStyles.delete(currentIdx);
                 }
             }
@@ -563,10 +600,14 @@ class SimulationSystem {
             
             if (this._shouldDecay(idx, newDecay, maxFade)) {
                 grid.clearCell(idx);
+                grid.genericParams[idx * 4 + 3] = 0;
                 return;
             }
+            const prog = (newDecay - 2) / maxFade;
+            grid.genericParams[idx * 4 + 3] = prog;
             grid.alphas[idx] = this._calculateAlpha(idx, age, newDecay, maxFade);
         } else {
+            grid.genericParams[idx * 4 + 3] = 0;
             const maxFade = (grid.maxDecays && grid.maxDecays[idx] > 0) ? grid.maxDecays[idx] : s.decayFadeDurationFrames;
             grid.alphas[idx] = this._calculateAlpha(idx, age, decay, maxFade);
         }

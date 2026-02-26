@@ -6,17 +6,21 @@ class PostProcessor {
     constructor(config, gl = null) {
         this.config = config;
         this.gl = gl;
+        this.codeProgram1 = null; 
+        this.codeProgram2 = null;
+        this.effectProgram = null; 
         this.program = null; // Custom User Shader
-        this.effectProgram = null; // System Effect Shader (e.g. Deja Vu)
-        this.canvas = gl ? null : document.createElement('canvas'); // Only create canvas if no GL provided
+        this.canvas = gl ? null : document.createElement('canvas');
         
         // Textures
         this.texture = null; // Source Input
-        this.intermediateTexture = null; // Output of Pass 1
+        this.intermediateTex1 = null; 
+        this.intermediateTex2 = null;
         
         // Buffers
         this.positionBuffer = null;
-        this.framebuffer = null; // For Pass 1
+        this.framebuffer1 = null; 
+        this.framebuffer2 = null;
         
         this.defaultFragmentShader = `
             precision mediump float;
@@ -37,7 +41,6 @@ class PostProcessor {
             varying vec2 vTexCoord;
             uniform float uFlipY;
             void main() {
-                // Map -1..1 to 0..1 for tex coords
                 vTexCoord = (aPosition + 1.0) * 0.5;
                 if (uFlipY > 0.5) {
                     vTexCoord.y = 1.0 - vTexCoord.y; 
@@ -54,75 +57,60 @@ class PostProcessor {
     }
 
     _setupSharedGL() {
-        // Full screen quad
-        const vertices = new Float32Array([
-            -1, -1,
-             1, -1,
-            -1,  1,
-            -1,  1,
-             1, -1,
-             1,  1
-        ]);
-        
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
         this.positionBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
         
-        // We do NOT create our own textures here if we are sharing.
-        // Or we do, but we expect them to be managed by the parent?
-        // Let's create intermediate ones for the post-processing chain.
         this.texture = this._createTexture();
-        this.intermediateTexture = this._createTexture();
+        this.intermediateTex1 = this._createTexture();
+        this.intermediateTex2 = this._createTexture();
         
-        this.framebuffer = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTexture, 0);
+        this.framebuffer1 = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        
+        this.framebuffer2 = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
         this.compileShader(this.config.get('customShader'));
         this.compileEffectShader(this.config.get('effectShader'));
+        this.compileCodeShader1(this.config.get('codeShader1'));
+        this.compileCodeShader2(this.config.get('codeShader2'));
     }
 
     _initWebGL() {
-        this.gl = this.canvas.getContext('webgl', { 
-            alpha: true, 
-            preserveDrawingBuffer: true 
-        });
-        if (!this.gl) {
-            console.warn("WebGL not supported for Post Processing");
-            return;
-        }
+        this.gl = this.canvas.getContext('webgl', { alpha: true, preserveDrawingBuffer: true });
+        if (!this.gl) return;
         
-        // Full screen quad
-        const vertices = new Float32Array([
-            -1, -1,
-             1, -1,
-            -1,  1,
-            -1,  1,
-             1, -1,
-             1,  1
-        ]);
-        
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
         this.positionBuffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
         
-        // Input Texture
         this.texture = this._createTexture();
-        // Intermediate Texture (for Pass 1 output)
-        this.intermediateTexture = this._createTexture();
+        this.intermediateTex1 = this._createTexture();
+        this.intermediateTex2 = this._createTexture();
         
-        // Framebuffer for Pass 1
-        this.framebuffer = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTexture, 0);
+        this.framebuffer1 = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        
+        this.framebuffer2 = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
-        
         this.compileShader(this.config.get('customShader'));
         this.compileEffectShader(this.config.get('effectShader'));
+        this.compileCodeShader1(this.config.get('codeShader1'));
+        this.compileCodeShader2(this.config.get('codeShader2'));
     }
 
     _createTexture() {
@@ -136,19 +124,19 @@ class PostProcessor {
     }
 
     compileShader(fragSource) {
-        if (!fragSource) {
-            this.program = null;
-            return;
-        }
-        this.program = this._compileProgram(fragSource);
+        this.program = fragSource ? this._compileProgram(fragSource) : null;
     }
 
     compileEffectShader(fragSource) {
-        if (!fragSource) {
-            this.effectProgram = null;
-            return;
-        }
-        this.effectProgram = this._compileProgram(fragSource);
+        this.effectProgram = fragSource ? this._compileProgram(fragSource) : null;
+    }
+
+    compileCodeShader1(fragSource) {
+        this.codeProgram1 = fragSource ? this._compileProgram(fragSource) : null;
+    }
+
+    compileCodeShader2(fragSource) {
+        this.codeProgram2 = fragSource ? this._compileProgram(fragSource) : null;
     }
 
     _compileProgram(fragSource) {
@@ -191,15 +179,77 @@ class PostProcessor {
             this.canvas.height = height;
         }
         
-        // Resize textures
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
-        
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.intermediateTexture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        [this.texture, this.intermediateTex1, this.intermediateTex2].forEach(tex => {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        });
     }
 
-    render(source, time, mouseX = 0, mouseY = 0, param = 0.5, effectParam = 0.0) {
+    _applyChain(activePasses, currentInput, currentFlip, targetFBO, time, mouseX, mouseY) {
+        let input = currentInput;
+        let flip = currentFlip;
+        let activeFBO = this.framebuffer1;
+        let activeTex = this.intermediateTex1;
+
+        // CRITICAL: Disable blending so full-screen passes strictly overwrite 
+        // the cleared FBOs instead of pre-multiplying their alpha.
+        this.gl.disable(this.gl.BLEND);
+
+        for (let i = 0; i < activePasses.length; i++) {
+            const isLast = (i === activePasses.length - 1);
+            
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, isLast ? targetFBO : activeFBO);
+            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+            this.gl.clearColor(0, 0, 0, 0);
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            
+            this._drawPass(activePasses[i].prog, input, time, mouseX, mouseY, activePasses[i].param, flip);
+            
+            if (!isLast) {
+                input = activeTex;
+                flip = 0.0;
+                if (activeFBO === this.framebuffer1) {
+                    activeFBO = this.framebuffer2;
+                    activeTex = this.intermediateTex2;
+                } else {
+                    activeFBO = this.framebuffer1;
+                    activeTex = this.intermediateTex1;
+                }
+            }
+        }
+    }
+
+    renderCodePasses(source, time, mouseX, mouseY, params, targetFBO = null) {
+        if (!this.gl) return;
+        const activePasses = [
+            { prog: this.codeProgram1, param: params.code1 !== undefined ? params.code1 : 0.5 },
+            { prog: this.codeProgram2, param: params.code2 !== undefined ? params.code2 : 0.5 }
+        ].filter(p => p.prog !== null);
+
+        if (activePasses.length === 0) {
+            // No code shaders, just copy source to target if target is different
+            if (targetFBO !== null) {
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
+                this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+                this._drawPass(this.defaultProgram, source, time, mouseX, mouseY, 0.5, 0.0);
+            }
+            return;
+        }
+
+        this._applyChain(activePasses, source, 0.0, targetFBO, time, mouseX, mouseY);
+    }
+
+    renderFinalPasses(source, time, mouseX, mouseY, params, targetFBO = null) {
+        if (!this.gl) return;
+        const activePasses = [
+            { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
+            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5 }
+        ].filter(p => p.prog !== null);
+
+        this._applyChain(activePasses, source, 0.0, targetFBO, time, mouseX, mouseY);
+    }
+
+    render(source, time, mouseX = 0, mouseY = 0, params = {}, targetFBO = null) {
         if (!this.gl) return;
 
         let inputTex;
@@ -209,7 +259,6 @@ class PostProcessor {
             inputTex = source;
             flipY = 0.0;
         } else {
-            // Upload Source to Input Texture
             this.gl.activeTexture(this.gl.TEXTURE0);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, source);
@@ -217,32 +266,28 @@ class PostProcessor {
             flipY = 1.0;
         }
 
-        // Ensure state is clean before we start
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-        // Do NOT clear if we are drawing to the main screen in the last pass
-        // But we DO clear our intermediate FBO
 
-        // PASS 1: Effect Shader (e.g. Deja Vu)
-        if (this.effectProgram) {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+        // Filter active passes
+        const activePasses = [
+            { prog: this.codeProgram1, param: params.code1 !== undefined ? params.code1 : 0.5 },
+            { prog: this.codeProgram2, param: params.code2 !== undefined ? params.code2 : 0.5 },
+            { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
+            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5 }
+        ].filter(p => p.prog !== null);
+        
+        if (activePasses.length === 0) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-            this.gl.clearColor(0, 0, 0, 0);
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT); 
-            
-            this._drawPass(this.effectProgram, inputTex, time, mouseX, mouseY, effectParam, flipY);
-            
-            // Output of Pass 1 becomes Input of Pass 2
-            inputTex = this.intermediateTexture;
-            flipY = 0.0; // Next pass uses FBO source, no flip needed
+            this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY);
+            return;
         }
 
-        // PASS 2: Custom Shader (Final Post-Process)
-        // Draw to whatever is currently bound (usually null/screen)
-        const prog = this.program || this.defaultProgram;
-        this._drawPass(prog, inputTex, time, mouseX, mouseY, param, flipY);
+        this._applyChain(activePasses, inputTex, flipY, targetFBO, time, mouseX, mouseY);
     }
 
+    
     _drawPass(prog, texture, time, mouseX, mouseY, param, flipY) {
         this.gl.useProgram(prog);
 
