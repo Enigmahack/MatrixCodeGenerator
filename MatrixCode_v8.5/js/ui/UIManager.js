@@ -420,11 +420,22 @@ class UIManager {
         const file = event.target.files[0];
         if (!file) return;
         
+        const configId = this._activeShaderConfigId || 'customShader';
         const reader = new FileReader();
         reader.onload = ev => {
             const source = ev.target.result;
-            this.c.set('customShader', source);
-            this.notifications.show('Shader Imported', 'success');
+            const filename = file.name;
+            
+            if (configId === 'customShader') {
+                this.c.set('customShader', source);
+                this.c.set('customShaderName', filename);
+            } else {
+                this.c.set(configId + 'Content', source);
+                this.c.set(configId + 'Name', filename);
+            }
+            
+            this.notifications.show(`Shader Imported: ${filename}`, 'success');
+            this._activeShaderConfigId = null;
             event.target.value = '';
         };
         reader.readAsText(file);
@@ -914,7 +925,13 @@ class UIManager {
         }
         const row = document.createElement('div');
         if (def.type === 'button') {
-            const btn = document.createElement('button'); btn.className = `action-btn ${def.class||'btn-info'}`; btn.textContent = def.label; btn.id = `btn-${def.action}`; btn.name = def.action; btn.onclick = () => this.handleAction(def.action); row.appendChild(btn);
+            const btn = document.createElement('button'); 
+            btn.className = `action-btn ${def.class||'btn-info'}`; 
+            btn.textContent = def.label; 
+            btn.id = `btn-${def.id || def.action}`; 
+            btn.name = def.action; 
+            btn.onclick = () => this.handleAction(def.action); 
+            row.appendChild(btn);
         } else if (def.type === 'sortable_list') {
             this._renderSortableList(row, def);
         } else if (def.type === 'slot') {
@@ -933,6 +950,7 @@ class UIManager {
              if (def.dep) div.setAttribute('data-dep', JSON.stringify(def.dep));
              return div;
         } else {
+            const bindKey = def.bind || def.id;
             row.className = def.type === 'checkbox' ? 'checkbox-row' : 'control-row';
             const labelGroup = this.createLabelGroup(def);
             if(def.type !== 'checkbox') { const hdr = document.createElement('div'); hdr.className = 'control-header'; hdr.appendChild(labelGroup); 
@@ -943,7 +961,7 @@ class UIManager {
                 valDisp.style.cursor = "pointer";
                 
                 // Set initial value
-                const initialVal = this.c.get(def.id);
+                const initialVal = this.c.get(bindKey);
                 let displayVal = initialVal;
                 if (!def.transform && typeof initialVal === 'number') {
                     const step = def.step || 1;
@@ -955,7 +973,7 @@ class UIManager {
                 valDisp.onclick = () => {
                     if (valDisp.querySelector('input')) return;
                     
-                    const currentVal = this.c.get(def.id);
+                    const currentVal = this.c.get(bindKey);
                     valDisp.textContent = '';
                     
                     const numInput = document.createElement('input');
@@ -979,7 +997,7 @@ class UIManager {
                         if (committed) return;
                         let newVal = parseFloat(numInput.value);
                         if (isNaN(newVal)) {
-                             this.refresh(def.id);
+                             this.refresh(bindKey);
                              return;
                         }
                         
@@ -994,17 +1012,17 @@ class UIManager {
                         }
 
                         committed = true;
-                        this.c.set(def.id, newVal);
+                        this.c.set(bindKey, newVal);
                     };
 
                     numInput.onblur = () => {
-                        if (!committed) this.refresh(def.id);
+                        if (!committed) this.refresh(bindKey);
                     };
 
                     numInput.onkeydown = (e) => {
                          e.stopPropagation(); // Ensure keys like Backspace reach the input
                          if(e.key === 'Enter') commit();
-                         if(e.key === 'Escape') this.refresh(def.id);
+                         if(e.key === 'Escape') this.refresh(bindKey);
                     };
 
                     valDisp.appendChild(numInput);
@@ -1026,9 +1044,9 @@ class UIManager {
 
                 const resetToDefault = () => {
                      if (this.c.get('doubleClickToReset')) {
-                        const defaultVal = this.c.defaults[def.id];
+                        const defaultVal = this.c.defaults[bindKey];
                         if (defaultVal !== undefined) {
-                            this.c.set(def.id, defaultVal);
+                            this.c.set(bindKey, defaultVal);
                             this.notifications.show(`Reset ${def.label}`, 'info');
                             return true;
                         }
@@ -1040,7 +1058,7 @@ class UIManager {
                 let isTouching = false;
                 let lastTapTime = 0;
 
-                inp.value = def.invert ? (def.max+def.min)-this.c.get(def.id) : this.c.get(def.id);                            
+                inp.value = def.invert ? (def.max+def.min)-this.c.get(bindKey) : this.c.get(bindKey);                            
                 
                 inp.oninput = e => { 
                     if (isTouching) return; // Block native updates during touch interaction
@@ -1052,7 +1070,7 @@ class UIManager {
                     const decimals = (step.toString().split('.')[1] || '').length;
                     if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
 
-                    this.c.set(def.id, actual); 
+                    this.c.set(bindKey, actual); 
                     const disp = document.getElementById(`val-${def.id}`); 
                     if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
                 }; 
@@ -1118,7 +1136,7 @@ class UIManager {
                         const decimals = (step.toString().split('.')[1] || '').length;
                         if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
 
-                        this.c.set(def.id, actual); 
+                        this.c.set(bindKey, actual); 
                         
                         const disp = document.getElementById(`val-${def.id}`); 
                         if(disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
@@ -1136,15 +1154,15 @@ class UIManager {
                 w.className = 'color-wrapper'; 
                 inp = document.createElement('input'); 
                 inp.type = 'color'; 
-                inp.value = this.c.get(def.id); 
+                inp.value = this.c.get(bindKey); 
                 inp.id = `in-${def.id}`; 
                 inp.name = def.id; 
                 
                 inp.oninput = e => { 
-                    this.c.state[def.id] = e.target.value; 
+                    this.c.state[bindKey] = e.target.value; 
                     this.c.updateDerivedValues(); // Force derived update for live preview
                 }; 
-                inp.onchange = e => { this.c.set(def.id, e.target.value); }; // Commit and refresh
+                inp.onchange = e => { this.c.set(bindKey, e.target.value); }; // Commit and refresh
                 
                 w.appendChild(inp); row.appendChild(w); 
                 if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); 
@@ -1166,7 +1184,7 @@ class UIManager {
             else if(def.type === 'keybinder') {
                 const btn = document.createElement('button');
                 // Initial text setup
-                const rawKey = (this.c.get('keyBindings') || {})[def.id] || 'None';
+                const rawKey = (this.c.get('keyBindings') || {})[bindKey] || 'None';
                 const initialDisplay = rawKey === ' ' ? 'SPACE' : rawKey.toUpperCase();
                 
                 btn.className = 'action-btn btn-info';
@@ -1200,9 +1218,9 @@ class UIManager {
                         try {
                             const bindings = { ...this.c.get('keyBindings') };
                             if (newKey) {
-                                bindings[def.id] = newKey;
+                                bindings[bindKey] = newKey;
                             } else {
-                                delete bindings[def.id];
+                                delete bindings[bindKey];
                             }
                             this.c.set('keyBindings', bindings); // Triggers refresh() -> updateKeyBinderVisuals()
                         } catch (err) {
@@ -1227,10 +1245,10 @@ class UIManager {
             else if(def.type === 'checkbox') { 
                 inp = document.createElement('input'); 
                 inp.type = 'checkbox'; 
-                inp.checked = this.c.get(def.id); 
+                inp.checked = this.c.get(bindKey); 
                 inp.onchange = e => { 
                     if(e.target.checked && def.warning) alert(def.warning);
-                    this.c.set(def.id, e.target.checked); 
+                    this.c.set(bindKey, e.target.checked); 
                 }; 
                 row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
             }
@@ -1246,37 +1264,39 @@ class UIManager {
                     opt.value = o.value; 
                     opt.textContent = o.label; 
                     if(o.custom) opt.className = 'custom-font-opt'; 
-                    if(this.c.get(def.id) === o.value) opt.selected = true; 
+                    if(this.c.get(bindKey) === o.value) opt.selected = true; 
                     inp.appendChild(opt); 
                 }); 
                 
                 inp.onchange = e => {
                     const val = e.target.value;
-                    this.c.set(def.id, val);
+                    this.c.set(bindKey, val);
                     
                     // If it's a shader select, we need to load the content into the corresponding source slot
                     if (def.options === 'shaders' && val !== 'none') {
-                        this._loadShaderSource(val, def.id);
+                        this._loadShaderSource(val, bindKey);
                     } else if (def.options === 'shaders' && val === 'none') {
                         // Clear the source slot
-                        if (def.id === 'shaderSelect') this.c.set('customShader', null);
-                        if (def.id === 'codeShader1') this.c.set('codeShader1Content', null);
-                        if (def.id === 'codeShader2') this.c.set('codeShader2Content', null);
+                        if (bindKey === 'shaderSelect' || bindKey === 'shaderEnabled') this.c.set('customShader', null);
+                        if (bindKey === 'codeShader1') this.c.set('codeShader1Content', null);
+                        if (bindKey === 'codeShader2') this.c.set('codeShader2Content', null);
                     }
                 }; 
             }
             else if(def.type === 'text') {
                 inp = document.createElement('input');
                 inp.type = 'text';
-                const val = this.c.get(def.id);
+                const val = this.c.get(bindKey);
                 inp.value = def.transform ? def.transform(val) : (val || "");
                 inp.onchange = e => {
                     const finalVal = def.parse ? def.parse(e.target.value) : e.target.value;
-                    this.c.set(def.id, finalVal);
+                    this.c.set(bindKey, finalVal);
                 };
             }
-            row.appendChild(inp);
-            if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
+            if (inp) {
+                row.appendChild(inp);
+                if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
+            }
             if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`;
         }
         return row;
@@ -1338,7 +1358,7 @@ class UIManager {
      * @private
      */
     _applyShaderSource(source, configId, filename) {
-        if (configId === 'shaderSelect' || configId === 'importShader') {
+        if (configId === 'shaderSelect' || configId === 'importShader' || configId === 'customShader') {
             this.c.set('customShader', source);
             this.c.set('customShaderName', filename);
             this._updateDynamicShaderControls(source);
@@ -1346,8 +1366,12 @@ class UIManager {
             const nameEl = document.getElementById('currentShaderNameDisplay');
             if (nameEl) nameEl.textContent = `Loaded: ${filename}`;
         }
-        else if (configId === 'codeShader1') this.c.set('codeShader1Content', source);
-        else if (configId === 'codeShader2') this.c.set('codeShader2Content', source);
+        else if (configId === 'effectShader1') { this.c.set('effectShader1Content', source); this.c.set('effectShader1Name', filename); }
+        else if (configId === 'effectShader2') { this.c.set('effectShader2Content', source); this.c.set('effectShader2Name', filename); }
+        else if (configId === 'totalFX1') { this.c.set('totalFX1ShaderContent', source); this.c.set('totalFX1Name', filename); }
+        else if (configId === 'totalFX2') { this.c.set('totalFX2ShaderContent', source); this.c.set('totalFX2Name', filename); }
+        else if (configId === 'globalFX') { this.c.set('globalFXShaderContent', source); this.c.set('globalFXName', filename); }
+        
         this.notifications.show(`Shader Loaded: ${filename}`, 'success');
     }
 
@@ -1436,7 +1460,14 @@ class UIManager {
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
         if(action === 'import') document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
+        // Shader Imports
         if(action === 'importShader') document.getElementById('importShaderFile').click();
+        if(action === 'importShader_E1') { this._activeShaderConfigId = 'effectShader1'; document.getElementById('importShaderFile').click(); }
+        if(action === 'importShader_E2') { this._activeShaderConfigId = 'effectShader2'; document.getElementById('importShaderFile').click(); }
+        if(action === 'importShader_FX1') { this._activeShaderConfigId = 'totalFX1'; document.getElementById('importShaderFile').click(); }
+        if(action === 'importShader_FX2') { this._activeShaderConfigId = 'totalFX2'; document.getElementById('importShaderFile').click(); }
+        if(action === 'importShader_GLO') { this._activeShaderConfigId = 'globalFX'; document.getElementById('importShaderFile').click(); }
+
         if(action === 'manageCharacters') this.charSelector.show();
         if(action === 'boot') { if(this.effects.trigger('BootSequence')) this.notifications.show('Boot Sequence Initiated', 'success'); else this.notifications.show('Boot Sequence Active...', 'info'); }
         if(action === 'crash') { if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger'); else this.notifications.show('Crash Sequence Active...', 'info'); }
@@ -1529,28 +1560,38 @@ class UIManager {
                 return;
             }
 
-            if (key === 'customShader' || key === 'shaderEnabled') {
-                const shaderNameDisplay = document.getElementById('currentShaderNameDisplay');
-                if (shaderNameDisplay) {
+            const shaderKeys = [
+                { key: 'customShader', enabled: 'shaderEnabled', display: 'currentShaderNameDisplay', nameKey: 'customShaderName' },
+                { key: 'effectShader1Content', enabled: 'effectShader1Enabled', display: 'effectShader1NameDisplay', nameKey: 'effectShader1Name' },
+                { key: 'effectShader2Content', enabled: 'effectShader2Enabled', display: 'effectShader2NameDisplay', nameKey: 'effectShader2Name' },
+                { key: 'totalFX1ShaderContent', enabled: 'totalFX1Enabled', display: 'totalFX1NameDisplay', nameKey: 'totalFX1Name' },
+                { key: 'totalFX2ShaderContent', enabled: 'totalFX2Enabled', display: 'totalFX2NameDisplay', nameKey: 'totalFX2Name' },
+                { key: 'globalFXShaderContent', enabled: 'globalFXEnabled', display: 'globalFXNameDisplay', nameKey: 'globalFXName' }
+            ];
+
+            const matchedKey = shaderKeys.find(sk => sk.key === key || sk.enabled === key);
+            if (matchedKey) {
+                const displayEls = document.querySelectorAll(`[id^="${matchedKey.display}"]`);
+                displayEls.forEach(displayEl => {
                     let name = 'none';
-                    const customShaderSource = this.c.get('customShader');
-                    const shaderEnabled = this.c.get('shaderEnabled');
-                    const savedName = this.c.get('customShaderName');
+                    const source = this.c.get(matchedKey.key);
+                    const enabled = this.c.get(matchedKey.enabled);
+                    const savedName = this.c.get(matchedKey.nameKey);
                     
-                    if (shaderEnabled && savedName && savedName !== 'none') {
+                    if (enabled && savedName && savedName !== 'none') {
                         name = savedName;
-                    } else if (shaderEnabled && customShaderSource) {
-                        const nameMatch = customShaderSource.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
+                    } else if (enabled && source) {
+                        const nameMatch = source.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
                         if (nameMatch && nameMatch[1]) name = nameMatch[1].trim();
-                        else if (customShaderSource.trim().startsWith('precision')) name = 'Custom Shader (No Name)';
-                        else if (customShaderSource.length < 200 && (customShaderSource.includes('/') || customShaderSource.includes('\\'))) {
-                             const parts = customShaderSource.split(/[\/\\]/);
+                        else if (source.trim().startsWith('precision')) name = 'Pass Shader (No Name)';
+                        else if (source.length < 200 && (source.includes('/') || source.includes('\\'))) {
+                             const parts = source.split(/[\/\\]/);
                              name = parts[parts.length - 1];
                         }
-                        else name = 'Custom Shader';
+                        else name = 'Pass Shader';
                     }
-                    shaderNameDisplay.textContent = (name === 'none') ? 'none' : `Loaded: ${name}`;
-                }
+                    displayEl.textContent = (name === 'none') ? 'none' : `Loaded: ${name}`;
+                });
             }
 
             if (key === 'streamPalette') {
@@ -1631,32 +1672,38 @@ class UIManager {
 
             // Update specific control values
             if(key) {
-                if (document.getElementById(`btn-key-${key}`)) this.updateKeyBinderVisuals(key);
+                this.defs.forEach(def => {
+                    const bindKey = def.bind || def.id;
+                    if (bindKey === key || def.id === key) {
+                        if (def.type === 'keybinder') {
+                            this.updateKeyBinderVisuals(def.id);
+                        }
 
-                const inp = document.getElementById(`in-${key}`);
-                if(inp) { 
-                    const def = this.defs.find(d=>d.id===key); 
-                    if(def) { 
-                        const val = this.c.get(key); 
-                        if(def.type === 'checkbox') inp.checked = val; 
-                        else if(def.type === 'color_list') this._renderColorList(inp, def);
-                        else if(def.type === 'range') { 
-                            inp.value = def.invert ? (def.max+def.min)-val : val; 
-                            const disp = document.getElementById(`val-${key}`); 
-                            if(disp) {
-                                let displayVal = val;
-                                if (!def.transform && typeof val === 'number') {
-                                    const step = def.step || 1;
-                                    const decimals = (step.toString().split('.')[1] || '').length;
-                                    displayVal = parseFloat(val.toFixed(decimals));
+                        const inp = document.getElementById(`in-${def.id}`);
+                        if(inp) { 
+                            const val = this.c.get(bindKey); 
+                            if(def.type === 'checkbox') inp.checked = val; 
+                            else if(def.type === 'color_list') this._renderColorList(inp, def);
+                            else if(def.type === 'range') { 
+                                inp.value = def.invert ? (def.max+def.min)-val : val; 
+                                const disp = document.getElementById(`val-${def.id}`); 
+                                if(disp) {
+                                    let displayVal = val;
+                                    if (!def.transform && typeof val === 'number') {
+                                        const step = def.step || 1;
+                                        const decimals = (step.toString().split('.')[1] || '').length;
+                                        displayVal = parseFloat(val.toFixed(decimals));
+                                    }
+                                    disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
                                 }
-                                disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
+                            } else if (def.type === 'text') {
+                                inp.value = def.transform ? def.transform(val) : (val || "");
+                            } else if (def.type === 'select') {
+                                inp.value = String(val);
                             }
-                        } else if (def.type === 'text') {
-                            inp.value = def.transform ? def.transform(val) : (val || "");
-                        } else inp.value = String(val);
-                    } 
-                }
+                        }
+                    }
+                });
             }
 
             // Update dependents

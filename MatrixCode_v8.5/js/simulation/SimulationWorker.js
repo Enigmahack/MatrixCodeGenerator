@@ -303,9 +303,9 @@ class WorkerSimulationSystem {
 
     _calculateAlpha(idx, age, decay, maxFade) {
         const b = this.grid.brightness[idx];
-        if (decay >= 2) return 0.95 * Math.pow(Math.max(0, 1.0 - (decay - 2) / maxFade), 2.0) * b;
+        if (decay >= 2) return 0.99 * Math.pow(Math.max(0, 1.0 - (decay - 2) / maxFade), 2.0) * b;
         const attack = (this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.UPWARD_TRACER ? config.state.upwardTracerAttackFrames : config.state.tracerAttackFrames;
-        return 0.95 * (age <= attack && attack > 0 ? (age / attack) : 1.0) * b;
+        return 0.99 * (age <= attack && attack > 0 ? (age / attack) : 1.0) * b;
     }
 }
 

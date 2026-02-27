@@ -2,14 +2,24 @@
 // POST PROCESSOR
 // =========================================================================
 
+/**
+ * PostProcessor manages a multi-pass GLSL rendering pipeline.
+ * The pipeline structure (Effect 1 -> Effect 2 -> Total FX1 -> Total FX2 -> Global FX -> Custom)
+ * provides flexible and performant post-processing.
+ */
 class PostProcessor {
     constructor(config, gl = null) {
         this.config = config;
         this.gl = gl;
-        this.codeProgram1 = null; 
-        this.codeProgram2 = null;
-        this.effectProgram = null; 
-        this.program = null; // Custom User Shader
+        
+        // Pipeline Programs
+        this.effect1Program = null;
+        this.effect2Program = null;
+        this.totalFX1Program = null;
+        this.totalFX2Program = null;
+        this.globalFXProgram = null;
+        this.customProgram = null;
+        
         this.canvas = gl ? null : document.createElement('canvas');
         
         // Textures
@@ -28,11 +38,12 @@ class PostProcessor {
             uniform vec2 uResolution;
             uniform float uTime;
             uniform vec2 uMouse;
-            uniform float uParameter;
+            uniform float uGlobalBrightness;
             varying vec2 vTexCoord;
             
             void main() {
-                gl_FragColor = texture2D(uTexture, vTexCoord);
+                vec4 col = texture2D(uTexture, vTexCoord);
+                gl_FragColor = vec4(col.rgb * uGlobalBrightness, col.a);
             }
         `;
         
@@ -115,21 +126,15 @@ class PostProcessor {
         return tex;
     }
 
-    compileShader(fragSource) {
-        this.program = fragSource ? this._compileProgram(fragSource) : null;
-    }
-
-    compileEffectShader(fragSource) {
-        this.effectProgram = fragSource ? this._compileProgram(fragSource) : null;
-    }
-
-    compileCodeShader1(fragSource) {
-        this.codeProgram1 = fragSource ? this._compileProgram(fragSource) : null;
-    }
-
-    compileCodeShader2(fragSource) {
-        this.codeProgram2 = fragSource ? this._compileProgram(fragSource) : null;
-    }
+    /**
+     * Compile individual passes of the pipeline.
+     */
+    compileEffect1Shader(fragSource) { this.effect1Program = fragSource ? this._compileProgram(fragSource) : null; }
+    compileEffect2Shader(fragSource) { this.effect2Program = fragSource ? this._compileProgram(fragSource) : null; }
+    compileTotalFX1Shader(fragSource) { this.totalFX1Program = fragSource ? this._compileProgram(fragSource) : null; }
+    compileTotalFX2Shader(fragSource) { this.totalFX2Program = fragSource ? this._compileProgram(fragSource) : null; }
+    compileGlobalFXShader(fragSource) { this.globalFXProgram = fragSource ? this._compileProgram(fragSource) : null; }
+    compileCustomShader(fragSource) { this.customProgram = fragSource ? this._compileProgram(fragSource) : null; }
 
     _compileProgram(fragSource) {
         if (!this.gl) return null;
@@ -177,7 +182,7 @@ class PostProcessor {
         });
     }
 
-    _applyChain(activePasses, currentInput, currentFlip, targetFBO, time, mouseX, mouseY) {
+    _applyChain(activePasses, currentInput, currentFlip, targetFBO, time, mouseX, mouseY, brightness) {
         let input = currentInput;
         let flip = currentFlip;
         let activeFBO = this.framebuffer1;
@@ -195,7 +200,7 @@ class PostProcessor {
             this.gl.clearColor(0, 0, 0, 0);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT);
             
-            this._drawPass(activePasses[i].prog, input, time, mouseX, mouseY, activePasses[i].param, flip, activePasses[i].customParams);
+            this._drawPass(activePasses[i].prog, input, time, mouseX, mouseY, activePasses[i].param, flip, brightness, activePasses[i].customParams);
             
             if (!isLast) {
                 input = activeTex;
@@ -211,38 +216,19 @@ class PostProcessor {
         }
     }
 
-    renderCodePasses(source, time, mouseX, mouseY, params, targetFBO = null) {
-        if (!this.gl) return;
-        const activePasses = [
-            { prog: this.codeProgram1, param: params.code1 !== undefined ? params.code1 : 0.5 },
-            { prog: this.codeProgram2, param: params.code2 !== undefined ? params.code2 : 0.5 }
-        ].filter(p => p.prog !== null);
-
-        if (activePasses.length === 0) {
-            // No code shaders, just copy source to target if target is different
-            if (targetFBO !== null) {
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
-                this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-                this._drawPass(this.defaultProgram, source, time, mouseX, mouseY, 0.5, 0.0);
-            }
-            return;
-        }
-
-        this._applyChain(activePasses, source, 0.0, targetFBO, time, mouseX, mouseY);
-    }
-
-    renderFinalPasses(source, time, mouseX, mouseY, params, targetFBO = null) {
-        if (!this.gl) return;
-        const activePasses = [
-            { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
-            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5, customParams: params.customParams }
-        ].filter(p => p.prog !== null);
-
-        this._applyChain(activePasses, source, 0.0, targetFBO, time, mouseX, mouseY);
-    }
-
+    /**
+     * Main render entry point for the post-processing pipeline.
+     */
     render(source, time, mouseX = 0, mouseY = 0, params = {}, targetFBO = null) {
         if (!this.gl) return;
+
+        const brightness = params.brightness ?? 1.0;
+
+        // Master bypass check
+        if (this.config.get('postProcessBypassAll')) {
+            this._renderBypass(source, targetFBO, brightness);
+            return;
+        }
 
         let inputTex;
         let flipY = 0.0;
@@ -261,26 +247,45 @@ class PostProcessor {
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
-        // Filter active passes
+        // Define the pipeline chain
         const activePasses = [
-            { prog: this.codeProgram1, param: params.code1 !== undefined ? params.code1 : 0.5 },
-            { prog: this.codeProgram2, param: params.code2 !== undefined ? params.code2 : 0.5 },
-            { prog: this.effectProgram, param: params.effect !== undefined ? params.effect : 0.0 },
-            { prog: this.program || this.defaultProgram, param: params.custom !== undefined ? params.custom : 0.5, customParams: params.customParams }
-        ].filter(p => p.prog !== null);
+            { id: 'effect1', prog: this.effect1Program, param: params.effect1 ?? 0.5, enabled: this.config.get('effectShader1Enabled') },
+            { id: 'effect2', prog: this.effect2Program, param: params.effect2 ?? 0.5, enabled: this.config.get('effectShader2Enabled') },
+            { id: 'totalFX1', prog: this.totalFX1Program, param: params.totalFX1 ?? 0.5, enabled: this.config.get('totalFX1Enabled') },
+            { id: 'totalFX2', prog: this.totalFX2Program, param: params.totalFX2 ?? 0.5, enabled: this.config.get('totalFX2Enabled') },
+            { id: 'globalFX', prog: this.globalFXProgram, param: params.globalFX ?? 0.5, enabled: this.config.get('globalFXEnabled') },
+            { id: 'custom', prog: this.customProgram || this.defaultProgram, param: params.custom ?? 0.5, enabled: this.config.get('shaderEnabled'), customParams: params.customParams }
+        ].filter(p => p.prog !== null && p.enabled);
         
         if (activePasses.length === 0) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-            this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY);
+            this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY, brightness);
             return;
         }
 
-        this._applyChain(activePasses, inputTex, flipY, targetFBO, time, mouseX, mouseY);
+        this._applyChain(activePasses, inputTex, flipY, targetFBO, time, mouseX, mouseY, brightness);
     }
 
-    
-    _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, customParams = null) {
+    _renderBypass(source, targetFBO, brightness = 1.0) {
+        let inputTex;
+        let flipY = 0.0;
+        if (source instanceof WebGLTexture || (typeof WebGLTexture !== 'undefined' && source instanceof WebGLTexture)) {
+            inputTex = source;
+            flipY = 0.0;
+        } else {
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, source);
+            inputTex = this.texture;
+            flipY = 1.0;
+        }
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
+        this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        this._drawPass(this.defaultProgram, inputTex, 0, 0, 0, 0.5, flipY, brightness);
+    }
+
+    _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, brightness = 1.0, customParams = null) {
         this.gl.useProgram(prog);
 
         const posLoc = this.gl.getAttribLocation(prog, 'aPosition');
@@ -308,6 +313,9 @@ class PostProcessor {
         
         const uFlip = this.gl.getUniformLocation(prog, 'uFlipY');
         if (uFlip) this.gl.uniform1f(uFlip, flipY);
+
+        const uGlobalBright = this.gl.getUniformLocation(prog, 'uGlobalBrightness');
+        if (uGlobalBright) this.gl.uniform1f(uGlobalBright, brightness);
 
         // Apply Custom Parameters
         if (customParams) {

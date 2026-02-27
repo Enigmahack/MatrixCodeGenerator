@@ -10,6 +10,7 @@ class GlyphAtlas {
 
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { alpha: true, willReadFrequently: true });
+        this.ctx.imageSmoothingEnabled = this.config.state.smoothingEnabled;
         
         // Map character strings to their rect in the atlas
         this.charMap = new Map();
@@ -63,6 +64,8 @@ class GlyphAtlas {
     update() {
         const s = this.config.state;
         const d = this.config.derived;
+
+        this.ctx.imageSmoothingEnabled = s.smoothingEnabled;
 
         // Determine font info (but NOT the full char list anymore for pre-fill)
         const fontFamily = this.fontName || s.fontFamily;

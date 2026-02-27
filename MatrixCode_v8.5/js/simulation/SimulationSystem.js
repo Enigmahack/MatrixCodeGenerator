@@ -736,7 +736,7 @@ class SimulationSystem {
             const ratio = (decay - 2) / fadeDurationFrames;
             // Use power curve for smoother perceived fade (starts fading sooner)
             const fade = Math.pow(Math.max(0, 1.0 - ratio), 2.0);
-            return 0.95 * fade * b;
+            return 0.99 * fade * b;
         }
         
         // Fading IN
@@ -746,10 +746,10 @@ class SimulationSystem {
         }
 
         if (age <= attack && attack > 0) {
-            return 0.95 * (age / attack) * b;
+            return 0.99 * (age / attack) * b;
         }
 
         // Standard State
-        return 0.95 * b;
+        return 0.99 * b;
     }
 }

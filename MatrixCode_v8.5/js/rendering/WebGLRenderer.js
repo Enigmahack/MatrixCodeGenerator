@@ -19,32 +19,54 @@ class RenderPass {
     }
 }
 
-class CodeShadersPass extends RenderPass {
+class PostProcessPass extends RenderPass {
     execute(renderer, sourceTex, s, d, time) {
         if (!renderer.postProcessor) return sourceTex;
-        
-        const params = {
-            code1: s.codeParameter1 !== undefined ? s.codeParameter1 : 0.5,
-            code2: s.codeParameter2 !== undefined ? s.codeParameter2 : 0.5
-        };
-        
-        const code1Source = s.codeShader1Content;
-        const code2Source = s.codeShader2Content;
-        
-        if (code1Source !== renderer.lastCode1Source) {
-            renderer.postProcessor.compileCodeShader1(code1Source);
-            renderer.lastCode1Source = code1Source;
-        }
-        if (code2Source !== renderer.lastCode2Source) {
-            renderer.postProcessor.compileCodeShader2(code2Source);
-            renderer.lastCode2Source = code2Source;
-        }
 
-        if (renderer.postProcessor.codeProgram1 || renderer.postProcessor.codeProgram2) {
-            renderer.postProcessor.renderCodePasses(sourceTex, time, renderer.mouseX, renderer.mouseY, params, renderer.fboCodeProcessed);
-            return renderer.texCodeProcessed;
-        }
-        return sourceTex;
+        const gl = renderer.gl;
+        
+        // Ensure all shaders are compiled
+        const passes = [
+            { id: 'effect1', source: s.effectShader1Content, compile: (src) => renderer.postProcessor.compileEffect1Shader(src) },
+            { id: 'effect2', source: s.effectShader2Content, compile: (src) => renderer.postProcessor.compileEffect2Shader(src) },
+            { id: 'totalFX1', source: s.totalFX1ShaderContent, compile: (src) => renderer.postProcessor.compileTotalFX1Shader(src) },
+            { id: 'totalFX2', source: s.totalFX2ShaderContent, compile: (src) => renderer.postProcessor.compileTotalFX2Shader(src) },
+            { id: 'globalFX', source: s.globalFXShaderContent, compile: (src) => renderer.postProcessor.compileGlobalFXShader(src) },
+            { id: 'custom', source: s.shaderEnabled ? s.customShader : null, compile: (src) => renderer.postProcessor.compileCustomShader(src) }
+        ];
+
+        renderer.lastSources = renderer.lastSources || {};
+        passes.forEach(p => {
+            if (p.source !== renderer.lastSources[p.id]) {
+                p.compile(p.source);
+                renderer.lastSources[p.id] = p.source;
+            }
+        });
+
+        const params = {
+            effect1: s.effect1Parameter,
+            effect2: s.effect2Parameter,
+            totalFX1: s.totalFX1Parameter,
+            totalFX2: s.totalFX2Parameter,
+            globalFX: s.globalFXParameter,
+            custom: s.shaderParameter,
+            brightness: s.brightness !== undefined ? s.brightness : 1.0,
+            customParams: s.customShaderParams || {}
+        };
+
+        // Final output to screen
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        
+        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+        gl.clearColor(br, bg, bb, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        renderer.postProcessor.render(sourceTex, time, renderer.mouseX, renderer.mouseY, params, null);
+        
+        return null; // Pipeline ends here
     }
 }
 
@@ -124,46 +146,7 @@ class QuantizedEffectsPass extends RenderPass {
     }
 }
 
-class FinalShaderPass extends RenderPass {
-    execute(renderer, sourceTex, s, d, time) {
-        const gl = renderer.gl;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-        
-        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-        gl.clearColor(br, bg, bb, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT);
 
-        if (renderer.postProcessor) {
-            const customSource = s.shaderEnabled ? s.customShader : null;
-            const effectSource = s.effectShader;
-
-            if (customSource !== renderer.lastShaderSource) {
-                renderer.postProcessor.compileShader(customSource);
-                renderer.lastShaderSource = customSource;
-            }
-            if (effectSource !== renderer.lastEffectSource) {
-                renderer.postProcessor.compileEffectShader(effectSource);
-                renderer.lastEffectSource = effectSource;
-            }
-
-            const params = {
-                custom: s.shaderParameter !== undefined ? s.shaderParameter : 0.5,
-                effect: s.effectParameter !== undefined ? s.effectParameter : 0.0,
-                customParams: s.customShaderParams || {}
-            };
-            
-            renderer.postProcessor.renderFinalPasses(sourceTex, time, renderer.mouseX, renderer.mouseY, params, null);
-        } else {
-            gl.enable(gl.BLEND);
-            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
-        }
-        return null;
-    }
-}
 
 class WebGLRenderer {
     constructor(canvasId, grid, config, effects) {
@@ -244,18 +227,14 @@ class WebGLRenderer {
 
         if (typeof PostProcessor !== 'undefined') {
             this.postProcessor = new PostProcessor(config, this.gl);
-            this.lastShaderSource = undefined;
-            this.lastEffectSource = undefined;
-            this.lastCode1Source = undefined;
-            this.lastCode2Source = undefined;
+            this.lastSources = {};
         }
 
         // Initialize Render Pipeline
         this.pipeline = [
-            new CodeShadersPass('CodeShaders'),
             new BloomPass('Bloom'),
             new QuantizedEffectsPass('QuantizedLineGfx'),
-            new FinalShaderPass('FinalShaders')
+            new PostProcessPass('PostProcessingPipeline')
         ];
     }
 
@@ -892,6 +871,7 @@ class WebGLRenderer {
                 uniform float u_glimmerSize;
                 uniform float u_glimmerIntensity;
                 uniform float u_glimmerFlicker; 
+                uniform float u_brightness;
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
@@ -1038,14 +1018,10 @@ class WebGLRenderer {
                     // Apply Shadow Darkening
                     // shadow = 0..1 (0=No Shadow, 1=Black)
                     // glassMask = 0..1 (quantized blocks)
-                    // REMOVED REDECLARATION OF 'shadow' HERE
                     float glassMask = texture(u_shadowMask, v_screenUV).r;
                     
-                    if (!isHighPriority) {
-                        float sMult = 1.0 - shadow;
-                        if (u_glassEnabled && glassMask > 0.001) sMult = 1.0;
-                        baseColor.rgb *= sMult;
-                    }
+                    // REDUNDANCY REMOVED: Shadow now only affects streamAlpha below
+                    // This prevents double-darkening (RGB * shadow * Alpha * shadow)
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger)
@@ -1082,7 +1058,8 @@ class WebGLRenderer {
                         streamAlpha = max(streamAlpha, glimmer);
                     }
     
-                    fragColor = vec4(col.rgb, streamAlpha);
+                    // Boosted brightness (Task 3: +5% floor)
+                    fragColor = vec4(col.rgb * (u_brightness + 0.05), streamAlpha);
                 }
             `;
             
@@ -1667,7 +1644,7 @@ class WebGLRenderer {
                 this.gl.uniform1f(uLoc('u_glow'), glow ?? 1.0);
                 
                 this.gl.uniform1f(uLoc('u_saturation'), fx.getLineGfxValue('Saturation'));
-                this.gl.uniform1f(uLoc('u_brightness'), fx.getLineGfxValue('Brightness'));
+                this.gl.uniform1f(uLoc('u_brightness'), fx.getLineGfxValue('Brightness') * (s.brightness ?? 1.0));
                 this.gl.uniform1f(uLoc('u_additiveStrength'), fx.getLineGfxValue('AdditiveStrength'));
                 this.gl.uniform1f(uLoc('u_sharpness'), fx.getLineGfxValue('Sharpness'));
                 this.gl.uniform1f(uLoc('u_glowFalloff'), fx.getLineGfxValue('GlowFalloff'));
@@ -2356,6 +2333,7 @@ class WebGLRenderer {
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
+            this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
 
             const cellScaleX = (d.cellWidth / atlas.cellSize);
             const cellScaleY = (d.cellHeight / atlas.cellSize);
