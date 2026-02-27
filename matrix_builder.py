@@ -100,12 +100,17 @@ def get_dependency_order(source_dir):
                 # rel_path should be relative to source_dir (root of the project)
                 rel_path = os.path.relpath(full_path, source_dir).replace('\\', '/')
                 
-                # Safety Check: Skip files that use Node.js 'fs' module (prevents bundling main.js or tools)
+                # Safety Check: Skip main process files and tools. 
+                # UIManager is ALLOWED even if it has conditional require() for Electron support.
+                if rel_path in ['main.js', 'js/simulation/SimulationWorker.js', 'matrix_builder.py'] or rel_path.startswith('js/tools/'):
+                    continue
+
                 with open(full_path, 'r', encoding='utf-8') as f:
                     content = f.read()
 
-                if "require('fs')" in content or 'require("fs")' in content or "require('electron')" in content or 'require("electron")' in content:
-                    print(f"  [Warning] Skipping {rel_path} (Detected Node.js/Electron dependency)")
+                # Strictly skip non-browser utility scripts if they aren't in the JS folder
+                if not rel_path.startswith('js/') and ("require('fs')" in content or "require('electron')" in content):
+                    print(f"  [Warning] Skipping {rel_path} (Non-browser utility)")
                     continue
 
                 defs, deps = scan_file_content(content)
