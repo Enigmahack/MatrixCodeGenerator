@@ -55,6 +55,23 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.' },
     { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0.1, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'] },
 
+    { cat: 'Global', type: 'accordion_header', label: 'Global FX' },
+    { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', description: "Determines the glow intensity of the leading tracer characters." },
+    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-In (Phosphor Persistence)', hideValue: true, min: 0.0, max: 1.0, step: 0.01, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
+    
+    { cat: 'Global', type: 'accordion_subheader', label: 'Bloom FX' },
+    { cat: 'Global', id: 'globalBloomEnabled', type: 'checkbox', label: 'Enable Bloom' },
+    { cat: 'Global', id: 'globalBloomType', type: 'select', label: 'Bloom Type', options: [
+        { label: 'Gaussian (Fast)', value: 'gaussian' },
+        { label: 'Box (Performance)', value: 'box' },
+        { label: 'Dual Filtering (High Quality)', value: 'dual' },
+        { label: 'Star (Artistic)', value: 'star' }
+    ], dep: 'globalBloomEnabled' },
+    { cat: 'Global', id: 'globalBloomBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled' },
+    { cat: 'Global', id: 'globalBloomIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled' },
+    { cat: 'Global', id: 'globalBloomWidth', type: 'range', label: 'Bloom Width', min: 1.0, max: 10.0, step: 0.1, dep: 'globalBloomEnabled' },
+    { cat: 'Global', id: 'globalBloomThreshold', type: 'range', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, dep: 'globalBloomEnabled' },
+
     // 2. APPEARANCE TAB
     { cat: 'Appearance', type: 'accordion_header', label: 'Character Fonts' },
     { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: 'fonts' },
@@ -101,13 +118,6 @@ const ConfigTemplate = [
     { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', description: "The amount of mini blocks that are lit within the Glimmer Grid." },
     { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled' },
     { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', transform: v => (v * 100).toFixed(0) + '%', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting." },
-
-    { cat: 'Appearance', type: 'accordion_header', label: 'Glow Effects' },
-    { cat: 'Appearance', id: 'enableBloom', type: 'checkbox', label: 'Enable Code Glow' },
-    { cat: 'Appearance', id: 'bloomStrength', type: 'range', label: 'Glow Radius', min: 1, max: 10, unit: 'px', dep: 'enableBloom' },
-    { cat: 'Appearance', id: 'bloomOpacity', type: 'range', label: 'Glow Intensity', min: 0, max: 1, step: 0.05, dep: 'enableBloom' },
-    { cat: 'Appearance', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px' },
-    { cat: 'Appearance', id: 'clearAlpha', type: 'range', label: 'Burn-in', hideValue: true, min: 0.0, max: 1.0, step: 0.01, invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.' },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
     { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05 },

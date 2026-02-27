@@ -667,7 +667,14 @@ class ConfigurationManager {
             "quantizedGlassOverlapOpacity": 1.0,
             "quantizedGlassBloom": 1.2,
             "quantizedGlassLensCurvature": 1.0,
-            "quantizedGlassDarkness": 0.5
+            "quantizedGlassDarkness": 0.5,
+
+            "globalBloomEnabled": false,
+            "globalBloomType": "gaussian",
+            "globalBloomBrightness": 1.0,
+            "globalBloomIntensity": 1.0,
+            "globalBloomWidth": 4.0,
+            "globalBloomThreshold": 0.5
         };
     }
 
