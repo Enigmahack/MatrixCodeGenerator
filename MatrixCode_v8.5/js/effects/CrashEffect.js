@@ -1,16 +1,11 @@
 class CrashEffect extends AbstractEffect {
-    constructor(g, c, registry) {
-        super(g, c);
-        this.registry = registry; 
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "CrashSequence";
         this.active = false;
         this.startTime = 0;
         this.durationSeconds = this.c.get('crashDurationSeconds') || 30; 
         
-        this.originalShader = null;
-        this.originalShaderEnabled = false;
-        this.originalShaderParameter = 0.5;
-        this.originalFade = 0; // To store/restore fade speed
         this.frame = 0;
 
         this.snapshotOverlay = new Map(); 
@@ -60,13 +55,52 @@ class CrashEffect extends AbstractEffect {
             chars: new Uint16Array(this.g.chars)
         };
         
+        // Request slot from orchestrator
+        this.shaderSlot = this.r.requestShaderSlot(this, this._getShaderSource(), 0.0);
+
+        this.active = true;
+        this.startTime = performance.now();
+        this.frame = 0;
+        this.snapshotOverlay.clear(); 
+        this.blackSheets = []; 
+        this.crashBars = [];
+        this.supermanState = { 
+            active: false, 
+            type: 0, 
+            cells: new Set(), 
+            illuminatedCells: new Set(), 
+            fadingReveals: [], // Ensure this is initialized!
+            flickerTimer: 0, 
+            globalTimer: 0, 
+            boltId: 0 
+        };
+        this.shaderState = { activeId: 0, timer: 0, duration: 0 };
+        this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
+        this.sheetState = { spawning: true, timer: 600 };
+        this.endFlashTriggered = false;
+        this.sheetFadeVal = 1.0;
+        
+        this.flashState.active = false;
+        this.flashState.nextFlash = 30; 
+        
+        this.MAX_BLACK_LEVEL = 0.5;
+        this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
+
+        // Immediate Spawn of all sheets
+        const maxSheets = this.c.get('crashSheetCount');
+        this.blackSheets = [];
+        this._updateBlackSheets(maxSheets); // Force fill
+
+        return true;
+    }
+
+    _getShaderSource() {
         // Get Stream Color for the Splash
         const colorStr = this.c.derived.streamColorStr || this.c.defaults.streamColor;
         const rgb = Utils.hexToRgb(colorStr);
         const vec3Color = `vec3(${rgb.r/255.0}, ${rgb.g/255.0}, ${rgb.b/255.0})`;
 
-        // Set Effect Shader (Pass 1) - Leaves Custom Shader (Pass 2) intact
-        this.c.set('effectShader', `
+        return `
 precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
@@ -130,44 +164,7 @@ void main() {
     
     gl_FragColor = finalColor;
 }
-`);
-        
-        this.c.set('effectParameter', 0.0); 
-
-        this.active = true;
-        this.startTime = performance.now();
-        this.frame = 0;
-        this.snapshotOverlay.clear(); 
-        this.blackSheets = []; 
-        this.crashBars = [];
-        this.supermanState = { 
-            active: false, 
-            type: 0, 
-            cells: new Set(), 
-            illuminatedCells: new Set(), 
-            fadingReveals: [], // Ensure this is initialized!
-            flickerTimer: 0, 
-            globalTimer: 0, 
-            boltId: 0 
-        };
-        this.shaderState = { activeId: 0, timer: 0, duration: 0 };
-        this.smithState = { active: false, triggered: false, timer: 0, duration: 60 };
-        this.sheetState = { spawning: true, timer: 600 };
-        this.endFlashTriggered = false;
-        this.sheetFadeVal = 1.0;
-        
-        this.flashState.active = false;
-        this.flashState.nextFlash = 30; 
-        
-        this.MAX_BLACK_LEVEL = 0.5;
-        this.baseBlackLevel = this.c.get('crashEnableFlash') ? this.MAX_BLACK_LEVEL : 0.0; 
-
-        // Immediate Spawn of all sheets
-        const maxSheets = this.c.get('crashSheetCount');
-        this.blackSheets = [];
-        this._updateBlackSheets(maxSheets); // Force fill
-
-        return true;
+`;
     }
 
     update() {
@@ -192,17 +189,20 @@ void main() {
         // Trigger End Effect (Deja Vu)
         if (progress > 0.92 && !this.endFlashTriggered) {
             this.endFlashTriggered = true;
-            if (this.registry) {
+            if (this.r) {
                 const remainingSeconds = (1.0 - progress) * this.durationSeconds;
                 // Add small buffer to ensure overlap/fade out completes smoothly
-                this.registry.trigger('DejaVu', remainingSeconds + 1.0);
+                this.r.trigger('DejaVu', remainingSeconds + 1.0);
             }
         }
 
         // --- END ---
         if (progress >= 1.0) {
             this.active = false;
-            this.c.set('effectShader', null); // Clear Effect Shader
+            if (this.shaderSlot) {
+                this.r.releaseShaderSlot(this);
+                this.shaderSlot = null;
+            }
             this.snapshotOverlay.clear();
             this.blackSheets = [];
             this.crashBars = [];
@@ -219,11 +219,11 @@ void main() {
             if (this.flashState.active) {
                 this.flashState.timer += step;
                 const p = Math.min(1.0, this.flashState.timer / this.flashState.duration);
-                this.c.set('effectParameter', 10.0 + p);
+                if (this.shaderSlot) this.c.set(this.shaderSlot.param, 10.0 + p);
                 if (this.flashState.timer >= 1 && this.flashState.timer < 1 + step) this.sheetFadeVal = 0.0; // Trigger once
                 if (this.flashState.timer >= this.flashState.duration) {
                     this.flashState.active = false;
-                    this.c.set('effectParameter', 0.0);
+                    if (this.shaderSlot) this.c.set(this.shaderSlot.param, 0.0);
                 }
             } else {
                 this.flashState.nextFlash -= step;
@@ -231,7 +231,7 @@ void main() {
             }
         } else {
             this.baseBlackLevel = 0.0;
-            this.c.set('effectParameter', 0.0);
+            if (this.shaderSlot) this.c.set(this.shaderSlot.param, 0.0);
         }
         
         // --- SHADERS ---
@@ -254,10 +254,10 @@ void main() {
                 this.shaderState.timer += step;
                 if (this.shaderState.timer >= this.shaderState.duration) {
                     this.shaderState.activeId = 0;
-                    this.c.set('effectParameter', 0.0);
+                    if (this.shaderSlot) this.c.set(this.shaderSlot.param, 0.0);
                 } else {
                     const p = this.shaderState.timer / this.shaderState.duration;
-                    this.c.set('effectParameter', this.shaderState.activeId + p);
+                    if (this.shaderSlot) this.c.set(this.shaderSlot.param, this.shaderState.activeId + p);
                 }
             }
         }
@@ -338,8 +338,8 @@ void main() {
             }
         }
         
-        if (this.registry) {
-            if (Math.random() < 0.001 * step) this.registry.trigger('ClearPulse');
+        if (this.r) {
+            if (Math.random() < 0.001 * step) this.r.trigger('ClearPulse');
         }
     }
     

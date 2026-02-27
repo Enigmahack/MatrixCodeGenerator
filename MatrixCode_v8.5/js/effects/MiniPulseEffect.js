@@ -1,6 +1,6 @@
 class MiniPulseEffect extends AbstractEffect {
-    constructor(g, c) {
-        super(g, c);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "MiniPulse";
         this.active = false;
         this.sessionTimer = 0;

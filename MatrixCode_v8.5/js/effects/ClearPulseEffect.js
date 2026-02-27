@@ -1,8 +1,8 @@
 class ClearPulseEffect extends AbstractEffect {
-    constructor(g, c) {
-        super(g, c);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "ClearPulse";
-        this.active = false;
+        this.active = false; 
         this.origin = { x: 0, y: 0 };
         this.radius = 0;
         this.snap = null;

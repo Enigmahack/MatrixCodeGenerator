@@ -426,15 +426,8 @@ class UIManager {
             const source = ev.target.result;
             const filename = file.name;
             
-            if (configId === 'customShader') {
-                this.c.set('customShader', source);
-                this.c.set('customShaderName', filename);
-            } else {
-                this.c.set(configId + 'Content', source);
-                this.c.set(configId + 'Name', filename);
-            }
+            this._applyShaderSource(source, configId, filename);
             
-            this.notifications.show(`Shader Imported: ${filename}`, 'success');
             this._activeShaderConfigId = null;
             event.target.value = '';
         };
@@ -1492,6 +1485,33 @@ class UIManager {
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
+        if(action === 'unloadAllShaders') { this._unloadAllShaders(); }
+    }
+
+    _unloadAllShaders() {
+        const shaderKeys = [
+            'effectShader1Content', 'effectShader1Name', 'effectShader1Enabled',
+            'effectShader2Content', 'effectShader2Name', 'effectShader2Enabled',
+            'totalFX1ShaderContent', 'totalFX1Name', 'totalFX1Enabled',
+            'totalFX2ShaderContent', 'totalFX2Name', 'totalFX2Enabled',
+            'globalFXShaderContent', 'globalFXName', 'globalFXEnabled',
+            'customShader', 'customShaderName', 'shaderEnabled'
+        ];
+        
+        shaderKeys.forEach(key => {
+            if (key.endsWith('Enabled')) {
+                this.c.set(key, false);
+            } else {
+                this.c.set(key, null);
+            }
+        });
+
+        // Bloom is handled separately in Global FX chain if globalFXEnabled is false, 
+        // but let's ensure global bloom settings are NOT reset as per request.
+        // Bloom is an "Internal" global fx, not a manually loaded .glsl one.
+
+        this.notifications.show('All manual shaders unloaded.', 'success');
+        this.refresh('ALL');
     }
 
     /**

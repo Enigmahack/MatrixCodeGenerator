@@ -1,6 +1,6 @@
 class PulseEffect extends AbstractEffect {
-    constructor(g, c) { 
-        super(g, c); this.name = "Pulse"; 
+    constructor(g, c, r) { 
+        super(g, c, r); this.name = "Pulse"; 
         this.active = false; this.origin = {x:0, y:0}; this.radius = 0;
         this.snap = null; 
         this.renderData = null; 

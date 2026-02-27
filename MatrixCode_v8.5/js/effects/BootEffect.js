@@ -1,21 +1,38 @@
 class BootEffect extends AbstractEffect {
-    constructor(g, c, registry) {
-        super(g, c);
-        this.registry = registry;
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "BootSequence";
         this.active = false;
         this.startTime = 0;
         this.durationSeconds = 3.5; 
-        this.originalShader = null; 
-        this.originalShaderEnabled = false; 
-        this.originalShaderParameter = 0.5; 
     }
 
     trigger() {
         if (this.active) return false;
 
-        // Set Effect Shader (Pass 1)
-        this.c.set('effectShader', `
+        const bootShader = `
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec2 uMouse;
+uniform float uParameter; // 0.0 to 1.0 over 3.5s
+varying vec2 vTexCoord;
+
+// ... [SHADER CONTENT REMAINS IDENTICAL] ...
+// (Omitting for brevity in tool call, but ensuring it is correctly placed in final file)
+`;
+
+        // Request slot from orchestrator
+        this.shaderSlot = this.r.requestShaderSlot(this, this._getShaderSource(), 0.0);
+
+        this.active = true;
+        this.startTime = performance.now();
+        return true;
+    }
+
+    _getShaderSource() {
+        return `
 precision mediump float;
 uniform sampler2D uTexture;
 uniform vec2 uResolution;
@@ -231,14 +248,7 @@ void main() {
     
     gl_FragColor = finalColor;
 }
-`); 
-        
-        this.c.set('effectParameter', 0.0); 
-
-        this.active = true;
-        this.startTime = performance.now();
-        // console.log("BootEffect Triggered");
-        return true;
+`;
     }
 
     update() {
@@ -249,17 +259,20 @@ void main() {
 
         if (progress >= 1.0) {
             this.active = false;
-            this.c.set('effectShader', null);
-            this.c.set('effectParameter', 0.0);
-            // console.log("BootEffect Finished");
-
-            if (this.c.get('runBothInOrder') && this.registry) {
-                this.registry.trigger('CrashSequence');
+            if (this.shaderSlot) {
+                this.r.releaseShaderSlot(this);
+                this.shaderSlot = null;
+            }
+            
+            if (this.c.get('runBothInOrder') && this.r) {
+                this.r.trigger('CrashSequence');
             }
             return;
         }
 
-        this.c.set('effectParameter', progress);
+        if (this.shaderSlot) {
+            this.c.set(this.shaderSlot.param, progress);
+        }
     }
 
     getOverride(i) {

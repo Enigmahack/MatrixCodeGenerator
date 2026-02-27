@@ -1,6 +1,6 @@
 class QuantizedPulseEffect extends QuantizedBaseEffect {
-    constructor(g, c) {
-        super(g, c);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "QuantizedPulse";
         this.active = false;
         

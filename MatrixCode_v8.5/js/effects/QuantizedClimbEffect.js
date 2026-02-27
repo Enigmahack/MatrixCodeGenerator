@@ -1,8 +1,9 @@
 class QuantizedClimbEffect extends QuantizedBaseEffect {
-    constructor(grid, config) {
-        super(grid, config);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "QuantizedClimb";
         this.active = false;
+        
         this.configPrefix = "quantizedClimb";
         
         // Simulation State

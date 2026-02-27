@@ -2,8 +2,8 @@
  * QuantizedBaseEffect.js - Version 8.5.1
  */
 class QuantizedBaseEffect extends AbstractEffect {
-    constructor(g, c) {
-        super(g, c);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.configPrefix = "quantizedPulse"; 
         
         // Components

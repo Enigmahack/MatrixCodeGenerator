@@ -481,6 +481,7 @@ const ConfigTemplate = [
 
     { cat: 'Debug', type: 'accordion_header', label: 'Post Processing', icon: '󰋚', description: 'Pipeline: Effect 1 -> Effect 2 -> Total FX1 -> Total FX2 -> Global FX -> Custom' },
     { cat: 'Debug', type: 'checkbox', label: 'Bypass All Shaders', id: 'postProcessBypassAll' },
+    { cat: 'Debug', type: 'button', label: 'Unload All Shaders', action: 'unloadAllShaders', class: 'btn-danger' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Effect 1' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'effectShader1Enabled' },

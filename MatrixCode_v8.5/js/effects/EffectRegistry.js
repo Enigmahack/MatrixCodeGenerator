@@ -8,6 +8,66 @@ class EffectRegistry {
         this.config = config;
         this.effects = [];
         this._managedTimers = new Map();
+
+        // Shader Slot Orchestrator
+        this.shaderSlots = [
+            { id: 'effectShader1', content: 'effectShader1Content', param: 'effect1Parameter', enabled: 'effectShader1Enabled', name: 'effectShader1Name', owner: null },
+            { id: 'effectShader2', content: 'effectShader2Content', param: 'effect2Parameter', enabled: 'effectShader2Enabled', name: 'effectShader2Name', owner: null },
+            { id: 'totalFX1', content: 'totalFX1ShaderContent', param: 'totalFX1Parameter', enabled: 'totalFX1Enabled', name: 'totalFX1Name', owner: null },
+            { id: 'totalFX2', content: 'totalFX2ShaderContent', param: 'totalFX2Parameter', enabled: 'totalFX2Enabled', name: 'totalFX2Name', owner: null }
+        ];
+    }
+
+    /**
+     * Requests a shader slot for an effect.
+     * @param {AbstractEffect} effect - The effect requesting the slot.
+     * @param {string} source - GLSL shader source.
+     * @param {number} parameter - Parameter value (0.0 - 1.0).
+     * @returns {Object|null} The assigned slot or null if none available.
+     */
+    requestShaderSlot(effect, source, parameter = 0.5) {
+        // 1. Check if already has a slot
+        let slot = this.shaderSlots.find(s => s.owner === effect);
+        
+        if (!slot) {
+            // 2. Find an empty slot
+            slot = this.shaderSlots.find(s => s.owner === null);
+            
+            if (!slot) {
+                // 3. Rotation: Steal a slot if all are full
+                this._slotRotationCounter = (this._slotRotationCounter || 0) % this.shaderSlots.length;
+                slot = this.shaderSlots[this._slotRotationCounter];
+                
+                // Clear old owner's reference
+                if (slot.owner) {
+                    slot.owner.shaderSlot = null;
+                }
+                
+                this._slotRotationCounter++;
+            }
+        }
+
+        slot.owner = effect;
+        this.config.set(slot.content, source);
+        this.config.set(slot.param, parameter);
+        this.config.set(slot.enabled, true);
+        this.config.set(slot.name, `FX: ${effect.name}`);
+        
+        return slot;
+    }
+
+    /**
+     * Releases a shader slot held by an effect.
+     * @param {AbstractEffect} effect - The effect releasing the slot.
+     */
+    releaseShaderSlot(effect) {
+        const slot = this.shaderSlots.find(s => s.owner === effect);
+        if (slot) {
+            this.config.set(slot.content, null);
+            this.config.set(slot.enabled, false);
+            this.config.set(slot.name, 'none');
+            slot.owner = null;
+        }
     }
 
     setGrid(grid) {
@@ -49,12 +109,8 @@ class EffectRegistry {
             if (def.type === 'button' && def.action) {
                 const EffectClass = CLASS_MAP[def.action];
                 if (EffectClass && !registeredActions.has(def.action)) {
-                    let fx;
-                    if (EffectClass === CrashEffect || EffectClass === BootEffect) {
-                        fx = new EffectClass(this.grid, this.config, this);
-                    } else {
-                        fx = new EffectClass(this.grid, this.config);
-                    }
+                    // All effects now receive the registry for shader slot orchestration
+                    const fx = new EffectClass(this.grid, this.config, this);
 
                     // Discover configuration keys for automated triggering
                     const prefix = this._discoverPrefix(template, def.action);
@@ -317,13 +373,15 @@ class EffectRegistry {
 }
 
 class AbstractEffect {
-    constructor(g, c) {
+    constructor(g, c, r) {
         this.g = g;
         this.c = c;
+        this.r = r; // Registry for orchestrating shader slots
         this.name = "Base";
         this.active = false;
         this.enabledKey = null;   // Config key for "Enabled" toggle
         this.frequencyKey = null; // Config key for "FrequencySeconds" range
+        this.shaderSlot = null;   // Reference to the currently assigned shader slot
     }
     trigger() { return false; }
     update() { }

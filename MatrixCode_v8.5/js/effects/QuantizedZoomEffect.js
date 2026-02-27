@@ -1,8 +1,9 @@
 class QuantizedZoomEffect extends QuantizedBaseEffect {
-    constructor(g, c) {
-        super(g, c);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "QuantizedZoom";
         this.active = false;
+        
         this.configPrefix = "quantizedZoom";
         
         // Simulation State

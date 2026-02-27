@@ -1,6 +1,6 @@
 class DejaVuEffect extends AbstractEffect {
-    constructor(g, c) { 
-        super(g, c); 
+    constructor(g, c, r) { 
+        super(g, c, r); 
         this.name = "DejaVu"; 
         this.active = false; 
         this.map = null;
@@ -10,9 +10,6 @@ class DejaVuEffect extends AbstractEffect {
         this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
         this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
         this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
-
-        // Shader State
-        this.shaderActive = false;
     }
     
     trigger(durationSeconds = null) { 
@@ -30,14 +27,14 @@ class DejaVuEffect extends AbstractEffect {
         this.doubleGlitch = { active: false, timer: 0, startY: 0, h: 0, shiftX: 0 };
         this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
         
-        // Enable Glitch Shader
+        // Enable Glitch Shader via Orchestrator
         this._enableShader();
 
         return true; 
     }
 
     _enableShader() {
-        if (this.shaderActive) return;
+        if (this.shaderSlot) return;
         
         const glitchShader = `
 precision mediump float;
@@ -74,14 +71,13 @@ void main() {
     gl_FragColor = color;
 }
 `;
-        this.c.set('effectShader', glitchShader);
-        this.shaderActive = true;
+        this.shaderSlot = this.r.requestShaderSlot(this, glitchShader, 0.03);
     }
 
     _disableShader() {
-        if (!this.shaderActive) return;
-        this.c.set('effectShader', null);
-        this.shaderActive = false;
+        if (!this.shaderSlot) return;
+        this.r.releaseShaderSlot(this);
+        this.shaderSlot = null;
     }
     
     update() {

@@ -1,8 +1,7 @@
 class ReverseEffect extends AbstractEffect {
-    constructor(grid, config, effectRegistry) {
-        super(grid, config);
+    constructor(g, c, r) {
+        super(g, c, r);
         this.name = "ReverseTime";
-        this.effectRegistry = effectRegistry;
         this.active = false;
         
         // Sequence phases
@@ -103,7 +102,7 @@ class ReverseEffect extends AbstractEffect {
                     
                     // Trigger Standard Pulse Effect (runs correctly with its own freeze/dim)
                     // We assume the user has configured the Pulse effect as desired (e.g. Movie Accurate)
-                    this.effectRegistry.trigger('Pulse');
+                    this.r.trigger('Pulse');
                     
                     // Deactivate Time Control
                     this.active = false;
