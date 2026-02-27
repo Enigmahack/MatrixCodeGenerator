@@ -43,82 +43,39 @@ class PostProcessPass extends RenderPass {
             }
         });
 
+        // Debug Menu Reflection: If bloom is enabled but no custom globalFX is set, 
+        // show that the System Bloom is active.
+        if (s.enableBloom && !s.globalFXShaderContent && s.globalFXNameDisplay !== 'System Bloom') {
+            renderer.config.state.globalFXNameDisplay = 'System Bloom';
+            // We don't save here to avoid infinite loops, UIManager will pick it up on next poll/update
+        }
+
         const params = {
             effect1: s.effect1Parameter,
             effect2: s.effect2Parameter,
             totalFX1: s.totalFX1Parameter,
             totalFX2: s.totalFX2Parameter,
-            globalFX: s.globalFXParameter,
+            // If Bloom is enabled, we force the parameter to 0.5 (master) if globalFX isn't explicitly enabled
+            globalFX: (s.enableBloom && !s.globalFXEnabled) ? 0.5 : s.globalFXParameter,
             custom: s.shaderParameter,
             brightness: s.brightness !== undefined ? s.brightness : 1.0,
             customParams: s.customShaderParams || {}
         };
 
-        // Final output to screen
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-        
-        const br = d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-        const bg = d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-        const bb = d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-        gl.clearColor(br, bg, bb, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-
+        // Final output to screen handled by PostProcessor.render (it binds null FBO)
         renderer.postProcessor.render(sourceTex, time, renderer.mouseX, renderer.mouseY, params, null);
         
         return null; // Pipeline ends here
     }
 }
 
-class BloomPass extends RenderPass {
-    execute(renderer, sourceTex, s, d, time) {
-        if (!s.enableBloom) return sourceTex;
-
-        const gl = renderer.gl;
-        let spread = (s.bloomStrength !== undefined ? s.bloomStrength : 5.0); 
-
-        // 1. Extract Highlights and Downsample
-        gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboB);
-        gl.viewport(0, 0, renderer.bloomWidth, renderer.bloomHeight);
-        renderer._runBlur(sourceTex, true, spread, renderer.fboWidth, renderer.fboHeight, 1.0, true);
-
-        // 2. Ping-pong Blur
-        for (let i = 0; i < 3; i++) {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboC);
-            renderer._runBlur(renderer.texB, false, spread, renderer.bloomWidth, renderer.bloomHeight, 1.0, false);
-            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboB);
-            renderer._runBlur(renderer.texC, true, spread, renderer.bloomWidth, renderer.bloomHeight, 1.0, false);
-        }
-
-        // 3. Blend Bloom with sourceTex
-        let blendTargetFBO = renderer.fboA2;
-        let blendTargetTex = renderer.texA2;
-
-        gl.bindFramebuffer(gl.FRAMEBUFFER, blendTargetFBO);
-        gl.viewport(0, 0, renderer.fboWidth, renderer.fboHeight);
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        
-        // EXACT COPY of original source (prevent alpha double-multiply darkening)
-        gl.disable(gl.BLEND);
-        renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
-        
-        // Additive Blend Bloom
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.ONE, gl.ONE);
-        let bloomOpacity = (s.bloomOpacity !== undefined ? s.bloomOpacity : 1.0);
-        renderer._drawFullscreenTexture(renderer.texB, bloomOpacity, 0);
-        
-        return blendTargetTex;
-    }
-}
 class QuantizedEffectsPass extends RenderPass {
     execute(renderer, sourceTex, s, d, time) {
         if (!renderer.effects) return sourceTex;
 
         const gl = renderer.gl;
         // The Quantized logic expects to render TO fboA2. 
-        // If sourceTex is already texA2 (e.g. from BloomPass), we need to render to a different FBO to avoid Read/Write feedback loop.
+        // If sourceTex is already texA2, we need to render to a different FBO to avoid Read/Write feedback loop.
         let targetFBO = renderer.fboCodeProcessed; 
         let targetTex = renderer.texCodeProcessed;
 
@@ -232,7 +189,7 @@ class WebGLRenderer {
 
         // Initialize Render Pipeline
         this.pipeline = [
-            new BloomPass('Bloom'),
+            // new BloomPass('Bloom'), // MOVED TO POST-PROCESSOR PASS 5 (globalFX)
             new QuantizedEffectsPass('QuantizedLineGfx'),
             new PostProcessPass('PostProcessingPipeline')
         ];
