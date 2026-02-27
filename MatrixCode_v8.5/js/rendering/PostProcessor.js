@@ -26,6 +26,9 @@ class PostProcessor {
         this.texture = null; // Source Input
         this.intermediateTex1 = null; 
         this.intermediateTex2 = null;
+        this.width = 0;
+        this.height = 0;
+        this.lastBrightness = 1.0;
         
         // Buffers
         this.positionBuffer = null;
@@ -46,9 +49,13 @@ class PostProcessor {
                 vec4 col = texture2D(uTexture, vTexCoord);
                 
                 // Burn-In Brightness: As alpha accumulates (trails), we boost the RGB
-                // This simulates the phosphor "overloading" or glowing brighter where it's burned in.
                 float burnBoost = 1.0 + (col.a * uBurnIn * 2.0);
-                vec3 finalColor = col.rgb * uGlobalBrightness * burnBoost;
+                
+                // Ensure uGlobalBrightness is at least 0.0, defaulting to 1.0 if uninitialized
+                float gb = uGlobalBrightness;
+                if (gb <= 0.0) gb = 1.0; 
+
+                vec3 finalColor = col.rgb * gb * burnBoost;
                 
                 gl_FragColor = vec4(finalColor, col.a);
             }
@@ -113,7 +120,12 @@ class PostProcessor {
                 
                 // Apply Phosphor Burn and Global Brightness to the base color
                 float burnBoost = 1.0 + (color.a * uBurnIn * 2.0);
-                vec3 baseColor = color.rgb * uGlobalBrightness * burnBoost;
+                
+                // Ensure uGlobalBrightness is at least 0.0, defaulting to 1.0 if uninitialized
+                float gb = uGlobalBrightness;
+                if (gb <= 0.0) gb = 1.0;
+
+                vec3 baseColor = color.rgb * gb * burnBoost;
                 
                 vec3 finalColor = baseColor + (blur * finalIntensity * extraction);
                 
@@ -209,7 +221,7 @@ class PostProcessor {
     compileEffect2Shader(fragSource) { this.effect2Program = fragSource ? this._compileProgram(fragSource) : null; }
     compileTotalFX1Shader(fragSource) { this.totalFX1Program = fragSource ? this._compileProgram(fragSource) : null; }
     compileTotalFX2Shader(fragSource) { this.totalFX2Program = fragSource ? this._compileProgram(fragSource) : null; }
-    compileGlobalFXShader(fragSource) { this.globalFXProgram = fragSource ? this._compileProgram(fragSource) : this.bloomProgram; }
+    compileGlobalFXShader(fragSource) { this.globalFXProgram = fragSource ? this._compileProgram(fragSource) : null; }
     compileCustomShader(fragSource) { this.customProgram = fragSource ? this._compileProgram(fragSource) : null; }
 
     _compileProgram(fragSource) {
@@ -251,10 +263,29 @@ class PostProcessor {
             this.canvas.width = width;
             this.canvas.height = height;
         }
+
+        this.width = width;
+        this.height = height;
+        
+        // Use same format as WebGLRenderer for parity (HALF_FLOAT support)
+        let type = this.gl.UNSIGNED_BYTE;
+        let internalFormat = this.gl.RGBA;
+        
+        // Detect support for half float
+        const isWebGL2 = (typeof WebGL2RenderingContext !== 'undefined' && this.gl instanceof WebGL2RenderingContext);
+        if (isWebGL2) {
+            internalFormat = this.gl.RGBA16F;
+            type = this.gl.HALF_FLOAT;
+        } else {
+            const ext = this.gl.getExtension('OES_texture_half_float');
+            if (ext) {
+                type = ext.HALF_FLOAT_OES || 0x8D61;
+            }
+        }
         
         [this.texture, this.intermediateTex1, this.intermediateTex2].forEach(tex => {
             this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, internalFormat, width, height, 0, this.gl.RGBA, type, null);
         });
     }
 
@@ -269,19 +300,32 @@ class PostProcessor {
         const bg = d && d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
         const bb = d && d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
 
+        // Ensure intermediate textures are clean before starting the chain
+        // This prevents "ghosting" or persistent brightness from previous passes
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
+        this.gl.clearColor(0, 0, 0, 0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
+        this.gl.clearColor(0, 0, 0, 0);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
         for (let i = 0; i < activePasses.length; i++) {
             const isLast = (i === activePasses.length - 1);
             const isFinalTarget = isLast && targetFBO === null;
             
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, isLast ? targetFBO : activeFBO);
-            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
             
-            // If rendering to screen, use background color. Otherwise use transparent.
+            // Explicitly set viewport for the target of THIS pass
             if (isFinalTarget) {
+                this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
                 this.gl.clearColor(br, bg, bb, 1.0);
                 this.gl.enable(this.gl.BLEND);
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
             } else {
+                // Use stored dimensions or fallback to context size
+                const vw = this.width || this.gl.drawingBufferWidth;
+                const vh = this.height || this.gl.drawingBufferHeight;
+                this.gl.viewport(0, 0, vw, vh);
                 this.gl.clearColor(0, 0, 0, 0);
                 // Intermediate passes should strictly overwrite to avoid alpha accumulation issues
                 this.gl.disable(this.gl.BLEND);
@@ -310,7 +354,13 @@ class PostProcessor {
     render(source, time, mouseX = 0, mouseY = 0, params = {}, targetFBO = null) {
         if (!this.gl) return;
 
-        const brightness = params.brightness ?? 1.0;
+        // More robust brightness check: ensure it's a valid number and at least 0.
+        let brightness = 1.0;
+        if (typeof params.brightness === 'number' && !isNaN(params.brightness)) {
+            brightness = params.brightness;
+        }
+        
+        this.lastBrightness = brightness;
 
         let inputTex;
         let flipY = 0.0;
@@ -343,7 +393,20 @@ class PostProcessor {
             { id: 'effect2', prog: this.effect2Program, param: params.effect2 ?? 0.5, enabled: this.config.get('effectShader2Enabled') },
             { id: 'totalFX1', prog: this.totalFX1Program, param: params.totalFX1 ?? 0.5, enabled: this.config.get('totalFX1Enabled') },
             { id: 'totalFX2', prog: this.totalFX2Program, param: params.totalFX2 ?? 0.5, enabled: this.config.get('totalFX2Enabled') },
-            { id: 'globalFX', prog: this.globalFXProgram || this.bloomProgram, param: params.globalFX ?? 0.5, enabled: this.config.get('globalFXEnabled') || this.config.get('enableBloom') },
+            // Global FX: Selected in Debug menu. Falls back to Bloom ONLY if enabled there.
+            { 
+                id: 'globalFX', 
+                prog: this.globalFXProgram || this.bloomProgram, 
+                param: params.globalFX ?? 0.5, 
+                enabled: this.config.get('globalFXEnabled') 
+            },
+            // Bloom (Code Glow): Main UI toggle. Always Bloom shader.
+            { 
+                id: 'bloom', 
+                prog: this.bloomProgram, 
+                param: 0.5, 
+                enabled: this.config.get('enableBloom') 
+            },
             { id: 'custom', prog: this.customProgram || this.defaultProgram, param: params.custom ?? 0.5, enabled: this.config.get('shaderEnabled'), customParams: params.customParams }
         ].filter(p => p.prog !== null && p.enabled);
         
@@ -351,14 +414,17 @@ class PostProcessor {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
             
+            const d = this.config.derived;
+            const br = d && d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
+            const bg = d && d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
+            const bb = d && d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
+            
             if (targetFBO === null) {
-                const d = this.config.derived;
-                const br = d && d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-                const bg = d && d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-                const bb = d && d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
                 this.gl.clearColor(br, bg, bb, 1.0);
-                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+            } else {
+                this.gl.clearColor(0, 0, 0, 0);
             }
+            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
             this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY, brightness);
             return;
@@ -369,10 +435,10 @@ class PostProcessor {
             uBurnIn: this.config.get('clearAlpha') || 0.0
         };
 
-        // Add Bloom Params to globalFX pass if it's the bloom shader
+        // Add Bloom Params to globalFX or bloom pass if it's the bloom shader
         if (this.config.get('enableBloom')) {
-             const bloomPass = activePasses.find(p => p.id === 'globalFX');
-             if (bloomPass && (bloomPass.prog === this.bloomProgram || !this.globalFXProgram)) {
+             const bloomPass = activePasses.find(p => p.id === 'bloom' || (p.id === 'globalFX' && (p.prog === this.bloomProgram || !this.globalFXProgram)));
+             if (bloomPass) {
                  bloomPass.customParams = {
                      ...commonParams,
                      uBloomRadius: this.config.get('bloomStrength') || 1.0,
@@ -437,7 +503,10 @@ class PostProcessor {
         this.gl.uniform1i(uTex, 0);
         
         const uRes = this.gl.getUniformLocation(prog, 'uResolution');
-        this.gl.uniform2f(uRes, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
+        // Use stored dimensions or fallback to context size
+        const rw = Math.max(1, this.width || this.gl.drawingBufferWidth);
+        const rh = Math.max(1, this.height || this.gl.drawingBufferHeight);
+        this.gl.uniform2f(uRes, rw, rh);
         
         const uTime = this.gl.getUniformLocation(prog, 'uTime');
         this.gl.uniform1f(uTime, time);

@@ -43,22 +43,14 @@ class PostProcessPass extends RenderPass {
             }
         });
 
-        // Debug Menu Reflection: If bloom is enabled but no custom globalFX is set, 
-        // show that the System Bloom is active.
-        if (s.enableBloom && !s.globalFXShaderContent && s.globalFXNameDisplay !== 'System Bloom') {
-            renderer.config.state.globalFXNameDisplay = 'System Bloom';
-            // We don't save here to avoid infinite loops, UIManager will pick it up on next poll/update
-        }
-
         const params = {
             effect1: s.effect1Parameter,
             effect2: s.effect2Parameter,
             totalFX1: s.totalFX1Parameter,
             totalFX2: s.totalFX2Parameter,
-            // If Bloom is enabled, we force the parameter to 0.5 (master) if globalFX isn't explicitly enabled
-            globalFX: (s.enableBloom && !s.globalFXEnabled) ? 0.5 : s.globalFXParameter,
+            globalFX: s.globalFXParameter,
             custom: s.shaderParameter,
-            brightness: s.brightness !== undefined ? s.brightness : 1.0,
+            brightness: typeof s.brightness === 'number' ? s.brightness : 1.0,
             customParams: s.customShaderParams || {}
         };
 
