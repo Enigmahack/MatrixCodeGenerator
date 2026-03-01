@@ -425,7 +425,6 @@ class WebGLRenderer {
                 
                 uniform float u_thickness;
                 uniform vec3 u_color;
-                uniform vec3 u_fadeColor;
                 uniform float u_intensity;
                 uniform float u_glow;
                 uniform float u_tintOffset;
@@ -581,9 +580,7 @@ class WebGLRenderer {
 
                         // Composite Grid Lines
                         if (totalLine > 0.001) {
-                            float colorT = normalLine / (totalLine + 0.001);
-                            // Decouple color mixing from Roundness (use fixed curve for color)
-                            vec3 lineBaseColor = mix(u_fadeColor, u_color, pow(colorT, 1.5));
+                            vec3 lineBaseColor = u_color;
                             lineBaseColor = applyHueShift(lineBaseColor, u_tintOffset);
                             lineBaseColor = boostSaturation(mix(lineBaseColor, vec3(1.0), pow(totalLine, 8.0) * 0.5), u_saturation) * u_brightness;
                             
@@ -695,7 +692,7 @@ class WebGLRenderer {
                             }
                         }
                     }
-                    fragColor = vec4(normalMax, fadeMax * (1.0 - u_persistence), 0.0, 1.0);
+                    fragColor = vec4(normalMax, fadeMax * u_persistence, 0.0, 1.0);
                 }
             `;
 
@@ -1554,6 +1551,9 @@ class WebGLRenderer {
         const fadeIn = fx.getConfig('FadeInFrames') || 0;
         const fadeOut = fx.getConfig('FadeFrames') || 0;
 
+        const lineFade = fx.getLineGfxValue('Persistence') || 0;
+        const maxFadeOut = Math.max(fadeOut, lineFade);
+
         const occupancy = new Uint8Array(gw * gh * 4);
         for (let gy = 0; gy < gh; gy++) {
             const rowOff = gy * gw;
@@ -1566,14 +1566,11 @@ class WebGLRenderer {
                     let alpha = 0;
 
                     if (grid && grid[i] !== -1) {
-                        const birth = grid[i];
-                        alpha = (fadeIn > 0 && now < birth + fadeIn) 
-                            ? Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255) 
-                            : 255;
+                        alpha = 255; // Instant appearance
                     } else if (rGrid && rGrid[i] !== -1) {
                         const death = rGrid[i];
-                        alpha = (fadeOut > 0 && now < death + fadeOut)
-                            ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255)
+                        alpha = (maxFadeOut > 0 && now < death + maxFadeOut)
+                            ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / maxFadeOut)) * 255)
                             : 0;
                     }
                     occupancy[tidx + L] = alpha;
@@ -1626,7 +1623,6 @@ class WebGLRenderer {
             u_sourceGrid: 4,
             u_intensity: fxState.intensity,
             u_thickness: fxState.thickness,
-            u_glow: fxState.glow,
             u_tintOffset: fxState.tintOffset,
             u_sharpness: fxState.sharpness,
             u_glowFalloff: fxState.glowFalloff,
@@ -1635,8 +1631,7 @@ class WebGLRenderer {
             u_brightness: fxState.brightness,
             u_saturation: fxState.saturation,
             u_additiveStrength: fxState.additiveStrength,
-            u_color: fxState.color,
-            u_fadeColor: fxState.fadeColor
+            u_color: fxState.color
         };
 
         const commonTextures = {
@@ -1646,9 +1641,9 @@ class WebGLRenderer {
         };
 
         // --- PASS 1: GENERATE & FADE ---
-        // A) Clear NORMAL (Red) for this frame, while DECAYING existing FADE (Green)
+        // A) Decay both NORMAL (Red) and FADE (Green) for this frame
         this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, 
-            { u_color: [0.0, fxState.persistence, 0.0, 1.0] },
+            { u_color: [fxState.persistence, fxState.persistence, 0.0, 1.0] },
             {},
             { src: this.gl.ZERO, dst: this.gl.SRC_COLOR }
         );

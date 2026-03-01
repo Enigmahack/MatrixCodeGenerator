@@ -27,8 +27,8 @@ class QuantizedRenderer {
 
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
-        const thickness = fx.getConfig('PerimeterThickness') !== undefined ? fx.getConfig('PerimeterThickness') : 1.0;
-        const innerThickness = fx.getConfig('InnerThickness') !== undefined ? fx.getConfig('InnerThickness') : thickness;
+        const thickness = fx.getLineGfxValue('Thickness') || 1.0;
+        const innerThickness = fx.getLineGfxValue('InnerThickness') || thickness;
 
         const baseStep = Math.min(screenStepX, screenStepY);
         
@@ -83,7 +83,7 @@ class QuantizedRenderer {
         // Block Erasure Pass - OPTIMIZED: Use a single path for all erasures
         colorLayerCtx.globalCompositeOperation = 'destination-out';
         const now = fx.animFrame;
-        const fadeOutFrames = fx.getConfig('FadeFrames') || 0;
+        const fadeOutFrames = fx.getLineGfxValue('Persistence') || 0;
 
         colorLayerCtx.beginPath();
         let hasErasures = false;
@@ -159,7 +159,7 @@ class QuantizedRenderer {
 
         // Unified Shared Edge Rendering (Populate masks for both 2D and WebGL)
         this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
-        this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        this.renderEdges(fx, colorLayerCtx, null, now, blocksX, blocksY, l.offX, l.offY);
 
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
@@ -339,7 +339,7 @@ class QuantizedRenderer {
     renderEdges(fx, maskCtx, colorCtx, now, blocksX, blocksY, offX, offY) {
         const color = fx.getConfig('PerimeterColor') || "#FFD700";
         const fadeColor = fx.getConfig('PerimeterFadeColor') || (fx.getConfig('InnerColor') || "#FFD700");
-        const fadeOutFrames = fx.getConfig('FadeFrames') || 0;
+        const fadeOutFrames = fx.getLineGfxValue('Persistence') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
         const batches = new Map();
@@ -376,11 +376,9 @@ class QuantizedRenderer {
         };
 
         const getBirthState = (birthFrame) => {
-            if (fadeInFrames <= 0 || birthFrame === -1) return { c: color, o: 1.0 };
-            const progress = (now - birthFrame) / fadeInFrames;
-            if (progress < 0) return null;
-            if (progress >= 1) return { c: color, o: 1.0 };
-            return { c: color, o: progress };
+            // Birth is always instant in this version
+            if (birthFrame === -1) return null;
+            return { c: color, o: 1.0 };
         };
 
         const resolveEdge = (x, y, type) => {
@@ -436,17 +434,11 @@ class QuantizedRenderer {
             }
 
             // 3. Layer 2 & 3 Intersection Perimeter: Normal if not covered by L0 or L1
-            // Perimeter borders should not be shown on layer 2 or 3 alone - they are invisible.
-            // Exception: When they overlap (intersection), draw the perimeter of that intersection area.
             if (a23 !== b23) {
-                // An edge exists in the intersection mask. Draw it unless it's "internal" to a higher layer.
-                // If BOTH sides of this edge are already covered by L0 or L1, the intersection border is hidden.
                 const isCovered = (a0 !== -1 && b0 !== -1) || (a1 !== -1 && b1 !== -1);
                 if (!isCovered) {
                     isVisibleNormally = true;
-                    // Fixed Priority: Only set frame if not already established by L0 or L1
                     if (edgeBirthFrame === -1) {
-                        // For birth frame, we take the max of the contributing sub-layer frames
                         const getB23 = (tx, ty) => {
                             if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
                             const idx = ty * blocksX + tx;
@@ -475,7 +467,7 @@ class QuantizedRenderer {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    state.birthFrame = (edgeBirthFrame === now) ? now : -1;
+                    state.birthFrame = (edgeBirthFrame >= now - 1) ? edgeBirthFrame : -1;
                 }
             } else {
                 if (state.visible) {
@@ -492,7 +484,7 @@ class QuantizedRenderer {
                     state.dimVisible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.dimDeathFrame = -1;
-                    state.dimBirthFrame = (dimBirthFrame === now) ? now : -1;
+                    state.dimBirthFrame = (dimBirthFrame >= now - 1) ? dimBirthFrame : -1;
                 }
             } else {
                 if (state.dimVisible) {
@@ -595,7 +587,7 @@ class QuantizedRenderer {
                 // Optimization: Periodically purge stale entries from lineStates Map
                 // Every 300 frames (5 seconds at 60fps) or when grids changed significantly
                 if (now % 300 === 0 || orderChanged) {
-                    const maxFade = (fx.getConfig('FadeFrames') || 60) + 10;
+                    const maxFade = Math.max(fx.getConfig('FadeFrames') || 0, fx.getLineGfxValue('Persistence') || 0) + 10;
                     for (const [key, state] of fx.lineStates) {
                         const isDead = !state.visible && !state.dimVisible;
                         const normalDone = state.deathFrame === -1 || (now > state.deathFrame + maxFade);
@@ -632,12 +624,14 @@ class QuantizedRenderer {
             }
         }
 
-        batches.forEach((path, key) => {
-            const [c, oStr] = key.split('|');
-            colorCtx.fillStyle = c;
-            colorCtx.globalAlpha = parseFloat(oStr);
-            colorCtx.fill(path);
-        });
+        if (colorCtx) {
+            batches.forEach((path, key) => {
+                const [c, oStr] = key.split('|');
+                colorCtx.fillStyle = c;
+                colorCtx.globalAlpha = parseFloat(oStr);
+                colorCtx.fill(path);
+            });
+        }
 
         maskCtx.fillStyle = "#FFFFFF";
         maskBatches.forEach((path, oStr) => {

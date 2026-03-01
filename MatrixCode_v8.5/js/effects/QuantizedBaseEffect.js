@@ -177,12 +177,17 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (!grid) return true;
                 const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
                 const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y), x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
+                
+                // Cooldown: 3 expansion phases converted to frames
                 const cooldownSteps = 3;
+                const effectiveInterval = this._getEffectiveInterval();
+                const cooldownFrames = cooldownSteps * effectiveInterval;
+
                 for (let gy = y1; gy <= y2; gy++) {
                     const rowOff = gy * w;
                     for (let gx = x1; gx <= x2; gx++) {
-                        const remPhase = grid[rowOff + gx];
-                        if (remPhase !== -1 && this.expansionPhase - remPhase < cooldownSteps) return false;
+                        const remFrame = grid[rowOff + gx];
+                        if (remFrame !== -1 && this.animFrame - remFrame < cooldownFrames) return false;
                     }
                 }
                 return true;
@@ -202,9 +207,10 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const fadeIn = Math.max(1, this.getConfig('FadeInFrames') || 0);
         const fadeOut = Math.max(1, this.getConfig('FadeFrames') || 0);
-        const maxDuration = Math.max(fadeIn, fadeOut) + 2; 
+        const lineFade = Math.max(1, this.getLineGfxValue('Persistence') || 0);
+        const maxDuration = Math.max(fadeIn, fadeOut, lineFade) + 2; 
 
-        if (this.animFrame - this.lastVisibilityChangeFrame < fadeOut + 2) {
+        if (this.animFrame - this.lastVisibilityChangeFrame < maxDuration) {
             this._maskDirty = true;
             return;
         }
@@ -1073,12 +1079,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                         if (op.layer !== undefined) {
                             targetGrid[idx] = -1;
                             if (invGrid) invGrid[idx] = 0;
-                            if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
+                            if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.animFrame;
                         } else {
                             for (let l = 0; l < 4; l++) {
                                 this.layerGrids[l][idx] = -1;
                                 if (this.layerInvisibleGrids[l]) this.layerInvisibleGrids[l][idx] = 0;
-                                if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
+                                if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.animFrame;
                             }
                         }
                     }
@@ -1263,7 +1269,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const scale = s.resolution || 1.0;
 
         const col = Utils.hexToRgb(this.getLineGfxValue('Color') || "#ffffff");
-        const fCol = Utils.hexToRgb(this.getLineGfxValue('FadeColor') || "#eeff00");
 
         return {
             logicGridSize: [gw, gh],
@@ -1274,7 +1279,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             showInterior: this.getConfig('ShowInterior') !== false,
             intensity: (this.getLineGfxValue('Intensity') ?? 1.0) * this.alpha,
             thickness: this.getLineGfxValue('Thickness') ?? 1.0,
-            glow: this.getLineGfxValue('Glow') ?? 1.0,
             tintOffset: this.getLineGfxValue('TintOffset') ?? 0.0,
             sharpness: this.getLineGfxValue('Sharpness') ?? 0.05,
             glowFalloff: this.getLineGfxValue('GlowFalloff') ?? 2.0,
@@ -1284,8 +1288,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             saturation: this.getLineGfxValue('Saturation') ?? 1.0,
             additiveStrength: this.getLineGfxValue('AdditiveStrength') ?? 1.0,
             color: [col.r / 255, col.g / 255, col.b / 255],
-            fadeColor: [fCol.r / 255, fCol.g / 255, fCol.b / 255],
-            persistence: this.getLineGfxValue('Persistence') ?? 0.0,
+            persistence: (() => {
+                const frames = this.getLineGfxValue('Persistence') || 0;
+                if (frames <= 0) return 0.0;
+                // Exponential decay: reach 1% brightness in 'frames' duration
+                return Math.pow(0.01, 1.0 / frames);
+            })(),
             sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale]
         };
     }

@@ -72,6 +72,8 @@ class QuantizedPanelRendering {
         const now = qEffect.animFrame;
         const fadeIn = qEffect.getConfig('FadeInFrames') || 0;
         const fadeOut = qEffect.getConfig('FadeFrames') || 0;
+        const lineFade = qEffect.getLineGfxValue('Persistence') || 0;
+        const maxFadeOut = Math.max(fadeOut, lineFade);
 
         // 1. Draw Body (30% brightness = rgb(76,76,76))
         // Iterate the renderGrid which already contains composite logic for all layers
@@ -81,19 +83,15 @@ class QuantizedPanelRendering {
             let alpha = 0;
             
             if (birth !== -1) {
-                if (fadeIn > 0 && now < birth + fadeIn) {
-                    alpha = (now - birth) / fadeIn;
-                } else {
-                    alpha = 1.0;
-                }
+                alpha = 1.0; // Instant appearance
             } else {
                 // Check removal grids for fading out
-                for (let L = 0; L < 3; L++) {
+                for (let L = 0; L < 4; L++) {
                     const rGrid = qEffect.removalGrids[L];
                     if (rGrid && rGrid[idx] !== -1) {
                         const death = rGrid[idx];
-                        if (fadeOut > 0 && now < death + fadeOut) {
-                            alpha = Math.max(alpha, 1.0 - (now - death) / fadeOut);
+                        if (maxFadeOut > 0 && now < death + maxFadeOut) {
+                            alpha = Math.max(alpha, 1.0 - (now - death) / maxFadeOut);
                         }
                     }
                 }

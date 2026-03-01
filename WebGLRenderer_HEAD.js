@@ -969,14 +969,6 @@ class WebGLRenderer {
 
                 uniform vec3 u_color;
 
-                uniform vec3 u_fadeColor;
-
-                uniform float u_intensity;
-
-                uniform float u_glow;
-
-                uniform float u_saturation;
-
                 uniform float u_brightness;
 
                 uniform float u_additiveStrength;
@@ -1250,20 +1242,12 @@ class WebGLRenderer {
                                 
 
                                 // COLOR & OVERRIDES FROM EFFECT
-
-                                float colorT = normalLine / (totalLine + 0.001);
-
-                                float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
-
-                                vec3 edgeColor = mix(u_fadeColor, u_color, profileT);
-
+                                vec3 edgeColor = u_color;
                                 edgeColor = mix(edgeColor, vec3(1.0), pow(totalLine, 8.0) * u_roundness * 0.5);
-
                                 edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
 
-
-
                                 vec3 edgeHighlight = edgeColor * totalLine * charLuma * u_glassEdgeGlow * u_intensity * u_additiveStrength;
+
 
                                 vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + edgeHighlight;
 
@@ -1288,42 +1272,23 @@ class WebGLRenderer {
                         
 
                         // STANDARD QUANTIZED LINES LOGIC
-
                         float blockMask = texture(u_shadowMask, v_uv).r;
-
                         float isVisible = step(0.001, blockMask);
-
                         float opacityOverlap = 1.0 + max(0.0, blockMask - 1.0) * u_glassOverlapOpacity;
 
-
-
                         vec3 finalBase = base.rgb;
-
                         if (isVisible > 0.5) {
-
                             finalBase *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
-
                         } else {
-
                             finalBase *= (1.0 - u_glassDarkness);
-
                         }
 
-
-
-                        float colorT = normalLine / (totalLine + 0.001);
-
-                        float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
-
-                        vec3 dynamicColor = mix(u_fadeColor, u_color, profileT);
-
+                        vec3 dynamicColor = u_color;
                         dynamicColor = mix(dynamicColor, vec3(1.0), pow(totalLine, 8.0) * u_roundness * 0.5);
-
                         dynamicColor = boostSaturation(dynamicColor, u_saturation) * u_brightness;
 
-                        
-
                         vec3 highlight = dynamicColor * totalLine * charLuma * u_additiveStrength * u_intensity;
+
 
                         fragColor = vec4(finalBase + highlight, base.a);
 
