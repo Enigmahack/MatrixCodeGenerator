@@ -1728,13 +1728,15 @@ class WebGLRenderer {
 
         // Determine if any quantized effect is truly active for shader logic
         let hasActiveQuantizedEffect = false;
+        let fx = null;
         if (this.effects) {
              const effectList = (Array.isArray(this.effects.effects)) 
                 ? this.effects.effects 
                 : (this.effects.effects instanceof Map) 
                     ? Array.from(this.effects.effects.values()) 
                     : [];
-             hasActiveQuantizedEffect = effectList.some(e => e.active && e.name.startsWith('Quantized'));
+             fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
+             hasActiveQuantizedEffect = !!fx;
         }
 
         gl.enable(gl.BLEND);
@@ -2293,6 +2295,7 @@ class WebGLRenderer {
             this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
             this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glassDarkness'), hasActiveQuantizedEffect ? (s.quantizedGlassDarkness || 0) * (fx ? fx.alpha : 0) : 0.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);

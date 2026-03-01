@@ -376,8 +376,9 @@ class QuantizedRenderer {
         };
 
         const getBirthState = (birthFrame) => {
-            // Birth is always instant in this version
-            if (birthFrame === -1) return null;
+            // Birth is always instant in this version.
+            // We return a full block if birthFrame is valid (not -1).
+            if (birthFrame === -1) return { c: color, o: 1.0 };
             return { c: color, o: 1.0 };
         };
 
@@ -467,7 +468,7 @@ class QuantizedRenderer {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.deathFrame = -1;
-                    state.birthFrame = (edgeBirthFrame >= now - 1) ? edgeBirthFrame : -1;
+                    state.birthFrame = edgeBirthFrame;
                 }
             } else {
                 if (state.visible) {
@@ -484,7 +485,7 @@ class QuantizedRenderer {
                     state.dimVisible = true;
                     fx.lastVisibilityChangeFrame = now;
                     state.dimDeathFrame = -1;
-                    state.dimBirthFrame = (dimBirthFrame >= now - 1) ? dimBirthFrame : -1;
+                    state.dimBirthFrame = dimBirthFrame;
                 }
             } else {
                 if (state.dimVisible) {

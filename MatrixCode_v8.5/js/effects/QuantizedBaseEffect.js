@@ -645,7 +645,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.updateTransition(true);
         }
 
-        this.animFrame++;
+        if (!this.debugMode || this.manualStep) {
+            this.animFrame++;
+        }
 
         // 1. WAITING State (Delay Start)
         if (this.state === 'WAITING') {
@@ -675,7 +677,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 2. Animation Cycle (Grid Expansion) - Logic Update
         const effectiveInterval = this._getEffectiveInterval();
 
-        this.cycleTimer++;
+        if (!this.debugMode || this.manualStep) {
+            this.cycleTimer++;
+        }
 
         if (this.cycleTimer >= effectiveInterval) {
             if (!this.debugMode || this.manualStep) {
@@ -759,7 +763,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.state = 'IDLE';
         this.alpha = 0.0;
         window.removeEventListener('keydown', this._boundDebugHandler);
-        if (this.g) this.g.clearAllOverrides();
+        if (this.g) {
+            this.g.clearAllOverrides();
+            if (this.g.effectActive) this.g.effectActive.fill(0);
+            if (this.g.effectAlphas) this.g.effectAlphas.fill(0);
+        }
         this.shadowGrid = null;
         this.shadowSim = null;
     }
@@ -795,6 +803,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.g.clearAllOverrides();
             if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.hasSwapped = true;
+            this.alpha = 0.0; // Reset alpha to prevent any lingering screen effects
             
             // PING-PONG TERMINATION:
             // Since the swap is now instantaneous, we can immediately deactivate the effect
