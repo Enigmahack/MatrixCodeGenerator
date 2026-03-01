@@ -1291,8 +1291,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             persistence: (() => {
                 const frames = this.getLineGfxValue('Persistence') || 0;
                 if (frames <= 0) return 0.0;
-                // Exponential decay: reach 1% brightness in 'frames' duration
-                return Math.pow(0.01, 1.0 / frames);
+                // Linear decay: 1.0 / frames per frame
+                return 1.0 / frames;
             })(),
             sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale]
         };

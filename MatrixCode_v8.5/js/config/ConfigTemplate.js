@@ -353,7 +353,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
     { cat: 'Effects', id: 'quantizedGenerateV2LineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
     { cat: 'Effects', id: 'quantizedGenerateV2LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0.0, max: 1.0, step: 0.01, dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'], description: "Overrides global line persistence for this effect." },
+    { cat: 'Effects', id: 'quantizedGenerateV2LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', dep: ['quantizedGenerateV2Enabled', 'quantizedGenerateV2LineGfxOverride'], description: "Overrides global line persistence for this effect." },
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Behavior Settings', dep: 'quantizedGenerateV2Enabled' },

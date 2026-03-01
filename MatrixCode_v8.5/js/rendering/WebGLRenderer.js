@@ -692,7 +692,7 @@ class WebGLRenderer {
                             }
                         }
                     }
-                    fragColor = vec4(normalMax, fadeMax * u_persistence, 0.0, 1.0);
+                    fragColor = vec4(normalMax, fadeMax, 0.0, 1.0);
                 }
             `;
 
@@ -1461,7 +1461,7 @@ class WebGLRenderer {
 
     _drawFullscreenPass(program, targetFBO, uniforms = {}, textures = {}, blend = null, viewport = null) {
         if (!program) return;
-        
+
         // 1. Target Management
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
         if (viewport) {
@@ -1478,10 +1478,14 @@ class WebGLRenderer {
         if (blend) {
             this.gl.enable(this.gl.BLEND);
             this.gl.blendFunc(blend.src, blend.dst);
+            if (blend.eq) {
+                this.gl.blendEquation(blend.eq);
+            } else {
+                this.gl.blendEquation(this.gl.FUNC_ADD);
+            }
         } else {
             this.gl.disable(this.gl.BLEND);
         }
-
         // 4. Type-Aware Uniform Dispatch (SOLID/DIP)
         for (const [name, value] of Object.entries(uniforms)) {
             const loc = this._u(program, name);
@@ -1641,15 +1645,17 @@ class WebGLRenderer {
         };
 
         // --- PASS 1: GENERATE & FADE ---
-        // A) Decay both NORMAL (Red) and FADE (Green) for this frame
-        this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, 
-            { u_color: [fxState.persistence, fxState.persistence, 0.0, 1.0] },
-            {},
-            { src: this.gl.ZERO, dst: this.gl.SRC_COLOR }
-        );
+        // A) Linear Decay both NORMAL (Red) and FADE (Green) for this frame
+        if (fxState.persistence > 0.0) {
+            this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, 
+                { u_color: [fxState.persistence, fxState.persistence, 0.0, 0.0] },
+                {},
+                { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT }
+            );
+        }
 
         // B) Add new lines (Mode 0)
-        this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE });
+        this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
 
         // --- PASS 2: COMPOSITE ---
         const compUniforms = { 
