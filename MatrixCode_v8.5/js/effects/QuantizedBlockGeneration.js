@@ -113,7 +113,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 1: Spine Growth
      */
     _behaviorSpineGrowth(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('spine_growth', l)) continue;
             const chance = this.c.get('quantizedGenerateV2SpineChance') || 0.1;
             if (Math.random() > chance) continue;
@@ -136,7 +136,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 2: Stochastic Frontier Expansion
      */
     _behaviorFrontierExpansion(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('frontier_expansion', l)) continue;
             const chance = this.c.get('quantizedGenerateV2FrontierExpansionChance') || 0.4;
             if (Math.random() > chance) continue;
@@ -163,7 +163,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 2: Branching
      */
     _behaviorBranching(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('branching', l)) continue;
             
             const chance = this.c.get('quantizedGenerateV2BranchProbability') || 0.15;
@@ -189,7 +189,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 2: Organic Expansion (Blobs)
      */
     _behaviorOrganicExpansion(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('organic_expansion', l)) continue;
             const chance = this.c.get('quantizedGenerateV2ExpansionChance') || 0.2;
             if (Math.random() > chance) continue;
@@ -217,7 +217,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 2: Tendril Growth (Strings)
      */
     _behaviorTendrilGrowth(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('tendril_growth', l)) continue;
             const chance = this.c.get('quantizedGenerateV2TendrilChance') || 0.15;
             if (Math.random() > chance) continue;
@@ -243,7 +243,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 3: Island Jumps
      */
     _behaviorIslandJumps(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('island_jumps', l)) continue;
             
             const chance = this.c.get('quantizedGenerateV2IslandJumpProbability') || 0.03;
@@ -262,7 +262,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 3: Destructive Glitch
      */
     _behaviorDestructiveGlitch(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('destructive_glitch', l)) continue;
             
             const ratio = this.c.get('quantizedGenerateV2DestructiveRatio') || 0.1;
@@ -290,7 +290,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 3: Data Corruption
      */
     _behaviorDataCorruption(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('data_corruption', l)) continue;
             const chance = this.c.get('quantizedGenerateV2CorruptionChance') || 0.05;
             if (Math.random() > chance) continue;
@@ -309,7 +309,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 4: Block Drift
      */
     _behaviorBlockDrift(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('block_drift', l)) continue;
             if (Math.random() > (this.c.get('quantizedGenerateV2DriftChance') || 0.05)) continue;
 
@@ -331,7 +331,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * Pool 4: Neighbor Shove
      */
     _behaviorNeighborShove(s) {
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('neighbor_shove', l)) continue;
             const chance = this.c.get('quantizedGenerateV2ShoveChance') || 0.1;
             if (Math.random() > chance) continue;
@@ -365,7 +365,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (s.snapshots.length > 5) s.snapshots.shift();
         }
 
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             if (!this._isLayerEnabled('state_reversion', l)) continue;
             const chance = this.c.get('quantizedGenerateV2ReversionChance') || 0.02;
             if (Math.random() > chance || s.snapshots.length < 2) continue;

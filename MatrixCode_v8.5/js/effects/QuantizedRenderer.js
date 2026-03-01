@@ -122,7 +122,7 @@ class QuantizedRenderer {
         for (let by = 0; by < blocksY; by++) {
             // Optimization: Only run this if we actually have removal grids
             let hasRemovals = false;
-            for(let l=0; l<3; l++) if(fx.removalGrids[l]) { hasRemovals = true; break; }
+            for(let l=0; l<4; l++) if(fx.removalGrids[l]) { hasRemovals = true; break; }
             if(!hasRemovals) break;
 
             colorLayerCtx.beginPath();
@@ -132,7 +132,7 @@ class QuantizedRenderer {
                 if (fx.renderGrid[idx] === -1) {
                     let isFading = false;
                     if (fadeOutFrames > 0) {
-                        for (let layerIdx = 0; layerIdx < 3; layerIdx++) {
+                        for (let layerIdx = 0; layerIdx < 4; layerIdx++) {
                             const rGrid = fx.removalGrids[layerIdx];
                             if (rGrid && rGrid[idx] !== -1 && now < rGrid[idx] + fadeOutFrames) {
                                 isFading = true; break;
@@ -384,43 +384,69 @@ class QuantizedRenderer {
         };
 
         const resolveEdge = (x, y, type) => {
-            let ax, ay, bx, by; 
+            let ax, ay, bx, by;
             if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
             else { ax = x; ay = y - 1; bx = x; by = y; }
+
+            const getLVal = (l, tx, ty) => {
+                if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
+                const idx = ty * blocksX + tx;
+                return fx.layerGrids[l] ? fx.layerGrids[l][idx] : -1;
+            };
+
+            const a0 = getLVal(0, ax, ay), b0 = getLVal(0, bx, by);
+            const a1 = getLVal(1, ax, ay), b1 = getLVal(1, bx, by);
+            const a2 = getLVal(2, ax, ay), b2 = getLVal(2, bx, by);
+            const a3 = getLVal(3, ax, ay), b3 = getLVal(3, bx, by);
+
+            const a23 = (a2 !== -1 && a3 !== -1);
+            const b23 = (b2 !== -1 && b3 !== -1);
 
             let isVisibleNormally = false;
             let isVisibleDimly = false;
             let edgeBirthFrame = -1;
             let dimBirthFrame = -1;
 
-            // Fix: Use numeric key to avoid string concatenations
             const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
-            
-            // Strict Perimeter Logic: Detect boundary of the combined glass mass
-            const isOcc = (bx, by) => {
-                if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return false;
-                const idx = by * blocksX + bx;
-                for (let l = 0; l < 3; l++) if (fx.layerGrids[l] && fx.layerGrids[l][idx] !== -1) return true;
-                return false;
-            };
 
-            const aAny = isOcc(ax, ay), bAny = isOcc(bx, by);
-            if (aAny !== bAny) {
+            // 1. Layer 0 Perimeter: Always Normal
+            if (a0 !== b0) {
                 isVisibleNormally = true;
-                // Birth frame is the max of all active layers at that spot
-                const getBirth = (tx, ty) => {
-                    if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
-                    let maxB = -1;
-                    const idx = ty * blocksX + tx;
-                    for (let l = 0; l < 3; l++) if (fx.layerGrids[l]) maxB = Math.max(maxB, fx.layerGrids[l][idx]);
-                    return maxB;
-                };
-                edgeBirthFrame = Math.max(getBirth(ax, ay), getBirth(bx, by));
+                edgeBirthFrame = Math.max(a0, b0);
+            }
+
+            // 2. Layer 1 Perimeter: Normal if not both sides are L0, else Dimmed (Fade Color)
+            if (a1 !== b1) {
+                if (a0 !== -1 && b0 !== -1) {
+                    isVisibleDimly = true;
+                    dimBirthFrame = Math.max(a1, b1);
+                } else {
+                    isVisibleNormally = true;
+                    edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(a1, b1));
+                }
+            }
+
+            // 3. Layer 2 & 3 Intersection Perimeter: Normal if not covered by L0 or L1
+            if (a23 !== b23) {
+                const isCovered = (a0 !== -1 && b0 !== -1) || (a1 !== -1 && b1 !== -1);
+                if (!isCovered) {
+                    isVisibleNormally = true;
+                    // For birth frame, we take the max of the contributing sub-layer frames
+                    const getB23 = (tx, ty) => {
+                        if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
+                        const idx = ty * blocksX + tx;
+                        if (fx.layerGrids[2][idx] !== -1 && fx.layerGrids[3][idx] !== -1) {
+                            return Math.max(fx.layerGrids[2][idx], fx.layerGrids[3][idx]);
+                        }
+                        return -1;
+                    };
+                    edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(getB23(ax, ay), getB23(bx, by)));
+                }
             }
 
             let state = fx.lineStates.get(key);
             if (!state) {
-                state = { 
+                state = {
                     visible: false, deathFrame: -1, birthFrame: -1,
                     dimVisible: false, dimDeathFrame: -1, dimBirthFrame: -1
                 };
@@ -468,7 +494,7 @@ class QuantizedRenderer {
             if (!state) return;
 
             const face = (type === 'V') ? 'W' : 'N';
-            
+
             // Draw Normal state
             if (state.visible) {
                 const birth = getBirthState(state.birthFrame);
@@ -490,30 +516,45 @@ class QuantizedRenderer {
                 }
             }
 
-            // Draw Dim state (3rd layer)
-            if (state.dimVisible) {
-                const birth = getBirthState(state.dimBirthFrame);
-                if (birth) {
-                    const dimOpacity = birth.o * 0.4;
-                    const path = getBatch(birth.c, dimOpacity);
-                    const mPath = getMaskBatch(dimOpacity);
-                    this._addFaceToPath(path, fx, x, y, face);
-                    this._addFaceToPath(mPath, fx, x, y, face);
-                }
-            } else if (state.dimDeathFrame !== -1) {
-                const fade = getFadeState(state.dimDeathFrame);
-                if (fade) {
-                    const dimOpacity = fade.o * 0.4;
-                    const path = getBatch(fade.c, dimOpacity);
-                    const mPath = getMaskBatch(dimOpacity);
-                    this._addFaceToPath(path, fx, x, y, face);
-                    this._addFaceToPath(mPath, fx, x, y, face);
-                } else {
+            // Draw Dim state (Layer 1 boundary inside Layer 0)
+            if (state.dimVisible || state.dimDeathFrame !== -1) {
+                const birth = state.dimVisible ? getBirthState(state.dimBirthFrame) : null;
+                const fade = state.dimDeathFrame !== -1 ? getFadeState(state.dimDeathFrame) : null;
+                const activeState = birth || fade;
+
+                if (activeState) {
+                    // Logic for "Layer 0 opacity should change Layer 1 perimeter brightness"
+                    // Find Layer 0 opacity at this edge
+                    let ax, ay, bx, by;
+                    if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
+                    else { ax = x; ay = y - 1; bx = x; by = y; }
+
+                    const getL0Opacity = (tx, ty) => {
+                        if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return 0;
+                        const idx = ty * blocksX + tx;
+                        const l0Frame = fx.layerGrids[0][idx];
+                        const remFrame = fx.removalGrids[0] ? fx.removalGrids[0][idx] : -1;
+                        if (l0Frame === -1 && remFrame === -1) return 0;
+
+                        const bState = getBirthState(l0Frame);
+                        const fState = getFadeState(remFrame);
+                        return (fState ? fState.o : (bState ? bState.o : 0));
+                    };
+
+                    const l0Opacity = Math.max(getL0Opacity(ax, ay), getL0Opacity(bx, by));
+                    const dimOpacity = activeState.o * l0Opacity;
+
+                    if (dimOpacity > 0.01) {
+                        const path = getBatch(fadeColor, dimOpacity);
+                        const mPath = getMaskBatch(dimOpacity);
+                        this._addFaceToPath(path, fx, x, y, face);
+                        this._addFaceToPath(mPath, fx, x, y, face);
+                    }
+                } else if (state.dimDeathFrame !== -1) {
                     state.dimDeathFrame = -1;
                 }
             }
         };
-
         // Track changes since last frame to only resolve affected edges
         if (fx._lastResolvedFrame !== now) {
             // Check if any blocks were added/removed since LAST RENDER
@@ -608,6 +649,8 @@ class QuantizedRenderer {
 
         let drawX, drawY, drawW, drawH;
         
+        const drawR = Math.max(lwX, lwY) * 0.5;
+
         if (face === 'N') {
             let cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
             let leftX = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
@@ -617,8 +660,12 @@ class QuantizedRenderer {
             rightX = this._getSnap(fx, rightX, 'x');
             drawY = cy - (lwY * 0.5); 
             drawH = lwY; 
-            drawX = leftX - (lwX * 0.5);
-            drawW = (rightX - leftX) + lwX;
+            drawX = leftX;
+            drawW = (rightX - leftX);
+            
+            path.rect(drawX, drawY, drawW, drawH);
+            path.arc(drawX, drawY + drawH*0.5, drawR, 0, Math.PI * 2);
+            path.arc(drawX + drawW, drawY + drawH*0.5, drawR, 0, Math.PI * 2);
         } else if (face === 'W') {
             let topY = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
             let bottomY = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
@@ -628,11 +675,13 @@ class QuantizedRenderer {
             leftX = this._getSnap(fx, leftX, 'x');
             drawX = leftX - (lwX * 0.5); 
             drawW = lwX; 
-            drawY = topY - (lwY * 0.5);
-            drawH = (bottomY - topY) + lwY;
+            drawY = topY;
+            drawH = (bottomY - topY);
+
+            path.rect(drawX, drawY, drawW, drawH);
+            path.arc(drawX + drawW*0.5, drawY, drawR, 0, Math.PI * 2);
+            path.arc(drawX + drawW*0.5, drawY + drawH, drawR, 0, Math.PI * 2);
         }
-        
-        path.rect(drawX, drawY, drawW, drawH);
     }
 
     _renderCornerCleanup(fx, ctx, now) {

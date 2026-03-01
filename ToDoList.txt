@@ -2,7 +2,6 @@ ToDo:
 Run tests on all effects, behaviors, sliders, settings, etc. 
 
 <- Bugs: 
-There is an issue with the pulse effect - everything should freeze during the effect, but I see a remenant of something that is blocking up code and is moving when everything should be stationary. 
 
 
 <- Behavior:

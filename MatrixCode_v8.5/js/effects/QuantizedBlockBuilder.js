@@ -6,12 +6,12 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         super(g, c);
         this.name = "QuantizedBlockBuilder";
         this.configPrefix = "quantizedBlockBuilder";
-        this.visibleLayers = [true, true, true]; 
+        this.visibleLayers = [true, true, true, true]; 
     }
 
     trigger(force = false) {
         if (!super.trigger(force)) return false;
-        this.visibleLayers = [true, true, true];
+        this.visibleLayers = [true, true, true, true];
         this.expansionPhase = 0;
         this.genTimer = 0;
         this._updateRenderGridLogic();
@@ -23,7 +23,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         this.proceduralInitiated = true;
         
         console.log("QuantizedBlockBuilder: Seeding center blocks...");
-        for (let l = 0; l <= 2; l++) {
+        for (let l = 0; l <= 3; l++) {
             this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, true, false, true);
         }
     }
@@ -41,6 +41,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         if (Math.random() < xChance) {
             this._growLayerWest(1, null);
             this._growLayerWest(2, null);
+            this._growLayerWest(3, null);
         }
         if (Math.random() < xChance) {
             this._growLayerWest(0, 1); 
@@ -50,6 +51,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         if (Math.random() < yChance) {
             this._growLayerNorth(1, null);
             this._growLayerNorth(2, null);
+            this._growLayerNorth(3, null);
         }
         if (Math.random() < yChance) {
             this._growLayerNorth(0, 1);

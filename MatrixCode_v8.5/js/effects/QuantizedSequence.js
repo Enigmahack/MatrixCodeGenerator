@@ -53,7 +53,7 @@ class QuantizedSequence {
                 const idx = ctx.getIdx(cx + dx, cy + dy);
                 if (idx >= 0) {
                     let stillActive = false;
-                    for (let i = 0; i < 3; i++) {
+                    for (let i = 0; i < 4; i++) {
                         if (fx.layerGrids[i] && fx.layerGrids[i][idx] !== -1) { stillActive = true; break; }
                     }
                     if (!stillActive) fx.logicGrid[idx] = 0;
@@ -72,7 +72,7 @@ class QuantizedSequence {
                     if (l !== undefined && fx.layerGrids[l]) {
                         fx.layerGrids[l][idx] = -1;
                     } else {
-                        for (let i = 0; i < 3; i++) if (fx.layerGrids[i]) fx.layerGrids[i][idx] = -1;
+                        for (let i = 0; i < 4; i++) if (fx.layerGrids[i]) fx.layerGrids[i][idx] = -1;
                     }
                 }
             }

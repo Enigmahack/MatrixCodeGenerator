@@ -66,9 +66,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Procedural Generation State
         this.blockMap = new Map();
         this.activeBlocks = [];
-        this.unfoldSequences = [[], [], []];
-        this.visibleLayers = [true, true, true];
-        this.layerOrder = [0, 1, 2];
+        this.unfoldSequences = [[], [], [], []];
+        this.visibleLayers = [true, true, true, true];
+        this.layerOrder = [0, 1, 2, 3];
         this.proceduralLayerIndex = 0;
         this.nextBlockId = 0;
         this.overlapState = { step: 0 };
@@ -298,7 +298,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this.renderGrid.fill(-1);
         
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== blocksX * blocksY) {
                 this.layerGrids[i] = new Int32Array(blocksX * blocksY);
                 this.layerGrids[i].fill(-1);
@@ -444,7 +444,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this.blockMap.clear();
         this.activeBlocks = [];
-        this.unfoldSequences = [[], [], []];
+        this.unfoldSequences = [[], [], [], []];
         this.nextBlockId = 0;
         this.nudgeState = null;
         this.overlapState = { step: 0 };
@@ -867,7 +867,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                  this.renderGrid = new Int32Array(requiredSize);
                  this.renderGrid.fill(-1);
             }
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 4; i++) {
                 if (!this.layerGrids[i] || this.layerGrids[i].length !== requiredSize) {
                     this.layerGrids[i] = new Int32Array(requiredSize);
                     this.layerGrids[i].fill(-1);
@@ -930,31 +930,55 @@ class QuantizedBaseEffect extends AbstractEffect {
         const drawChar = (x, y) => {
             let charCode = 32;
             let i = -1;
-            let useShadow = false;
             
             // Only use shadow world for characters within the actual grid
             const isInsideGrid = (x >= 0 && x < cols && y >= 0 && y < rows);
             
-            if (isInsideGrid && shadowGrid && distMap && l) {
-                const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
-                const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
-                if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
-                    const dIdx = by * distW + bx;
-                    if (distMap[dIdx] <= 1) useShadow = true;
-                }
-            }
             if (isInsideGrid) {
                 i = (y * cols) + x;
-                if (useShadow && shadowGrid.chars) {
+                
+                // Tag cell for high-quality Shadow World rendering in the main pass
+                const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
+                const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
+                let isInsideBlock = false;
+                if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
+                    const bIdx = by * distW + bx;
+                    // Tag for Layer 0 and Layer 1 as requested
+                    if ((this.layerGrids[0] && this.layerGrids[0][bIdx] !== -1) || 
+                        (this.layerGrids[1] && this.layerGrids[1][bIdx] !== -1)) {
+                        isInsideBlock = true;
+                    }
+                }
+                
+                if (isInsideBlock) {
+                    grid.effectActive[i] = 3; // 3 = Shadow Mode reveal
+                } else if (grid.effectActive[i] === 3) {
+                    grid.effectActive[i] = 0;
+                }
+
+                if (shadowGrid && shadowGrid.chars) {
                     charCode = shadowGrid.chars[i];
+                    
+                    // If the simulation cell is empty, provide a random character for the line mask
+                    if (charCode <= 32) {
+                        const charSet = d.activeFonts[0].chars;
+                        const hash = Math.abs(Math.sin(i * 12.9898 + this.lastGridSeed * 78.233) * 43758.5453) % 1;
+                        charCode = charSet.charCodeAt(Math.floor(hash * charSet.length));
+                    }
+                    
+                    // The source grid is used as a mask for lines; it must be full intensity
+                    ctx.globalAlpha = 1.0; 
                 } else if (grid.overrideActive && grid.overrideActive[i] > 0) {
                     charCode = grid.overrideChars[i];
+                    ctx.globalAlpha = 1.0;
                 } else {
                     charCode = chars[i];
+                    ctx.globalAlpha = 1.0;
                 }
             } else {
                 i = (y * 10000) + x; 
                 charCode = 0; 
+                ctx.globalAlpha = 0.0;
             }
             if (charCode <= 32) {
                 const activeFonts = d.activeFonts;
@@ -997,7 +1021,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.renderGrid.fill(-1);
             this._gridsDirty = true;
         }
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
                 this.layerGrids[i].fill(-1);
@@ -1018,7 +1042,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const op = this.maskOps[i];
             if (op.startFrame && this.animFrame < op.startFrame) break;
             opsProcessed++;
-            const layerIdx = (op.layer !== undefined && op.layer >= 0 && op.layer <= 2) ? op.layer : 0;
+            const layerIdx = (op.layer !== undefined && op.layer >= 0 && op.layer <= 3) ? op.layer : 0;
             const targetGrid = this.layerGrids[layerIdx];
             
             if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
@@ -1060,7 +1084,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                             targetGrid[idx] = -1;
                             if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
                         } else {
-                            for (let l = 0; l < 3; l++) {
+                            for (let l = 0; l < 4; l++) {
                                 this.layerGrids[l][idx] = -1;
                                 if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
                             }
@@ -1081,22 +1105,25 @@ class QuantizedBaseEffect extends AbstractEffect {
             let finalVal = -1;
             let anyActive = false;
             
-            for (let l = 0; l < 3; l++) {
+            for (let l = 0; l < 4; l++) {
                 if (layerGrids[l] && layerGrids[l][idx] !== -1) {
                     anyActive = true;
                 }
             }
 
-            // Lead Intersection / Reveal Mask logic
-            if (layerGrids[0] && layerGrids[0][idx] !== -1) {
-                finalVal = layerGrids[0][idx];
-            } else {
-                const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
-                const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
-                if (l1Active && l2Active) {
-                    finalVal = Math.max(layerGrids[1][idx], layerGrids[2][idx]);
-                }
+            const l0Active = (layerGrids[0] && layerGrids[0][idx] !== -1);
+            const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
+            const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
+            const l3Active = (layerGrids[3] && layerGrids[3][idx] !== -1);
+
+            // Calculate finalVal as the most recent startFrame from all contributing layers
+            let bestFrame = -1;
+            if (l0Active) bestFrame = Math.max(bestFrame, layerGrids[0][idx]);
+            if (l1Active) bestFrame = Math.max(bestFrame, layerGrids[1][idx]);
+            if (l2Active && l3Active) {
+                bestFrame = Math.max(bestFrame, Math.max(layerGrids[2][idx], layerGrids[3][idx]));
             }
+            finalVal = bestFrame;
 
             this.renderGrid[idx] = finalVal;
             if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
@@ -1191,6 +1218,48 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
     _addBlock(start, end, ext, check) {
         this.renderer._addBlock(this, this.maskCtx, this.layout, start, end, ext, check);
+    }
+
+    /**
+     * Provides a standardized state object for WebGL rendering.
+     * Following the Dependency Inversion Principle, this allows the renderer to 
+     * depend on a normalized data structure rather than the effect's internal state.
+     */
+    getWebGLRenderState(s, d) {
+        const gw = this.logicGridW;
+        const gh = this.logicGridH;
+        const bs = this.getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+        const { offX, offY } = this._computeCenteredOffset(gw, gh, cellPitchX, cellPitchY);
+        const scale = s.resolution || 1.0;
+
+        const col = Utils.hexToRgb(this.getLineGfxValue('Color') || "#ffffff");
+        const fCol = Utils.hexToRgb(this.getLineGfxValue('FadeColor') || "#eeff00");
+
+        return {
+            logicGridSize: [gw, gh],
+            cellPitch: [cellPitchX, cellPitchY],
+            blockOffset: [offX, offY],
+            userBlockOffset: [this.userBlockOffX || 0, this.userBlockOffY || 0],
+            layerOrder: new Int32Array(this.layerOrder || [0, 1, 2, 3]),
+            showInterior: this.getConfig('ShowInterior') !== false,
+            intensity: (this.getLineGfxValue('Intensity') ?? 1.0) * this.alpha,
+            thickness: this.getLineGfxValue('Thickness') ?? 1.0,
+            glow: this.getLineGfxValue('Glow') ?? 1.0,
+            tintOffset: this.getLineGfxValue('TintOffset') ?? 0.0,
+            sharpness: this.getLineGfxValue('Sharpness') ?? 0.05,
+            glowFalloff: this.getLineGfxValue('GlowFalloff') ?? 2.0,
+            roundness: this.getLineGfxValue('Roundness') ?? 0.0,
+            maskSoftness: this.getLineGfxValue('MaskSoftness') ?? 0.0,
+            brightness: (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0),
+            saturation: this.getLineGfxValue('Saturation') ?? 1.0,
+            additiveStrength: this.getLineGfxValue('AdditiveStrength') ?? 1.0,
+            color: [col.r / 255, col.g / 255, col.b / 255],
+            fadeColor: [fCol.r / 255, fCol.g / 255, fCol.b / 255],
+            persistence: this.getLineGfxValue('Persistence') ?? 0.0,
+            sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale]
+        };
     }
 
     render(ctx, d) {
@@ -1467,16 +1536,14 @@ class QuantizedBaseEffect extends AbstractEffect {
          const changesOffX = 0;
          const changesOffY = 0;
          ctx.save();
-        const layerColors = ['rgba(0, 255, 0, 0.15)', 'rgba(0, 200, 255, 0.15)', 'rgba(255, 0, 200, 0.15)'];
-        const layerLines = ['rgba(0, 255, 0, 0.8)', 'rgba(0, 200, 255, 0.8)', 'rgba(255, 0, 200, 0.8)'];
+        const layerColors = ['rgba(0, 255, 0, 0.15)', 'rgba(0, 200, 255, 0.15)', 'rgba(255, 0, 200, 0.15)', 'rgba(255, 255, 0, 0.15)'];
+        const layerLines = ['rgba(0, 255, 0, 0.8)', 'rgba(0, 200, 255, 0.8)', 'rgba(255, 0, 200, 0.8)', 'rgba(255, 255, 0, 0.8)'];
         const getVal = (grid, bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY) return -1;
             return grid[by * blocksX + bx];
         };
 
-        // Draw Fills in fixed back-to-front order (L2 -> L1 -> L0)
-        // This ensures L0 always renders in the same spot in the stack for consistent coloring.
-        const visibleIndices = [0, 1, 2];
+        const visibleIndices = [0, 1, 2, 3];
 
         for (let i = visibleIndices.length - 1; i >= 0; i--) {
             const lIdx = visibleIndices[i];
@@ -1488,7 +1555,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const bx = idx % blocksX;
                         const by = Math.floor(idx / blocksX);
 
-                        // Only dim if covered by a HIGHER layer in the fixed stack (0 is highest)
                         let obscureCount = 0;
                         for (let j = 0; j < i; j++) {
                             const higherLIdx = visibleIndices[j];
@@ -1499,7 +1565,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         }
                         
                         ctx.save();
-                        if (obscureCount >= 2) {
+                        if (obscureCount >= 1) {
                             ctx.globalAlpha = 0.05; 
                         }
                         ctx.fillStyle = layerColors[lIdx];
@@ -1525,24 +1591,26 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
 
-        // Draw Lines: Layer 0 ALWAYS acts as the green foundation/wireframe reference
         const pNormal = new Path2D();
         const pDim = new Path2D();
 
-        const foundationIdx = 0;
-        const lead1Idx = 1;
-        const lead2Idx = 2;
-
-        const grid0 = this.layerGrids[foundationIdx];
-        const grid1 = this.layerGrids[lead1Idx];
-        const grid2 = this.layerGrids[lead2Idx];
+        const grid0 = this.layerGrids[0];
+        const grid1 = this.layerGrids[1];
+        const grid2 = this.layerGrids[2];
+        const grid3 = this.layerGrids[3];
 
         const isOcc = (grid, bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY || !grid) return false;
             return grid[by * blocksX + bx] !== -1;
         };
 
-        const isBoth = (bx, by) => isOcc(grid1, bx, by) && isOcc(grid2, bx, by);
+        const isMain = (bx, by) => {
+            const l0 = isOcc(grid0, bx, by);
+            const l1 = isOcc(grid1, bx, by);
+            const l2 = isOcc(grid2, bx, by);
+            const l3 = isOcc(grid3, bx, by);
+            return l0 || l1 || (l2 && l3);
+        };
 
         const addEdgeToPath = (path, x, y, isV) => {
             let cellX = Math.round((x - l.offX + l.userBlockOffX) * l.cellPitchX);
@@ -1575,23 +1643,74 @@ class QuantizedBaseEffect extends AbstractEffect {
         for (let x = 0; x <= blocksX; x++) {
             for (let y = 0; y < blocksY; y++) {
                 const a0 = isOcc(grid0, x-1, y), b0 = isOcc(grid0, x, y);
-                const aB = isBoth(x-1, y), bB = isBoth(x, y);
-                const obscured = a0 || b0;
-                if ((a0 !== b0) || (aB !== bB && !obscured)) addEdgeToPath(pNormal, x, y, true);
+                const a1 = isOcc(grid1, x-1, y), b1 = isOcc(grid1, x, y);
+                const a2 = isOcc(grid2, x-1, y), b2 = isOcc(grid2, x, y);
+                const a3 = isOcc(grid3, x-1, y), b3 = isOcc(grid3, x, y);
+                const a23 = a2 && a3, b23 = b2 && b3;
+
+                let isNorm = false;
+                let isDim = false;
+
+                // 1. L0 boundary always normal
+                if (a0 !== b0) isNorm = true;
+
+                // 2. L1 boundary normal unless both sides are L0
+                if (a1 !== b1) {
+                    if (a0 && b0) isDim = true;
+                    else isNorm = true;
+                }
+
+                // 3. L2&L3 boundary normal if not covered by L0 or L1
+                if (a23 !== b23) {
+                    const covered = (a0 && b0) || (a1 && b1);
+                    if (!covered) isNorm = true;
+                }
+
+                if (isNorm) addEdgeToPath(pNormal, x, y, true);
+                if (isDim) addEdgeToPath(pDim, x, y, true);
             }
         }
         // Horizontal Edges
         for (let y = 0; y <= blocksY; y++) {
             for (let x = 0; x < blocksX; x++) {
                 const a0 = isOcc(grid0, x, y-1), b0 = isOcc(grid0, x, y);
-                const aB = isBoth(x, y-1), bB = isBoth(x, y);
-                const obscured = a0 || b0;
-                if ((a0 !== b0) || (aB !== bB && !obscured)) addEdgeToPath(pNormal, x, y, false);
+                const a1 = isOcc(grid1, x, y-1), b1 = isOcc(grid1, x, y);
+                const a2 = isOcc(grid2, x, y-1), b2 = isOcc(grid2, x, y);
+                const a3 = isOcc(grid3, x, y-1), b3 = isOcc(grid3, x, y);
+                const a23 = a2 && a3, b23 = b2 && b3;
+
+                let isNorm = false;
+                let isDim = false;
+
+                // 1. L0 boundary always normal
+                if (a0 !== b0) isNorm = true;
+
+                // 2. L1 boundary normal unless both sides are L0
+                if (a1 !== b1) {
+                    if (a0 && b0) isDim = true;
+                    else isNorm = true;
+                }
+
+                // 3. L2&L3 boundary normal if not covered by L0 or L1
+                if (a23 !== b23) {
+                    const covered = (a0 && b0) || (a1 && b1);
+                    if (!covered) isNorm = true;
+                }
+
+                if (isNorm) addEdgeToPath(pNormal, x, y, false);
+                if (isDim) addEdgeToPath(pDim, x, y, false);
             }
         }
 
-        ctx.strokeStyle = layerLines[0]; // Use L0 color for the unified wireframe
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = layerLines[0]; 
         ctx.stroke(pNormal);
+        
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.stroke(pDim);
+        ctx.restore();
         const ops = this.maskOps;
         if (ops && this.c.state.layerEnableEditorRemovals !== false) {
             for (const op of ops) {

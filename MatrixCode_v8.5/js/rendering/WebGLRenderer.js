@@ -325,12 +325,15 @@ class WebGLRenderer {
             return null;
         }
 
-        // Cache all uniforms
+        // Cache all uniforms with their types for SOLID type-safe dispatch
         const count = this.gl.getProgramParameter(prog, this.gl.ACTIVE_UNIFORMS);
         const locs = {};
         for (let i = 0; i < count; i++) {
             const info = this.gl.getActiveUniform(prog, i);
-            locs[info.name] = this.gl.getUniformLocation(prog, info.name);
+            locs[info.name] = {
+                loc: this.gl.getUniformLocation(prog, info.name),
+                type: info.type
+            };
         }
         this.uLocs.set(prog, locs);
 
@@ -340,7 +343,12 @@ class WebGLRenderer {
 
     _u(prog, name) {
         const locs = this.uLocs.get(prog);
-        return locs ? locs[name] : null;
+        return (locs && locs[name]) ? locs[name].loc : null;
+    }
+
+    _uType(prog, name) {
+        const locs = this.uLocs.get(prog);
+        return (locs && locs[name]) ? locs[name].type : null;
     }
 
         _initShaders() {
@@ -388,8 +396,9 @@ class WebGLRenderer {
                 layout(location=0) in vec2 a_quad;
                 out vec2 v_uv;
                 void main() {
-                    v_uv = a_quad;
-                    gl_Position = vec4(a_quad * 2.0 - 1.0, 0.0, 1.0);
+                    // a_quad is -1..1 (screen quad)
+                    v_uv = a_quad * 0.5 + 0.5;
+                    gl_Position = vec4(a_quad, 0.0, 1.0);
                 }
             `;
 
@@ -412,13 +421,14 @@ class WebGLRenderer {
                 uniform vec2 u_sourceGridOffset;
                 uniform vec2 u_sampleOffset;
                 uniform int u_mode; // 0 = Generate, 1 = Composite, 2 = Pure Blit
-                uniform ivec3 u_layerOrder; 
+                uniform ivec4 u_layerOrder; 
                 
                 uniform float u_thickness;
                 uniform vec3 u_color;
                 uniform vec3 u_fadeColor;
                 uniform float u_intensity;
                 uniform float u_glow;
+                uniform float u_tintOffset;
                 uniform float u_saturation;
                 uniform float u_brightness;
                 uniform float u_additiveStrength;
@@ -446,41 +456,54 @@ class WebGLRenderer {
                 
                 out vec4 fragColor;
 
-                vec3 getOccupancy(vec2 pos) {
-                    if (pos.x < 0.0 || pos.x >= u_logicGridSize.x || pos.y < 0.0 || pos.y >= u_logicGridSize.y) return vec3(0.0);
-                    return texture(u_logicGrid, (pos + 0.5) / u_logicGridSize).rgb;
+                vec4 getOccupancy(vec2 pos) {
+                    if (pos.x < 0.0 || pos.x >= u_logicGridSize.x || pos.y < 0.0 || pos.y >= u_logicGridSize.y) return vec4(0.0);
+                    return texture(u_logicGrid, (pos + 0.5) / u_logicGridSize);
                 }
 
-                float getLayerVal(vec3 occ, int layerIdx) {
-                    if (layerIdx == 0) return occ.r;
-                    if (layerIdx == 1) return occ.g;
-                    if (layerIdx == 2) return occ.b;
+                float getLayerVal(vec4 occ, int idx) {
+                    if (idx == 0) return occ.r;
+                    if (idx == 1) return occ.g;
+                    if (idx == 2) return occ.b;
+                    if (idx == 3) return occ.a;
                     return 0.0;
                 }
 
-                vec3 boostSaturation(vec3 c, float s) {
-                    float luma = dot(c, vec3(0.299, 0.587, 0.114));
-                    return mix(vec3(luma), c, s);
+                float getSDF(vec2 p, vec2 a, vec2 b) {
+                    vec2 pa = p - a, ba = b - a;
+                    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+                    return length(pa - ba * h);
+                }
+
+                vec3 boostSaturation(vec3 rgb, float amount) {
+                    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));
+                    return mix(vec3(luma), rgb, amount);
+                }
+
+                // Simple hue shift using rotation around the gray axis
+                vec3 applyHueShift(vec3 color, float shift) {
+                    if (abs(shift) < 0.001) return color;
+                    const vec3 k = vec3(0.57735, 0.57735, 0.57735);
+                    float angle = shift * 6.283185; // Map [-1..1] to [-2PI..2PI]
+                    float cosAngle = cos(angle);
+                    return color * cosAngle + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - cosAngle);
                 }
 
                 void main() {
+                    // Mode 2: Shadow Mask Generation
                     if (u_mode == 2) {
-                        // Render Additive Shadow Mask (sum of layers)
                         vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                         vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                         vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                         vec2 blockCoord = floor(logicPos);
                         
-                        vec3 occ = getOccupancy(blockCoord);
-                        float maskSum = 0.0;
-                        for(int i=0; i<3; i++) {
-                            maskSum += getLayerVal(occ, u_layerOrder[i]);
-                        }
-                        // Write mask to both Red and Alpha for compatibility and visibility
+                        vec4 occ = getOccupancy(blockCoord);
+                        float maskSum = getLayerVal(occ, u_layerOrder.x) + getLayerVal(occ, u_layerOrder.y) + getLayerVal(occ, u_layerOrder.z) + getLayerVal(occ, u_layerOrder.w);
                         fragColor = vec4(maskSum, 0.0, 0.0, maskSum);
                         return;
                     }
 
+                    // Mode 1: Composite / Glass / Lines
                     if (u_mode == 1) {
                         vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                         vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
@@ -488,183 +511,154 @@ class WebGLRenderer {
                         vec2 cellLocal = fract(logicPos);
 
                         vec4 base = texture(u_characterBuffer, v_uv);
-                        float lineMask = texture(u_persistenceBuffer, v_uv).r;
+                        vec4 persist = texture(u_persistenceBuffer, v_uv);
+                        float normalLine = persist.r;
+                        float fadeLine = persist.g;
+                        float totalLine = normalLine + fadeLine;
 
-                        // Shared Character Mask Calculation
                         vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-                        float charLuma = 0.0;
+                        
+                        // Sample Shadow World Character (Stencil)
+                        float shadowLuma = 0.0;
                         if (u_maskSoftness > 0.0) {
                             float s = u_maskSoftness / u_resolution.x;
-                            charLuma += texture(u_sourceGrid, sourceUV).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
-                            charLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
-                            charLuma /= 5.0;
+                            shadowLuma += texture(u_sourceGrid, sourceUV).r;
+                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
+                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
+                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
+                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
+                            shadowLuma /= 5.0;
                         } else {
-                            vec4 sourceChar = texture(u_sourceGrid, sourceUV);
-                            charLuma = max(sourceChar.r, max(sourceChar.g, sourceChar.b));
+                            shadowLuma = texture(u_sourceGrid, sourceUV).r;
                         }
                         
-                        if (u_glassEnabled) {
-                            float blockMask = texture(u_shadowMask, v_uv).r;
-                            float isVisible = step(0.001, blockMask);
-                            float stackCount = blockMask; 
-                            
-                            // Specific stacking multipliers
-                            float refOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapRefraction;
-                            float glowOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapGlow;
-                            float opacityOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapOpacity;
+                        // Apply Line Roundness as "Edge Softness" for the mask
+                        float edgeSoft = max(0.001, u_roundness * 0.5);
+                        float maskedLuma = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, shadowLuma);
+                        
+                        float blockMask = texture(u_shadowMask, v_uv).r;
+                        float isVisible = step(0.001, blockMask);
+                        
+                        vec3 resultColor = base.rgb * (1.0 - u_glassDarkness);
 
-                            if (isVisible > 0.5) {
-                                // GLASS LENS MODEL
+                        if (isVisible > 0.5) {
+                            vec3 blockColor = vec3(0.0);
+                            
+                            if (u_glassEnabled) {
+                                float stackCount = blockMask; 
+                                float refOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapRefraction;
+                                float glowOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapGlow;
+                                float opacityOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapOpacity;
+
                                 vec2 centerOffset = cellLocal - 0.5;
                                 float distToCenter = length(centerOffset);
-                                
-                                // Refraction Displacement
                                 float refraction = u_glassRefraction * refOverlap;
                                 float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
                                 vec2 displacement = centerOffset * lensCurv * refraction;
-                                
-                                // Chromatic Aberration (RGB Shift)
                                 float ab = u_glassChromaticAberration;
+                                
                                 vec3 glassCode;
                                 glassCode.r = texture(u_characterBuffer, v_uv + displacement * (1.0 + ab)).r;
                                 glassCode.g = texture(u_characterBuffer, v_uv + displacement).g;
                                 glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
                                 
-                                // Fresnel Glow (Inner perimeter)
                                 float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * glowOverlap;
-                                
-                                // Specular Bevel (3D Effect)
                                 float bevel = 0.0;
-                                float edgeSoft = 0.05;
-                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.x)) * u_glassBevel;
-                                bevel += (1.0 - smoothstep(0.0, edgeSoft, cellLocal.y)) * u_glassBevel;
-                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.x) * u_glassBevel;
-                                bevel -= smoothstep(1.0 - edgeSoft, 1.0, cellLocal.y) * u_glassBevel;
+                                float bSoft = 0.05;
+                                bevel += (1.0 - smoothstep(0.0, bSoft, cellLocal.x)) * u_glassBevel;
+                                bevel += (1.0 - smoothstep(0.0, bSoft, cellLocal.y)) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - bSoft, 1.0, cellLocal.x) * u_glassBevel;
+                                bevel -= smoothstep(1.0 - bSoft, 1.0, cellLocal.y) * u_glassBevel;
                                 
-                                // Bloom & Interior Brightness
-                                glassCode *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
-                                
-                                // COLOR & OVERRIDES FROM EFFECT
-                                // lineMask already has the correct weighted intensity from Mode 0 (including Thickness)
-                                float colorT = clamp(lineMask, 0.0, 1.0);
-                                float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
-                                vec3 edgeColor = mix(u_fadeColor, u_color, profileT);
-                                edgeColor = mix(edgeColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
-                                edgeColor = boostSaturation(edgeColor, u_saturation) * u_brightness;
-
-                                // Final Glass Pixel: Refracted Code + Fresnel + Bevel + Weighted Tinted Edges
-                                // RESTORED: Multiply edgeHighlight by charLuma to keep the "broken lines" mask effect
-                                vec3 edgeHighlight = edgeColor * lineMask * charLuma * u_glassEdgeGlow * u_intensity * u_additiveStrength;
-                                vec3 finalGlass = glassCode + (fresnel * 0.5) + bevel + edgeHighlight;
-                                
-                                fragColor = vec4(finalGlass, base.a);
-                                return;
+                                blockColor = (glassCode * u_glassBloom * opacityOverlap * u_glassBodyOpacity) + (fresnel * 0.5) + bevel;
                             } else {
-                                // Background: Darken characters not behind glass
-                                vec3 background = base.rgb * (1.0 - u_glassDarkness);
-                                fragColor = vec4(background, base.a);
-                                return;
+                                // Reveal Mode: Show the main pass results (which now include shadow world rain)
+                                blockColor = base.rgb * u_glassBloom * u_glassBodyOpacity;
                             }
-                        }
-                        
-                        // STANDARD QUANTIZED LINES LOGIC
-                        float blockMask = texture(u_shadowMask, v_uv).r;
-                        float isVisible = step(0.001, blockMask);
-                        float opacityOverlap = 1.0 + max(0.0, blockMask - 1.0) * u_glassOverlapOpacity;
-
-                        vec3 finalBase = base.rgb;
-                        if (isVisible > 0.5) {
-                            finalBase *= u_glassBloom * opacityOverlap * u_glassBodyOpacity;
-                        } else {
-                            finalBase *= (1.0 - u_glassDarkness);
+                            
+                            resultColor = blockColor;
                         }
 
-                        float colorT = clamp(lineMask, 0.0, 1.0);
-                        float profileT = pow(colorT, mix(1.0, 3.0, u_roundness));
-                        vec3 dynamicColor = mix(u_fadeColor, u_color, profileT);
-                        dynamicColor = mix(dynamicColor, vec3(1.0), pow(colorT, 8.0) * u_roundness * 0.5);
-                        dynamicColor = boostSaturation(dynamicColor, u_saturation) * u_brightness;
-                        
-                        vec3 highlight = dynamicColor * lineMask * charLuma * u_additiveStrength * u_intensity;
-                        fragColor = vec4(finalBase + highlight, base.a);
+                        // Composite Grid Lines
+                        if (totalLine > 0.001) {
+                            float colorT = normalLine / (totalLine + 0.001);
+                            // Decouple color mixing from Roundness (use fixed curve for color)
+                            vec3 lineBaseColor = mix(u_fadeColor, u_color, pow(colorT, 1.5));
+                            lineBaseColor = applyHueShift(lineBaseColor, u_tintOffset);
+                            lineBaseColor = boostSaturation(mix(lineBaseColor, vec3(1.0), pow(totalLine, 8.0) * 0.5), u_saturation) * u_brightness;
+                            
+                            // Apply "Edge Softness" to the lines themselves as well
+                            float softLine = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, totalLine);
+                            float lineIntensity = softLine * u_intensity * u_additiveStrength * maskedLuma;
+                            
+                            if (u_glassEnabled && isVisible > 0.5) lineIntensity *= u_glassEdgeGlow;
+                            
+                            resultColor += lineBaseColor * lineIntensity;
+                        }
+
+                        fragColor = vec4(resultColor, base.a);
                         return;
                     }
 
-                    // GENERATE MODE (u_mode == 0)
+                    // Mode 0: Generate Lines
                     vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
                     vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                     vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
+                    vec2 nearestI = floor(logicPos + 0.5);
+                    vec2 p = (logicPos - nearestI) * u_cellPitch;
                     
-                    vec2 blockCoord = floor(logicPos);
-                    vec2 cellLocal = fract(logicPos);
-                    
-                    vec3 centerOcc = getOccupancy(blockCoord);
-                    vec3 leftOcc = getOccupancy(blockCoord + vec2(-1.0, 0.0));
-                    vec3 rightOcc = getOccupancy(blockCoord + vec2(1.0, 0.0));
-                    vec3 aboveOcc = getOccupancy(blockCoord + vec2(0.0, -1.0));
-                    vec3 belowOcc = getOccupancy(blockCoord + vec2(0.0, 1.0));
-
-                    float total = 0.0;
+                    float normalMax = 0.0;
+                    float fadeMax = 0.0;
                     float halfThick = (u_thickness / 10.0) * 0.5;
+                    
+                    // Link u_roundness to sharpness for generation phase
+                    float genSharp = u_sharpness + (u_roundness * 0.2); 
 
-                    int L0 = u_layerOrder[0];
-                    int L1 = u_layerOrder[1];
-                    int L2 = u_layerOrder[2];
+                    vec4 occNW = getOccupancy(nearestI + vec2(-1.0, -1.0));
+                    vec4 occNE = getOccupancy(nearestI + vec2(0.0, -1.0));
+                    vec4 occSW = getOccupancy(nearestI + vec2(-1.0, 0.0));
+                    vec4 occSE = getOccupancy(nearestI + vec2(0.0, 0.0));
 
-                    float a0 = getLayerVal(centerOcc, L0); float a1 = getLayerVal(centerOcc, L1); float a2 = getLayerVal(centerOcc, L2);
-                    float nN0 = getLayerVal(aboveOcc, L0); float nN1 = getLayerVal(aboveOcc, L1); float nN2 = getLayerVal(aboveOcc, L2);
-                    float nS0 = getLayerVal(belowOcc, L0); float nS1 = getLayerVal(belowOcc, L1); float nS2 = getLayerVal(belowOcc, L2);
-                    float nW0 = getLayerVal(leftOcc, L0);  float nW1 = getLayerVal(leftOcc, L1);  float nW2 = getLayerVal(leftOcc, L2);
-                    float nE0 = getLayerVal(rightOcc, L0); float nE1 = getLayerVal(rightOcc, L1); float nE2 = getLayerVal(rightOcc, L2);
+                    int L0 = u_layerOrder.x; int L1 = u_layerOrder.y;
+                    float a0NW = getLayerVal(occNW, L0); float a0NE = getLayerVal(occNE, L0);
+                    float a0SW = getLayerVal(occSW, L0); float a0SE = getLayerVal(occSE, L0);
 
-                    // INDEPENDENT PER-LAYER EDGE DETECTION
-                    bool isEdgeN0 = (a0 > 0.01 != nN0 > 0.01); bool isEdgeN1 = (a1 > 0.01 != nN1 > 0.01); bool isEdgeN2 = (a2 > 0.01 != nN2 > 0.01);
-                    bool isEdgeS0 = (a0 > 0.01 != nS0 > 0.01); bool isEdgeS1 = (a1 > 0.01 != nS1 > 0.01); bool isEdgeS2 = (a2 > 0.01 != nS2 > 0.01);
-                    bool isEdgeW0 = (a0 > 0.01 != nW0 > 0.01); bool isEdgeW1 = (a1 > 0.01 != nW1 > 0.01); bool isEdgeW2 = (a2 > 0.01 != nW2 > 0.01);
-                    bool isEdgeE0 = (a0 > 0.01 != nE0 > 0.01); bool isEdgeE1 = (a1 > 0.01 != nE1 > 0.01); bool isEdgeE2 = (a2 > 0.01 != nE2 > 0.01);
+                    for(int i=0; i<4; i++) {
+                        int L;
+                        if (i == 0) L = u_layerOrder.x;
+                        else if (i == 1) L = u_layerOrder.y;
+                        else if (i == 2) L = u_layerOrder.z;
+                        else L = u_layerOrder.w;
 
-                    if (isEdgeN0 || isEdgeN1 || isEdgeN2 || isEdgeS0 || isEdgeS1 || isEdgeS2 || 
-                        isEdgeW0 || isEdgeW1 || isEdgeW2 || isEdgeE0 || isEdgeE1 || isEdgeE2) {
-                        
-                        float layerDist = 1e10;
-                        float edgeWeight = 0.0;
-                        
-                        float distW = cellLocal.x * u_cellPitch.x; float distE = (1.0 - cellLocal.x) * u_cellPitch.x;
-                        float distN = cellLocal.y * u_cellPitch.y; float distS = (1.0 - cellLocal.y) * u_cellPitch.y;
+                        float aNW = getLayerVal(occNW, L); float aNE = getLayerVal(occNE, L);
+                        float aSW = getLayerVal(occSW, L); float aSE = getLayerVal(occSE, L);
+                        bool isL1 = (L == L1);
 
-                        // Layer 0 is base (1.0 weight), others are scaled by u_glassOverlapGlow
-                        if (isEdgeW0) { layerDist = min(layerDist, distW); edgeWeight += max(a0, nW0); }
-                        if (isEdgeW1) { layerDist = min(layerDist, distW); edgeWeight += max(a1, nW1) * u_glassOverlapGlow; }
-                        if (isEdgeW2) { layerDist = min(layerDist, distW); edgeWeight += max(a2, nW2) * u_glassOverlapGlow; }
-                        
-                        if (isEdgeE0) { layerDist = min(layerDist, distE); edgeWeight += max(a0, nE0); }
-                        if (isEdgeE1) { layerDist = min(layerDist, distE); edgeWeight += max(a1, nE1) * u_glassOverlapGlow; }
-                        if (isEdgeE2) { layerDist = min(layerDist, distE); edgeWeight += max(a2, nE2) * u_glassOverlapGlow; }
-
-                        if (isEdgeN0) { layerDist = min(layerDist, distN); edgeWeight += max(a0, nN0); }
-                        if (isEdgeN1) { layerDist = min(layerDist, distN); edgeWeight += max(a1, nN1) * u_glassOverlapGlow; }
-                        if (isEdgeN2) { layerDist = min(layerDist, distN); edgeWeight += max(a2, nN2) * u_glassOverlapGlow; }
-
-                        if (isEdgeS0) { layerDist = min(layerDist, distS); edgeWeight += max(a0, nS0); }
-                        if (isEdgeS1) { layerDist = min(layerDist, distS); edgeWeight += max(a1, nS1) * u_glassOverlapGlow; }
-                        if (isEdgeS2) { layerDist = min(layerDist, distS); edgeWeight += max(a2, nS2) * u_glassOverlapGlow; }
-
-                        float line = 1.0 - smoothstep(halfThick - u_sharpness, halfThick + u_sharpness, layerDist);
-                        if (u_roundness > 0.0 && halfThick > 0.0) {
-                            float normalizedDist = clamp(layerDist / halfThick, 0.0, 1.0);
-                            line *= mix(1.0, sqrt(1.0 - normalizedDist * normalizedDist), u_roundness);
+                        if (abs(aNW - aNE) > 0.01) {
+                            float d = getSDF(p, vec2(0.0, -u_cellPitch.y), vec2(0.0, 0.0));
+                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
+                            if (isL1 && a0NW > 0.01 && a0NE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
                         }
-                        float glow = exp(-layerDist * u_glowFalloff) * (u_glow * 0.5);
-                        total = max(line, glow) * edgeWeight;
+                        if (abs(aSW - aSE) > 0.01) {
+                            float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y));
+                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
+                            if (isL1 && a0SW > 0.01 && a0SE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                        }
+                        if (abs(aNW - aSW) > 0.01) {
+                            float d = getSDF(p, vec2(-u_cellPitch.x, 0.0), vec2(0.0, 0.0));
+                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
+                            if (isL1 && a0NW > 0.01 && a0SW > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                        }
+                        if (abs(aNE - aSE) > 0.01) {
+                            float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x, 0.0));
+                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
+                            if (isL1 && a0NE > 0.01 && a0SE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                        }
                     }
-
-                    total *= (1.0 - u_persistence);
-                    fragColor = vec4(total, 0.0, 0.0, 1.0);
+                    fragColor = vec4(normalMax, fadeMax * (1.0 - u_persistence), 0.0, 1.0);
                 }
             `;
+
             this.lineProgram = this._createProgram(lineVS, lineFS);
 
             // --- MATRIX SHADERS (SPLIT 2D/3D) ---
@@ -988,8 +982,9 @@ class WebGLRenderer {
     
                     // Base Alpha (Stream Fade)
                     float sAlphaMult = 1.0 - shadow;
-                    if (isHighPriority || (u_glassEnabled && glassMask > 0.001)) sAlphaMult = 1.0;
+                    if (isHighPriority || glassMask > 0.001) sAlphaMult = 1.0;
                     float streamAlpha = col.a * finalAlpha * sAlphaMult;
+                    if (!isHighPriority && glassMask > 0.001) streamAlpha *= glassMask;
     
                     if (glimmer > 0.0) {
                         // 1. Turn the block White (mix base color to white)
@@ -1368,98 +1363,138 @@ class WebGLRenderer {
     _renderQuantizedShadows(fx) {
         if (!fx || !fx.renderGrid) return;
         
+        const s = this.config.state;
+        const d = this.config.derived;
+        const fxState = fx.getWebGLRenderState(s, d);
+        const [gw, gh] = fxState.logicGridSize;
+
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.shadowMaskFbo);
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
 
-        const gw = fx.logicGridW;
-        const gh = fx.logicGridH;
-        
+        // 1. Prepare Logic Texture
         const now = fx.animFrame;
         const fadeIn = fx.getConfig('FadeInFrames') || 0;
         const fadeOut = fx.getConfig('FadeFrames') || 0;
 
-        const occupancy = new Uint8Array(gw * gh * 3);
+        const occupancy = new Uint8Array(gw * gh * 4);
         for (let i = 0; i < gw * gh; i++) {
-            for (let L = 0; L < 3; L++) {
+            for (let L = 0; L < 4; L++) {
                 const grid = fx.layerGrids[L];
                 const rGrid = fx.removalGrids[L];
                 let alpha = 0;
                 
                 if (grid && grid[i] !== -1) {
                     const birth = grid[i];
-                    if (fadeIn > 0 && now < birth + fadeIn) {
-                        alpha = Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255);
-                    } else {
-                        alpha = 255;
-                    }
+                    alpha = (fadeIn > 0 && now < birth + fadeIn) 
+                        ? Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255)
+                        : 255;
                 } else if (rGrid && rGrid[i] !== -1) {
                     const death = rGrid[i];
-                    if (fadeOut > 0 && now < death + fadeOut) {
-                        alpha = Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255);
-                    } else {
-                        rGrid[i] = -1;
-                        alpha = 0;
-                    }
+                    alpha = (fadeOut > 0 && now < death + fadeOut)
+                        ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255)
+                        : 0;
                 }
-                occupancy[i * 3 + L] = alpha;
+                occupancy[i * 4 + L] = alpha;
             }
         }
         
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, gw, gh, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, occupancy);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
         
-        const prog = this.lineProgram;
-        this.gl.useProgram(prog);
-        
-        const s = this.config.state;
-        const d = this.config.derived;
-        const scale = s.resolution;
-        const bs = fx.getBlockSize();
-        const cellPitchX = Math.max(1, bs.w);
-        const cellPitchY = Math.max(1, bs.h);
-        const { offX, offY } = fx._computeCenteredOffset(gw, gh, cellPitchX, cellPitchY);
-        
-        const screenStepX = d.cellWidth * s.stretchX * scale;
-        const screenStepY = d.cellHeight * s.stretchY * scale;
+        // 2. Prepare Uniforms
+        const scale = s.resolution || 1.0;
         const gridPixW = fx.g.cols * d.cellWidth * scale; 
         const gridPixH = fx.g.rows * d.cellHeight * scale;
+        const screenStepX = d.cellWidth * s.stretchX * scale;
+        const screenStepY = d.cellHeight * s.stretchY * scale;
         const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
         const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
 
-        const uLoc = (n) => this.gl.getUniformLocation(prog, n);
-        this.gl.uniform1i(uLoc('u_mode'), 2); 
-        this.gl.uniform2f(uLoc('u_logicGridSize'), gw, gh);
-        this.gl.uniform2f(uLoc('u_screenOrigin'), screenOriginX, screenOriginY);
-        this.gl.uniform2f(uLoc('u_screenStep'), screenStepX, screenStepY);
-        this.gl.uniform2f(uLoc('u_cellPitch'), cellPitchX, cellPitchY);
-        this.gl.uniform2f(uLoc('u_blockOffset'), offX, offY);
-        this.gl.uniform2f(uLoc('u_userBlockOffset'), fx.userBlockOffX || 0, fx.userBlockOffY || 0);
-        this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
-        this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
-        this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
-        this.gl.uniform1i(uLoc('u_showInterior'), fx.getConfig('ShowInterior') !== false);
+        const uniforms = {
+            u_mode: 2,
+            u_logicGridSize: fxState.logicGridSize,
+            u_screenOrigin: [screenOriginX, screenOriginY],
+            u_screenStep: [screenStepX, screenStepY],
+            u_cellPitch: fxState.cellPitch,
+            u_blockOffset: fxState.blockOffset,
+            u_userBlockOffset: fxState.userBlockOffset,
+            u_resolution: [this.fboWidth, this.fboHeight],
+            u_offset: [s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale],
+            u_layerOrder: fxState.layerOrder,
+            u_showInterior: fxState.showInterior,
+            u_logicGrid: 1
+        };
 
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-        this.gl.uniform1i(uLoc('u_logicGrid'), 1);
+        const textures = { 1: this.logicGridTexture };
 
-        this.gl.bindVertexArray(this.vaoLine);
+        this._drawFullscreenPass(this.lineProgram, this.shadowMaskFbo, uniforms, textures, { src: this.gl.ONE, dst: this.gl.ONE });
         
-        if (this.config.state.logErrors && this.animFrame % 120 === 0) {
-            console.log(`[WebGLRenderer] _renderQuantizedShadows: Drawing mask for ${fx.name}, gw=${gw}, gh=${gh}`);
-        }
-        
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-        
-        // Cleanup to prevent feedback loops in subsequent passes
-        this.gl.activeTexture(this.gl.TEXTURE1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-        this.gl.activeTexture(this.gl.TEXTURE3);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-
         this.gl.disable(this.gl.BLEND);
+    }
+
+    _drawFullscreenPass(program, targetFBO, uniforms = {}, textures = {}, blend = null, viewport = null) {
+        if (!program) return;
+        
+        // 1. Target Management
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
+        if (viewport) {
+            this.gl.viewport(viewport.x, viewport.y, viewport.w, viewport.h);
+        } else {
+            this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+        }
+
+        // 2. Program and VAO Setup
+        this.gl.useProgram(program);
+        this.gl.bindVertexArray(this.vaoLine);
+
+        // 3. Blend State
+        if (blend) {
+            this.gl.enable(this.gl.BLEND);
+            this.gl.blendFunc(blend.src, blend.dst);
+        } else {
+            this.gl.disable(this.gl.BLEND);
+        }
+
+        // 4. Type-Aware Uniform Dispatch (SOLID/DIP)
+        for (const [name, value] of Object.entries(uniforms)) {
+            const loc = this._u(program, name);
+            const type = this._uType(program, name);
+            if (!loc) continue;
+
+            if (typeof value === 'number') {
+                // Correctly dispatch based on shader type
+                if (type === this.gl.INT || type === this.gl.BOOL || type === this.gl.SAMPLER_2D) {
+                    this.gl.uniform1i(loc, Math.floor(value));
+                } else {
+                    this.gl.uniform1f(loc, value);
+                }
+            } else if (Array.isArray(value) || value instanceof Float32Array || value instanceof Int32Array) {
+                if (value.length === 2) this.gl.uniform2fv(loc, value);
+                else if (value.length === 3) this.gl.uniform3fv(loc, value);
+                else if (value.length === 4) {
+                    if (value instanceof Int32Array || type === this.gl.INT_VEC4) this.gl.uniform4iv(loc, value);
+                    else this.gl.uniform4fv(loc, value);
+                }
+                else if (value.length > 4) this.gl.uniform1fv(loc, value);
+            } else if (typeof value === 'boolean') {
+                this.gl.uniform1i(loc, value ? 1 : 0);
+            }
+        }
+
+        // 5. Texture Dispatch
+        for (const [unit, tex] of Object.entries(textures)) {
+            const slot = parseInt(unit);
+            this.gl.activeTexture(this.gl.TEXTURE0 + slot);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+        }
+
+        // 6. Execute
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+
+        // 7. Standard Cleanup (Internal State)
+        this.gl.bindVertexArray(null);
     }
 
     _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
@@ -1474,210 +1509,160 @@ class WebGLRenderer {
         }
         if (!fx || !fx.renderGrid) return false;
 
-        const gw = fx.logicGridW;
-        const gh = fx.logicGridH;
+        const fxState = fx.getWebGLRenderState(s, d);
+        const [gw, gh] = fxState.logicGridSize;
         if (gw <= 0 || gh <= 0) return false;
 
-        if (this.config.state.logErrors && this.animFrame % 60 === 0) {
-            console.log(`[WebGLRenderer] _renderQuantizedLineGfx: Active FX=${fx.name}, glassEnabled=${s.quantizedGlassEnabled}`);
-        }
-        
+        // Ensure logic texture is initialized
         if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight) {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, gw, gh, 0, this.gl.RGB, this.gl.UNSIGNED_BYTE, null);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
         }
 
+        // 1. Prepare Data Logic (Occupancy & Source Characters)
         const now = fx.animFrame;
         const fadeIn = fx.getConfig('FadeInFrames') || 0;
         const fadeOut = fx.getConfig('FadeFrames') || 0;
 
-        const occupancy = new Uint8Array(gw * gh * 3);
+        const occupancy = new Uint8Array(gw * gh * 4);
         for (let gy = 0; gy < gh; gy++) {
             const rowOff = gy * gw;
             for (let gx = 0; gx < gw; gx++) {
                 const i = rowOff + gx;
-                const tidx = i * 3;
-                for (let L = 0; L < 3; L++) {
+                const tidx = i * 4;
+                for (let L = 0; L < 4; L++) {
                     const grid = fx.layerGrids[L];
                     const rGrid = fx.removalGrids[L];
                     let alpha = 0;
-                    
+
                     if (grid && grid[i] !== -1) {
                         const birth = grid[i];
-                        if (fadeIn > 0 && now < birth + fadeIn) {
-                            alpha = Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255);
-                        } else {
-                            alpha = 255;
-                        }
+                        alpha = (fadeIn > 0 && now < birth + fadeIn) 
+                            ? Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255) 
+                            : 255;
                     } else if (rGrid && rGrid[i] !== -1) {
                         const death = rGrid[i];
-                        if (fadeOut > 0 && now < death + fadeOut) {
-                            alpha = Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255);
-                        } else {
-                            // Only cleanup in the shadow pass or separate update to avoid partial updates
-                            alpha = 0;
-                        }
+                        alpha = (fadeOut > 0 && now < death + fadeOut)
+                            ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255)
+                            : 0;
                     }
                     occupancy[tidx + L] = alpha;
                 }
             }
         }
-                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGB, this.gl.UNSIGNED_BYTE, occupancy);
-                
-                // 2. Update Source Grid Texture (Characters)
-                if (fx.gridCacheCanvas) {
-                    if (fx.lastGridSeed !== this.lastSourceGridSeed) {
-                        this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-                        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-                        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fx.gridCacheCanvas);
-                        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
-                        this.lastSourceGridSeed = fx.lastGridSeed;
-                    }
-                }
-                
-                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
         
-                const prog = this.lineProgram;
-                this.gl.useProgram(prog);
-                
-                const scale = s.resolution;
-                const bs = fx.getBlockSize();
-                const cellPitchX = Math.max(1, bs.w);
-                const cellPitchY = Math.max(1, bs.h);
-                const { offX, offY } = fx._computeCenteredOffset(gw, gh, cellPitchX, cellPitchY);
-                
-                const screenStepX = d.cellWidth * s.stretchX * scale;
-                const screenStepY = d.cellHeight * s.stretchY * scale;
-                const gridPixW = fx.g.cols * d.cellWidth * scale; 
-                const gridPixH = fx.g.rows * d.cellHeight * scale;
-                const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
-                const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
-        
-                const uLoc = (n) => this.gl.getUniformLocation(prog, n);
-                this.gl.uniform2f(uLoc('u_logicGridSize'), gw, gh);
-                this.gl.uniform2f(uLoc('u_screenOrigin'), screenOriginX, screenOriginY);
-                this.gl.uniform2f(uLoc('u_screenStep'), screenStepX, screenStepY);
-                this.gl.uniform2f(uLoc('u_cellPitch'), cellPitchX, cellPitchY);
-                this.gl.uniform2f(uLoc('u_blockOffset'), offX, offY);
-                this.gl.uniform2f(uLoc('u_userBlockOffset'), fx.userBlockOffX || 0, fx.userBlockOffY || 0);
-                this.gl.uniform2f(uLoc('u_resolution'), this.fboWidth, this.fboHeight);
-                this.gl.uniform2f(uLoc('u_offset'), s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale);
-                this.gl.uniform2f(uLoc('u_sourceGridOffset'), s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale);
-                
-                const sampleOffX = fx.getLineGfxValue('SampleOffsetX');
-                const sampleOffY = fx.getLineGfxValue('SampleOffsetY');
-                this.gl.uniform2f(uLoc('u_sampleOffset'), sampleOffX * scale, sampleOffY * scale);
-                
-                this.gl.uniform3iv(uLoc('u_layerOrder'), new Int32Array(fx.layerOrder || [0, 1, 2]));
-                this.gl.uniform1i(uLoc('u_showInterior'), fx.getConfig('ShowInterior') !== false);
-                
-                const thickness = fx.getLineGfxValue('Thickness');
-                this.gl.uniform1f(uLoc('u_thickness'), thickness);
-                
-                const colHex = fx.getLineGfxValue('Color');
-                const col = Utils.hexToRgb(colHex || "#ffffff");
-                this.gl.uniform3f(uLoc('u_color'), col.r/255, col.g/255, col.b/255);
-                
-                const fColHex = fx.getLineGfxValue('FadeColor');
-                const fCol = Utils.hexToRgb(fColHex || "#eeff00");
-                this.gl.uniform3f(uLoc('u_fadeColor'), fCol.r/255, fCol.g/255, fCol.b/255);
+        this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+        this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
 
-                const intensity = fx.getLineGfxValue('Intensity');
-                this.gl.uniform1f(uLoc('u_intensity'), (intensity ?? 1.0) * fx.alpha); 
-                
-                const glow = fx.getLineGfxValue('Glow');
-                this.gl.uniform1f(uLoc('u_glow'), glow ?? 1.0);
-                
-                this.gl.uniform1f(uLoc('u_saturation'), fx.getLineGfxValue('Saturation'));
-                this.gl.uniform1f(uLoc('u_brightness'), fx.getLineGfxValue('Brightness') * (s.brightness ?? 1.0));
-                this.gl.uniform1f(uLoc('u_additiveStrength'), fx.getLineGfxValue('AdditiveStrength'));
-                this.gl.uniform1f(uLoc('u_sharpness'), fx.getLineGfxValue('Sharpness'));
-                this.gl.uniform1f(uLoc('u_glowFalloff'), fx.getLineGfxValue('GlowFalloff'));
-                this.gl.uniform1f(uLoc('u_roundness'), fx.getLineGfxValue('Roundness'));
-                this.gl.uniform1f(uLoc('u_maskSoftness'), fx.getLineGfxValue('MaskSoftness'));
-        
-        // Glass Rendering Uniforms
-        const glassEnabled = s.quantizedGlassEnabled;
-        if (this.config.state.logErrors && this.animFrame % 60 === 0) {
-            console.log(`[WebGLRenderer] _renderQuantizedLineGfx: glassEnabled=${glassEnabled}, alpha=${fx.alpha.toFixed(2)}, intensity=${s.quantizedLineGfxIntensity}`);
-        }
-        
-        this.gl.uniform1i(uLoc('u_glassEnabled'), glassEnabled ? 1 : 0);
-                this.gl.uniform1f(uLoc('u_glassBodyOpacity'), s.quantizedGlassBodyOpacity);
-                this.gl.uniform1f(uLoc('u_glassEdgeGlow'), s.quantizedGlassEdgeGlow);
-                this.gl.uniform1f(uLoc('u_glassRefraction'), s.quantizedGlassRefraction);
-                this.gl.uniform1f(uLoc('u_glassChromaticAberration'), s.quantizedGlassChromaticAberration);
-                this.gl.uniform1f(uLoc('u_glassFresnel'), s.quantizedGlassFresnel);
-                this.gl.uniform1f(uLoc('u_glassBevel'), s.quantizedGlassBevel);
-                this.gl.uniform1f(uLoc('u_glassOverlapRefraction'), s.quantizedGlassOverlapRefraction);
-                this.gl.uniform1f(uLoc('u_glassOverlapGlow'), s.quantizedGlassOverlapGlow);
-                this.gl.uniform1f(uLoc('u_glassOverlapOpacity'), s.quantizedGlassOverlapOpacity);
-                this.gl.uniform1f(uLoc('u_glassBloom'), s.quantizedGlassBloom);
-                this.gl.uniform1f(uLoc('u_glassLensCurvature'), s.quantizedGlassLensCurvature);
-                this.gl.uniform1f(uLoc('u_glassDarkness'), s.quantizedGlassDarkness * fx.alpha);
-
-                this.gl.activeTexture(this.gl.TEXTURE1);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-                this.gl.uniform1i(this._u(prog, 'u_logicGrid'), 1);
-        
-                this.gl.activeTexture(this.gl.TEXTURE3);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex); 
-                this.gl.uniform1i(this._u(prog, 'u_shadowMask'), 3);
-
-                this.gl.activeTexture(this.gl.TEXTURE4);
+        // Upload Source Grid Texture (Characters)
+        if (fx.gridCacheCanvas) {
+            // Force upload if seed changed or if it's the first time
+            if (fx.lastGridSeed !== this.lastSourceGridSeed || this.lastSourceGridSeed === -1) {
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-                this.gl.uniform1i(this._u(prog, 'u_sourceGrid'), 4);
-        
-                // PASS 1: GENERATE
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
-                this.gl.viewport(0, 0, this.fboWidth, this.fboHeight);
-                
-                this.gl.activeTexture(this.gl.TEXTURE2);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-
-                this.gl.enable(this.gl.BLEND);
-                this.gl.blendFunc(this.gl.ZERO, this.gl.SRC_COLOR); 
-                const persistence = fx.getLineGfxValue('Persistence') ?? 0.0;
-                this.gl.uniform1f(this._u(prog, 'u_persistence'), persistence); 
-                
-                this.gl.useProgram(this.colorProgram);
-                this.gl.uniform4f(this._u(this.colorProgram, 'u_color'), persistence, persistence, persistence, 1.0);
-                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-        
-                this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
-                this.gl.useProgram(prog);
-                this.gl.uniform1i(this._u(prog, 'u_mode'), 0); 
-                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-        
-                // PASS 2: COMPOSITE
-                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO || this.fboA2);
-                this.gl.disable(this.gl.BLEND);
-                
-                this.gl.uniform1i(this._u(prog, 'u_mode'), 1);
-                this.gl.activeTexture(this.gl.TEXTURE0);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex); 
-                this.gl.uniform1i(this._u(prog, 'u_characterBuffer'), 0);
-
-                this.gl.activeTexture(this.gl.TEXTURE2);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.texLinePersist);
-                this.gl.uniform1i(this._u(prog, 'u_persistenceBuffer'), 2);
-                
-                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-        
-                // Final Cleanup to prevent feedback loops in the next frame or other passes
-                this.gl.activeTexture(this.gl.TEXTURE0); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-                this.gl.activeTexture(this.gl.TEXTURE1); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-                this.gl.activeTexture(this.gl.TEXTURE2); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-                this.gl.activeTexture(this.gl.TEXTURE3); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-                this.gl.activeTexture(this.gl.TEXTURE4); this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-
-                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-                return true;
+                this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fx.gridCacheCanvas);
+                this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
+                this.lastSourceGridSeed = fx.lastGridSeed;
             }
+        }
+        this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
+
+        const prog = this.lineProgram;
+        if (!prog) return false;
+
+        // 2. Compute Transform State
+        const scale = s.resolution || 1.0;
+        const gridPixW = fx.g.cols * d.cellWidth * scale;
+        const gridPixH = fx.g.rows * d.cellHeight * scale;
+        const screenStepX = d.cellWidth * s.stretchX * scale;
+        const screenStepY = d.cellHeight * s.stretchY * scale;
+        const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
+        const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
+
+        const sharedUniforms = {
+            u_logicGridSize: fxState.logicGridSize,
+            u_screenOrigin: [screenOriginX, screenOriginY],
+            u_screenStep: [screenStepX, screenStepY],
+            u_cellPitch: fxState.cellPitch,
+            u_blockOffset: fxState.blockOffset,
+            u_userBlockOffset: fxState.userBlockOffset,
+            u_resolution: [this.fboWidth, this.fboHeight],
+            u_offset: [s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale],
+            u_layerOrder: fxState.layerOrder,
+            u_showInterior: fxState.showInterior,
+            u_logicGrid: 1,
+            u_shadowMask: 3,
+            u_sourceGrid: 4,
+            u_intensity: fxState.intensity,
+            u_thickness: fxState.thickness,
+            u_glow: fxState.glow,
+            u_tintOffset: fxState.tintOffset,
+            u_sharpness: fxState.sharpness,
+            u_glowFalloff: fxState.glowFalloff,
+            u_roundness: fxState.roundness,
+            u_maskSoftness: fxState.maskSoftness,
+            u_brightness: fxState.brightness,
+            u_saturation: fxState.saturation,
+            u_additiveStrength: fxState.additiveStrength,
+            u_color: fxState.color,
+            u_fadeColor: fxState.fadeColor
+        };
+
+        const commonTextures = {
+            1: this.logicGridTexture,
+            3: this.shadowMaskTex,
+            4: this.sourceGridTexture
+        };
+
+        // --- PASS 1: GENERATE & FADE ---
+        // A) Clear NORMAL (Red) for this frame, while DECAYING existing FADE (Green)
+        this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, 
+            { u_color: [0.0, fxState.persistence, 0.0, 1.0] },
+            {},
+            { src: this.gl.ZERO, dst: this.gl.SRC_COLOR }
+        );
+
+        // B) Add new lines (Mode 0)
+        this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE });
+
+        // --- PASS 2: COMPOSITE ---
+        const compUniforms = { 
+            ...sharedUniforms, 
+            u_mode: 1,
+            u_characterBuffer: 0,
+            u_persistenceBuffer: 2,
+            u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
+            u_sampleOffset: fxState.sampleOffset,
+            u_glassEnabled: s.quantizedGlassEnabled,
+            u_glassBodyOpacity: s.quantizedGlassBodyOpacity,
+            u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
+            u_glassRefraction: s.quantizedGlassRefraction,
+            u_glassChromaticAberration: s.quantizedGlassChromaticAberration,
+            u_glassFresnel: s.quantizedGlassFresnel,
+            u_glassBevel: s.quantizedGlassBevel,
+            u_glassOverlapRefraction: s.quantizedGlassOverlapRefraction,
+            u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
+            u_glassOverlapOpacity: s.quantizedGlassOverlapOpacity,
+            u_glassBloom: s.quantizedGlassBloom,
+            u_glassLensCurvature: s.quantizedGlassLensCurvature,
+            u_glassDarkness: s.quantizedGlassDarkness * fx.alpha
+        };
+
+        const compTextures = {
+            ...commonTextures,
+            0: sourceTex,
+            2: this.texLinePersist
+        };
+
+        this._drawFullscreenPass(prog, targetFBO || this.fboA2, compUniforms, compTextures, null);
+
+        // Final Cleanup
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+        return true;
+    }
 
             _runBlur(sourceTex, horizontal, strength, width, height, opacity = 1.0, extract = false) {
                 if (!this.bloomProgram) return;
@@ -1831,15 +1816,17 @@ class WebGLRenderer {
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
             if (effActive && effActive[i]) {
                 if (effActive[i] === 3) {
-                    // SHADOW MODE
-                    m16[u16Off + 0] = mapChar(gChars[i]);
-                    m32[baseOff + 1] = gColors[i];
-                    mF32[baseOff + 2] = 1.0; 
-                    mU8[u8Off + 20] = gDecays[i];
+                    // SHADOW MODE reveal (Quantized Effects)
+                    const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+                    const char = sGrid ? sGrid.chars[i] : gChars[i];
+                    m16[u16Off + 0] = mapChar(char);
+                    m32[baseOff + 1] = sGrid ? sGrid.colors[i] : gColors[i];
+                    mF32[baseOff + 2] = sGrid ? sGrid.alphas[i] : 1.0;
+                    mU8[u8Off + 20] = sGrid ? sGrid.decays[i] : gDecays[i];
+                    m16[u16Off + 11] = sGrid ? (sGrid.maxDecays ? sGrid.maxDecays[i] : 0) : (gMaxDecays ? gMaxDecays[i] : 0);
+                    mF32[baseOff + 3] = (sGrid ? sGrid.glows[i] : gGlows[i]) + (gEnvGlows ? gEnvGlows[i] : 0);
                     
-                    let eAlpha = effAlphas[i];
-                    if (eAlpha > 0.99) eAlpha = 0.99;
-                    mF32[baseOff + 4] = 5.0 + eAlpha; 
+                    mF32[baseOff + 4] = 0.0; // Standard render mode
                     m16[u16Off + 1] = 65535;
                 } else if (effActive[i] === 2) {
                     // OVERLAY MODE

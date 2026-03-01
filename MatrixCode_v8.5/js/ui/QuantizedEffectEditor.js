@@ -9,9 +9,9 @@ class QuantizedEffectEditor {
         this.dom = null;
         this.currentTool = 'select'; 
         this.currentFace = 'N'; 
-        this.currentLayer = 0; // 0, 1, 2
-        this.visibleLayers = [true, true, true];
-        this.layerColors = ['#0f0', '#0af', '#f0c']; // Green, Blue, Magenta
+        this.currentLayer = 0; // 0, 1, 2, 3
+        this.visibleLayers = [true, true, true, true];
+        this.layerColors = ['#0f0', '#0af', '#f0c', '#ff0']; // Green, Blue, Magenta, Yellow
         this.hoverBlock = null;
 
         this._boundMouseDown = this._onMouseDown.bind(this);
@@ -1083,14 +1083,14 @@ class QuantizedEffectEditor {
         layerBtnGroup.style.marginBottom = '10px';
 
         this.layerBtns = [];
-        [0, 1, 2].forEach(l => {
+        [0, 1, 2, 3].forEach(l => {
             const btn = this._createBtn(`L${l}`, () => {
                 this.currentLayer = l;
                 this._updateUI();
                 if (this.isStandalone) this._sendRemote({ type: 'setLayer', layer: l });
             });
             btn.style.flex = '1';
-            btn.title = `Select Layer ${l} for drawing. L0 is base, L1-L2 are overlays.`;
+            btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay, L2-L3 are intersection revealers.`;
             layerBtnGroup.appendChild(btn);
             this.layerBtns[l] = btn;
         });
@@ -1167,11 +1167,11 @@ class QuantizedEffectEditor {
                 this.ui.notifications.show(`${count} blocks merged to Layer 0`, 'success');
                 this._broadcastSync();
             } else {
-                this.ui.notifications.show("No blocks found in selection on Layers 1 or 2", "info");
+                this.ui.notifications.show("No blocks found in selection on Layers 1, 2, or 3", "info");
             }
         });
         btnMergeSel.style.width = '100%';
-        btnMergeSel.title = "Move only selected blocks from L1/L2 to L0.";
+        btnMergeSel.title = "Move only selected blocks from L1-L3 to L0.";
         layerControls.appendChild(btnMergeSel);
 
         // Show layer toggles
@@ -1187,7 +1187,7 @@ class QuantizedEffectEditor {
         showLayerGroup.style.flexDirection = 'column';
         showLayerGroup.style.gap = '2px';
         
-        [0, 1, 2].forEach(l => {
+        [0, 1, 2, 3].forEach(l => {
             const lbl = document.createElement('label');
             lbl.style.display = 'flex';
             lbl.style.alignItems = 'center';
@@ -1296,6 +1296,7 @@ class QuantizedEffectEditor {
             <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,255,0,0.5);margin-right:5px;border:1px solid #0f0;"></span>Add (L0)</div>
             <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,200,255,0.5);margin-right:5px;border:1px solid #0af;"></span>Add (L1)</div>
             <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,200,0.5);margin-right:5px;border:1px solid #f0c;"></span>Add (L2)</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,0,0.5);margin-right:5px;border:1px solid #ff0;"></span>Add (L3)</div>
             <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,0,0.5);margin-right:5px;border:1px solid #f00;"></span>Remove</div>
             <div style="display:flex;align-items:center;"><span style="display:inline-block;width:10px;height:10px;background:none;border:1px dashed #0088FF;margin-right:5px;"></span>Selection</div>
         `;
