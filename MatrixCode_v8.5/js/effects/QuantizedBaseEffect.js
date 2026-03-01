@@ -357,22 +357,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         return this._visibleEmptyCount <= 0;
     }
 
-    _updateLayerOrder(updatedLayer) {
-        if (updatedLayer === undefined || updatedLayer === 0) return false;
-        
-        // If it's already in the lead position (index 1), no change needed
-        if (this.layerOrder[1] === updatedLayer) return false;
-
-        const idx = this.layerOrder.indexOf(updatedLayer);
-        if (idx !== -1) {
-            this.layerOrder.splice(idx, 1);
-            // Insert it at index 1 (right behind Layer 0)
-            this.layerOrder.splice(1, 0, updatedLayer);
-            return true;
-        }
-        return false;
-    }
-
     _getLooselyCentralAnchors(targetLayer, sampleSize = 30) {
         const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
         if (anchors.length === 0) return [];
@@ -1056,12 +1040,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             const targetGrid = this.layerGrids[layerIdx];
             const invGrid = this.layerInvisibleGrids[layerIdx];
             
-            if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
-                if (this._updateLayerOrder(layerIdx)) {
-                    this._gridsDirty = true;
-                }
-            }
-
             const x1 = Math.min(op.x1, op.x2);
             const x2 = Math.max(op.x1, op.x2);
             const y1 = Math.min(op.y1, op.y2);
@@ -1130,12 +1108,16 @@ class QuantizedBaseEffect extends AbstractEffect {
             const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
             const l3Active = (layerGrids[3] && layerGrids[3][idx] !== -1);
 
-            // Calculate finalVal as the most recent startFrame from all contributing layers
+            // Calculate finalVal using fixed layer priority: Layer 0 > 1 > (2 & 3 intersection)
+            // We no longer favor the "most recent" frame; this prevents activation time from affecting layering.
             let bestFrame = -1;
-            if (l0Active) bestFrame = Math.max(bestFrame, layerGrids[0][idx]);
-            if (l1Active) bestFrame = Math.max(bestFrame, layerGrids[1][idx]);
-            if (l2Active && l3Active) {
-                bestFrame = Math.max(bestFrame, Math.max(layerGrids[2][idx], layerGrids[3][idx]));
+            if (l0Active) {
+                bestFrame = layerGrids[0][idx];
+            } else if (l1Active) {
+                bestFrame = layerGrids[1][idx];
+            } else if (l2Active && l3Active) {
+                // For the intersection, we use the later of the two contributions as the birth frame
+                bestFrame = Math.max(layerGrids[2][idx], layerGrids[3][idx]);
             }
             finalVal = bestFrame;
 
@@ -1707,6 +1689,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
 
                 // 3. L2&L3 boundary normal if not covered by L0 or L1
+                // Standalone L2 or L3 perimeters are invisible; only draw at their intersection.
                 if (a23 !== b23) {
                     const covered = (a0 && b0) || (a1 && b1);
                     if (!covered) isNorm = true;
@@ -1738,6 +1721,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
 
                 // 3. L2&L3 boundary normal if not covered by L0 or L1
+                // Standalone L2 or L3 perimeters are invisible; only draw at their intersection.
                 if (a23 !== b23) {
                     const covered = (a0 && b0) || (a1 && b1);
                     if (!covered) isNorm = true;
@@ -2697,8 +2681,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
         
-        if (layer !== 0) this._updateLayerOrder(layer);
-
         const op = {
             type: 'addSmart', 
             x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,

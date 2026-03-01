@@ -416,37 +416,47 @@ class QuantizedRenderer {
             const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
 
             // 1. Layer 0 Perimeter: Always Normal
-            if (a0 !== b0) {
+            if ((a0 !== -1) !== (b0 !== -1)) {
                 isVisibleNormally = true;
                 edgeBirthFrame = Math.max(a0, b0);
             }
 
             // 2. Layer 1 Perimeter: Normal if not both sides are L0, else Dimmed (Fade Color)
-            if (a1 !== b1) {
+            if ((a1 !== -1) !== (b1 !== -1)) {
                 if (a0 !== -1 && b0 !== -1) {
                     isVisibleDimly = true;
                     dimBirthFrame = Math.max(a1, b1);
                 } else {
                     isVisibleNormally = true;
-                    edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(a1, b1));
+                    // Fixed Priority: Only set frame if not already established by a foundation layer (L0)
+                    if (edgeBirthFrame === -1) {
+                        edgeBirthFrame = Math.max(a1, b1);
+                    }
                 }
             }
 
             // 3. Layer 2 & 3 Intersection Perimeter: Normal if not covered by L0 or L1
+            // Perimeter borders should not be shown on layer 2 or 3 alone - they are invisible.
+            // Exception: When they overlap (intersection), draw the perimeter of that intersection area.
             if (a23 !== b23) {
+                // An edge exists in the intersection mask. Draw it unless it's "internal" to a higher layer.
+                // If BOTH sides of this edge are already covered by L0 or L1, the intersection border is hidden.
                 const isCovered = (a0 !== -1 && b0 !== -1) || (a1 !== -1 && b1 !== -1);
                 if (!isCovered) {
                     isVisibleNormally = true;
-                    // For birth frame, we take the max of the contributing sub-layer frames
-                    const getB23 = (tx, ty) => {
-                        if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
-                        const idx = ty * blocksX + tx;
-                        if (fx.layerGrids[2][idx] !== -1 && fx.layerGrids[3][idx] !== -1) {
-                            return Math.max(fx.layerGrids[2][idx], fx.layerGrids[3][idx]);
-                        }
-                        return -1;
-                    };
-                    edgeBirthFrame = Math.max(edgeBirthFrame, Math.max(getB23(ax, ay), getB23(bx, by)));
+                    // Fixed Priority: Only set frame if not already established by L0 or L1
+                    if (edgeBirthFrame === -1) {
+                        // For birth frame, we take the max of the contributing sub-layer frames
+                        const getB23 = (tx, ty) => {
+                            if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
+                            const idx = ty * blocksX + tx;
+                            if (fx.layerGrids[2] && fx.layerGrids[3] && fx.layerGrids[2][idx] !== -1 && fx.layerGrids[3][idx] !== -1) {
+                                return Math.max(fx.layerGrids[2][idx], fx.layerGrids[3][idx]);
+                            }
+                            return -1;
+                        };
+                        edgeBirthFrame = Math.max(getB23(ax, ay), getB23(bx, by));
+                    }
                 }
             }
 

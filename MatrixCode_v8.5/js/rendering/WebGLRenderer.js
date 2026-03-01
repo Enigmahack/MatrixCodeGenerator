@@ -620,39 +620,79 @@ class WebGLRenderer {
                     vec4 occSE = getOccupancy(nearestI + vec2(0.0, 0.0));
 
                     int L0 = u_layerOrder.x; int L1 = u_layerOrder.y;
+                    int L2 = u_layerOrder.z; int L3 = u_layerOrder.w;
+                    
                     float a0NW = getLayerVal(occNW, L0); float a0NE = getLayerVal(occNE, L0);
                     float a0SW = getLayerVal(occSW, L0); float a0SE = getLayerVal(occSE, L0);
+                    float a1NW = getLayerVal(occNW, L1); float a1NE = getLayerVal(occNE, L1);
+                    float a1SW = getLayerVal(occSW, L1); float a1SE = getLayerVal(occSE, L1);
 
-                    for(int i=0; i<4; i++) {
-                        int L;
-                        if (i == 0) L = u_layerOrder.x;
-                        else if (i == 1) L = u_layerOrder.y;
-                        else if (i == 2) L = u_layerOrder.z;
-                        else L = u_layerOrder.w;
+                    for(int i=0; i<3; i++) {
+                        float aNW, aNE, aSW, aSE;
+                        bool isL1 = (i == 1);
+                        bool isL23 = (i == 2);
+                        
+                        if (i == 0) {
+                            aNW = a0NW; aNE = a0NE; aSW = a0SW; aSE = a0SE;
+                        } else if (i == 1) {
+                            aNW = a1NW; aNE = a1NE; aSW = a1SW; aSE = a1SE;
+                        } else {
+                            aNW = getLayerVal(occNW, L2) * getLayerVal(occNW, L3);
+                            aNE = getLayerVal(occNE, L2) * getLayerVal(occNE, L3);
+                            aSW = getLayerVal(occSW, L2) * getLayerVal(occSW, L3);
+                            aSE = getLayerVal(occSE, L2) * getLayerVal(occSE, L3);
+                        }
 
-                        float aNW = getLayerVal(occNW, L); float aNE = getLayerVal(occNE, L);
-                        float aSW = getLayerVal(occSW, L); float aSE = getLayerVal(occSE, L);
-                        bool isL1 = (L == L1);
+                        float oNW = step(0.01, aNW); float oNE = step(0.01, aNE);
+                        float oSW = step(0.01, aSW); float oSE = step(0.01, aSE);
 
-                        if (abs(aNW - aNE) > 0.01) {
+                        if (abs(oNW - oNE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, -u_cellPitch.y), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
-                            if (isL1 && a0NW > 0.01 && a0NE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                            if (isL1 && a0NW > 0.01 && a0NE > 0.01) {
+                                fadeMax = max(fadeMax, val);
+                            } else if (isL23) {
+                                bool covered = (a0NW > 0.01 && a0NE > 0.01) || (a1NW > 0.01 && a1NE > 0.01);
+                                if (!covered) normalMax = max(normalMax, val);
+                            } else {
+                                normalMax = max(normalMax, val);
+                            }
                         }
-                        if (abs(aSW - aSE) > 0.01) {
+                        if (abs(oSW - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
-                            if (isL1 && a0SW > 0.01 && a0SE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                            if (isL1 && a0SW > 0.01 && a0SE > 0.01) {
+                                fadeMax = max(fadeMax, val);
+                            } else if (isL23) {
+                                bool covered = (a0SW > 0.01 && a0SE > 0.01) || (a1SW > 0.01 && a1SE > 0.01);
+                                if (!covered) normalMax = max(normalMax, val);
+                            } else {
+                                normalMax = max(normalMax, val);
+                            }
                         }
-                        if (abs(aNW - aSW) > 0.01) {
+                        if (abs(oNW - oSW) > 0.5) {
                             float d = getSDF(p, vec2(-u_cellPitch.x, 0.0), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
-                            if (isL1 && a0NW > 0.01 && a0SW > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                            if (isL1 && a0NW > 0.01 && a0SW > 0.01) {
+                                fadeMax = max(fadeMax, val);
+                            } else if (isL23) {
+                                bool covered = (a0NW > 0.01 && a0SW > 0.01) || (a1NW > 0.01 && a1SW > 0.01);
+                                if (!covered) normalMax = max(normalMax, val);
+                            } else {
+                                normalMax = max(normalMax, val);
+                            }
                         }
-                        if (abs(aNE - aSE) > 0.01) {
+                        if (abs(oNE - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
-                            if (isL1 && a0NE > 0.01 && a0SE > 0.01) fadeMax = max(fadeMax, val); else normalMax = max(normalMax, val);
+                            if (isL1 && a0NE > 0.01 && a0SE > 0.01) {
+                                fadeMax = max(fadeMax, val);
+                            } else if (isL23) {
+                                bool covered = (a0NE > 0.01 && a0SE > 0.01) || (a1NE > 0.01 && a1SE > 0.01);
+                                if (!covered) normalMax = max(normalMax, val);
+                            } else {
+                                normalMax = max(normalMax, val);
+                            }
                         }
                     }
                     fragColor = vec4(normalMax, fadeMax * (1.0 - u_persistence), 0.0, 1.0);

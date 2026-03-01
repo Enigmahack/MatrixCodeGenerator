@@ -63,7 +63,6 @@ class QuantizedSequence {
                 const idx = ctx.getIdx(cx + dx, cy + dy);
                 if (idx >= 0 && fx.layerGrids[l]) {
                     fx.layerGrids[l][idx] = frame;
-                    if (l !== 0 && fx._updateLayerOrder) fx._updateLayerOrder(l);
                 }
             },
             setLayerInactive: (dx, dy, l) => {
