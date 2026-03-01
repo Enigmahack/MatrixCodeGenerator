@@ -297,6 +297,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.renderGrid = new Int32Array(blocksX * blocksY);
         }
         this.renderGrid.fill(-1);
+
+        if (!this.shadowRevealGrid || this.shadowRevealGrid.length !== blocksX * blocksY) {
+            this.shadowRevealGrid = new Uint8Array(blocksX * blocksY);
+        }
+        this.shadowRevealGrid.fill(0);
         
         for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== blocksX * blocksY) {
@@ -943,9 +948,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 let isInsideBlock = false;
                 if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
                     const bIdx = by * distW + bx;
-                    // Tag for Layer 0 and Layer 1 as requested
-                    if ((this.layerGrids[0] && this.layerGrids[0][bIdx] !== -1) || 
-                        (this.layerGrids[1] && this.layerGrids[1][bIdx] !== -1)) {
+                    // REVEAL MODE: Use the consolidated shadowRevealGrid (Layers 0 & 1 Perimeter)
+                    if (this.shadowRevealGrid && this.shadowRevealGrid[bIdx] === 1) {
                         isInsideBlock = true;
                     }
                 }
@@ -1027,6 +1031,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this.layerGrids[i].fill(-1);
                 this._gridsDirty = true;
             }
+            if (!this.layerInvisibleGrids) this.layerInvisibleGrids = [];
+            if (!this.layerInvisibleGrids[i] || this.layerInvisibleGrids[i].length !== totalBlocks) {
+                this.layerInvisibleGrids[i] = new Int8Array(totalBlocks);
+                this.layerInvisibleGrids[i].fill(0);
+                this._gridsDirty = true;
+            }
         }
         if (!this.maskOps) return;
 
@@ -1044,6 +1054,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             opsProcessed++;
             const layerIdx = (op.layer !== undefined && op.layer >= 0 && op.layer <= 3) ? op.layer : 0;
             const targetGrid = this.layerGrids[layerIdx];
+            const invGrid = this.layerInvisibleGrids[layerIdx];
             
             if (layerIdx !== 0 && (op.type === 'add' || op.type === 'addSmart' || op.type === 'removeBlock')) {
                 if (this._updateLayerOrder(layerIdx)) {
@@ -1068,6 +1079,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
                         targetGrid[idx] = (op.fade === false) ? -1000 : (op.startFrame || 0);
+                        if (invGrid) invGrid[idx] = op.invisible ? 1 : 0;
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
                 }
@@ -1082,10 +1094,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const idx = rowOff + bx;
                         if (op.layer !== undefined) {
                             targetGrid[idx] = -1;
+                            if (invGrid) invGrid[idx] = 0;
                             if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.expansionPhase;
                         } else {
                             for (let l = 0; l < 4; l++) {
                                 this.layerGrids[l][idx] = -1;
+                                if (this.layerInvisibleGrids[l]) this.layerInvisibleGrids[l][idx] = 0;
                                 if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.expansionPhase;
                             }
                         }
@@ -1185,6 +1199,30 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._lastPitchY = Math.max(1, bs.h);
 
         this._updateExpansionStatus();
+        this._updateShadowRevealGrid();
+    }
+
+    _updateShadowRevealGrid() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h || !this.shadowRevealGrid) return;
+
+        // 1. Create a temporary "Main Mass" grid for Layers 0 & 1
+        const mainMass = new Int32Array(w * h);
+        mainMass.fill(-1);
+        const g0 = this.layerGrids[0], g1 = this.layerGrids[1];
+        for (let i = 0; i < w * h; i++) {
+            if ((g0 && g0[i] !== -1) || (g1 && g1[i] !== -1)) {
+                mainMass[i] = 1;
+            }
+        }
+
+        // 2. Compute "Outside" area for this specific mass
+        const outside = this.renderer.computeTrueOutside(this, w, h, mainMass);
+
+        // 3. Shadow Reveal = Everything that is NOT outside (Blocks + Enclosed Holes)
+        for (let i = 0; i < w * h; i++) {
+            this.shadowRevealGrid[i] = (outside[i] === 0) ? 1 : 0;
+        }
     }
 
     _computeCenteredOffset(blocksX, blocksY, pitchX, pitchY) {
@@ -2547,7 +2585,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
-    _spawnBlockCore(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
+    _spawnBlockCore(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false, invisible = false) {
         const bs = this.getBlockSize();
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
@@ -2645,7 +2683,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             startFrame: this.animFrame, 
             startPhase: this.expansionPhase, 
             layer, id, isShifter,
-            dist: Math.abs(x) + Math.abs(y)
+            dist: Math.abs(x) + Math.abs(y),
+            invisible: invisible // Record for local state
         };
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
@@ -2660,7 +2699,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             layer: layer,
             blockId: id,
             isShifter: isShifter,
-            fade: !suppressFades
+            fade: !suppressFades,
+            invisible: invisible // NEW: Record invisibility in op
         };
         this.maskOps.push(op);
         this._gridsDirty = true;
@@ -2672,12 +2712,54 @@ class QuantizedBaseEffect extends AbstractEffect {
             const seqOp = {
                 op: (w === 1 && h === 1) ? 'addSmart' : 'addRect',
                 args: (w === 1 && h === 1) ? [x, y] : [x, y, x + w - 1, y + h - 1],
-                layer: layer
+                layer: layer,
+                invisible: invisible // Record in sequence too
             };
             this.sequence[targetIdx].push(seqOp);
         }
         
         this._writeToGrid(x, y, w, h, (op.fade === false ? -1000 : this.animFrame), layer);
+
+        // NEW: Inject streams into Shadow Simulation for Layer 0 and 1
+        if (this.shadowSim && (layer === 0 || layer === 1)) {
+            const sm = this.shadowSim.streamManager;
+            const blocksX = this.logicGridW;
+            const blocksY = this.logicGridH;
+            const cx = Math.floor(blocksX / 2);
+            const cy = Math.floor(blocksY / 2);
+            const bs = this.getBlockSize();
+            
+            // Randomly seed new streams within the block's area in the shadow world
+            // to ensure visual density as the pulse expands.
+            for (let ly = 0; ly < h; ly++) {
+                for (let lx = 0; lx < w; lx++) {
+                    if (Math.random() < 0.3) { // 30% chance per logic cell
+                        const bx_abs = cx + x + lx;
+                        const by_abs = cy + y + ly;
+                        const { offX, offY } = this._computeCenteredOffset(blocksX, blocksY, bs.w, bs.h);
+                        
+                        // Map logic block to cell coordinates
+                        const destBx = bx_abs - offX + (this.userBlockOffX || 0);
+                        const destBy = by_abs - offY + (this.userBlockOffY || 0);
+                        
+                        const startCellX = Math.round(destBx * bs.w);
+                        const startCellY = Math.round(destBy * bs.h);
+                        const endCellX = Math.round((destBx + 1) * bs.w);
+                        const endCellY = Math.round((destBy + 1) * bs.h);
+                        
+                        // Spawn a tracer at a random position within this logic block
+                        const rx = Math.floor(Math.random() * (endCellX - startCellX)) + startCellX;
+                        const ry = Math.floor(Math.random() * (endCellY - startCellY)) + startCellY;
+                        
+                        if (rx >= 0 && rx < this.g.cols && ry >= 0 && ry < this.g.rows) {
+                            if (sm.addActiveStream) {
+                                sm.addActiveStream(rx, ry, 'tracer');
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         return id;
     }

@@ -155,19 +155,20 @@ class QuantizedSequence {
      */
     _handleOp(fx, op, args, layer, now, nextIdx, ctx) {
         const { setLocalActive, setLocalInactive, setLayerActive, setLayerInactive } = ctx;
+        const invisible = !!args.invisible; // Extract from args if present
 
         if (op === 'add' || op === 'addSmart') {
             const [dx, dy] = args;
             setLocalActive(dx, dy);
             setLayerActive(dx, dy, layer, now);
-            fx.maskOps.push({ type: op, x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy) });
+            fx.maskOps.push({ type: op, x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer, invisible });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy), invisible });
         } else if (op === 'addRect') {
             const [dx1, dy1, dx2, dy2] = args;
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
-            fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y) });
+            fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer, invisible });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y), invisible });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     setLocalActive(x + gx, y + gy);

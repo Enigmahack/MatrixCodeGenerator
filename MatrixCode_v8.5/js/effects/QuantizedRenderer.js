@@ -391,6 +391,12 @@ class QuantizedRenderer {
             const getLVal = (l, tx, ty) => {
                 if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
                 const idx = ty * blocksX + tx;
+                
+                // NEW: Respect block invisibility
+                if (fx.layerInvisibleGrids && fx.layerInvisibleGrids[l] && fx.layerInvisibleGrids[l][idx] === 1) {
+                    return -1;
+                }
+
                 return fx.layerGrids[l] ? fx.layerGrids[l][idx] : -1;
             };
 
@@ -722,26 +728,29 @@ class QuantizedRenderer {
         ctx.fill();
     }
 
-    computeTrueOutside(fx, blocksX, blocksY) {
-        if (fx._outsideMap && fx._outsideMapWidth === blocksX && fx._outsideMapHeight === blocksY && !fx._outsideMapDirty) {
+    computeTrueOutside(fx, blocksX, blocksY, gridOverride = null) {
+        if (!gridOverride && fx._outsideMap && fx._outsideMapWidth === blocksX && fx._outsideMapHeight === blocksY && !fx._outsideMapDirty) {
             return fx._outsideMap;
         }
 
         const size = blocksX * blocksY;
         this._ensureBfsQueueSize(size);
         
-        if (!fx._outsideMap || fx._outsideMap.length !== size) {
+        if (!gridOverride && (!fx._outsideMap || fx._outsideMap.length !== size)) {
             fx._outsideMap = new Uint8Array(size);
         }
-        const status = fx._outsideMap;
+        
+        const status = gridOverride ? new Uint8Array(size) : fx._outsideMap;
         status.fill(0);
+
+        const grid = gridOverride || fx.renderGrid;
 
         const queue = this._bfsQueue;
         let head = 0;
         let tail = 0;
 
         const add = (idx) => {
-            if (status[idx] === 0 && fx.renderGrid[idx] === -1) { 
+            if (status[idx] === 0 && grid[idx] === -1) { 
                 status[idx] = 1;
                 queue[tail++] = idx;
             }

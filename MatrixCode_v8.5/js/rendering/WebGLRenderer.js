@@ -1372,30 +1372,18 @@ class WebGLRenderer {
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
 
-        // 1. Prepare Logic Texture
-        const now = fx.animFrame;
-        const fadeIn = fx.getConfig('FadeInFrames') || 0;
-        const fadeOut = fx.getConfig('FadeFrames') || 0;
-
+                // 1. Prepare Logic Texture using consolidated shadowRevealGrid
+        // We only use Layers 0 and 1 for the shadow reveal perimeter as requested.
         const occupancy = new Uint8Array(gw * gh * 4);
-        for (let i = 0; i < gw * gh; i++) {
-            for (let L = 0; L < 4; L++) {
-                const grid = fx.layerGrids[L];
-                const rGrid = fx.removalGrids[L];
-                let alpha = 0;
-                
-                if (grid && grid[i] !== -1) {
-                    const birth = grid[i];
-                    alpha = (fadeIn > 0 && now < birth + fadeIn) 
-                        ? Math.floor(Math.max(0, Math.min(1, (now - birth) / fadeIn)) * 255)
-                        : 255;
-                } else if (rGrid && rGrid[i] !== -1) {
-                    const death = rGrid[i];
-                    alpha = (fadeOut > 0 && now < death + fadeOut)
-                        ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / fadeOut)) * 255)
-                        : 0;
-                }
-                occupancy[i * 4 + L] = alpha;
+        if (fx.shadowRevealGrid) {
+            for (let i = 0; i < gw * gh; i++) {
+                // If it's in the filled perimeter of L0/L1, mark it as active
+                const val = (fx.shadowRevealGrid[i] === 1) ? 255 : 0;
+                // We fill all channels to ensure maskSum is non-zero regardless of u_layerOrder
+                occupancy[i * 4 + 0] = val;
+                occupancy[i * 4 + 1] = val;
+                occupancy[i * 4 + 2] = val;
+                occupancy[i * 4 + 3] = val;
             }
         }
         
