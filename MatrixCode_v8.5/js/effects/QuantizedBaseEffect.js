@@ -1206,12 +1206,20 @@ class QuantizedBaseEffect extends AbstractEffect {
         const w = this.logicGridW, h = this.logicGridH;
         if (!w || !h || !this.shadowRevealGrid) return;
 
-        // 1. Create a temporary "Main Mass" grid for Layers 0 & 1
+        // 1. Create a temporary "Main Mass" grid for Layers 0, 1, and (2 & 3 overlap)
         const mainMass = new Int32Array(w * h);
         mainMass.fill(-1);
         const g0 = this.layerGrids[0], g1 = this.layerGrids[1];
+        const g2 = this.layerGrids[2], g3 = this.layerGrids[3];
+
         for (let i = 0; i < w * h; i++) {
-            if ((g0 && g0[i] !== -1) || (g1 && g1[i] !== -1)) {
+            const l0Active = (g0 && g0[i] !== -1);
+            const l1Active = (g1 && g1[i] !== -1);
+            const l2Active = (g2 && g2[i] !== -1);
+            const l3Active = (g3 && g3[i] !== -1);
+
+            // Shadow Reveal Rules: Layer 0, Layer 1, OR (Layer 2 AND Layer 3)
+            if (l0Active || l1Active || (l2Active && l3Active)) {
                 mainMass[i] = 1;
             }
         }

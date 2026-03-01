@@ -93,22 +93,15 @@ class QuantizedShadow {
         }
         this._targetActive.fill(0);
 
+        // Determine active areas based on shadowRevealGrid (consolidated logic)
         if (fx.c.state.layerEnableShadowWorld !== false) {
             for (let by = 0; by < blocksY; by++) {
                 for (let bx = 0; bx < blocksX; bx++) {
                     const idx = by * blocksX + bx;
                     
-                    // NEW: Use the consolidated shadowRevealGrid (Filled Perimeter for Layers 0 & 1)
+                    // NEW: Use the consolidated shadowRevealGrid (L0, L1, and L2&L3 overlap)
                     if (!fx.shadowRevealGrid || fx.shadowRevealGrid[idx] === 0) continue;
 
-                    // Note: outsideMask already reflects renderGrid (all layers)
-                    // If we want ONLY L0/L1 perimeter, we should have used a different outsideMask.
-                    // But shadowRevealGrid ALREADY handles the L0/L1 perimeter filling.
-                    // So we can just use shadowRevealGrid directly.
-                    // However, we still want to respect the 'outsideMask' if it was calculated 
-                    // to exclude things outside the screen bounds or similar.
-                    // Actually, shadowRevealGrid is safer here.
-                    
                     const destBx = bx - offX + userBlockOffX;
                     const destBy = by - offY + userBlockOffY;
                     
