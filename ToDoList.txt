@@ -3,6 +3,7 @@ Run tests on all effects, behaviors, sliders, settings, etc.
 
 <- Bugs: 
 The brightness after quantized effects run is broken.
+Clicking certain UI elements appears to move the canvas (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc.
 
 <- Behavior:
 Get the quantized effects working as intended. 
