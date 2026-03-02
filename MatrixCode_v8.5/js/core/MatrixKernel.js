@@ -168,9 +168,9 @@ class MatrixKernel {
      * Used by Quantized effects to commit their reveal.
      */
     swapWorlds() {
-        this.activeWorldIndex = 1 - this.activeWorldIndex;
-        const active = this.activeWorld;
-        
+        this.activeWorldIndex = (this.activeWorldIndex + 1) % 2;
+        const active = this.worlds[this.activeWorldIndex];
+
         this.grid = active.grid;
         this.simulation = active.sim;
         

@@ -440,17 +440,10 @@ class WebGLRenderer {
                 
                 // Glass Rendering Uniforms
                 uniform bool u_glassEnabled;
-                uniform float u_glassBodyOpacity;
                 uniform float u_glassEdgeGlow;
-                uniform float u_glassRefraction;
-                uniform float u_glassChromaticAberration;
-                uniform float u_glassFresnel;
                 uniform float u_glassBevel;
-                uniform float u_glassOverlapRefraction;
                 uniform float u_glassOverlapGlow;
-                uniform float u_glassOverlapOpacity;
                 uniform float u_glassBloom;
-                uniform float u_glassLensCurvature;
                 uniform float u_glassDarkness;
                 
                 out vec4 fragColor;
@@ -538,45 +531,9 @@ class WebGLRenderer {
                         float blockMask = texture(u_shadowMask, v_uv).r;
                         float isVisible = step(0.001, blockMask);
                         
-                        vec3 resultColor = base.rgb * (1.0 - u_glassDarkness);
-
-                        if (isVisible > 0.5) {
-                            vec3 blockColor = vec3(0.0);
-                            
-                            if (u_glassEnabled) {
-                                float stackCount = blockMask; 
-                                float refOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapRefraction;
-                                float glowOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapGlow;
-                                float opacityOverlap = 1.0 + max(0.0, stackCount - 1.0) * u_glassOverlapOpacity;
-
-                                vec2 centerOffset = cellLocal - 0.5;
-                                float distToCenter = length(centerOffset);
-                                float refraction = u_glassRefraction * refOverlap;
-                                float lensCurv = pow(distToCenter * 2.0, u_glassLensCurvature);
-                                vec2 displacement = centerOffset * lensCurv * refraction;
-                                float ab = u_glassChromaticAberration;
-                                
-                                vec3 glassCode;
-                                glassCode.r = texture(u_characterBuffer, v_uv + displacement * (1.0 + ab)).r;
-                                glassCode.g = texture(u_characterBuffer, v_uv + displacement).g;
-                                glassCode.b = texture(u_characterBuffer, v_uv + displacement * (1.0 - ab)).b;
-                                
-                                float fresnel = pow(distToCenter * 2.0, 3.0) * u_glassFresnel * glowOverlap;
-                                float bevel = 0.0;
-                                float bSoft = 0.05;
-                                bevel += (1.0 - smoothstep(0.0, bSoft, cellLocal.x)) * u_glassBevel;
-                                bevel += (1.0 - smoothstep(0.0, bSoft, cellLocal.y)) * u_glassBevel;
-                                bevel -= smoothstep(1.0 - bSoft, 1.0, cellLocal.x) * u_glassBevel;
-                                bevel -= smoothstep(1.0 - bSoft, 1.0, cellLocal.y) * u_glassBevel;
-                                
-                                blockColor = (glassCode * u_glassBloom * opacityOverlap * u_glassBodyOpacity) + (fresnel * 0.5) + bevel;
-                            } else {
-                                // Reveal Mode: Show the main pass results (which now include shadow world rain)
-                                blockColor = base.rgb * u_glassBloom * u_glassBodyOpacity;
-                            }
-                            
-                            resultColor = blockColor;
-                        }
+                        // RESTORATION: Keep original background colors exactly as they are.
+                        // No glassDarkness, no glassBloom. 
+                        vec3 resultColor = base.rgb;
 
                         // Composite Grid Lines
                         if (totalLine > 0.001) {
@@ -1485,6 +1442,7 @@ class WebGLRenderer {
             }
         } else {
             this.gl.disable(this.gl.BLEND);
+            this.gl.blendEquation(this.gl.FUNC_ADD); // Reset even when disabled to avoid state leaks
         }
         // 4. Type-Aware Uniform Dispatch (SOLID/DIP)
         for (const [name, value] of Object.entries(uniforms)) {
@@ -1666,17 +1624,10 @@ class WebGLRenderer {
             u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
             u_sampleOffset: fxState.sampleOffset,
             u_glassEnabled: s.quantizedGlassEnabled,
-            u_glassBodyOpacity: s.quantizedGlassBodyOpacity,
             u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
-            u_glassRefraction: s.quantizedGlassRefraction,
-            u_glassChromaticAberration: s.quantizedGlassChromaticAberration,
-            u_glassFresnel: s.quantizedGlassFresnel,
             u_glassBevel: s.quantizedGlassBevel,
-            u_glassOverlapRefraction: s.quantizedGlassOverlapRefraction,
             u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
-            u_glassOverlapOpacity: s.quantizedGlassOverlapOpacity,
             u_glassBloom: s.quantizedGlassBloom,
-            u_glassLensCurvature: s.quantizedGlassLensCurvature,
             u_glassDarkness: s.quantizedGlassDarkness * fx.alpha
         };
 
@@ -1740,6 +1691,7 @@ class WebGLRenderer {
         }
 
         gl.enable(gl.BLEND);
+        gl.blendEquation(gl.FUNC_ADD); // ROOT CAUSE FIX: Reset stale equation from Quantized Effects
         // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         
         // --- ATLAS UPDATE ---

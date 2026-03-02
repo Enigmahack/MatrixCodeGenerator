@@ -798,13 +798,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         const result = this._commitShadowState();
         if (result === 'ASYNC') {
             this.isSwapping = true;
-            this.swapTimer = 5; 
+            this.swapTimer = 5;
         } else if (result === 'SYNC') {
             this.g.clearAllOverrides();
             if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.hasSwapped = true;
             this.alpha = 0.0; // Reset alpha to prevent any lingering screen effects
-            
+
             // PING-PONG TERMINATION:
             // Since the swap is now instantaneous, we can immediately deactivate the effect
             this.active = false;

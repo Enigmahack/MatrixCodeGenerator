@@ -17,6 +17,11 @@ class QuantizedShadow {
         if (window.matrix && window.matrix.inactiveWorld) {
             this.shadowGrid = window.matrix.inactiveWorld.grid;
             this.shadowSim = window.matrix.inactiveWorld.sim;
+            
+            // Hard Clear the grid to prevent accumulation from previous runs
+            if (this.shadowGrid && typeof this.shadowGrid.clearAll === 'function') {
+                this.shadowGrid.clearAll();
+            }
         } else {
             fx._warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
             this.shadowGrid = new CellGrid(fx.c);

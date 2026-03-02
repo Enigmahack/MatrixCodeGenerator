@@ -420,6 +420,7 @@ class PostProcessor {
                 this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
                 this.gl.clearColor(br, bg, bb, 1.0);
                 this.gl.enable(this.gl.BLEND);
+                this.gl.blendEquation(this.gl.FUNC_ADD);
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
             } else {
                 // Use stored dimensions or fallback to context size
@@ -429,6 +430,7 @@ class PostProcessor {
                 this.gl.clearColor(0, 0, 0, 0);
                 // Intermediate passes should strictly overwrite to avoid alpha accumulation issues
                 this.gl.disable(this.gl.BLEND);
+                this.gl.blendEquation(this.gl.FUNC_ADD);
             }
             this.gl.clear(this.gl.COLOR_BUFFER_BIT);
             
