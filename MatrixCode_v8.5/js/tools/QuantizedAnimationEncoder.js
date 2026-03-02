@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const QuantizedAnimationOptimizer = require('./QuantizedAnimationOptimizer.js');
 
 const INPUT_FILE = path.join(__dirname, '../effects/QuantizedPatterns.js');
 const OUTPUT_JS_FILE = path.join(__dirname, '../effects/QuantizedPatterns.js');
@@ -106,11 +107,22 @@ try {
         throw new Error("window.matrixPatterns not found in input file.");
     }
     const patterns = window.matrixPatterns;
+    const optimizer = new QuantizedAnimationOptimizer();
 
     const newPatterns = {};
     for (const key in patterns) {
         console.log(`Processing pattern: ${key}`);
-        newPatterns[key] = encodeSequence(patterns[key]);
+        const originalPattern = patterns[key];
+        const optimizedPattern = optimizer.optimize(originalPattern);
+        
+        const originalOps = originalPattern.flat().length;
+        const optimizedOps = optimizedPattern.flat().length;
+        if (originalOps > 0) {
+            const reduction = Math.round((1 - (optimizedOps / originalOps)) * 100);
+            console.log(`- Optimization reduced operations by ${reduction}% (${originalOps} -> ${optimizedOps})`);
+        }
+        
+        newPatterns[key] = encodeSequence(optimizedPattern);
     }
 
     // Generate JS Output
