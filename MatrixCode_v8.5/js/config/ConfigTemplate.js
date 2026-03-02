@@ -300,7 +300,6 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedGlassOverlapGlow', type: 'range', label: 'Stacking: Glow Multiplier', min: 0.0, max: 2.0, step: 0.1, dep: 'quantizedGlassEnabled', description: "Scales edge glow brightness for each additional glass layer." },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Transmission' },
     { cat: 'Effects', id: 'quantizedGlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, description: "Scales character brightness inside quantized blocks." },
-    { cat: 'Effects', id: 'quantizedGlassDarkness', type: 'range', label: 'Background Darkness', min: 0.0, max: 1.0, step: 0.05, description: "Darkens characters NOT behind quantized blocks." },
     { cat: 'Effects', type: 'end_group' },
 
     ...generateQuantizedEffectSettings('quantizedPulse', 'Quantized Pulse', 'quantizedPulse'),

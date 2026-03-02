@@ -442,7 +442,6 @@ class WebGLRenderer {
                 uniform float u_glassBevel;
                 uniform float u_glassOverlapGlow;
                 uniform float u_glassBloom;
-                uniform float u_glassDarkness;
                 
                 out vec4 fragColor;
 
@@ -530,12 +529,10 @@ class WebGLRenderer {
                         float isVisible = step(0.001, blockMask);
                         
                         // RESTORATION: Glass controls restored for user refinement.
-                        // Default values (Bloom 1.0, Darkness 0.0) keep background unchanged.
+                        // Default values (Bloom 1.0) keep background unchanged.
                         vec3 resultColor = base.rgb;
                         if (isVisible > 0.5) {
                             resultColor *= u_glassBloom;
-                        } else {
-                            resultColor *= (1.0 - u_glassDarkness);
                         }
 
                         // Composite Grid Lines
@@ -1636,8 +1633,7 @@ class WebGLRenderer {
             u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
             u_glassBevel: s.quantizedGlassBevel ?? 0.5,
             u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
-            u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha,
-            u_glassDarkness: s.quantizedGlassDarkness * fx.alpha
+            u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha
         };
 
         const compTextures = {

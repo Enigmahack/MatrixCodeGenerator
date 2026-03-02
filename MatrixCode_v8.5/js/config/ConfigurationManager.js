@@ -29,7 +29,6 @@ class ConfigurationManager {
             'quantizedGlassBevel',
             'quantizedGlassOverlapGlow',
             'quantizedGlassBloom',
-            'quantizedGlassDarkness',
             // 'savedPresets' is handled by this.slots
         ]);
 
@@ -665,7 +664,6 @@ class ConfigurationManager {
             'quantizedGlassBevel': 0.5,
             'quantizedGlassOverlapGlow': 0.4,
             'quantizedGlassBloom': 1.2,
-            'quantizedGlassDarkness': 0.4,
 
             "globalBloomEnabled": false,
             "globalBloomType": "gaussian",
