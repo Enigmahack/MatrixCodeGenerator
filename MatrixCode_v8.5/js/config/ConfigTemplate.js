@@ -291,6 +291,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, description: "Softens the character highlights for a smoother, antialiased look within the lines." },
     { cat: 'Effects', id: 'quantizedLineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px' },
     { cat: 'Effects', id: 'quantizedLineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px' },
+    { cat: 'Effects', type: 'end_group' },
     
     { cat: 'Effects', type: 'sub_accordion', label: 'Glass & Composition' },
     { cat: 'Effects', id: 'quantizedGlassEnabled', type: 'checkbox', label: 'Enable Glass Effects', description: "Adds glass-like properties to quantized blocks." },
