@@ -435,7 +435,6 @@ class WebGLRenderer {
                 uniform float u_glowFalloff;
                 uniform float u_roundness;
                 uniform float u_maskSoftness;
-                uniform float u_persistence;
                 uniform bool u_showInterior;
                 
                 uniform bool u_glassEnabled;
@@ -505,7 +504,7 @@ class WebGLRenderer {
                         vec4 persist = texture(u_persistenceBuffer, v_uv);
                         float normalLine = persist.r;
                         float fadeLine = persist.g;
-                        float totalLine = normalLine + fadeLine;
+                        float totalLine = clamp(normalLine + fadeLine, 0.0, 1.0);
 
                         vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
                         
@@ -569,11 +568,15 @@ class WebGLRenderer {
                     
                     float normalMax = 0.0;
                     float fadeMax = 0.0;
-                    float baseStep = min(u_screenStep.x, u_screenStep.y);
-                    float halfThick = (baseStep * 0.1 * u_thickness) * 0.5;
-                    
-                    // Link u_roundness to sharpness for generation phase
-                    float genSharp = u_sharpness + (u_roundness * 0.2); 
+                    // Per-axis half-thickness so lines stay proportional on non-square cells.
+                    float halfThickX = (u_screenStep.x * 0.1 * u_thickness) * 0.5;
+                    float halfThickY = (u_screenStep.y * 0.1 * u_thickness) * 0.5;
+
+                    // Link u_roundness to sharpness for generation phase.
+                    // Clamp per-axis so genSharp never makes edge0 > edge1 in smoothstep.
+                    float genSharp = u_sharpness + (u_roundness * 0.2);
+                    float sX = min(genSharp, halfThickX);
+                    float sY = min(genSharp, halfThickY);
 
                     vec4 occNW = getOccupancy(nearestI + vec2(-1.0, -1.0));
                     vec4 occNE = getOccupancy(nearestI + vec2(0.0, -1.0));
@@ -609,7 +612,7 @@ class WebGLRenderer {
 
                         if (abs(oNW - oNE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
-                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
+                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
                             if (isL1 && a0NW > 0.01 && a0NE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else if (isL23) {
@@ -621,7 +624,7 @@ class WebGLRenderer {
                         }
                         if (abs(oSW - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
-                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
+                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
                             if (isL1 && a0SW > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else if (isL23) {
@@ -633,7 +636,7 @@ class WebGLRenderer {
                         }
                         if (abs(oNW - oSW) > 0.5) {
                             float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
-                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
+                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
                             if (isL1 && a0NW > 0.01 && a0SW > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else if (isL23) {
@@ -645,7 +648,7 @@ class WebGLRenderer {
                         }
                         if (abs(oNE - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
-                            float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
+                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
                             if (isL1 && a0NE > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else if (isL23) {
@@ -967,9 +970,10 @@ class WebGLRenderer {
                     float glassMask = texture(u_shadowMask, v_screenUV).r;
     
                     vec4 col = baseColor;
-                    // Boost brightness for glow (Bloom trigger)
-                    // Multiply by alpha to ensure it fades out with the character
-                    if (v_glow > 0.0) {
+                    // Boost brightness for glow (Bloom trigger).
+                    // Guard against useMix >= 5.0: in dual-world mode v_glow is repurposed
+                    // as the new-world alpha (nwA) and must NOT also drive emissive brightness.
+                    if (useMix < 5.0 && v_glow > 0.0) {
                         float glowFactor = v_glow;
                         if (!isHighPriority && glassMask <= 0.001) {
                              glowFactor *= (1.0 - shadow);
@@ -1632,7 +1636,7 @@ class WebGLRenderer {
             u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
             u_glassBevel: s.quantizedGlassBevel ?? 0.5,
             u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
-            u_glassBloom: s.quantizedGlassBloom,
+            u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha,
             u_glassDarkness: s.quantizedGlassDarkness * fx.alpha
         };
 

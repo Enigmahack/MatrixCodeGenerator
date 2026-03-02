@@ -963,9 +963,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
                 
-                if (isInsideBlock) {
-                    grid.effectActive[i] = 3; // 3 = Shadow Mode reveal
-                } else if (grid.effectActive[i] === 3) {
+                // Shadow reveal is handled by updateShadowSim via overrideActive=5 (PRIORITY 2),
+                // which provides a gradual sFade/oFade crossfade and disables the glow boost.
+                // Setting effectActive=3 here (PRIORITY 1) would bypass that fade entirely,
+                // showing raw sg.alphas with glow boost enabled → brightness flash on start.
+                if (!isInsideBlock && grid.effectActive[i] === 3) {
                     grid.effectActive[i] = 0;
                 }
 
