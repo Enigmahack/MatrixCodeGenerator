@@ -460,6 +460,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         this.state = 'FADE_IN';
         this.timer = 0;
+        this.step = 0;
         this.alpha = 0.0;
 
         if (this.debugMode) {
@@ -693,6 +694,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (!this.debugMode || this.manualStep) {
                 this.cycleTimer = 0;
                 this.cyclesCompleted++;
+                this.step++;
 
                 // Clear step-local state
                 this._currentStepActions = [];

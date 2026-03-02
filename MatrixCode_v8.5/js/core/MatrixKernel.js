@@ -25,7 +25,10 @@ class MatrixKernel {
         
         // FPS tracking variables
         this.lastFrameTime = 0; // Tracks time of the previous frame
-        this.fpsHistory = []; // Used for simple FPS smoothing
+        this._fpsBuffer    = new Float32Array(30); // Circular buffer — avoids push/shift/reduce per frame
+        this._fpsBufferIdx = 0;
+        this._fpsBufferSum = 0;
+        this._fpsBufferCount = 0;
         this.fpsDisplayElement = null; // Holds reference to the HTML element
 
         // Configuration subscription for dynamic updates
@@ -463,13 +466,15 @@ class MatrixKernel {
 
     if (deltaFPS > 0 && this.config.state.showFpsCounter) {
         const fps = 1000 / deltaFPS;
-        
-        // Simple 30-frame smoothing
-        this.fpsHistory.push(fps);
-        if (this.fpsHistory.length > 30) {
-            this.fpsHistory.shift();
-        }
-        const smoothedFps = this.fpsHistory.reduce((a, b) => a + b) / this.fpsHistory.length;
+
+        // 30-frame circular buffer smoothing — O(1) vs the previous O(n) push/shift/reduce
+        const slot = this._fpsBufferIdx % 30;
+        this._fpsBufferSum -= this._fpsBuffer[slot];
+        this._fpsBuffer[slot] = fps;
+        this._fpsBufferSum += fps;
+        this._fpsBufferIdx++;
+        if (this._fpsBufferCount < 30) this._fpsBufferCount++;
+        const smoothedFps = this._fpsBufferSum / this._fpsBufferCount;
 
             // 2. Update Display
             if (this.fpsDisplayElement) {

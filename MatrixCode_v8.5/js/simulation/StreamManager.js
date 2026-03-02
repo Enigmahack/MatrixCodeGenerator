@@ -18,6 +18,9 @@ class StreamManager {
         // Reusable columns pool to avoid per-spawn allocation
         this._columnsPool = new Array(this.grid.cols);
         for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
+
+        // Reusable buffer for per-column glimmer density counts (avoids per-frame allocation)
+        this._glimmerColCounts = new Uint8Array(this.grid.cols);
     }
 
     get activeStreams() {
@@ -61,6 +64,8 @@ class StreamManager {
         // Rebuild columns pool
         this._columnsPool = new Array(cols);
         for (let i = 0; i < this._columnsPool.length; i++) this._columnsPool[i] = i;
+
+        this._glimmerColCounts = new Uint8Array(cols);
     }
 
     update(frame, timeScale) {
@@ -108,7 +113,8 @@ class StreamManager {
         if (!s.upwardTracerEnabled || s.upwardTracerChance <= 0) return;
 
         // 1. Calculate Active Density per Column
-        const colCounts = new Uint8Array(this.grid.cols);
+        const colCounts = this._glimmerColCounts;
+        colCounts.fill(0);
         for (let i = 0; i < this.activeStreams.length; i++) {
             const stream = this.activeStreams[i];
             if (stream.isUpward && stream.active) {

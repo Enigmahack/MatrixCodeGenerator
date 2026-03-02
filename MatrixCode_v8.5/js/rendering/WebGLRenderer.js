@@ -907,7 +907,9 @@ class WebGLRenderer {
                     if (useMix >= 5.0) {
                         // DUAL World Mode (Shadow Transition Overlap)
                         float originalBaseAlpha = baseColor.a; // OW Combined Alpha (Sim * Fade)
-                        float nwA = fract(useMix); // NW Combined Alpha (Sim * Fade) extracted from fraction
+                        
+                        // Use v_glow as the NW Alpha (CPU puts sg.alpha * sFade there)
+                        float nwA = v_glow; 
                         
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;

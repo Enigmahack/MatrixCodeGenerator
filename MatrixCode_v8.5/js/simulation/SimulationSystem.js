@@ -78,6 +78,11 @@ class SimulationSystem {
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
         this.timeScale = 1.0;
+
+        // Reusable arrays for deferred complexStyles mutations in _updateGlimmerLifecycle
+        // (avoids per-frame Array.from snapshot allocation)
+        this._pendingGlimmerMoves = [];
+        this._pendingGlimmerDeletes = [];
         
         // Subscribe to config changes to keep worker in sync
         if (this.useWorker) {
@@ -228,17 +233,19 @@ class SimulationSystem {
         const s = this.config.state;
         const d = this.config.derived;
         
-        // We iterate over a copy of keys to safely mutate the map during iteration (for movement)
-        const indices = Array.from(this.grid.complexStyles.keys());
-        
-        for (const idx of indices) {
-            const style = this.grid.complexStyles.get(idx);
-            if (!style) continue;
+        // Deferred mutation: collect map changes during forEach, apply after to avoid per-frame snapshot allocation
+        this._pendingGlimmerMoves.length = 0;
+        this._pendingGlimmerDeletes.length = 0;
+
+        this.grid.complexStyles.forEach((style, idx) => {
+            if (!style) return;
 
             // Pause Glimmer updates if cell is frozen by an effect (e.g. Pulse Pause)
-            // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
+            // EXCEPTION: Mode 3 (FULL) is a masking mode, let it run.
+            // Mode 5 (DUAL) is for shadow revealing; we must pause the ACTIVE world simulation here
+            // so that only the shadow world's simulation is seen.
             const ov = this.grid.overrideActive[idx];
-            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) continue;
+            if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3)) return;
 
             // --- TYPE 1: STANDARD GLIMMER (Upward Tracers) ---
             if (style.type === 'glimmer') {
@@ -277,9 +284,8 @@ class SimulationSystem {
                         
                         // Only move if target is not already a glimmer or locked
                         if (!this.grid.complexStyles.has(nextIdx)) {
-                            // Move State
-                            this.grid.complexStyles.set(nextIdx, style);
-                            this.grid.complexStyles.delete(currentIdx);
+                            // Defer map mutations until after forEach completes
+                            this._pendingGlimmerMoves.push(currentIdx, nextIdx);
                             
                             // Move Mix Value
                             this.grid.mix[nextIdx] = this.grid.mix[currentIdx];
@@ -351,7 +357,7 @@ class SimulationSystem {
                 } else {
                     this.grid.mix[currentIdx] = 0;
                     this.grid.genericParams[currentIdx * 4] = 0;
-                    this.grid.complexStyles.delete(currentIdx);
+                    this._pendingGlimmerDeletes.push(currentIdx);
                 }
             }
             
@@ -363,7 +369,17 @@ class SimulationSystem {
                 this.grid.mix[idx] = 30.0;
             }
 
+        }); // end complexStyles.forEach
 
+        // Apply deferred map mutations (collected during forEach to avoid concurrent modification)
+        for (let i = 0; i < this._pendingGlimmerMoves.length; i += 2) {
+            const from = this._pendingGlimmerMoves[i];
+            const to   = this._pendingGlimmerMoves[i + 1];
+            this.grid.complexStyles.set(to, this.grid.complexStyles.get(from));
+            this.grid.complexStyles.delete(from);
+        }
+        for (let i = 0; i < this._pendingGlimmerDeletes.length; i++) {
+            this.grid.complexStyles.delete(this._pendingGlimmerDeletes[i]);
         }
     }
 

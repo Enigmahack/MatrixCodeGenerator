@@ -128,8 +128,15 @@ class QuantizedShadow {
             }
         }
 
-        const fadeSpeedSec = fx.c.state.quantizedShadowWorldFadeSpeed !== undefined ? fx.c.state.quantizedShadowWorldFadeSpeed : 0.5;
+        let fadeSpeedSec = fx.c.state.quantizedShadowWorldFadeSpeed !== undefined ? fx.c.state.quantizedShadowWorldFadeSpeed : 0.5;
+        if (!Number.isFinite(fadeSpeedSec)) {
+            fx._error(`[QuantizedShadow] fadeSpeedSec is not finite! Value: ${fadeSpeedSec}`);
+            fadeSpeedSec = 0.5;
+        }
         const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); 
+        if (!Number.isFinite(fadeDelta)) {
+            fx._error(`[QuantizedShadow] fadeDelta is not finite! fadeSpeedSec: ${fadeSpeedSec}`);
+        }
 
         for (let i = 0; i < totalCells; i++) {
             const target = this._targetActive[i];
@@ -137,35 +144,23 @@ class QuantizedShadow {
             let oFade = this.oldWorldFade[i];
 
             if (target === 1) {
-                sFade = 1.0;
-                oFade = Math.max(0.0, oFade - fadeDelta);
+                sFade = Math.min(1.0, sFade + fadeDelta); // Shadow world fades in
+                oFade = Math.max(0.0, oFade - fadeDelta); // Old world fades out
             } else {
-                oFade = 1.0;
-                sFade = Math.max(0.0, sFade - fadeDelta);
+                sFade = Math.max(0.0, sFade - fadeDelta); // Shadow world fades out
+                oFade = Math.min(1.0, oFade + fadeDelta); // Old world fades back in
             }
             this.shadowFade[i] = sFade;
             this.oldWorldFade[i] = oFade;
 
-            if (sFade > 0 && oFade > 0) {
-                const srcIdx = i; 
-                if (sg && sg.chars && srcIdx < sg.chars.length) {
-                    g.overrideActive[i] = 5; 
-                    g.overrideChars[i] = sg.chars[srcIdx];
-                    g.overrideColors[i] = sg.colors[srcIdx];
-                    g.overrideAlphas[i] = g.alphas[i] * oFade; 
-                    g.overrideGlows[i] = sg.alphas[srcIdx] * sFade; 
-                    g.overrideMix[i] = sg.mix[srcIdx]; 
-                    g.overrideNextChars[i] = sg.nextChars[srcIdx];
-                    g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
-                }
-            } else if (sFade > 0) {
+            if (sFade > 0) {
                 const srcIdx = i;
                 if (sg && sg.chars && srcIdx < sg.chars.length) {
-                    g.overrideActive[i] = 3; 
+                    g.overrideActive[i] = 5;
                     g.overrideChars[i] = sg.chars[srcIdx];
                     g.overrideColors[i] = sg.colors[srcIdx];
-                    g.overrideAlphas[i] = sg.alphas[srcIdx] * sFade; 
-                    g.overrideGlows[i] = sg.glows[srcIdx];
+                    g.overrideAlphas[i] = oFade;
+                    g.overrideGlows[i] = sg.alphas[srcIdx] * sFade;
                     g.overrideMix[i] = sg.mix[srcIdx];
                     g.overrideNextChars[i] = sg.nextChars[srcIdx];
                     g.overrideFontIndices[i] = sg.fontIndices[srcIdx];
