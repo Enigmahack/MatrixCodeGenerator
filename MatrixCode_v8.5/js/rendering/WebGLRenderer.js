@@ -438,7 +438,6 @@ class WebGLRenderer {
                 uniform float u_persistence;
                 uniform bool u_showInterior;
                 
-                // Glass Rendering Uniforms
                 uniform bool u_glassEnabled;
                 uniform float u_glassEdgeGlow;
                 uniform float u_glassBevel;
@@ -531,11 +530,17 @@ class WebGLRenderer {
                         float blockMask = texture(u_shadowMask, v_uv).r;
                         float isVisible = step(0.001, blockMask);
                         
-                        // RESTORATION: Keep original background colors exactly as they are.
-                        // No glassDarkness, no glassBloom. 
+                        // RESTORATION: Glass controls restored for user refinement.
+                        // Default values (Bloom 1.0, Darkness 0.0) keep background unchanged.
                         vec3 resultColor = base.rgb;
+                        if (isVisible > 0.5) {
+                            resultColor *= u_glassBloom;
+                        } else {
+                            resultColor *= (1.0 - u_glassDarkness);
+                        }
 
                         // Composite Grid Lines
+                        float lineAlpha = 0.0;
                         if (totalLine > 0.001) {
                             vec3 lineBaseColor = u_color;
                             lineBaseColor = applyHueShift(lineBaseColor, u_tintOffset);
@@ -548,9 +553,10 @@ class WebGLRenderer {
                             if (u_glassEnabled && isVisible > 0.5) lineIntensity *= u_glassEdgeGlow;
                             
                             resultColor += lineBaseColor * lineIntensity;
+                            lineAlpha = lineIntensity;
                         }
 
-                        fragColor = vec4(resultColor, base.a);
+                        fragColor = vec4(resultColor, max(base.a, lineAlpha));
                         return;
                     }
 
@@ -1573,10 +1579,13 @@ class WebGLRenderer {
             u_offset: [s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale],
             u_layerOrder: fxState.layerOrder,
             u_showInterior: fxState.showInterior,
+            u_glassEnabled: 1,
+            u_glassBevel: 0.5,
             u_logicGrid: 1,
             u_shadowMask: 3,
             u_sourceGrid: 4,
             u_intensity: fxState.intensity,
+            u_glow: fxState.glow,
             u_thickness: fxState.thickness,
             u_tintOffset: fxState.tintOffset,
             u_sharpness: fxState.sharpness,
@@ -1616,9 +1625,9 @@ class WebGLRenderer {
             u_persistenceBuffer: 2,
             u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
             u_sampleOffset: fxState.sampleOffset,
-            u_glassEnabled: s.quantizedGlassEnabled,
+            u_glassEnabled: s.quantizedGlassEnabled ? 1 : 0,
             u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
-            u_glassBevel: s.quantizedGlassBevel,
+            u_glassBevel: s.quantizedGlassBevel ?? 0.5,
             u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
             u_glassBloom: s.quantizedGlassBloom,
             u_glassDarkness: s.quantizedGlassDarkness * fx.alpha
@@ -2239,6 +2248,7 @@ class WebGLRenderer {
             
             this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+            this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), 1);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);

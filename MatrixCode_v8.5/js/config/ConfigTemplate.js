@@ -273,6 +273,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Speed', min: 0, max: 2, step: 0.1, unit: 's', description: "Fading between current world and shadow world when blocks are added/removed." },
     { cat: 'Effects', id: 'quantizedLineGfxThickness', type: 'range', label: 'Line Size', min: 0.1, max: 10.0, step: 0.1, description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
     { cat: 'Effects', id: 'quantizedLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01 },
+    { cat: 'Effects', id: 'quantizedLineGfxGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 10.0, step: 0.1, description: "Intensity of the soft glow around generated lines." },
     { cat: 'Effects', id: 'quantizedLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', description: "Similar to burn-in, controls how long lines linger." },
     { cat: 'Effects', type: 'end_group' },
 
@@ -290,8 +291,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, description: "Softens the character highlights for a smoother, antialiased look within the lines." },
     { cat: 'Effects', id: 'quantizedLineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px' },
     { cat: 'Effects', id: 'quantizedLineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px' },
-    { cat: 'Effects', type: 'end_group' },
-
+    
     { cat: 'Effects', type: 'sub_accordion', label: 'Glass & Composition' },
     { cat: 'Effects', id: 'quantizedGlassEnabled', type: 'checkbox', label: 'Enable Glass Effects', description: "Adds glass-like properties to quantized blocks." },
     { cat: 'Effects', id: 'quantizedGlassEdgeGlow', type: 'range', label: 'Edge Glow', min: 0.0, max: 20.0, step: 0.1, dep: 'quantizedGlassEnabled' },

@@ -1296,6 +1296,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             brightness: (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0),
             saturation: this.getLineGfxValue('Saturation') ?? 1.0,
             additiveStrength: this.getLineGfxValue('AdditiveStrength') ?? 1.0,
+            glow: this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0),
             color: [col.r / 255, col.g / 255, col.b / 255],
             persistence: (() => {
                 const frames = this.getLineGfxValue('Persistence') || 0;
