@@ -89,6 +89,7 @@ class QuantizedEffectsPass extends RenderPass {
             gl.clear(gl.COLOR_BUFFER_BIT);
             
             gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+            gl.disable(gl.BLEND);
             renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
             return targetTex;
         }
@@ -531,7 +532,7 @@ class WebGLRenderer {
                         // RESTORATION: Glass controls restored for user refinement.
                         // Default values (Bloom 1.0) keep background unchanged.
                         vec3 resultColor = base.rgb;
-                        if (isVisible > 0.5) {
+                        if (u_glassEnabled && isVisible > 0.5) {
                             resultColor *= u_glassBloom;
                         }
 
@@ -914,8 +915,8 @@ class WebGLRenderer {
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
                         
-                        // Overlap: combine the character strokes from both worlds
-                        finalAlpha = max(owA, tex2 * nwA);
+                        // Weighted average crossfade: oFade+sFade=1 guarantees sum <= 1
+                        finalAlpha = owA + tex2 * nwA;
                         baseColor.a = 1.0; 
                     } else if (useMix >= 4.0) {
                         // Overlay Mode (Tracers/Effects)
