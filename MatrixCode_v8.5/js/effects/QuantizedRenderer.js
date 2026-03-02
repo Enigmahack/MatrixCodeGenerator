@@ -79,6 +79,31 @@ class QuantizedRenderer {
 
         // Populate Suppressed Fades (Keys to ignore for fading this frame)
         fx.suppressedFades.clear();
+        for (const op of fx.maskOps) {
+            if (op.startFrame > fx.lastMaskUpdateFrame && op.startFrame <= fx.animFrame) {
+                const cx = Math.floor(blocksX / 2);
+                const cy = Math.floor(blocksY / 2);
+                const x1 = Math.min(op.x1, op.x2);
+                const x2 = Math.max(op.x1, op.x2);
+                const y1 = Math.min(op.y1, op.y2);
+                const y2 = Math.max(op.y1, op.y2);
+                
+                for (let y = y1; y <= y2; y++) {
+                    for (let x = x1; x <= x2; x++) {
+                        const gx = cx + x;
+                        const gy = cy + y;
+                        // North edge
+                        fx.suppressedFades.add(1 + gx * 2 + gy * 4000);
+                        // South edge
+                        fx.suppressedFades.add(1 + gx * 2 + (gy + 1) * 4000);
+                        // West edge
+                        fx.suppressedFades.add(0 + gx * 2 + gy * 4000);
+                        // East edge
+                        fx.suppressedFades.add(0 + (gx + 1) * 2 + gy * 4000);
+                    }
+                }
+            }
+        }
         
         // Block Erasure Pass - OPTIMIZED: Use a single path for all erasures
         colorLayerCtx.globalCompositeOperation = 'destination-out';
@@ -467,7 +492,7 @@ class QuantizedRenderer {
                 if (!state.visible) {
                     state.visible = true;
                     fx.lastVisibilityChangeFrame = now;
-                    state.deathFrame = -1;
+                    // Don't reset deathFrame here; allow simultaneous fade
                     state.birthFrame = edgeBirthFrame;
                 }
             } else {
@@ -484,7 +509,7 @@ class QuantizedRenderer {
                 if (!state.dimVisible) {
                     state.dimVisible = true;
                     fx.lastVisibilityChangeFrame = now;
-                    state.dimDeathFrame = -1;
+                    // Don't reset dimDeathFrame here; allow simultaneous fade
                     state.dimBirthFrame = dimBirthFrame;
                 }
             } else {
@@ -513,7 +538,10 @@ class QuantizedRenderer {
                     this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
                 }
-            } else if (state.deathFrame !== -1) {
+            }
+            
+            // NEW: Draw fading state simultaneously (not 'else if')
+            if (state.deathFrame !== -1) {
                 const fade = getFadeState(state.deathFrame);
                 if (fade) {
                     const path = getBatch(fade.c, fade.o);
@@ -526,42 +554,43 @@ class QuantizedRenderer {
             }
 
             // Draw Dim state (Layer 1 boundary inside Layer 0)
-            if (state.dimVisible || state.dimDeathFrame !== -1) {
-                const birth = state.dimVisible ? getBirthState(state.dimBirthFrame) : null;
-                const fade = state.dimDeathFrame !== -1 ? getFadeState(state.dimDeathFrame) : null;
-                const activeState = birth || fade;
+            const dimBirth = state.dimVisible ? getBirthState(state.dimBirthFrame) : null;
+            const dimFade = state.dimDeathFrame !== -1 ? getFadeState(state.dimDeathFrame) : null;
+            
+            if (dimBirth || dimFade) {
+                const activeState = dimBirth || dimFade;
+                // Find Layer 0 opacity at this edge
+                let ax, ay, bx, by;
+                if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
+                else { ax = x; ay = y - 1; bx = x; by = y; }
 
-                if (activeState) {
-                    // Logic for "Layer 0 opacity should change Layer 1 perimeter brightness"
-                    // Find Layer 0 opacity at this edge
-                    let ax, ay, bx, by;
-                    if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
-                    else { ax = x; ay = y - 1; bx = x; by = y; }
+                const getL0Opacity = (tx, ty) => {
+                    if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return 0;
+                    const idx = ty * blocksX + tx;
+                    const l0Frame = fx.layerGrids[0][idx];
+                    const remFrame = fx.removalGrids[0] ? fx.removalGrids[0][idx] : -1;
+                    if (l0Frame === -1 && remFrame === -1) return 0;
 
-                    const getL0Opacity = (tx, ty) => {
-                        if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return 0;
-                        const idx = ty * blocksX + tx;
-                        const l0Frame = fx.layerGrids[0][idx];
-                        const remFrame = fx.removalGrids[0] ? fx.removalGrids[0][idx] : -1;
-                        if (l0Frame === -1 && remFrame === -1) return 0;
+                    const bState = getBirthState(l0Frame);
+                    const fState = getFadeState(remFrame);
+                    return (fState ? fState.o : (bState ? bState.o : 0));
+                };
 
-                        const bState = getBirthState(l0Frame);
-                        const fState = getFadeState(remFrame);
-                        return (fState ? fState.o : (bState ? bState.o : 0));
-                    };
+                const l0Opacity = Math.max(getL0Opacity(ax, ay), getL0Opacity(bx, by));
+                const dimOpacity = activeState.o * l0Opacity;
 
-                    const l0Opacity = Math.max(getL0Opacity(ax, ay), getL0Opacity(bx, by));
-                    const dimOpacity = activeState.o * l0Opacity;
-
-                    if (dimOpacity > 0.01) {
-                        const path = getBatch(fadeColor, dimOpacity);
-                        const mPath = getMaskBatch(dimOpacity);
-                        this._addFaceToPath(path, fx, x, y, face);
-                        this._addFaceToPath(mPath, fx, x, y, face);
-                    }
-                } else if (state.dimDeathFrame !== -1) {
+                if (dimOpacity > 0.01) {
+                    const path = getBatch(fadeColor, dimOpacity);
+                    const mPath = getMaskBatch(dimOpacity);
+                    this._addFaceToPath(path, fx, x, y, face);
+                    this._addFaceToPath(mPath, fx, x, y, face);
+                }
+                
+                if (!dimFade && state.dimDeathFrame !== -1) {
                     state.dimDeathFrame = -1;
                 }
+            } else if (state.dimDeathFrame !== -1) {
+                state.dimDeathFrame = -1;
             }
         };
         // Track changes since last frame to only resolve affected edges

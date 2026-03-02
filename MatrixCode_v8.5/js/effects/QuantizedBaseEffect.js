@@ -178,6 +178,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
                 const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y), x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
                 
+                // NEW: Disable cooldown to allow simultaneous write/fade
+                return true; 
+
                 // Cooldown: 3 expansion phases converted to frames
                 const cooldownSteps = 3;
                 const effectiveInterval = this._getEffectiveInterval();
