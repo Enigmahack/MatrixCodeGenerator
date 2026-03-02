@@ -552,8 +552,8 @@ class WebGLRenderer {
                             
                             if (u_glassEnabled && isVisible > 0.5) lineIntensity *= u_glassEdgeGlow;
                             
-                            resultColor += lineBaseColor * lineIntensity;
                             lineAlpha = lineIntensity;
+                            resultColor = mix(resultColor, lineBaseColor, lineAlpha);
                         }
 
                         fragColor = vec4(resultColor, max(base.a, lineAlpha));
@@ -565,11 +565,12 @@ class WebGLRenderer {
                     vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                     vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                     vec2 nearestI = floor(logicPos + 0.5);
-                    vec2 p = (logicPos - nearestI) * u_cellPitch;
+                    vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
                     
                     float normalMax = 0.0;
                     float fadeMax = 0.0;
-                    float halfThick = (u_thickness / 10.0) * 0.5;
+                    float baseStep = min(u_screenStep.x, u_screenStep.y);
+                    float halfThick = (baseStep * 0.1 * u_thickness) * 0.5;
                     
                     // Link u_roundness to sharpness for generation phase
                     float genSharp = u_sharpness + (u_roundness * 0.2); 
@@ -607,7 +608,7 @@ class WebGLRenderer {
                         float oSW = step(0.01, aSW); float oSE = step(0.01, aSE);
 
                         if (abs(oNW - oNE) > 0.5) {
-                            float d = getSDF(p, vec2(0.0, -u_cellPitch.y), vec2(0.0, 0.0));
+                            float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
                             if (isL1 && a0NW > 0.01 && a0NE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -619,7 +620,7 @@ class WebGLRenderer {
                             }
                         }
                         if (abs(oSW - oSE) > 0.5) {
-                            float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y));
+                            float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
                             if (isL1 && a0SW > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -631,7 +632,7 @@ class WebGLRenderer {
                             }
                         }
                         if (abs(oNW - oSW) > 0.5) {
-                            float d = getSDF(p, vec2(-u_cellPitch.x, 0.0), vec2(0.0, 0.0));
+                            float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
                             if (isL1 && a0NW > 0.01 && a0SW > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -643,7 +644,7 @@ class WebGLRenderer {
                             }
                         }
                         if (abs(oNE - oSE) > 0.5) {
-                            float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x, 0.0));
+                            float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
                             float val = max(1.0 - smoothstep(halfThick - genSharp, halfThick + genSharp + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
                             if (isL1 && a0NE > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -906,7 +907,7 @@ class WebGLRenderer {
                     if (useMix >= 5.0) {
                         // DUAL World Mode (Shadow Transition Overlap)
                         float originalBaseAlpha = baseColor.a; // OW Combined Alpha (Sim * Fade)
-                        float nwA = v_glow; // NW Combined Alpha (Sim * Fade)
+                        float nwA = fract(useMix); // NW Combined Alpha (Sim * Fade) extracted from fraction
                         
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
@@ -1512,9 +1513,6 @@ class WebGLRenderer {
         const fadeIn = fx.getConfig('FadeInFrames') || 0;
         const fadeOut = fx.getConfig('FadeFrames') || 0;
 
-        const lineFade = fx.getLineGfxValue('Persistence') || 0;
-        const maxFadeOut = Math.max(fadeOut, lineFade);
-
         const occupancy = new Uint8Array(gw * gh * 4);
         for (let gy = 0; gy < gh; gy++) {
             const rowOff = gy * gw;
@@ -1529,10 +1527,9 @@ class WebGLRenderer {
                     if (grid && grid[i] !== -1) {
                         alpha = 255; // Instant appearance
                     } else if (rGrid && rGrid[i] !== -1) {
-                        const death = rGrid[i];
-                        alpha = (maxFadeOut > 0 && now < death + maxFadeOut)
-                            ? Math.floor(Math.max(0, Math.min(1, 1.0 - (now - death) / maxFadeOut)) * 255)
-                            : 0;
+                        // In WebGL, we rely on the hardware persistence buffer to fade lines over time.
+                        // Setting alpha to 0 instantly allows the persistence buffer to handle 100% of the fading natively.
+                        alpha = 0;
                     }
                     occupancy[tidx + L] = alpha;
                 }
@@ -1607,8 +1604,12 @@ class WebGLRenderer {
         // --- PASS 1: GENERATE & FADE ---
         // A) Linear Decay both NORMAL (Red) and FADE (Green) for this frame
         if (fxState.persistence > 0.0) {
+            let decayVal = fxState.persistence;
+            if (!this.canUseFloat && decayVal > 0.0 && decayVal < (1.0 / 255.0)) {
+                decayVal = 1.0 / 255.0; // Minimum exact decay for 8-bit
+            }
             this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, 
-                { u_color: [fxState.persistence, fxState.persistence, 0.0, 0.0] },
+                { u_color: [decayVal, decayVal, 0.0, 0.0] },
                 {},
                 { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT }
             );
