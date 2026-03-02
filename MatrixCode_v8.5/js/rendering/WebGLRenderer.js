@@ -1850,9 +1850,26 @@ class WebGLRenderer {
                 const ov = ovActive[i];
                 if (ov === 5) {
                     m16[u16Off + 0] = mapChar(gChars[i]);
-                    m32[baseOff + 1] = gColors[i]; 
+                    
+                    // Blend Colors for Shadow World Transition
+                    const c1 = gColors[i];
+                    const c2 = ovColors[i];
+                    const sFade = grid.overrideGlows[i]; 
+                    
+                    if (sFade > 0.001) {
+                        const r1 = c1 & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = (c1 >> 16) & 0xFF;
+                        const r2 = c2 & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = (c2 >> 16) & 0xFF;
+                        const blend = Math.min(1.0, sFade);
+                        const r = (r1 * (1.0 - blend) + r2 * blend) | 0;
+                        const g = (g1 * (1.0 - blend) + g2 * blend) | 0;
+                        const b = (b1 * (1.0 - blend) + b2 * blend) | 0;
+                        m32[baseOff + 1] = (255 << 24) | (b << 16) | (g << 8) | r;
+                    } else {
+                        m32[baseOff + 1] = c1;
+                    }
+
                     mF32[baseOff + 2] = gAlphas[i] * ovAlphas[i];
-                    mF32[baseOff + 3] = grid.overrideGlows[i]; 
+                    mF32[baseOff + 3] = sFade; 
                     
                     const nwRotMix = (grid.overrideMix[i] || 0.0);
                     m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : mapChar(ovChars[i]);

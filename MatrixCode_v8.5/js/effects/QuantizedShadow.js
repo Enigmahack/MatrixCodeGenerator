@@ -18,9 +18,9 @@ class QuantizedShadow {
             this.shadowGrid = window.matrix.inactiveWorld.grid;
             this.shadowSim = window.matrix.inactiveWorld.sim;
             
-            // Hard Clear the grid to prevent accumulation from previous runs
-            if (this.shadowGrid && typeof this.shadowGrid.clearAll === 'function') {
-                this.shadowGrid.clearAll();
+            // NEW: Create a PERFECT STATE REPLICA of the active world
+            if (this.shadowSim && window.matrix.simulation) {
+                this.shadowSim.cloneState(window.matrix.simulation);
             }
         } else {
             fx._warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
@@ -40,14 +40,6 @@ class QuantizedShadow {
         }
         this.shadowFade.fill(0);
         this.oldWorldFade.fill(1.0); 
-
-        const sm = this.shadowSim.streamManager;
-        // Wiping the streams every time an effect is triggered causes an "empty top" and 
-        // resets mature tracers. Only resize if the dimensions have actually changed.
-        const needsResize = sm.lastStreamInColumn.length !== this.shadowGrid.cols;
-        if (needsResize) {
-            sm.resize(this.shadowGrid.cols);
-        }
 
         this.shadowSim.timeScale = 1.0;
         

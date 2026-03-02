@@ -2776,50 +2776,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._writeToGrid(x, y, w, h, (op.fade === false ? -1000 : this.animFrame), layer);
 
-        // NEW: Inject streams into Shadow Simulation for Layer 0 and 1
-        if (this.shadowSim && (layer === 0 || layer === 1)) {
-            const sm = this.shadowSim.streamManager;
-            const blocksX = this.logicGridW;
-            const blocksY = this.logicGridH;
-            const cx = Math.floor(blocksX / 2);
-            const cy = Math.floor(blocksY / 2);
-            const bs = this.getBlockSize();
-            
-            // Randomly seed new streams within the block's area in the shadow world
-            // to ensure visual density as the pulse expands.
-            for (let ly = 0; ly < h; ly++) {
-                for (let lx = 0; lx < w; lx++) {
-                    if (Math.random() < 0.3) { // 30% chance per logic cell
-                        const bx_abs = cx + x + lx;
-                        const by_abs = cy + y + ly;
-                        const { offX, offY } = this._computeCenteredOffset(blocksX, blocksY, bs.w, bs.h);
-                        
-                        // Map logic block to cell coordinates
-                        const destBx = bx_abs - offX + (this.userBlockOffX || 0);
-                        const destBy = by_abs - offY + (this.userBlockOffY || 0);
-                        
-                        const startCellX = Math.round(destBx * bs.w);
-                        const startCellY = Math.round(destBy * bs.h);
-                        const endCellX = Math.round((destBx + 1) * bs.w);
-                        const endCellY = Math.round((destBy + 1) * bs.h);
-                        
-                        // Spawn a tracer at a random position within this logic block
-                        const rx = Math.floor(Math.random() * (endCellX - startCellX)) + startCellX;
-                        const ry = Math.floor(Math.random() * (endCellY - startCellY)) + startCellY;
-                        
-                        if (rx >= 0 && rx < this.g.cols && ry >= 0 && ry < this.g.rows) {
-                            if (sm.addActiveStream) {
-                                sm.addActiveStream(rx, ry, 'tracer');
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         return id;
-    }
-
+        }
     _writeToGrid(x, y, w, h, value, layer = 0) {
         if (!this.renderGrid || !this.layerGrids[layer]) return;
         

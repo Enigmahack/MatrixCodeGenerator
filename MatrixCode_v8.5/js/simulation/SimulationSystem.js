@@ -199,6 +199,25 @@ class SimulationSystem {
         return buffers;
     }
 
+    /**
+     * Clones the entire state of another SimulationSystem.
+     * @param {SimulationSystem} other 
+     */
+    cloneState(other) {
+        if (!other || !other.grid || !other.streamManager) return;
+        
+        // 1. Clone Grid State
+        this.grid.copyFrom(other.grid);
+        
+        // 2. Clone StreamManager State
+        this.streamManager.cloneState(other.streamManager);
+        
+        // 3. Sync Logic State
+        this.overlapInitialized = other.overlapInitialized;
+        this._lastOverlapDensity = other._lastOverlapDensity;
+        this.timeScale = other.timeScale;
+    }
+
     update(frame) {
         if (this.config.state.simulationPaused) return;
 

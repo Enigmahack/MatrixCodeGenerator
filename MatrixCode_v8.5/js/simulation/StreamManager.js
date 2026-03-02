@@ -47,6 +47,44 @@ class StreamManager {
         };
     }
 
+    /**
+     * Clones the state of another StreamManager.
+     * @param {StreamManager} other 
+     */
+    cloneState(other) {
+        if (!other || other.grid.cols !== this.grid.cols) return;
+
+        // Clone active streams list (deep clone each stream object)
+        this.activeStreams = other.activeStreams.map(s => {
+            const clone = { ...s };
+            // Set is a special object that needs its own cloning
+            if (s.holes instanceof Set) {
+                clone.holes = new Set(s.holes);
+            }
+            return clone;
+        });
+
+        // Clone column tracking arrays
+        this.lastStreamInColumn = other.lastStreamInColumn.map(s => {
+            if (!s) return null;
+            // Find the corresponding cloned stream in our new list
+            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isEraser === s.isEraser) || null;
+        });
+        this.lastEraserInColumn = other.lastEraserInColumn.map(s => {
+            if (!s) return null;
+            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isEraser === s.isEraser) || null;
+        });
+        this.lastUpwardTracerInColumn = other.lastUpwardTracerInColumn.map(s => {
+            if (!s) return null;
+            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isUpward === s.isUpward) || null;
+        });
+
+        if (this.columnSpeeds && other.columnSpeeds) this.columnSpeeds.set(other.columnSpeeds);
+        if (this.streamsPerColumn && other.streamsPerColumn) this.streamsPerColumn.set(other.streamsPerColumn);
+
+        this.nextSpawnFrame = other.nextSpawnFrame;
+    }
+
     resize(cols) {
         // Critical Log: Catch resize-based wipe
         if (this._activeStreams && this._activeStreams.length > 0 && this.config.state.logErrors) {

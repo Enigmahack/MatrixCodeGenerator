@@ -98,6 +98,64 @@ class CellGrid {
     }
 
     /**
+     * Deep clones all grid state from another CellGrid instance.
+     * @param {CellGrid} other 
+     */
+    copyFrom(other) {
+        if (!other || other.cols !== this.cols || other.rows !== this.rows) return;
+
+        // --- Core State ---
+        this.activeIndices = new Set(other.activeIndices);
+        if (this.activeFlag && other.activeFlag) this.activeFlag.set(other.activeFlag);
+        if (this.state && other.state) this.state.set(other.state);
+
+        // --- Primary Layer ---
+        if (this.chars && other.chars) this.chars.set(other.chars);
+        if (this.colors && other.colors) this.colors.set(other.colors);
+        if (this.baseColors && other.baseColors) this.baseColors.set(other.baseColors);
+        if (this.alphas && other.alphas) this.alphas.set(other.alphas);
+        if (this.glows && other.glows) this.glows.set(other.glows);
+        if (this.fontIndices && other.fontIndices) this.fontIndices.set(other.fontIndices);
+
+        // --- Secondary Layer ---
+        if (this.secondaryChars && other.secondaryChars) this.secondaryChars.set(other.secondaryChars);
+        if (this.secondaryColors && other.secondaryColors) this.secondaryColors.set(other.secondaryColors);
+        if (this.secondaryAlphas && other.secondaryAlphas) this.secondaryAlphas.set(other.secondaryAlphas);
+        if (this.secondaryGlows && other.secondaryGlows) this.secondaryGlows.set(other.secondaryGlows);
+        if (this.secondaryFontIndices && other.secondaryFontIndices) this.secondaryFontIndices.set(other.secondaryFontIndices);
+        
+        // --- Mixing & Rendering ---
+        if (this.mix && other.mix) this.mix.set(other.mix);
+        if (this.renderMode && other.renderMode) this.renderMode.set(other.renderMode);
+
+        // --- Simulation Logic Storage ---
+        if (this.types && other.types) this.types.set(other.types);
+        if (this.decays && other.decays) this.decays.set(other.decays);
+        if (this.maxDecays && other.maxDecays) this.maxDecays.set(other.maxDecays);
+        if (this.ages && other.ages) this.ages.set(other.ages);
+        if (this.brightness && other.brightness) this.brightness.set(other.brightness);
+        if (this.streamSeeds && other.streamSeeds) this.streamSeeds.set(other.streamSeeds);
+        if (this.rotatorOffsets && other.rotatorOffsets) this.rotatorOffsets.set(other.rotatorOffsets);
+        
+        // Auxiliary
+        if (this.cellLocks && other.cellLocks) this.cellLocks.set(other.cellLocks);
+        
+        // Sparse Data
+        this.complexStyles = new Map();
+        for (const [key, value] of other.complexStyles) {
+            // Deep clone style object if necessary, but usually they are small literals
+            this.complexStyles.set(key, typeof value === 'object' ? { ...value } : value);
+        }
+        
+        // Rotator Targets
+        if (this.nextChars && other.nextChars) this.nextChars.set(other.nextChars);
+        if (this.nextOverlapChars && other.nextOverlapChars) this.nextOverlapChars.set(other.nextOverlapChars);
+
+        // --- Optimized Effects Data ---
+        if (this.genericParams && other.genericParams) this.genericParams.set(other.genericParams);
+    }
+
+    /**
      * Resizes the grid based on new width and height.
      */
     resize(width, height, buffers = null) {
