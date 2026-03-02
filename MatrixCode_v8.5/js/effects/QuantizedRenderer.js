@@ -80,7 +80,7 @@ class QuantizedRenderer {
         // Populate Suppressed Fades (Keys to ignore for fading this frame)
         fx.suppressedFades.clear();
         for (const op of fx.maskOps) {
-            if (op.startFrame > fx.lastMaskUpdateFrame && op.startFrame <= fx.animFrame) {
+            if (op.startFrame > fx.lastMaskUpdateFrame && op.startFrame <= fx.animFrame && op.fade === false) {
                 const cx = Math.floor(blocksX / 2);
                 const cy = Math.floor(blocksY / 2);
                 const x1 = Math.min(op.x1, op.x2);
@@ -495,12 +495,21 @@ class QuantizedRenderer {
                     // Don't reset deathFrame here; allow simultaneous fade
                     state.birthFrame = edgeBirthFrame;
                 }
+                // NEW: Clear deathFrame if we are visible again AND it's a suppressed transition (nudge).
+                // This ensures that when a block moves onto a position that was just vacated, 
+                // we don't see the fading lines of the previous occupant.
+                if (state.deathFrame !== -1 && fx.suppressedFades.has(key)) {
+                    state.deathFrame = -1;
+                }
             } else {
                 if (state.visible) {
                     state.visible = false;
                     fx.lastVisibilityChangeFrame = now;
                     state.birthFrame = -1;
-                    if (state.deathFrame === -1) state.deathFrame = now;
+                    // NEW: Respect suppressedFades to avoid triggering a fade animation for nudges.
+                    if (state.deathFrame === -1 && !fx.suppressedFades.has(key)) {
+                        state.deathFrame = now;
+                    }
                 }
             }
 

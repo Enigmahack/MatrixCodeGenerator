@@ -1089,14 +1089,25 @@ class QuantizedBaseEffect extends AbstractEffect {
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
                         if (op.layer !== undefined) {
+                            // Only trigger fade if block was already present before this frame's additions
+                            const birthFrame = targetGrid[idx];
+                            const wasEstablished = (birthFrame !== -1 && (birthFrame < this.animFrame || birthFrame === -1000));
+
                             targetGrid[idx] = -1;
                             if (invGrid) invGrid[idx] = 0;
-                            if (op.fade !== false && this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = this.animFrame;
+                            if (this.removalGrids[layerIdx]) {
+                                this.removalGrids[layerIdx][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                            }
                         } else {
                             for (let l = 0; l < 4; l++) {
+                                const birthFrame = this.layerGrids[l][idx];
+                                const wasEstablished = (birthFrame !== -1 && (birthFrame < this.animFrame || birthFrame === -1000));
+
                                 this.layerGrids[l][idx] = -1;
                                 if (this.layerInvisibleGrids[l]) this.layerInvisibleGrids[l][idx] = 0;
-                                if (op.fade !== false && this.removalGrids[l]) this.removalGrids[l][idx] = this.animFrame;
+                                if (this.removalGrids[l]) {
+                                    this.removalGrids[l][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                                }
                             }
                         }
                     }
