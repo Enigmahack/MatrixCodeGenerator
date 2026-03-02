@@ -560,6 +560,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.animFrame = targetStepsCompleted * framesPerStep;
         this.isReconstructing = false; // Reconstruction complete
 
+        // --- CLEAR REMOVALS AFTER JUMP ---
+        // When teleporting to a new step, we don't want to see "ghost" fades 
+        // from all the removals that happened during the fast-forward.
+        for (let l = 0; l < 4; l++) {
+            if (this.removalGrids[l]) this.removalGrids[l].fill(-1);
+        }
+
         this._updateRenderGridLogic(); // Final logic update for the current state
 
         this._maskDirty = true;
@@ -640,16 +647,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         const s = this.c.state;
         const fps = 60;
 
-        // 1. Update Shadow Simulation & Warmup
-        // If the effect doesn't use shadow world, _updateShadowSim should return false immediately.
+        // 1. Update master clock (Visuals/Fades)
+        this.animFrame++;
+
+        // 2. Update Shadow Simulation & Warmup
         if (!this.hasSwapped && !this.isSwapping) {
             if (this._updateShadowSim()) return;
         } else if (this.isSwapping) {
             this.updateTransition(true);
-        }
-
-        if (!this.debugMode || this.manualStep) {
-            this.animFrame++;
         }
 
         // 1. WAITING State (Delay Start)
@@ -1017,16 +1022,25 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateRenderGridLogic() {
         if (!this.logicGridW || !this.logicGridH) return;
         
-        // Removed the isReconstructing guard to allow logic updates during jump loops,
-        // which is required for context-aware operations (nudges/smart-adds) to see
-        // the current state of the grid during reconstruction.
-
         const totalBlocks = this.logicGridW * this.logicGridH;
         if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
             this.renderGrid = new Int32Array(totalBlocks);
             this.renderGrid.fill(-1);
             this._gridsDirty = true;
         }
+
+        // --- IDEAL SYSTEMIC FIX: Snapshot pre-operation occupancy ---
+        // We create a bitmask (or 4 masks) of which blocks existed BEFORE this logic frame.
+        // Only these blocks are allowed to trigger a removal fade.
+        const establishedMasks = [new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks)];
+        for (let l = 0; l < 4; l++) {
+            if (this.layerGrids[l]) {
+                for (let idx = 0; idx < totalBlocks; idx++) {
+                    if (this.layerGrids[l][idx] !== -1) establishedMasks[l][idx] = 1;
+                }
+            }
+        }
+
         for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
@@ -1052,7 +1066,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         for (; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
-            if (op.startFrame && this.animFrame < op.startFrame) break;
+            
+            // If the op is in the future, we skip it but DON'T break,
+            // as subsequent ops might be from a reconstruction or jump that are ready.
+            if (op.startFrame && this.animFrame < op.startFrame) continue;
+            
+            // Catch up: If we are catching up from a long pause, mark this op as processed
+            if (i === this._lastProcessedOpIndex) {
+                this._lastProcessedOpIndex++;
+            }
+
             opsProcessed++;
             const layerIdx = (op.layer !== undefined && op.layer >= 0 && op.layer <= 3) ? op.layer : 0;
             const targetGrid = this.layerGrids[layerIdx];
@@ -1074,7 +1097,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const rowOff = by * this.logicGridW;
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
-                        targetGrid[idx] = (op.fade === false) ? -1000 : (op.startFrame || 0);
+                        
+                        // IDEMPOTENT ADD: Only set birth frame if the block isn't already active
+                        if (targetGrid[idx] === -1) {
+                            targetGrid[idx] = (op.fade === false) ? -1000 : (op.startFrame || 0);
+                        }
+                        
                         if (invGrid) invGrid[idx] = op.invisible ? 1 : 0;
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
@@ -1089,24 +1117,26 @@ class QuantizedBaseEffect extends AbstractEffect {
                     for (let bx = minX; bx <= maxX; bx++) {
                         const idx = rowOff + bx;
                         if (op.layer !== undefined) {
-                            // Only trigger fade if block was already present before this frame's additions
-                            const birthFrame = targetGrid[idx];
-                            const wasEstablished = (birthFrame !== -1 && (birthFrame < this.animFrame || birthFrame === -1000));
+                            const wasEstablished = (establishedMasks[layerIdx][idx] === 1);
 
                             targetGrid[idx] = -1;
                             if (invGrid) invGrid[idx] = 0;
                             if (this.removalGrids[layerIdx]) {
-                                this.removalGrids[layerIdx][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                                // IDEMPOTENT REMOVE: Don't overwrite an existing fade animation
+                                if (this.removalGrids[layerIdx][idx] === -1) {
+                                    this.removalGrids[layerIdx][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                                }
                             }
                         } else {
                             for (let l = 0; l < 4; l++) {
-                                const birthFrame = this.layerGrids[l][idx];
-                                const wasEstablished = (birthFrame !== -1 && (birthFrame < this.animFrame || birthFrame === -1000));
+                                const wasEstablished = (establishedMasks[l][idx] === 1);
 
                                 this.layerGrids[l][idx] = -1;
                                 if (this.layerInvisibleGrids[l]) this.layerInvisibleGrids[l][idx] = 0;
                                 if (this.removalGrids[l]) {
-                                    this.removalGrids[l][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                                    if (this.removalGrids[l][idx] === -1) {
+                                        this.removalGrids[l][idx] = (op.fade !== false && wasEstablished) ? this.animFrame : -1;
+                                    }
                                 }
                             }
                         }
