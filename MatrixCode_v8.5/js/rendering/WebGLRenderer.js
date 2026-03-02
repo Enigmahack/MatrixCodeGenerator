@@ -956,21 +956,15 @@ class WebGLRenderer {
                     // shadow = 0..1 (0=No Shadow, 1=Black)
                     // glassMask = 0..1 (quantized blocks)
                     float glassMask = texture(u_shadowMask, v_screenUV).r;
-                    
-                    // REDUNDANCY REMOVED: Shadow now only affects streamAlpha below
-                    // This prevents double-darkening (RGB * shadow * Alpha * shadow)
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger)
                     // Multiply by alpha to ensure it fades out with the character
                     if (v_glow > 0.0) {
                         float glowFactor = v_glow;
-                        if (!isHighPriority) {
-                            float gSMult = 1.0 - shadow;
-                            if (u_glassEnabled && glassMask > 0.001) gSMult = 1.0;
-                            glowFactor *= gSMult;
+                        if (!isHighPriority && glassMask <= 0.001) {
+                             glowFactor *= (1.0 - shadow);
                         }
-                        
                         col.rgb += (glowFactor * 0.3 * col.a);
                     }
     
@@ -978,8 +972,7 @@ class WebGLRenderer {
                     float sAlphaMult = 1.0 - shadow;
                     if (isHighPriority || glassMask > 0.001) sAlphaMult = 1.0;
                     float streamAlpha = col.a * finalAlpha * sAlphaMult;
-                    if (!isHighPriority && glassMask > 0.001) streamAlpha *= glassMask;
-    
+                    
                     if (glimmer > 0.0) {
                         // 1. Turn the block White (mix base color to white)
                         // Clamp mixing factor to 1.0 to stay within white range
@@ -2246,8 +2239,6 @@ class WebGLRenderer {
             
             this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
-            this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), (s.quantizedGlassEnabled && hasActiveQuantizedEffect) ? 1 : 0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glassDarkness'), hasActiveQuantizedEffect ? (s.quantizedGlassDarkness || 0) * (fx ? fx.alpha : 0) : 0.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
