@@ -1063,7 +1063,7 @@ class UIManager {
                     const decimals = (step.toString().split('.')[1] || '').length;
                     if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
 
-                    console.log(`[UIManager oninput] key: ${bindKey}, value: ${actual}, type: ${typeof actual}`);
+                    if (this.c.get('logErrors')) console.log(`[UIManager oninput] key: ${bindKey}, value: ${actual}, type: ${typeof actual}`);
                     this.c.set(bindKey, actual); 
 
                     const disp = document.getElementById(`val-${def.id}`); 
