@@ -137,9 +137,10 @@ class PostProcessor {
                 vec4 color = texture2D(uTexture, vTexCoord);
                 vec2 texelSize = (1.0 / uResolution) * uBloomRadius;
                 vec3 blur = vec3(0.0);
-                for(float x = -1.0; x <= 1.0; x++) {
-                    for(float y = -1.0; y <= 1.0; y++) {
-                        vec3 s = texture2D(uTexture, vTexCoord + vec2(x, y) * texelSize).rgb;
+                for(int x = -1; x <= 1; x++) {
+                    for(int y = -1; y <= 1; y++) {
+                        vec2 offset = vec2(float(x), float(y)) * texelSize;
+                        vec3 s = texture2D(uTexture, vTexCoord + offset).rgb;
                         blur += threshold(s, uBloomThreshold);
                     }
                 }
@@ -171,16 +172,21 @@ class PostProcessor {
             void main() {
                 vec4 color = texture2D(uTexture, vTexCoord);
                 vec2 texelSize = (1.0 / uResolution) * uBloomRadius * 0.5;
-                vec3 blur = texture2D(uTexture, vTexCoord).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(-1, -1) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(1, -1) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(-1, 1) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(1, 1) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(0, -2) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(0, 2) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(-2, 0) * texelSize).rgb;
-                blur += texture2D(uTexture, vTexCoord + vec2(2, 0) * texelSize).rgb;
-                blur = threshold(blur / 9.0, uBloomThreshold);
+                
+                // 13-tap Dual Filter Approximation
+                vec3 blur = threshold(texture2D(uTexture, vTexCoord).rgb, uBloomThreshold) * 4.0;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-1.0, -1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(1.0, -1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-1.0, 1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(1.0, 1.0) * texelSize).rgb, uBloomThreshold);
+                
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(0.0, -2.0) * texelSize).rgb, uBloomThreshold) * 2.0;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(0.0, 2.0) * texelSize).rgb, uBloomThreshold) * 2.0;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-2.0, 0.0) * texelSize).rgb, uBloomThreshold) * 2.0;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(2.0, 0.0) * texelSize).rgb, uBloomThreshold) * 2.0;
+                
+                blur /= 16.0;
+                
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
                 vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
                 gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
@@ -191,7 +197,6 @@ class PostProcessor {
             precision highp float;
             uniform sampler2D uTexture;
             uniform vec2 uResolution;
-            uniform float uTime;
             uniform float uBloomRadius;
             uniform float uBloomIntensity;
             uniform float uBloomBrightness;
@@ -212,20 +217,106 @@ class PostProcessor {
                 vec3 blur = vec3(0.0);
                 float radius = uBloomRadius * 4.0;
                 
-                // Rotated 45 degrees for better visual contrast against vertical rain
-                // cos(45) and sin(45) are approx 0.707
                 vec2 dir1 = vec2(0.707, 0.707);
                 vec2 dir2 = vec2(0.707, -0.707);
+                vec2 dir3 = vec2(1.0, 0.0);
+                vec2 dir4 = vec2(0.0, 1.0);
 
-                for(int i = -8; i <= 8; i++) {
+                for(int i = -4; i <= 4; i++) {
                     float fi = float(i);
-                    vec2 off1 = dir1 * fi * radius * texelSize;
-                    vec2 off2 = dir2 * fi * radius * texelSize;
-                    
-                    blur += threshold(texture2D(uTexture, vTexCoord + off1).rgb, uBloomThreshold) * (1.0 - abs(fi)/9.0);
-                    blur += threshold(texture2D(uTexture, vTexCoord + off2).rgb, uBloomThreshold) * (1.0 - abs(fi)/9.0);
+                    blur += threshold(texture2D(uTexture, vTexCoord + dir1 * fi * radius * texelSize).rgb, uBloomThreshold) * 0.25;
+                    blur += threshold(texture2D(uTexture, vTexCoord + dir2 * fi * radius * texelSize).rgb, uBloomThreshold) * 0.25;
+                    blur += threshold(texture2D(uTexture, vTexCoord + dir3 * fi * radius * texelSize).rgb, uBloomThreshold) * 0.25;
+                    blur += threshold(texture2D(uTexture, vTexCoord + dir4 * fi * radius * texelSize).rgb, uBloomThreshold) * 0.25;
                 }
-                blur /= 18.0;
+                blur /= 9.0;
+                
+                float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
+                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
+                gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
+            }
+        `;
+
+        this.bokehBloomShader = `
+            precision highp float;
+            uniform sampler2D uTexture;
+            uniform vec2 uResolution;
+            uniform float uBloomRadius;
+            uniform float uBloomIntensity;
+            uniform float uBloomBrightness;
+            uniform float uBloomThreshold;
+            uniform float uGlobalBrightness;
+            uniform float uBurnIn;
+            uniform float uBurnInBoost;
+            varying vec2 vTexCoord;
+
+            vec3 threshold(vec3 color, float th) {
+                float luma = dot(color, vec3(0.299, 0.587, 0.114));
+                return color * smoothstep(th, th + 0.05, luma);
+            }
+
+            void main() {
+                vec4 color = texture2D(uTexture, vTexCoord);
+                vec2 texelSize = 1.0 / uResolution;
+                vec3 blur = vec3(0.0);
+                float radius = uBloomRadius * 5.0;
+                
+                const int rings = 3;
+                const int samplesPerRing = 8;
+                float totalSamples = 0.0;
+                
+                for(int i = 1; i <= rings; i++) {
+                    float step = radius * (float(i) / float(rings));
+                    for(int j = 0; j < samplesPerRing; j++) {
+                        float angle = (float(j) / float(samplesPerRing)) * 6.28318;
+                        vec2 offset = vec2(cos(angle), sin(angle)) * step * texelSize;
+                        blur += threshold(texture2D(uTexture, vTexCoord + offset).rgb, uBloomThreshold);
+                        totalSamples += 1.0;
+                    }
+                }
+                blur /= max(1.0, totalSamples);
+                
+                float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
+                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
+                gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
+            }
+        `;
+
+        this.kawaseBloomShader = `
+            precision highp float;
+            uniform sampler2D uTexture;
+            uniform vec2 uResolution;
+            uniform float uBloomRadius;
+            uniform float uBloomIntensity;
+            uniform float uBloomBrightness;
+            uniform float uBloomThreshold;
+            uniform float uGlobalBrightness;
+            uniform float uBurnIn;
+            uniform float uBurnInBoost;
+            varying vec2 vTexCoord;
+
+            vec3 threshold(vec3 color, float th) {
+                float luma = dot(color, vec3(0.299, 0.587, 0.114));
+                return color * smoothstep(th, th + 0.05, luma);
+            }
+
+            void main() {
+                vec4 color = texture2D(uTexture, vTexCoord);
+                vec2 texelSize = (1.0 / uResolution) * uBloomRadius;
+                
+                vec3 blur = vec3(0.0);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-1.0, -1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(1.0, -1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-1.0, 1.0) * texelSize).rgb, uBloomThreshold);
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(1.0, 1.0) * texelSize).rgb, uBloomThreshold);
+                
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-2.0, -2.0) * texelSize).rgb, uBloomThreshold) * 0.5;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(2.0, -2.0) * texelSize).rgb, uBloomThreshold) * 0.5;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(-2.0, 2.0) * texelSize).rgb, uBloomThreshold) * 0.5;
+                blur += threshold(texture2D(uTexture, vTexCoord + vec2(2.0, 2.0) * texelSize).rgb, uBloomThreshold) * 0.5;
+                
+                blur /= 6.0;
+                
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
                 vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
                 gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
@@ -272,11 +363,8 @@ class PostProcessor {
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
+        this._initBloomPrograms();
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
-        this.bloomProgram = this._compileProgram(this.bloomFragmentShader);
-        this.boxBloomProgram = this._compileProgram(this.boxBloomShader);
-        this.dualBloomProgram = this._compileProgram(this.dualBloomShader);
-        this.starBloomProgram = this._compileProgram(this.starBloomShader);
     }
 
     _initWebGL() {
@@ -302,11 +390,17 @@ class PostProcessor {
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         
+        this._initBloomPrograms();
         this.defaultProgram = this._compileProgram(this.defaultFragmentShader);
-        this.bloomProgram = this._compileProgram(this.bloomFragmentShader);
+    }
+
+    _initBloomPrograms() {
+        this.gaussianBloomProgram = this._compileProgram(this.bloomFragmentShader);
         this.boxBloomProgram = this._compileProgram(this.boxBloomShader);
         this.dualBloomProgram = this._compileProgram(this.dualBloomShader);
         this.starBloomProgram = this._compileProgram(this.starBloomShader);
+        this.bokehBloomProgram = this._compileProgram(this.bokehBloomShader);
+        this.kawaseBloomProgram = this._compileProgram(this.kawaseBloomShader);
     }
 
     _createTexture() {
@@ -471,7 +565,10 @@ class PostProcessor {
             case 'box': return this.boxBloomProgram;
             case 'dual': return this.dualBloomProgram;
             case 'star': return this.starBloomProgram;
-            default: return this.bloomProgram;
+            case 'bokeh': return this.bokehBloomProgram;
+            case 'kawase': return this.kawaseBloomProgram;
+            case 'gaussian': return this.gaussianBloomProgram;
+            default: return this.gaussianBloomProgram;
         }
     }
 
@@ -533,7 +630,7 @@ class PostProcessor {
             // Global FX: Selected in Debug menu. Falls back to Bloom ONLY if enabled there.
             { 
                 id: 'globalFX', 
-                prog: this.globalFXProgram || this.bloomProgram, 
+                prog: this.globalFXProgram || this.defaultProgram, 
                 param: params.globalFX ?? 0.5, 
                 enabled: this.config.get('globalFXEnabled') 
             },
@@ -563,29 +660,30 @@ class PostProcessor {
         // Add Global Params to ALL passes for consistency
         const commonParams = {
             uBurnIn: this.config.get('clearAlpha') || 0.0,
-            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0
+            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0,
+            // ARCHITECTURAL FIX: Explicitly zero out bloom uniforms by default for ALL programs
+            // that might use them (shared programs). This prevents state bleed.
+            uBloomIntensity: 0.0,
+            uBloomBrightness: 0.0
         };
+
+        // Apply common params to all passes.
+        // We do this BEFORE specific bloom params so they can be overridden.
+        activePasses.forEach(p => {
+            p.customParams = { ...commonParams, ...(p.customParams || {}) };
+        });
 
         // Add Global Bloom Params
         if (this.config.get('globalBloomEnabled')) {
             const pass = activePasses.find(p => p.id === 'globalBloom');
             if (pass) {
-                pass.customParams = {
-                    ...commonParams,
-                    uBloomBrightness: this.config.get('globalBloomBrightness'),
-                    uBloomIntensity: this.config.get('globalBloomIntensity'),
-                    uBloomRadius: this.config.get('globalBloomWidth'),
-                    uBloomThreshold: this.config.get('globalBloomThreshold')
-                };
+                // Overwrite the zeroes from commonParams with actual values
+                pass.customParams.uBloomBrightness = this.config.get('globalBloomBrightness');
+                pass.customParams.uBloomIntensity = this.config.get('globalBloomIntensity');
+                pass.customParams.uBloomRadius = this.config.get('globalBloomWidth');
+                pass.customParams.uBloomThreshold = this.config.get('globalBloomThreshold');
             }
         }
-
-        // Apply common params to other passes too
-        activePasses.forEach(p => {
-            if (p.id !== 'globalFX') {
-                p.customParams = { ...commonParams, ...(p.customParams || {}) };
-            }
-        });
 
         this._applyChain(activePasses, inputTex, flipY, targetFBO, time, mouseX, mouseY, brightness);
     }

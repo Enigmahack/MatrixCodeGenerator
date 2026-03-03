@@ -132,7 +132,9 @@ const ConfigTemplate = [
         { label: 'Gaussian (Fast)', value: 'gaussian' },
         { label: 'Box (Performance)', value: 'box' },
         { label: 'Dual Filtering (High Quality)', value: 'dual' },
-        { label: 'Star (Artistic)', value: 'star' }
+        { label: 'Star (Artistic)', value: 'star' },
+        { label: 'Bokeh (Cinematic)', value: 'bokeh' },
+        { label: 'Kawase (Smooth)', value: 'kawase' }
     ], dep: 'globalBloomEnabled' },
     { cat: 'Global', id: 'globalBloomBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled' },
     { cat: 'Global', id: 'globalBloomIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled' },

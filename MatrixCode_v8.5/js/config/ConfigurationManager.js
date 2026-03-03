@@ -231,7 +231,7 @@ class ConfigurationManager {
             "globalFXName": "none",
             "globalFXShaderContent": null,
             "globalFXParameter": 0.5,
-            "globalFXEnabled": true,
+            "globalFXEnabled": false,
             "postProcessBypassAll": false,
 
             "pulseEnabled": false,
