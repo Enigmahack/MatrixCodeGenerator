@@ -29,6 +29,13 @@ class ConfigurationManager {
             'quantizedGlassBevel',
             'quantizedGlassOverlapGlow',
             'quantizedGlassBloom',
+            'quantizedGlassRefractionEnabled',
+            'quantizedGlassRefractionWidth',
+            'quantizedGlassRefractionBrightness',
+            'quantizedGlassRefractionSaturation',
+            'quantizedGlassRefractionCompression',
+            'quantizedGlassRefractionOffset',
+            'quantizedGlassRefractionGlow',
             // 'savedPresets' is handled by this.slots
         ]);
 
@@ -664,6 +671,13 @@ class ConfigurationManager {
             'quantizedGlassBevel': 0.5,
             'quantizedGlassOverlapGlow': 0.4,
             'quantizedGlassBloom': 1.2,
+            'quantizedGlassRefractionEnabled': false,
+            'quantizedGlassRefractionWidth': 0.25,
+            'quantizedGlassRefractionBrightness': 1.5,
+            'quantizedGlassRefractionSaturation': 1.5,
+            'quantizedGlassRefractionCompression': 1.0,
+            'quantizedGlassRefractionOffset': 0.0,
+            'quantizedGlassRefractionGlow': 0.0,
 
             "globalBloomEnabled": false,
             "globalBloomType": "gaussian",

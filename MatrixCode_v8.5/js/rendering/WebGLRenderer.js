@@ -443,7 +443,15 @@ class WebGLRenderer {
                 uniform float u_glassBevel;
                 uniform float u_glassOverlapGlow;
                 uniform float u_glassBloom;
-                
+
+                uniform bool u_refractionEnabled;
+                uniform float u_refractionWidth;
+                uniform float u_refractionBrightness;
+                uniform float u_refractionSaturation;
+                uniform float u_refractionCompression;
+                uniform float u_refractionOffset;
+                uniform float u_refractionGlow;
+
                 out vec4 fragColor;
 
                 vec4 getOccupancy(vec2 pos) {
@@ -534,6 +542,154 @@ class WebGLRenderer {
                         vec3 resultColor = base.rgb;
                         if (u_glassEnabled && isVisible > 0.5) {
                             resultColor *= u_glassBloom;
+                        }
+
+                        // Natural Refraction: curved glass edge effect.
+                        // Each layer has its own independent perimeter — NOT a merged union.
+                        //   Accumulator A: layer 0 perimeter + layer 2/3 overlap perimeter (full brightness)
+                        //   Accumulator B: layer 1 perimeter (brightness -0.3 when layer 0 co-occupies that block)
+                        // Each half-edge SDF is computed once and tested against all three layer conditions.
+                        // Bell-modulated barrel warp toward cell boundaries simulates diffuse curved glass.
+                        if (u_refractionEnabled) {
+                            vec2 nearestI = floor(logicPos + 0.5);
+                            vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
+
+                            vec4 occNW = getOccupancy(nearestI + vec2(-1.0, -1.0));
+                            vec4 occNE = getOccupancy(nearestI + vec2( 0.0, -1.0));
+                            vec4 occSW = getOccupancy(nearestI + vec2(-1.0,  0.0));
+                            vec4 occSE = getOccupancy(nearestI + vec2( 0.0,  0.0));
+
+                            // Layer 0
+                            float l0NW = getLayerVal(occNW,u_layerOrder.x); float o0NW = step(0.01,l0NW);
+                            float l0NE = getLayerVal(occNE,u_layerOrder.x); float o0NE = step(0.01,l0NE);
+                            float l0SW = getLayerVal(occSW,u_layerOrder.x); float o0SW = step(0.01,l0SW);
+                            float l0SE = getLayerVal(occSE,u_layerOrder.x); float o0SE = step(0.01,l0SE);
+                            // Layer 1
+                            float l1NW = getLayerVal(occNW,u_layerOrder.y); float o1NW = step(0.01,l1NW);
+                            float l1NE = getLayerVal(occNE,u_layerOrder.y); float o1NE = step(0.01,l1NE);
+                            float l1SW = getLayerVal(occSW,u_layerOrder.y); float o1SW = step(0.01,l1SW);
+                            float l1SE = getLayerVal(occSE,u_layerOrder.y); float o1SE = step(0.01,l1SE);
+                            // Layer 2/3: only occupied when both co-inhabit the same block
+                            float l23NW = min(getLayerVal(occNW,u_layerOrder.z),getLayerVal(occNW,u_layerOrder.w)); float o23NW = step(0.01,l23NW);
+                            float l23NE = min(getLayerVal(occNE,u_layerOrder.z),getLayerVal(occNE,u_layerOrder.w)); float o23NE = step(0.01,l23NE);
+                            float l23SW = min(getLayerVal(occSW,u_layerOrder.z),getLayerVal(occSW,u_layerOrder.w)); float o23SW = step(0.01,l23SW);
+                            float l23SE = min(getLayerVal(occSE,u_layerOrder.z),getLayerVal(occSE,u_layerOrder.w)); float o23SE = step(0.01,l23SE);
+
+                            // Accumulator A: layer 0 + layer 2/3 (full brightness)
+                            float minDistA = 1.0e10; float edgeAlphaA = 0.0; vec2 reflPA = p;
+                            // Accumulator B: layer 1 (brightDeltaB = -0.3 when layer 0 is on the occupied side)
+                            float minDistB = 1.0e10; float edgeAlphaB = 0.0; vec2 reflPB = p; float brightDeltaB = 0.0;
+
+                            // NW-NE (vertical, upper)
+                            {
+                                float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
+                                if (abs(o0NW - o0NE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sx = (o0NE > o0NW) ? 1.0 : -1.0;
+                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
+                                }
+                                if (abs(o23NW - o23NE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sx = (o23NE > o23NW) ? 1.0 : -1.0;
+                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23NW, l23NE);
+                                }
+                                if (abs(o1NW - o1NE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o1NE > o1NW) ? 1.0 : -1.0;
+                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1NW, l1NE);
+                                    float l0occ = (o1NE > o1NW) ? l0NE : l0NW;
+                                    brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
+                                }
+                            }
+                            // SW-SE (vertical, lower)
+                            {
+                                float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
+                                if (abs(o0SW - o0SE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sx = (o0SE > o0SW) ? 1.0 : -1.0;
+                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
+                                }
+                                if (abs(o23SW - o23SE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sx = (o23SE > o23SW) ? 1.0 : -1.0;
+                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23SW, l23SE);
+                                }
+                                if (abs(o1SW - o1SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o1SE > o1SW) ? 1.0 : -1.0;
+                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1SW, l1SE);
+                                    float l0occ = (o1SE > o1SW) ? l0SE : l0SW;
+                                    brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
+                                }
+                            }
+                            // NW-SW (horizontal, left)
+                            {
+                                float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
+                                if (abs(o0NW - o0SW) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sy = (o0SW > o0NW) ? 1.0 : -1.0;
+                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
+                                }
+                                if (abs(o23NW - o23SW) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sy = (o23SW > o23NW) ? 1.0 : -1.0;
+                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NW, l23SW);
+                                }
+                                if (abs(o1NW - o1SW) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o1SW > o1NW) ? 1.0 : -1.0;
+                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NW, l1SW);
+                                    float l0occ = (o1SW > o1NW) ? l0SW : l0NW;
+                                    brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
+                                }
+                            }
+                            // NE-SE (horizontal, right)
+                            {
+                                float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
+                                if (abs(o0NE - o0SE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sy = (o0SE > o0NE) ? 1.0 : -1.0;
+                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
+                                }
+                                if (abs(o23NE - o23SE) > 0.5 && d < minDistA) {
+                                    minDistA = d; float sy = (o23SE > o23NE) ? 1.0 : -1.0;
+                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NE, l23SE);
+                                }
+                                if (abs(o1NE - o1SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o1SE > o1NE) ? 1.0 : -1.0;
+                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NE, l1SE);
+                                    float l0occ = (o1SE > o1NE) ? l0SE : l0NE;
+                                    brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
+                                }
+                            }
+
+                            float cellSize  = (u_cellPitch.x * u_screenStep.x + u_cellPitch.y * u_screenStep.y) * 0.5;
+                            float refrWidth = u_refractionWidth  * cellSize;
+                            float refrOffPx = u_refractionOffset * cellSize;
+                            vec3 tintedColor = applyHueShift(u_color, u_tintOffset);
+
+                            // Shared helper: barrel-warp reflP, sample u_sourceGrid, blend into resultColor
+                            #define APPLY_REFR(minD, reflP_, edgeA_, brightness_) \
+                            { \
+                                float refrBell_ = max(1.0 - smoothstep(0.0, max(refrWidth,0.0001), abs(minD - refrOffPx)), 0.0) * edgeA_; \
+                                if (refrBell_ > 0.001) { \
+                                    vec2 rLP_ = nearestI + reflP_ / (u_cellPitch * u_screenStep); \
+                                    vec2 rFrac_ = fract(rLP_); \
+                                    float wE_ = 1.0 / max(1.0 + u_refractionCompression * refrBell_, 0.001); \
+                                    vec2 rCent_ = rFrac_ * 2.0 - 1.0; \
+                                    vec2 wLP_ = floor(rLP_) + (sign(rCent_) * pow(abs(rCent_), vec2(wE_)) + 1.0) * 0.5; \
+                                    vec2 rGP_ = (wLP_ - u_blockOffset + u_userBlockOffset) * u_cellPitch; \
+                                    vec2 rSP_ = rGP_ * u_screenStep + u_screenOrigin; \
+                                    vec2 rUV_ = vec2((rSP_.x+u_offset.x)/u_resolution.x, 1.0-(rSP_.y+u_offset.y)/u_resolution.y); \
+                                    vec2 srUV_ = rUV_ + (u_sourceGridOffset + u_sampleOffset) / u_resolution; \
+                                    if (srUV_.x>=0.0 && srUV_.x<=1.0 && srUV_.y>=0.0 && srUV_.y<=1.0) { \
+                                        float luma_ = texture(u_sourceGrid, srUV_).r; \
+                                        vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_), u_refractionSaturation); \
+                                        resultColor = mix(resultColor, rc_ + rc_ * (u_refractionGlow * refrBell_), refrBell_); \
+                                    } \
+                                } \
+                            }
+
+                            // Layer 0 + layer 2/3: full brightness
+                            if (edgeAlphaA > 0.0 && minDistA < 1.0e9) {
+                                APPLY_REFR(minDistA, reflPA, edgeAlphaA, u_refractionBrightness)
+                            }
+                            // Layer 1: brightness reduced by 0.3 when layer 0 is on the occupied side
+                            if (edgeAlphaB > 0.0 && minDistB < 1.0e9) {
+                                APPLY_REFR(minDistB, reflPB, edgeAlphaB, max(u_refractionBrightness + brightDeltaB, 0.0))
+                            }
+
+                            #undef APPLY_REFR
                         }
 
                         // Composite Grid Lines
@@ -1634,7 +1790,14 @@ class WebGLRenderer {
             u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
             u_glassBevel: s.quantizedGlassBevel ?? 0.5,
             u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
-            u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha
+            u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha,
+            u_refractionEnabled:     s.quantizedGlassRefractionEnabled ? 1 : 0,
+            u_refractionWidth:       s.quantizedGlassRefractionWidth       ?? 0.25,
+            u_refractionBrightness:  1.0 + ((s.quantizedGlassRefractionBrightness  ?? 1.5) - 1.0) * fx.alpha,
+            u_refractionSaturation:  1.0 + ((s.quantizedGlassRefractionSaturation  ?? 1.5) - 1.0) * fx.alpha,
+            u_refractionCompression: s.quantizedGlassRefractionCompression ?? 1.0,
+            u_refractionOffset:      s.quantizedGlassRefractionOffset      ?? 0.0,
+            u_refractionGlow:        (s.quantizedGlassRefractionGlow ?? 0.0) * fx.alpha
         };
 
         const compTextures = {
