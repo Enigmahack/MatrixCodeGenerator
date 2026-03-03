@@ -1352,7 +1352,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Linear decay: 1.0 / frames per frame
                 return 1.0 / frames;
             })(),
-            sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale]
+            sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale],
+            fillRatio: (() => {
+                if (!this.renderGrid || gw * gh === 0) return 0;
+                let occupied = 0;
+                for (let i = 0; i < this.renderGrid.length; i++) {
+                    if (this.renderGrid[i] !== -1) occupied++;
+                }
+                return occupied / (gw * gh);
+            })()
         };
     }
 

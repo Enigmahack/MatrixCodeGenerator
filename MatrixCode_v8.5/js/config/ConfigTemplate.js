@@ -296,6 +296,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'sub_accordion', label: 'Glass & Composition' },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Transmission' },
     { cat: 'Effects', id: 'quantizedGlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, description: "Scales character brightness inside quantized blocks." },
+    { cat: 'Effects', id: 'quantizedGlassBloomScaleToSize', type: 'checkbox', label: 'Scale to Effect Size', description: "When enabled, Interior Brightness is at full strength when the effect begins and fades to 1 (flat) as blocks fill in." },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Compression' },
     { cat: 'Effects', id: 'quantizedGlassCompressionThreshold', type: 'range', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, description: "Clamps pixels below this brightness to black. 0 = all levels pass through." },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Natural Refraction' },
