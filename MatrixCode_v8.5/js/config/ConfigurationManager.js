@@ -98,7 +98,7 @@ class ConfigurationManager {
             "resolution": 1,
             "enableGlyphAtlas": true,
             "smoothingEnabled": false,
-            "smoothingAmount": 0.1,
+            "smoothingAmount": 0,
             "showFpsCounter": false,
             "performanceMode": false,
             "debugTabEnabled": false,
@@ -282,7 +282,6 @@ class ConfigurationManager {
             
             "quantizedLineGfxEnabled": true,
             "quantizedShadowWorldFadeSpeed": 0.5,
-            "quantizedLineGfxThickness": 3.0,
             "quantizedLineGfxColor": "#0cd709",
             "quantizedLineGfxIntensity": 1.0,
             "quantizedLineGfxGlow": 4.0,
@@ -2172,7 +2171,7 @@ void main() {
                 } else {
                     this._previousSmoothingEnabled = undefined; // No previous value to restore
                 }
-                if (this.state.smoothingAmount !== 0.1) {
+                if (this.state.smoothingAmount !== 0) {
                     this._previousSmoothingAmount = this.state.smoothingAmount;
                 } else {
                     this._previousSmoothingAmount = undefined; // No previous value to restore
@@ -2183,8 +2182,8 @@ void main() {
                     this.state.smoothingEnabled = false;
                     this.notify('smoothingEnabled');
                 }
-                if (this.state.smoothingAmount !== 0.1) {
-                    this.state.smoothingAmount = 0.1; // Minimum value as per UI definition
+                if (this.state.smoothingAmount !== 0) {
+                    this.state.smoothingAmount = 0; // Minimum value as per UI definition
                     this.notify('smoothingAmount');
                 }
             } else { // Shader is being disabled

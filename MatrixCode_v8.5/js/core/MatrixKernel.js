@@ -381,7 +381,7 @@ class MatrixKernel {
             }
 
             // Update renderer when smoothing settings change
-            if (smoothingTriggers.has(key) && this.renderer) {
+            if ((smoothingTriggers.has(key) || key === 'ALL') && this.renderer) {
                 this.renderer.updateSmoothing();
             }
 

@@ -536,7 +536,11 @@ class WebGLRenderer {
                         
                         vec3 resultColor = base.rgb;
                         if (isVisible > 0.5) {
-                            resultColor *= u_glassBloom;
+                            // Non-burn-in brightness boost: 
+                            // 1. Scales existing brightness linearly (Interior Brightness)
+                            // 2. Uses a soft-addition to prevent clipping/flattening highlights
+                            float boost = u_glassBloom - 1.0;
+                            resultColor.rgb += boost * resultColor.rgb * (1.0 - resultColor.rgb * 0.5);
                         }
 
                         // Natural Refraction: curved glass edge effect.
@@ -1336,6 +1340,7 @@ class WebGLRenderer {
         const scale = s.resolution;
         
         this.handleAppearanceChange();
+        this.updateSmoothing();
         this.w = window.innerWidth;
         this.h = window.innerHeight;
         
