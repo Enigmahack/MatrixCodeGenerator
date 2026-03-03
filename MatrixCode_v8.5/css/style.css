@@ -64,19 +64,20 @@
     overflow: hidden; /* Retained from existing style */
 }
         
-        canvas { display: block; position: absolute; top: 0; left: 0; }
+        canvas { display: block; position: fixed; top: 0; left: 0; }
         #matrixCanvas { z-index: 1; transition: filter 0.3s ease; transform: translateZ(0); -webkit-transform: translateZ(0); }
 
         /* --- SETTINGS PANEL UI --- */
         #settingsPanel {
             position: fixed; top: 0; right: 0; height: 100vh; height: 100dvh; width: 340px;
-            background-color: var(--panel-bg); 
+            background-color: var(--panel-bg);
             box-shadow: -10px 0 30px rgba(0,0,0,0.8); z-index: 11000;
             transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
             display: flex; flex-direction: column;
-            border-left: 1px solid var(--panel-border); 
+            border-left: 1px solid var(--panel-border);
             font-size: 0.9rem;
             color: var(--text-main);
+            overflow: hidden;
         }
         #settingsPanel.open { transform: translateX(0); }
         
@@ -144,11 +145,12 @@
         }
 
         /* --- CONTENT AREA --- */
-        #contentArea { 
-            flex: 1; overflow-y: auto; 
-            padding: 1.5rem; 
+        #contentArea {
+            flex: 1; overflow-y: auto;
+            padding: 1.5rem;
             padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 20px) + 60px);
-            -webkit-overflow-scrolling: touch; 
+            -webkit-overflow-scrolling: touch;
+            scrollbar-gutter: stable;
         }
         .control-group { display: none; flex-direction: column; gap: 1.5rem; animation: fadeIn 0.3s ease; }
         .control-group.active { display: flex; }
