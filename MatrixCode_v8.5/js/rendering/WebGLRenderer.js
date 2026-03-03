@@ -976,6 +976,8 @@ class WebGLRenderer {
                 uniform float u_glimmerIntensity;
                 uniform float u_glimmerFlicker; 
                 uniform float u_brightness;
+                uniform float u_brightnessFloor;
+                uniform float u_glowIntensityMultiplier;
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
@@ -1135,7 +1137,7 @@ class WebGLRenderer {
                         if (!isHighPriority && glassMask <= 0.001) {
                              glowFactor *= (1.0 - shadow);
                         }
-                        col.rgb += (glowFactor * 0.3 * col.a);
+                        col.rgb += (glowFactor * u_glowIntensityMultiplier * col.a);
                     }
     
                     // Base Alpha (Stream Fade)
@@ -1151,16 +1153,16 @@ class WebGLRenderer {
                         // 2. Add Bright Glow (Additively)
                         // Use u_glimmerIntensity (from slider) to boost brightness significantly
                         // We do NOT multiply by shadow here, allowing glimmer to pierce darkness
-                        // Scale by 0.3 to match standard glow intensity curve
-                        vec3 glowBoost = vec3(u_glimmerIntensity * 0.3) * glimmer;
+                        // Scale by u_glowIntensityMultiplier to match standard glow intensity curve
+                        vec3 glowBoost = vec3(u_glimmerIntensity * u_glowIntensityMultiplier) * glimmer;
                         col.rgb += glowBoost;
     
                         // Force alpha to be at least the glimmer opacity
                         streamAlpha = max(streamAlpha, glimmer);
                     }
     
-                    // Boosted brightness (Task 3: +5% floor)
-                    fragColor = vec4(col.rgb * (u_brightness + 0.05), streamAlpha);
+                    // Boosted brightness
+                    fragColor = vec4(col.rgb * (u_brightness + u_brightnessFloor), streamAlpha);
                 }
             `;
             
@@ -2446,6 +2448,8 @@ class WebGLRenderer {
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
             this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
+            this.gl.uniform1f(this._u(activeProgram, 'u_brightnessFloor'), s.brightnessFloor !== undefined ? s.brightnessFloor : 0.05);
+            this.gl.uniform1f(this._u(activeProgram, 'u_glowIntensityMultiplier'), s.glowIntensityMultiplier !== undefined ? s.glowIntensityMultiplier : 0.3);
 
             const cellScaleX = (d.cellWidth / atlas.cellSize);
             const cellScaleY = (d.cellHeight / atlas.cellSize);

@@ -53,6 +53,10 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, transform: v => v + 'x' },
     { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.' },
     { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'] },
+    { cat: 'Global', id: 'brightnessFloor', type: 'range', label: 'Brightness Floor', min: 0.0, max: 0.5, step: 0.01, description: "The minimum brightness level for all characters. Default is 0.05." },
+    { cat: 'Global', id: 'glowIntensityMultiplier', type: 'range', label: 'Glow Intensity', min: 0.0, max: 1.0, step: 0.05, description: "Controls the strength of the additive glow on characters. Lower values preserve more detail in dense characters." },
+    { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, description: "Controls the brightness boost applied to trails (phosphor persistence). Default is 2.0." },
+    { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, description: "The maximum alpha (transparency) for characters. Default is 0.99." },
 
     { cat: 'Global', type: 'accordion_header', label: 'Global FX' },
     { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', description: "Determines the glow intensity of the leading tracer characters." },

@@ -679,7 +679,11 @@ class ConfigurationManager {
             "globalBloomBrightness": 1.0,
             "globalBloomIntensity": 1.0,
             "globalBloomWidth": 4.0,
-            "globalBloomThreshold": 0.5
+            "globalBloomThreshold": 0.5,
+            "brightnessFloor": 0.05,
+            "glowIntensityMultiplier": 0.3,
+            "burnInBoost": 2.0,
+            "maxAlpha": 0.99
         };
     }
 

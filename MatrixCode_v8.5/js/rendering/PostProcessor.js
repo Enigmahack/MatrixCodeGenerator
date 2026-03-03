@@ -42,14 +42,15 @@ class PostProcessor {
             uniform float uTime;
             uniform vec2 uMouse;
             uniform float uGlobalBrightness;
-            uniform float uBurnIn; // clearAlpha mapped (0..1)
+            uniform float uBurnIn;
+            uniform float uBurnInBoost;
             varying vec2 vTexCoord;
             
             void main() {
                 vec4 col = texture2D(uTexture, vTexCoord);
                 
                 // Burn-In Brightness: As alpha accumulates (trails), we boost the RGB
-                float burnBoost = 1.0 + (col.a * uBurnIn * 2.0);
+                float burnBoost = 1.0 + (col.a * uBurnIn * uBurnInBoost);
                 
                 // Ensure uGlobalBrightness is at least 0.0, defaulting to 1.0 if uninitialized
                 float gb = uGlobalBrightness;
@@ -71,7 +72,8 @@ class PostProcessor {
             uniform float uBloomBrightness;
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
-            uniform float uBurnIn;         
+            uniform float uBurnIn;
+            uniform float uBurnInBoost;         
             varying vec2 vTexCoord;
 
             float rand(vec2 co) {
@@ -105,7 +107,7 @@ class PostProcessor {
                 blur /= max(0.1, totalWeight);
 
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
-                float burnBoost = 1.0 + (color.a * uBurnIn * 2.0);
+                float burnBoost = 1.0 + (color.a * uBurnIn * uBurnInBoost);
                 vec3 baseColor = color.rgb * gb * burnBoost;
                 
                 vec3 finalColor = baseColor + (blur * uBloomIntensity * uBloomBrightness);
@@ -123,6 +125,8 @@ class PostProcessor {
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
+            uniform float uBurnInBoost;
+            uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
             vec3 threshold(vec3 color, float th) {
@@ -142,7 +146,7 @@ class PostProcessor {
                 }
                 blur /= 9.0;
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
-                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * 2.0);
+                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
                 gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
             }
         `;
@@ -157,6 +161,8 @@ class PostProcessor {
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
+            uniform float uBurnInBoost;
+            uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
             vec3 threshold(vec3 color, float th) {
@@ -178,7 +184,7 @@ class PostProcessor {
                 blur += texture2D(uTexture, vTexCoord + vec2(2, 0) * texelSize).rgb;
                 blur = threshold(blur / 9.0, uBloomThreshold);
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
-                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * 2.0);
+                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
                 gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
             }
         `;
@@ -194,6 +200,8 @@ class PostProcessor {
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
+            uniform float uBurnInBoost;
+            uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
             vec3 threshold(vec3 color, float th) {
@@ -222,7 +230,7 @@ class PostProcessor {
                 }
                 blur /= 18.0;
                 float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
-                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * 2.0);
+                vec3 baseColor = color.rgb * gb * (1.0 + color.a * uBurnIn * uBurnInBoost);
                 gl_FragColor = vec4(baseColor + blur * uBloomIntensity * uBloomBrightness, color.a);
             }
         `;
@@ -557,7 +565,8 @@ class PostProcessor {
 
         // Add Global Params to ALL passes for consistency
         const commonParams = {
-            uBurnIn: this.config.get('clearAlpha') || 0.0
+            uBurnIn: this.config.get('clearAlpha') || 0.0,
+            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0
         };
 
         // Add Global Bloom Params
@@ -612,7 +621,10 @@ class PostProcessor {
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
 
-        this._drawPass(this.defaultProgram, inputTex, 0, 0, 0, 0.5, flipY, brightness, { uBurnIn: this.config.get('clearAlpha') });
+        this._drawPass(this.defaultProgram, inputTex, 0, 0, 0, 0.5, flipY, brightness, { 
+            uBurnIn: this.config.get('clearAlpha'),
+            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0
+        });
     }
 
     _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, brightness = 1.0, customParams = null) {

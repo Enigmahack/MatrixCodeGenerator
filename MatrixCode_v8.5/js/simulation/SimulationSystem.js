@@ -766,12 +766,14 @@ class SimulationSystem {
         const s = this.config.state;
         const b = this.grid.brightness[idx];
         
+        const maxA = s.maxAlpha !== undefined ? s.maxAlpha : 0.99;
+        
         // Fading OUT
         if (decay >= 2) {
             const ratio = (decay - 2) / fadeDurationFrames;
             // Use power curve for smoother perceived fade (starts fading sooner)
             const fade = Math.pow(Math.max(0, 1.0 - ratio), 2.0);
-            return 0.99 * fade * b;
+            return maxA * fade * b;
         }
         
         // Fading IN
@@ -781,10 +783,10 @@ class SimulationSystem {
         }
 
         if (age <= attack && attack > 0) {
-            return 0.99 * (age / attack) * b;
+            return maxA * (age / attack) * b;
         }
 
         // Standard State
-        return 0.99 * b;
+        return maxA * b;
     }
 }
