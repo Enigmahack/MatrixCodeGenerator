@@ -438,11 +438,8 @@ class WebGLRenderer {
                 uniform float u_maskSoftness;
                 uniform bool u_showInterior;
                 
-                uniform bool u_glassEnabled;
-                uniform float u_glassEdgeGlow;
-                uniform float u_glassBevel;
-                uniform float u_glassOverlapGlow;
                 uniform float u_glassBloom;
+                uniform float u_compressionThreshold;
 
                 uniform bool u_refractionEnabled;
                 uniform float u_refractionWidth;
@@ -537,10 +534,8 @@ class WebGLRenderer {
                         float blockMask = texture(u_shadowMask, v_uv).r;
                         float isVisible = step(0.001, blockMask);
                         
-                        // RESTORATION: Glass controls restored for user refinement.
-                        // Default values (Bloom 1.0) keep background unchanged.
                         vec3 resultColor = base.rgb;
-                        if (u_glassEnabled && isVisible > 0.5) {
+                        if (isVisible > 0.5) {
                             resultColor *= u_glassBloom;
                         }
 
@@ -703,9 +698,13 @@ class WebGLRenderer {
                             float softLine = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, totalLine);
                             float lineIntensity = softLine * u_intensity * u_additiveStrength * maskedLuma;
                             
-                            if (u_glassEnabled && isVisible > 0.5) lineIntensity *= u_glassEdgeGlow;
-                            
                             lineAlpha = lineIntensity;
+                            // Compression threshold: suppress lines whose color falls below minimum brightness.
+                            // Tested against lineBaseColor so the background falling code is never affected.
+                            if (u_compressionThreshold > 0.0) {
+                                float lineLuma = dot(lineBaseColor, vec3(0.299, 0.587, 0.114));
+                                lineAlpha *= step(u_compressionThreshold, lineLuma);
+                            }
                             resultColor = mix(resultColor, lineBaseColor, lineAlpha);
                         }
 
@@ -1786,10 +1785,6 @@ class WebGLRenderer {
             u_persistenceBuffer: 2,
             u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
             u_sampleOffset: fxState.sampleOffset,
-            u_glassEnabled: s.quantizedGlassEnabled ? 1 : 0,
-            u_glassEdgeGlow: s.quantizedGlassEdgeGlow,
-            u_glassBevel: s.quantizedGlassBevel ?? 0.5,
-            u_glassOverlapGlow: s.quantizedGlassOverlapGlow,
             u_glassBloom: 1.0 + (s.quantizedGlassBloom - 1.0) * fx.alpha,
             u_refractionEnabled:     s.quantizedGlassRefractionEnabled ? 1 : 0,
             u_refractionWidth:       s.quantizedGlassRefractionWidth       ?? 0.25,
@@ -1797,7 +1792,8 @@ class WebGLRenderer {
             u_refractionSaturation:  1.0 + ((s.quantizedGlassRefractionSaturation  ?? 1.5) - 1.0) * fx.alpha,
             u_refractionCompression: s.quantizedGlassRefractionCompression ?? 1.0,
             u_refractionOffset:      s.quantizedGlassRefractionOffset      ?? 0.0,
-            u_refractionGlow:        (s.quantizedGlassRefractionGlow ?? 0.0) * fx.alpha
+            u_refractionGlow:        (s.quantizedGlassRefractionGlow ?? 0.0) * fx.alpha,
+            u_compressionThreshold:  s.quantizedGlassCompressionThreshold ?? 0.0
         };
 
         const compTextures = {
