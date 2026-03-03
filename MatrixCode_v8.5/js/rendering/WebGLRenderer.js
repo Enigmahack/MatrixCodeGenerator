@@ -1792,21 +1792,16 @@ class WebGLRenderer {
             u_persistenceBuffer: 2,
             u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
             u_sampleOffset: fxState.sampleOffset,
-            u_glassBloom: (() => {
-                const bloom = s.quantizedGlassBloom ?? 1.2;
-                const scale = s.quantizedGlassBloomScaleToSize
-                    ? Math.max(0, 1.0 - Math.log1p(Math.min((fxState.fillRatio ?? 0) * 2.0, 1.0) * (Math.E - 1)))
-                    : 1.0;
-                return 1.0 + (bloom - 1.0) * scale * fx.alpha;
-            })(),
-            u_refractionEnabled:     s.quantizedGlassRefractionEnabled ? 1 : 0,
-            u_refractionWidth:       s.quantizedGlassRefractionWidth       ?? 0.25,
-            u_refractionBrightness:  1.0 + ((s.quantizedGlassRefractionBrightness  ?? 1.5) - 1.0) * fx.alpha,
-            u_refractionSaturation:  1.0 + ((s.quantizedGlassRefractionSaturation  ?? 1.5) - 1.0) * fx.alpha,
-            u_refractionCompression: s.quantizedGlassRefractionCompression ?? 1.0,
-            u_refractionOffset:      s.quantizedGlassRefractionOffset      ?? 0.0,
-            u_refractionGlow:        (s.quantizedGlassRefractionGlow ?? 0.0) * fx.alpha,
-            u_compressionThreshold:  s.quantizedGlassCompressionThreshold ?? 0.0
+            u_offset: fxState.lineOffset,
+            u_glassBloom: fxState.glassBloom,
+            u_refractionEnabled:     fxState.refractionEnabled,
+            u_refractionWidth:       fxState.refractionWidth,
+            u_refractionBrightness:  fxState.refractionBrightness,
+            u_refractionSaturation:  fxState.refractionSaturation,
+            u_refractionCompression: fxState.refractionCompression,
+            u_refractionOffset:      fxState.refractionOffset,
+            u_refractionGlow:        fxState.refractionGlow,
+            u_compressionThreshold:  fxState.compressionThreshold
         };
 
         const compTextures = {

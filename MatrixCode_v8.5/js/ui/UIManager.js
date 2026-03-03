@@ -1728,9 +1728,12 @@ class UIManager {
                 });
             }
 
-            // Update dependents
-            this.dom.content.querySelectorAll(`[data-dep*="${key}"]`).forEach(row => {
-                this._updateRowVisibility(row);
+            // Update dependents - more robust check than attribute contains
+            this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
+                const depStr = row.getAttribute('data-dep');
+                if (depStr && depStr.includes(key)) {
+                    this._updateRowVisibility(row);
+                }
             });
         } catch(e) { console.warn("UI Refresh Error:", e); }
     }

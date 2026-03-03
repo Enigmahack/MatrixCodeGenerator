@@ -208,6 +208,22 @@ class QuantizedBaseEffect extends AbstractEffect {
     _checkDirtiness() {
         if (this._maskDirty || this._previewActive) return; 
 
+        // Monitor Quantized Defaults
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        if (!overrideDefaults) {
+            for (const setting of QuantizedInheritableSettings) {
+                const defaultKey = 'quantizedDefault' + setting.id;
+                const currentVal = this.c.state[defaultKey];
+                const cachedKey = '_lastDefault_' + setting.id;
+                
+                if (currentVal !== this[cachedKey]) {
+                    this._maskDirty = true;
+                    this._gridCacheDirty = true;
+                    this[cachedKey] = currentVal;
+                }
+            }
+        }
+
         const fadeIn = Math.max(1, this.getConfig('FadeInFrames') || 0);
         const fadeOut = Math.max(1, this.getConfig('FadeFrames') || 0);
         const lineFade = Math.max(1, this.getLineGfxValue('Persistence') || 0);
@@ -247,8 +263,21 @@ class QuantizedBaseEffect extends AbstractEffect {
     _error(...args) { if (this.c.state.logErrors) console.error(...args); }
 
     getConfig(keySuffix) {
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        const isInheritable = QuantizedInheritableSettings.some(s => s.id === keySuffix);
+        
         const key = this.configPrefix + keySuffix;
-        return this.c.state[key];
+        const val = this.c.state[key];
+
+        // 1. If we are NOT overriding, AND this is an inheritable setting, use the default.
+        if (!overrideDefaults && isInheritable) {
+            const defaultKey = 'quantizedDefault' + keySuffix;
+            const defaultVal = this.c.state[defaultKey];
+            if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
+        }
+
+        // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
+        return (val !== undefined && val !== null && val !== "") ? val : null;
     }
 
     getLineGfxValue(suffix) {
@@ -260,15 +289,21 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
 
-        const useOverride = this.getConfig('LineGfxOverride');
-        if (useOverride) {
-            const override = this.getConfig('LineGfx' + suffix);
-            if (override !== undefined && override !== null && override !== "") {
-                return override;
-            }
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'LineGfx' + suffix);
+
+        const key = this.configPrefix + 'LineGfx' + suffix;
+        const val = this.c.state[key];
+
+        // 1. If we are NOT overriding, AND this is an inheritable setting, use the default.
+        if (!overrideDefaults && isInheritable) {
+            const defaultKey = 'quantizedDefaultLineGfx' + suffix;
+            const defaultVal = this.c.state[defaultKey];
+            if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
         }
-        const globalVal = this.c.state['quantizedLineGfx' + suffix];
-        return (globalVal !== undefined) ? globalVal : null;
+
+        // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
+        return (val !== undefined && val !== null && val !== "") ? val : null;
     }
 
     getBlockSize() {
@@ -1327,6 +1362,23 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const col = Utils.hexToRgb(this.getLineGfxValue('Color') || "#ffffff");
 
+        // Glass Bloom / Reveal logic
+        const fillRatio = (() => {
+            if (!this.renderGrid || gw * gh === 0) return 0;
+            let occupied = 0;
+            for (let i = 0; i < this.renderGrid.length; i++) {
+                if (this.renderGrid[i] !== -1) occupied++;
+            }
+            return occupied / (gw * gh);
+        })();
+
+        const rawGlassBloom = this.getConfig('GlassBloom') ?? 1.2;
+        const glassBloomScaleToSize = this.getConfig('GlassBloomScaleToSize') === true;
+        const bloomScale = glassBloomScaleToSize
+            ? Math.max(0, 1.0 - Math.log1p(Math.min(fillRatio * 2.0, 1.0) * (Math.E - 1)))
+            : 1.0;
+        const finalGlassBloom = 1.0 + (rawGlassBloom - 1.0) * bloomScale * this.alpha;
+
         return {
             logicGridSize: [gw, gh],
             cellPitch: [cellPitchX, cellPitchY],
@@ -1349,18 +1401,23 @@ class QuantizedBaseEffect extends AbstractEffect {
             persistence: (() => {
                 const frames = this.getLineGfxValue('Persistence') || 0;
                 if (frames <= 0) return 0.0;
-                // Linear decay: 1.0 / frames per frame
                 return 1.0 / frames;
             })(),
             sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale],
-            fillRatio: (() => {
-                if (!this.renderGrid || gw * gh === 0) return 0;
-                let occupied = 0;
-                for (let i = 0; i < this.renderGrid.length; i++) {
-                    if (this.renderGrid[i] !== -1) occupied++;
-                }
-                return occupied / (gw * gh);
-            })()
+            lineOffset: [this.getLineGfxValue('OffsetX') * scale, this.getLineGfxValue('OffsetY') * scale],
+            fillRatio: fillRatio,
+            
+            // Glass / Refraction
+            glassBloom: finalGlassBloom,
+            refractionEnabled: this.getConfig('GlassRefractionEnabled') ? 1 : 0,
+            refractionWidth: this.getConfig('GlassRefractionWidth') ?? 0.25,
+            refractionBrightness: 1.0 + ((this.getConfig('GlassRefractionBrightness') ?? 1.5) - 1.0) * this.alpha,
+            refractionSaturation: 1.0 + ((this.getConfig('GlassRefractionSaturation') ?? 1.5) - 1.0) * this.alpha,
+            refractionCompression: this.getConfig('GlassRefractionCompression') ?? 1.0,
+            refractionOffset: this.getConfig('GlassRefractionOffset') ?? 0.0,
+            refractionGlow: (this.getConfig('GlassRefractionGlow') ?? 0.0) * this.alpha,
+            compressionThreshold: this.getConfig('GlassCompressionThreshold') ?? 0.0,
+            shadowWorldFadeSpeed: this.getConfig('ShadowWorldFadeSpeed') ?? 0.5
         };
     }
 

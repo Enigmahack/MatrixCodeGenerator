@@ -2,39 +2,103 @@
  * ConfigTemplate.js - Definitions for all UI controls and configuration settings.
  */
 
-const generateQuantizedEffectSettings = (prefix, label, action) => [
-    { cat: 'Effects', type: 'accordion_header', label: label },
-    { cat: 'Effects', type: 'button', label: "Trigger " + label, action: action, class: 'btn-warn' },
-    { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled' },
-    { cat: 'Effects', id: prefix + "AutoGenerateRemaining", type: 'checkbox', label: 'Auto generate remaining animation', dep: prefix + "Enabled", description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
+/**
+ * Settings that all Quantized effects share and can inherit from Quantized Defaults.
+ * To add a new shared setting, simply add its definition here.
+ */
+const QuantizedInheritableSettings = [
+    { sub: 'General', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Rate', min: 0, max: 2, step: 0.1, unit: 's', description: "Fading between current world and shadow world when blocks are added/removed." },
+    { sub: 'General', id: 'GlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, description: "Scales character brightness inside quantized blocks." },
+    { sub: 'General', id: 'GlassBloomScaleToSize', type: 'checkbox', label: 'Scale to Effect Size', description: "When enabled, Interior Brightness is at full strength when the effect begins and fades to 1 (flat) as blocks fill in." },
+    { sub: 'General', id: 'GlassCompressionThreshold', type: 'range', label: 'Compression Threshold', min: 0.0, max: 1.0, step: 0.01, description: "Clamps pixels below this brightness to black. 0 = all levels pass through." },
     
-    { cat: 'Effects', type: 'sub_accordion', label: 'Look Settings', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 600, step: 5, unit: 's', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Speed', min: 0.1, max: 10.0, step: 0.1, dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "BlockHeightCells", type: 'range', label: 'Block Height', min: 1, max: 16, step: 1, unit: 'ch', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "BorderIllumination", type: 'range', label: 'Intensity', min: 0, max: 10, step: 0.1, dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "PerimeterThickness", type: 'range', label: 'Line Width', min: 0.1, max: 10.0, step: 0.1, dep: prefix + "Enabled", description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
-    { cat: 'Effects', type: 'end_group' },
+    { sub: 'Line Basics', id: 'LineGfxColor', type: 'color', label: 'Line Tint' },
+    { sub: 'Line Basics', id: 'LineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, description: "Scales the overall brightness of the lines." },
+    { sub: 'Line Basics', id: 'LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01 },
+    { sub: 'Line Basics', id: 'LineGfxGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 10.0, step: 0.1, description: "Intensity of the soft glow around generated lines." },
+    { sub: 'Line Basics', id: 'LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', description: "Similar to burn-in, controls how long lines linger." },
 
-    { cat: 'Effects', type: 'sub_accordion', label: 'Line Rendering', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "LineGfxOverride", type: 'checkbox', label: 'Override Line Defaults', dep: prefix + "Enabled" },
-    { cat: 'Effects', id: prefix + "LineGfxColor", type: 'color', label: 'Line Tint', dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxIntensity", type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxTintOffset", type: 'range', label: 'Tint offset', min: -1.0, max: 1.0, step: 0.01, dep: [prefix + "Enabled", prefix + "LineGfxOverride"], description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts." },
-    { cat: 'Effects', id: prefix + "LineGfxSaturation", type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxBrightness", type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxAdditiveStrength", type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxSharpness", type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxRoundness", type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxGlowFalloff", type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxSampleOffsetX", type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxSampleOffsetY", type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxMaskSoftness", type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, dep: [prefix + "Enabled", prefix + "LineGfxOverride"] },
-    { cat: 'Effects', id: prefix + "LineGfxPersistence", type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', dep: [prefix + "Enabled", prefix + "LineGfxOverride"], description: "Overrides global line persistence for this effect." },
-    { cat: 'Effects', type: 'end_group' },
+    { sub: 'Line Advanced', sub_header: 'Natural Refraction', id: 'GlassRefractionEnabled', type: 'checkbox', label: 'Enable Natural Refraction', description: "Adds a light-refraction highlight centered on block edges." },
+    { sub: 'Line Advanced', id: 'GlassRefractionWidth', type: 'range', label: 'Width', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', description: "Width of the refraction band as a fraction of cell size." },
+    { sub: 'Line Advanced', id: 'GlassRefractionBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', description: "Brightness of the refraction edge highlight." },
+    { sub: 'Line Advanced', id: 'GlassRefractionSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', description: "Saturation boost for the refraction edge highlight." },
+    { sub: 'Line Advanced', id: 'GlassRefractionCompression', type: 'range', label: 'Strength', min: 0.0, max: 10.0, step: 0.1, dep: 'GlassRefractionEnabled', description: "Barrel distortion strength. Pulls the sampled coordinates toward the nearest cell boundary on both axes, simulating the optical bend of a curved glass edge. Stronger values snap tightly to the grid lines." },
+    { sub: 'Line Advanced', id: 'GlassRefractionOffset', type: 'range', label: 'Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', description: "Shifts the peak of the refraction band away from the edge center." },
+    { sub: 'Line Advanced', id: 'GlassRefractionGlow', type: 'range', label: 'Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', description: "Additive glow emission at the refraction peak." },
+
+    { sub: 'Line Advanced', sub_header: 'Color & Composition', id: 'LineGfxTintOffset', type: 'range', label: 'Tint offset', min: -1.0, max: 1.0, step: 0.01, description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts." },
+    { sub: 'Line Advanced', id: 'LineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, description: "Boosts color saturation of the lines." },
+    { sub: 'Line Advanced', id: 'LineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, description: "Controls how strongly the lines add to the underlying character color." },
+
+    { sub: 'Line Advanced', sub_header: 'Shape & Sharpness', id: 'LineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, description: "Controls the hardness of the line edges." },
+    { sub: 'Line Advanced', id: 'LineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, description: "Applies a circular intensity profile across the line thickness for a rounded look." },
+    { sub: 'Line Advanced', id: 'LineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, description: "Controls how quickly the glow intensity drops off with distance." },
+
+    { sub: 'Line Advanced', sub_header: 'Sampling & Offset', id: 'LineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness horizontally." },
+    { sub: 'Line Advanced', id: 'LineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness vertically." },
+    { sub: 'Line Advanced', id: 'LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, description: "Softens the character highlights for a smoother, antialiased look within the lines." },
+    { sub: 'Line Advanced', id: 'LineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px' },
+    { sub: 'Line Advanced', id: 'LineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px' },
 ];
+
+const generateQuantizedEffectSettings = (prefix, label, action) => {
+    const settings = [
+        { cat: 'Effects', type: 'accordion_header', label: label },
+        { cat: 'Effects', type: 'button', label: "Trigger " + label, action: action, class: 'btn-warn' },
+        { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled' },
+        { cat: 'Effects', id: prefix + "AutoGenerateRemaining", type: 'checkbox', label: 'Auto generate remaining animation', dep: prefix + "Enabled", description: "When the manual animation is complete but does not fill the screen, allow the Block Generator to take over and finish the animation" },
+        
+        { cat: 'Effects', type: 'sub_accordion', label: 'Look Settings', dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 600, step: 5, unit: 's', dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Speed', min: 0.1, max: 10.0, step: 0.1, dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "BlockHeightCells", type: 'range', label: 'Block Height', min: 1, max: 16, step: 1, unit: 'ch', dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "BorderIllumination", type: 'range', label: 'Intensity', min: 0, max: 10, step: 0.1, dep: prefix + "Enabled" },
+        { cat: 'Effects', id: prefix + "PerimeterThickness", type: 'range', label: 'Line Width', min: 0.1, max: 10.0, step: 0.1, dep: prefix + "Enabled", description: "10.0 = 1 Character width. 0.1 = ~1 Pixel." },
+        { cat: 'Effects', type: 'end_group' },
+
+        { cat: 'Effects', id: prefix + "OverrideDefaults", type: 'checkbox', label: 'Override Quantized Defaults', dep: prefix + "Enabled", description: "When enabled, you can customize the individual look of this effect. Otherwise, it will inherit from 'Quantized Defaults'." },
+    ];
+
+    // Add inheritable settings as overrides
+    let currentSub = '';
+    QuantizedInheritableSettings.forEach(s => {
+        if (s.sub !== currentSub) {
+            if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub + ' Override', dep: [prefix + "Enabled", prefix + "OverrideDefaults"] });
+            currentSub = s.sub;
+        }
+
+        if (s.sub_header) {
+            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: [prefix + "Enabled", prefix + "OverrideDefaults"] });
+        }
+
+        // Clone the setting and update ID and Dependencies
+        const override = { ...s };
+        override.cat = 'Effects';
+        override.id = prefix + s.id;
+        
+        // Handle dependencies
+        if (s.dep) {
+            // Prefix local dependencies (e.g. GlassRefractionEnabled -> quantizedPulseGlassRefractionEnabled)
+            const deps = Array.isArray(s.dep) ? s.dep : [s.dep];
+            const mappedDeps = deps.map(d => {
+                if (d.startsWith('!')) return '!' + prefix + d.substring(1);
+                return prefix + d;
+            });
+            override.dep = [prefix + "Enabled", prefix + "OverrideDefaults", ...mappedDeps];
+        } else {
+            override.dep = [prefix + "Enabled", prefix + "OverrideDefaults"];
+        }
+
+        settings.push(override);
+    });
+
+    if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+
+    return settings;
+};
 
 const ConfigTemplate = [
     // 1. GLOBAL TAB
@@ -273,49 +337,37 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'header', label: 'Resurrections' },
 
     { cat: 'Effects', type: 'accordion_header', label: 'Quantized Defaults' },
+    ...(() => {
+        const defaults = [];
+        let currentSub = '';
+        const defPrefix = 'quantizedDefault';
+        QuantizedInheritableSettings.forEach(s => {
+            if (s.sub !== currentSub) {
+                if (currentSub !== '') defaults.push({ cat: 'Effects', type: 'end_group' });
+                defaults.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub });
+                currentSub = s.sub;
+            }
+            if (s.sub_header) {
+                defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header });
+            }
+            const setting = { ...s };
+            setting.cat = 'Effects';
+            setting.id = defPrefix + s.id;
+            
+            if (s.dep) {
+                const deps = Array.isArray(s.dep) ? s.dep : [s.dep];
+                setting.dep = deps.map(d => {
+                    if (d.startsWith('!')) return '!' + defPrefix + d.substring(1);
+                    return defPrefix + d;
+                });
+            }
+            
+            defaults.push(setting);
+        });
+        if (currentSub !== '') defaults.push({ cat: 'Effects', type: 'end_group' });
+        return defaults;
+    })(),
 
-    { cat: 'Effects', type: 'sub_accordion', label: 'General' },
-    { cat: 'Effects', id: 'quantizedShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Rate', min: 0, max: 2, step: 0.1, unit: 's', description: "Fading between current world and shadow world when blocks are added/removed." },
-    { cat: 'Effects', id: 'quantizedGlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, description: "Scales character brightness inside quantized blocks." },
-    { cat: 'Effects', id: 'quantizedGlassBloomScaleToSize', type: 'checkbox', label: 'Scale to Effect Size', description: "When enabled, Interior Brightness is at full strength when the effect begins and fades to 1 (flat) as blocks fill in." },
-    { cat: 'Effects', id: 'quantizedGlassCompressionThreshold', type: 'range', label: 'Compression Threshold', min: 0.0, max: 1.0, step: 0.01, description: "Clamps pixels below this brightness to black. 0 = all levels pass through." },
-    { cat: 'Effects', type: 'end_group' },
-
-    { cat: 'Effects', type: 'sub_accordion', label: 'Line Basics' },
-    { cat: 'Effects', id: 'quantizedLineGfxColor', type: 'color', label: 'Line Tint' },
-    { cat: 'Effects', id: 'quantizedLineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, description: "Scales the overall brightness of the lines." },
-    { cat: 'Effects', id: 'quantizedLineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01 },
-    { cat: 'Effects', id: 'quantizedLineGfxGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 10.0, step: 0.1, description: "Intensity of the soft glow around generated lines." },
-    { cat: 'Effects', id: 'quantizedLineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', description: "Similar to burn-in, controls how long lines linger." },
-    { cat: 'Effects', type: 'end_group' },
-
-    { cat: 'Effects', type: 'sub_accordion', label: 'Line Advanced' },
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Natural Refraction' },
-    { cat: 'Effects', id: 'quantizedGlassRefractionEnabled', type: 'checkbox', label: 'Enable Natural Refraction', description: "Adds a light-refraction highlight centered on block edges." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionWidth', type: 'range', label: 'Width', min: 0.0, max: 1.0, step: 0.01, dep: 'quantizedGlassRefractionEnabled', description: "Width of the refraction band as a fraction of cell size." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 3.0, step: 0.05, dep: 'quantizedGlassRefractionEnabled', description: "Brightness of the refraction edge highlight." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 3.0, step: 0.05, dep: 'quantizedGlassRefractionEnabled', description: "Saturation boost for the refraction edge highlight." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionCompression', type: 'range', label: 'Strength', min: 0.0, max: 10.0, step: 0.1, dep: 'quantizedGlassRefractionEnabled', description: "Barrel distortion strength. Pulls the sampled coordinates toward the nearest cell boundary on both axes, simulating the optical bend of a curved glass edge. Stronger values snap tightly to the grid lines." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionOffset', type: 'range', label: 'Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'quantizedGlassRefractionEnabled', description: "Shifts the peak of the refraction band away from the edge center." },
-    { cat: 'Effects', id: 'quantizedGlassRefractionGlow', type: 'range', label: 'Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'quantizedGlassRefractionEnabled', description: "Additive glow emission at the refraction peak." },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Color & Composition' },
-    { cat: 'Effects', id: 'quantizedLineGfxTintOffset', type: 'range', label: 'Tint offset', min: -1.0, max: 1.0, step: 0.01, description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts." },
-    { cat: 'Effects', id: 'quantizedLineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, description: "Boosts color saturation of the lines." },
-    { cat: 'Effects', id: 'quantizedLineGfxAdditiveStrength', type: 'range', label: 'Additive Strength', min: 0.0, max: 2.0, step: 0.05, description: "Controls how strongly the lines add to the underlying character color." },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Shape & Sharpness' },
-    { cat: 'Effects', id: 'quantizedLineGfxSharpness', type: 'range', label: 'Line Sharpness', min: 0.01, max: 0.2, step: 0.01, description: "Controls the hardness of the line edges." },
-    { cat: 'Effects', id: 'quantizedLineGfxRoundness', type: 'range', label: 'Line Roundness', min: 0.0, max: 1.0, step: 0.05, description: "Applies a circular intensity profile across the line thickness for a rounded look." },
-    { cat: 'Effects', id: 'quantizedLineGfxGlowFalloff', type: 'range', label: 'Glow Falloff', min: 0.5, max: 10.0, step: 0.1, description: "Controls how quickly the glow intensity drops off with distance." },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Sampling & Offset' },
-    { cat: 'Effects', id: 'quantizedLineGfxSampleOffsetX', type: 'range', label: 'Char Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness horizontally." },
-    { cat: 'Effects', id: 'quantizedLineGfxSampleOffsetY', type: 'range', label: 'Char Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', description: "Shifts where the line samples character brightness vertically." },
-    { cat: 'Effects', id: 'quantizedLineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, description: "Softens the character highlights for a smoother, antialiased look within the lines." },
-    { cat: 'Effects', id: 'quantizedLineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px' },
-    { cat: 'Effects', id: 'quantizedLineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px' },
-    { cat: 'Effects', type: 'end_group' },
     ...generateQuantizedEffectSettings('quantizedPulse', 'Quantized Pulse', 'quantizedPulse'),
     ...generateQuantizedEffectSettings('quantizedAdd', 'Quantized Add', 'quantizedAdd'),
     ...generateQuantizedEffectSettings('quantizedRetract', 'Quantized Retract', 'quantizedRetract'),
@@ -582,5 +634,5 @@ const ConfigTemplate = [
     { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.' },
     { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.' },
     { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.' },
-    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Feel free to reach out via github! I\'m definitely open to ideas and suggestions.' }
+    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.' }
 ];

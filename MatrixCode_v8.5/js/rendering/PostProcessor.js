@@ -126,7 +126,6 @@ class PostProcessor {
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
             uniform float uBurnInBoost;
-            uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
             vec3 threshold(vec3 color, float th) {
@@ -161,7 +160,6 @@ class PostProcessor {
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
-            uniform float uBurnInBoost;
             uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
@@ -200,7 +198,6 @@ class PostProcessor {
             uniform float uBloomThreshold;
             uniform float uGlobalBrightness;
             uniform float uBurnIn;
-            uniform float uBurnInBoost;
             uniform float uBurnInBoost;
             varying vec2 vTexCoord;
 
