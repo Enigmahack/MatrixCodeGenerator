@@ -431,6 +431,12 @@ class QuantizedRenderer {
 
             const a23 = (a2 !== -1 && a3 !== -1);
             const b23 = (b2 !== -1 && b3 !== -1);
+            const a23Frame = a23 ? Math.max(a2, a3) : -1;
+            const b23Frame = b23 ? Math.max(b2, b3) : -1;
+
+            const aL123 = (a1 !== -1 || a23);
+            const bL123 = (b1 !== -1 || b23);
+            const maxL123 = Math.max(a1, b1, a23Frame, b23Frame);
 
             let isVisibleNormally = false;
             let isVisibleDimly = false;
@@ -445,35 +451,16 @@ class QuantizedRenderer {
                 edgeBirthFrame = Math.max(a0, b0);
             }
 
-            // 2. Layer 1 Perimeter: Normal if not both sides are L0, else Dimmed (Fade Color)
-            if ((a1 !== -1) !== (b1 !== -1)) {
+            // 2. Layer 1 & (Layer 2+3) Combined Perimeter: Normal if not both sides are L0, else Dimmed
+            if (aL123 !== bL123) {
                 if (a0 !== -1 && b0 !== -1) {
                     isVisibleDimly = true;
-                    dimBirthFrame = Math.max(a1, b1);
+                    dimBirthFrame = maxL123;
                 } else {
                     isVisibleNormally = true;
                     // Fixed Priority: Only set frame if not already established by a foundation layer (L0)
                     if (edgeBirthFrame === -1) {
-                        edgeBirthFrame = Math.max(a1, b1);
-                    }
-                }
-            }
-
-            // 3. Layer 2 & 3 Intersection Perimeter: Normal if not covered by L0 or L1
-            if (a23 !== b23) {
-                const isCovered = (a0 !== -1 && b0 !== -1) || (a1 !== -1 && b1 !== -1);
-                if (!isCovered) {
-                    isVisibleNormally = true;
-                    if (edgeBirthFrame === -1) {
-                        const getB23 = (tx, ty) => {
-                            if (tx < 0 || tx >= blocksX || ty < 0 || ty >= blocksY) return -1;
-                            const idx = ty * blocksX + tx;
-                            if (fx.layerGrids[2] && fx.layerGrids[3] && fx.layerGrids[2][idx] !== -1 && fx.layerGrids[3][idx] !== -1) {
-                                return Math.max(fx.layerGrids[2][idx], fx.layerGrids[3][idx]);
-                            }
-                            return -1;
-                        };
-                        edgeBirthFrame = Math.max(getB23(ax, ay), getB23(bx, by));
+                        edgeBirthFrame = maxL123;
                     }
                 }
             }

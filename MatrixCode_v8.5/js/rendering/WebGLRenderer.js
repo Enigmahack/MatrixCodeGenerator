@@ -586,17 +586,12 @@ class WebGLRenderer {
                                     minDistA = d; float sx = (o0NE > o0NW) ? 1.0 : -1.0;
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
                                 }
-                                if (abs(o23NW - o23NE) > 0.5 && d < minDistA) {
-                                    float l01Side = (o23NE > o23NW) ? max(o0NE, o1NE) : max(o0NW, o1NW);
-                                    if (l01Side < 0.01) {
-                                        minDistA = d; float sx = (o23NE > o23NW) ? 1.0 : -1.0;
-                                        reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23NW, l23NE);
-                                    }
-                                }
-                                if (abs(o1NW - o1NE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sx = (o1NE > o1NW) ? 1.0 : -1.0;
-                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1NW, l1NE);
-                                    float l0occ = (o1NE > o1NW) ? l0NE : l0NW;
+                                
+                                float o123NW = max(o1NW, o23NW), o123NE = max(o1NE, o23NE);
+                                if (abs(o123NW - o123NE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o123NE > o123NW) ? 1.0 : -1.0;
+                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1NW, l1NE), max(l23NW, l23NE));
+                                    float l0occ = (o123NE > o123NW) ? l0NE : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                 }
                             }
@@ -607,17 +602,12 @@ class WebGLRenderer {
                                     minDistA = d; float sx = (o0SE > o0SW) ? 1.0 : -1.0;
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
                                 }
-                                if (abs(o23SW - o23SE) > 0.5 && d < minDistA) {
-                                    float l01Side = (o23SE > o23SW) ? max(o0SE, o1SE) : max(o0SW, o1SW);
-                                    if (l01Side < 0.01) {
-                                        minDistA = d; float sx = (o23SE > o23SW) ? 1.0 : -1.0;
-                                        reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23SW, l23SE);
-                                    }
-                                }
-                                if (abs(o1SW - o1SE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sx = (o1SE > o1SW) ? 1.0 : -1.0;
-                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1SW, l1SE);
-                                    float l0occ = (o1SE > o1SW) ? l0SE : l0SW;
+                                
+                                float o123SW = max(o1SW, o23SW), o123SE = max(o1SE, o23SE);
+                                if (abs(o123SW - o123SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o123SE > o123SW) ? 1.0 : -1.0;
+                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1SW, l1SE), max(l23SW, l23SE));
+                                    float l0occ = (o123SE > o123SW) ? l0SE : l0SW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                 }
                             }
@@ -628,17 +618,12 @@ class WebGLRenderer {
                                     minDistA = d; float sy = (o0SW > o0NW) ? 1.0 : -1.0;
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
                                 }
-                                if (abs(o23NW - o23SW) > 0.5 && d < minDistA) {
-                                    float l01Side = (o23SW > o23NW) ? max(o0SW, o1SW) : max(o0NW, o1NW);
-                                    if (l01Side < 0.01) {
-                                        minDistA = d; float sy = (o23SW > o23NW) ? 1.0 : -1.0;
-                                        reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NW, l23SW);
-                                    }
-                                }
-                                if (abs(o1NW - o1SW) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sy = (o1SW > o1NW) ? 1.0 : -1.0;
-                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NW, l1SW);
-                                    float l0occ = (o1SW > o1NW) ? l0SW : l0NW;
+                                
+                                float o123NW = max(o1NW, o23NW), o123SW = max(o1SW, o23SW);
+                                if (abs(o123NW - o123SW) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o123SW > o123NW) ? 1.0 : -1.0;
+                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NW, l1SW), max(l23NW, l23SW));
+                                    float l0occ = (o123SW > o123NW) ? l0SW : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                 }
                             }
@@ -649,17 +634,12 @@ class WebGLRenderer {
                                     minDistA = d; float sy = (o0SE > o0NE) ? 1.0 : -1.0;
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
                                 }
-                                if (abs(o23NE - o23SE) > 0.5 && d < minDistA) {
-                                    float l01Side = (o23SE > o23NE) ? max(o0SE, o1SE) : max(o0NE, o1NE);
-                                    if (l01Side < 0.01) {
-                                        minDistA = d; float sy = (o23SE > o23NE) ? 1.0 : -1.0;
-                                        reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NE, l23SE);
-                                    }
-                                }
-                                if (abs(o1NE - o1SE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sy = (o1SE > o1NE) ? 1.0 : -1.0;
-                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NE, l1SE);
-                                    float l0occ = (o1SE > o1NE) ? l0SE : l0NE;
+                                
+                                float o123NE = max(o1NE, o23NE), o123SE = max(o1SE, o23SE);
+                                if (abs(o123NE - o123SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o123SE > o123NE) ? 1.0 : -1.0;
+                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NE, l1SE), max(l23NE, l23SE));
+                                    float l0occ = (o123SE > o123NE) ? l0SE : l0NE;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                 }
                             }
@@ -759,21 +739,25 @@ class WebGLRenderer {
                     float a0SW = getLayerVal(occSW, L0); float a0SE = getLayerVal(occSE, L0);
                     float a1NW = getLayerVal(occNW, L1); float a1NE = getLayerVal(occNE, L1);
                     float a1SW = getLayerVal(occSW, L1); float a1SE = getLayerVal(occSE, L1);
+                    float a2NW = getLayerVal(occNW, L2); float a2NE = getLayerVal(occNE, L2);
+                    float a2SW = getLayerVal(occSW, L2); float a2SE = getLayerVal(occSE, L2);
+                    float a3NW = getLayerVal(occNW, L3); float a3NE = getLayerVal(occNE, L3);
+                    float a3SW = getLayerVal(occSW, L3); float a3SE = getLayerVal(occSE, L3);
 
-                    for(int i=0; i<3; i++) {
+                    // Combined substance: Layer 1 OR (Layer 2 AND Layer 3)
+                    float s123NW = max(a1NW, a2NW * a3NW);
+                    float s123NE = max(a1NE, a2NE * a3NE);
+                    float s123SW = max(a1SW, a2SW * a3SW);
+                    float s123SE = max(a1SE, a2SE * a3SE);
+
+                    for(int i=0; i<2; i++) {
                         float aNW, aNE, aSW, aSE;
-                        bool isL1 = (i == 1);
-                        bool isL23 = (i == 2);
+                        bool isS123 = (i == 1);
                         
                         if (i == 0) {
                             aNW = a0NW; aNE = a0NE; aSW = a0SW; aSE = a0SE;
-                        } else if (i == 1) {
-                            aNW = a1NW; aNE = a1NE; aSW = a1SW; aSE = a1SE;
                         } else {
-                            aNW = getLayerVal(occNW, L2) * getLayerVal(occNW, L3);
-                            aNE = getLayerVal(occNE, L2) * getLayerVal(occNE, L3);
-                            aSW = getLayerVal(occSW, L2) * getLayerVal(occSW, L3);
-                            aSE = getLayerVal(occSE, L2) * getLayerVal(occSE, L3);
+                            aNW = s123NW; aNE = s123NE; aSW = s123SW; aSE = s123SE;
                         }
 
                         float oNW = step(0.01, aNW); float oNE = step(0.01, aNE);
@@ -782,11 +766,8 @@ class WebGLRenderer {
                         if (abs(oNW - oNE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE);
-                            if (isL1 && a0NW > 0.01 && a0NE > 0.01) {
+                            if (isS123 && a0NW > 0.01 && a0NE > 0.01) {
                                 fadeMax = max(fadeMax, val);
-                            } else if (isL23) {
-                                bool covered = (a0NW > 0.01 && a0NE > 0.01) || (a1NW > 0.01 && a1NE > 0.01);
-                                if (!covered) normalMax = max(normalMax, val);
                             } else {
                                 normalMax = max(normalMax, val);
                             }
@@ -794,11 +775,8 @@ class WebGLRenderer {
                         if (abs(oSW - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
                             float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE);
-                            if (isL1 && a0SW > 0.01 && a0SE > 0.01) {
+                            if (isS123 && a0SW > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
-                            } else if (isL23) {
-                                bool covered = (a0SW > 0.01 && a0SE > 0.01) || (a1SW > 0.01 && a1SE > 0.01);
-                                if (!covered) normalMax = max(normalMax, val);
                             } else {
                                 normalMax = max(normalMax, val);
                             }
@@ -806,11 +784,8 @@ class WebGLRenderer {
                         if (abs(oNW - oSW) > 0.5) {
                             float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
                             float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW);
-                            if (isL1 && a0NW > 0.01 && a0SW > 0.01) {
+                            if (isS123 && a0NW > 0.01 && a0SW > 0.01) {
                                 fadeMax = max(fadeMax, val);
-                            } else if (isL23) {
-                                bool covered = (a0NW > 0.01 && a0SW > 0.01) || (a1NW > 0.01 && a1SW > 0.01);
-                                if (!covered) normalMax = max(normalMax, val);
                             } else {
                                 normalMax = max(normalMax, val);
                             }
@@ -818,11 +793,8 @@ class WebGLRenderer {
                         if (abs(oNE - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
                             float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE);
-                            if (isL1 && a0NE > 0.01 && a0SE > 0.01) {
+                            if (isS123 && a0NE > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
-                            } else if (isL23) {
-                                bool covered = (a0NE > 0.01 && a0SE > 0.01) || (a1NE > 0.01 && a1SE > 0.01);
-                                if (!covered) normalMax = max(normalMax, val);
                             } else {
                                 normalMax = max(normalMax, val);
                             }

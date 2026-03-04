@@ -414,10 +414,24 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'accordion_subheader', label: 'Invisible Layer Growth', dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', id: 'quantizedGenerateV2InvisibleEnabled', type: 'checkbox', label: 'Enabled', dep: 'quantizedGenerateV2Enabled', description: 'Spawns L2/L3 strips from pre-existing blocks on the axes. L2 originates on the X axis (y=origin) and grows N/S; L3 originates on the Y axis (x=origin) and grows E/W. Requires Layer Count ≥ 3 for L3.' },
-    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Global steps to wait before invisible strips begin spawning.' },
-    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleChance', type: 'range', label: 'Spawn Rate', min: 0.05, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2InvisibleEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability per tick that a new invisible strip is attempted.' },
-    { cat: 'Effects', id: 'quantizedGenerateV2MaxInvisibleStrips', type: 'range', label: 'Max Strips', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Maximum number of simultaneous invisible strips across both layers.' },
-    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleSpacing', type: 'range', label: 'Min Spacing', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Minimum Manhattan distance between invisible strip origin points.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleStartDelay', type: 'range', label: 'Global Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Global steps to wait before invisible strips begin spawning.' },
+    
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Layer 2 (Ribs)', dep: 'quantizedGenerateV2InvisibleEnabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleL2Chance', type: 'range', label: 'L2 Spawn Rate', min: 0.05, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2InvisibleEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability per tick that a new L2 rib is attempted.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2MaxInvisibleL2Strips', type: 'range', label: 'L2 Max Strips', min: 1, max: 200, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Maximum number of simultaneous L2 strips.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleL2Spacing', type: 'range', label: 'L2 Min Spacing', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Minimum Manhattan distance between L2 rib origin points.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L2LockEnabled', type: 'checkbox', label: 'Lock to Foundation', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'If enabled, L2 blocks are constrained by the Layer 0 foundation bounds.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L2LockOffset', type: 'range', label: 'L2 Lock Offset', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2L2LockEnabled', description: 'Distance (in blocks) from the origin where L2 blocks are locked to the foundation (L0).' },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Layer 3 (Veins)', dep: 'quantizedGenerateV2InvisibleEnabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleL3Chance', type: 'range', label: 'L3 Spawn Rate', min: 0.05, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2InvisibleEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability per tick that a new L3 vein is attempted.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2MaxInvisibleL3Strips', type: 'range', label: 'L3 Max Strips', min: 1, max: 200, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Maximum number of simultaneous L3 strips.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleL3Spacing', type: 'range', label: 'L3 Min Spacing', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Minimum Manhattan distance between L3 vein origin points.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L3LockEnabled', type: 'checkbox', label: 'Lock to Foundation', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'If enabled, L3 blocks are constrained by the Layer 0 foundation bounds.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L3LockOffset', type: 'range', label: 'L3 Lock Offset', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2L3LockEnabled', description: 'Distance (in blocks) from the origin where L3 blocks are locked to the foundation (L0).' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L3AllowNudges', type: 'checkbox', label: 'Allow Layer Nudges', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Let layer 2 moves shift the current location of blocks in the moved quadrant.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L3FlickerChance', type: 'range', label: 'L3 Flicker Chance', min: 0.0, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2InvisibleEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of a flicker effect when L3 interacts with foundation layers.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2L3QuadrantWipeEnabled', type: 'checkbox', label: 'L3 Quadrant Wipe', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Automatically removes L3 blocks that extend too far from the foundation.' },
 
     { cat: 'Effects', type: 'end_group' },
 

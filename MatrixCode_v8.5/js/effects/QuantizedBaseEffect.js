@@ -1146,6 +1146,61 @@ class QuantizedBaseEffect extends AbstractEffect {
                         if (this.removalGrids[layerIdx]) this.removalGrids[layerIdx][idx] = -1;
                     }
                 }
+            } else if (op.type === 'shiftBlocks') {
+                const layer = op.layer;
+                const dx = op.dx || 0;
+                const dy = op.dy || 0;
+                const quadrant = op.quadrant; // 'N', 'S', 'E', 'W'
+                const scx = op.scx || 0;
+                const scy = op.scy || 0;
+
+                const grid = this.layerGrids[layer];
+                const inv = this.layerInvisibleGrids[layer];
+                const rem = this.removalGrids[layer];
+                if (!grid) continue;
+
+                // Shift logic: Create a temp grid for the quadrant
+                const tempGrid = new Int32Array(grid.length).fill(-1);
+                const tempInv = inv ? new Int8Array(inv.length).fill(0) : null;
+                const tempRem = rem ? new Int32Array(rem.length).fill(-1) : null;
+
+                for (let by = 0; by < this.logicGridH; by++) {
+                    const gry = by - cy - scy;
+                    for (let bx = 0; bx < this.logicGridW; bx++) {
+                        const idx = by * this.logicGridW + bx;
+                        if (grid[idx] === -1) continue;
+
+                        const grx = bx - cx - scx;
+                        let shouldShift = false;
+                        if (quadrant === 'N' && gry < 0) shouldShift = true;
+                        if (quadrant === 'S' && gry > 0) shouldShift = true;
+                        if (quadrant === 'E' && grx > 0) shouldShift = true;
+                        if (quadrant === 'W' && grx < 0) shouldShift = true;
+
+                        if (shouldShift) {
+                            const nbx = bx + dx;
+                            const nby = by + dy;
+                            if (nbx >= 0 && nbx < this.logicGridW && nby >= 0 && nby < this.logicGridH) {
+                                const nidx = nby * this.logicGridW + nbx;
+                                tempGrid[nidx] = grid[idx];
+                                if (tempInv) tempInv[nidx] = inv[idx];
+                                if (tempRem) tempRem[nidx] = rem[idx];
+                            }
+                        } else {
+                            // If not in quadrant, keep it where it is in temp grid if not already written to
+                            if (tempGrid[idx] === -1) {
+                                tempGrid[idx] = grid[idx];
+                                if (tempInv) tempInv[idx] = inv[idx];
+                                if (tempRem) tempRem[idx] = rem[idx];
+                            }
+                        }
+                    }
+                }
+                grid.set(tempGrid);
+                if (inv) inv.set(tempInv);
+                if (rem) rem.set(tempRem);
+                this._gridsDirty = true;
+
             } else if (op.type === 'removeBlock') {
                 const minX = Math.max(0, cx + x1);
                 const maxX = Math.min(this.logicGridW - 1, cx + x2);
@@ -1806,6 +1861,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const a2 = isOcc(grid2, x-1, y), b2 = isOcc(grid2, x, y);
                 const a3 = isOcc(grid3, x-1, y), b3 = isOcc(grid3, x, y);
                 const a23 = a2 && a3, b23 = b2 && b3;
+                const aL123 = a1 || a23, bL123 = b1 || b23;
 
                 let isNorm = false;
                 let isDim = false;
@@ -1813,17 +1869,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // 1. L0 boundary always normal
                 if (a0 !== b0) isNorm = true;
 
-                // 2. L1 boundary normal unless both sides are L0
-                if (a1 !== b1) {
+                // 2. L1 & L2+3 combined perimeter
+                if (aL123 !== bL123) {
                     if (a0 && b0) isDim = true;
                     else isNorm = true;
-                }
-
-                // 3. L2&L3 boundary normal if not covered by L0 or L1
-                // Standalone L2 or L3 perimeters are invisible; only draw at their intersection.
-                if (a23 !== b23) {
-                    const covered = (a0 && b0) || (a1 && b1);
-                    if (!covered) isNorm = true;
                 }
 
                 if (isNorm) addEdgeToPath(pNormal, x, y, true);
@@ -1838,6 +1887,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const a2 = isOcc(grid2, x, y-1), b2 = isOcc(grid2, x, y);
                 const a3 = isOcc(grid3, x, y-1), b3 = isOcc(grid3, x, y);
                 const a23 = a2 && a3, b23 = b2 && b3;
+                const aL123 = a1 || a23, bL123 = b1 || b23;
 
                 let isNorm = false;
                 let isDim = false;
@@ -1845,17 +1895,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // 1. L0 boundary always normal
                 if (a0 !== b0) isNorm = true;
 
-                // 2. L1 boundary normal unless both sides are L0
-                if (a1 !== b1) {
+                // 2. L1 & L2+3 combined perimeter
+                if (aL123 !== bL123) {
                     if (a0 && b0) isDim = true;
                     else isNorm = true;
-                }
-
-                // 3. L2&L3 boundary normal if not covered by L0 or L1
-                // Standalone L2 or L3 perimeters are invisible; only draw at their intersection.
-                if (a23 !== b23) {
-                    const covered = (a0 && b0) || (a1 && b1);
-                    if (!covered) isNorm = true;
                 }
 
                 if (isNorm) addEdgeToPath(pNormal, x, y, false);
