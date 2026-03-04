@@ -385,12 +385,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedGenerateV2SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateV2Enabled', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.' },
     { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
     { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 3, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Number of additional layers to generate (Layer 0 is always base, max 3 additional = 4 total). Layers 2 and 3 are used by Invisible Layer Growth." },
-    { cat: 'Effects', id: 'quantizedGenerateV2MinBlockWidth', type: 'range', label: 'Min Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-    { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockWidth', type: 'range', label: 'Max Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-    { cat: 'Effects', id: 'quantizedGenerateV2MinBlockHeight', type: 'range', label: 'Min Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-    { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockHeight', type: 'range', label: 'Max Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
-    { cat: 'Effects', id: 'quantizedGenerateV2FadeInFrames', type: 'range', label: 'Fade In', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
-    { cat: 'Effects', id: 'quantizedGenerateV2FadeFrames', type: 'range', label: 'Fade Out', min: 0, max: 60, unit: 'fr', dep: 'quantizedGenerateV2Enabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2QuadrantCount', type: 'select', label: 'Quadrant Restriction', dep: 'quantizedGenerateV2Enabled', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.' },
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Rhythm & Timing', dep: 'quantizedGenerateV2Enabled' },

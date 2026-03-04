@@ -116,6 +116,19 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.behaviorState.pattern = this._generateRandomPattern();
         this.behaviorState.pausePattern = this._generateDistinctPattern(this.behaviorState.pattern);
 
+        // Assign per-layer allowed growth directions with life timers.
+        // Timers are staggered by layer so updates don't all coincide on the same step.
+        const quadrantCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+        const _maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
+        const _baseLife = 4 + Math.floor(Math.random() * 3); // 4–6 steps before first re-roll
+        this.behaviorState.layerDirs = {};
+        this.behaviorState.layerDirLife = {};
+        for (let l = 0; l <= _maxLayer + 1; l++) {
+            this.behaviorState.layerDirs[l] = this._pickLayerDirs(quadrantCount);
+            // Each layer offset by 1 step so they expire in sequence, not all at once
+            this.behaviorState.layerDirLife[l] = _baseLife + l;
+        }
+
         // Build the strip seeding schedule (spread across first 6 steps)
         this.behaviorState.seedSchedule = this._generateSeedSchedule(scx, scy);
 
@@ -169,15 +182,21 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (candidates.length === 0) return;
 
             const processCandidate = (block) => {
+                const layer = Math.min(1, block.layer);
+                const allowed = this._getAllowedDirs(layer);
                 let nx, ny, dir;
                 if (useHAxis) {
+                    const validDirs = ['N', 'S'].filter(d => !allowed || allowed.has(d));
+                    if (validDirs.length === 0) return;
                     nx = block.x + Math.floor(Math.random() * block.w);
                     ny = s.scy;
-                    dir = Math.random() < 0.5 ? 'N' : 'S';
+                    dir = validDirs[Math.floor(Math.random() * validDirs.length)];
                 } else {
+                    const validDirs = ['E', 'W'].filter(d => !allowed || allowed.has(d));
+                    if (validDirs.length === 0) return;
                     nx = s.scx;
                     ny = block.y + Math.floor(Math.random() * block.h);
-                    dir = Math.random() < 0.5 ? 'E' : 'W';
+                    dir = validDirs[Math.floor(Math.random() * validDirs.length)];
                 }
 
                 if (this.checkScreenEdge(nx, ny)) return;
@@ -191,7 +210,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 const nudgeCount = Array.from(this.strips.values()).filter(st => st.isNudge && st.active).length;
                 if (nudgeCount >= maxStrips) return;
 
-                const layer = Math.min(1, block.layer);
                 const strip = this._createStrip(layer, dir, nx, ny);
                 strip.isNudge = true;
                 strip.stepPhase = Math.floor(Math.random() * 6);
@@ -248,15 +266,20 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     let invCount = Array.from(this.strips.values()).filter(st => st.isInvisible && st.active).length;
                     if (invCount >= maxStrips) return;
 
+                    const allowed = this._getAllowedDirs(targetLayer);
                     let nx, ny, dir;
                     if (useHAxis) {
+                        const validDirs = ['N', 'S'].filter(d => !allowed || allowed.has(d));
+                        if (validDirs.length === 0) return;
                         nx = block.x + Math.floor(Math.random() * block.w);
                         ny = s.scy;
-                        dir = Math.random() < 0.5 ? 'N' : 'S';
+                        dir = validDirs[Math.floor(Math.random() * validDirs.length)];
                     } else {
+                        const validDirs = ['E', 'W'].filter(d => !allowed || allowed.has(d));
+                        if (validDirs.length === 0) return;
                         nx = s.scx;
                         ny = block.y + Math.floor(Math.random() * block.h);
-                        dir = Math.random() < 0.5 ? 'E' : 'W';
+                        dir = validDirs[Math.floor(Math.random() * validDirs.length)];
                     }
 
                     if (this.checkScreenEdge(nx, ny)) return;
@@ -302,6 +325,69 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         //       // this.checkScreenEdge(x, y)  — returns false or edges object
         //   }, { label: 'My Behavior' });
         // ─────────────────────────────────────────────────────
+    }
+
+    // =========================================================
+    // QUADRANT RESTRICTION HELPERS
+    // =========================================================
+
+    /**
+     * Returns a random Set of `count` cardinal directions for a layer.
+     * Returns null if count >= 4 (no restriction).
+     * @param {number} count
+     * @returns {Set<string>|null}
+     */
+    _pickLayerDirs(count) {
+        if (count >= 4) return null;
+        const all = ['N', 'S', 'E', 'W'];
+        const shuffled = [...all].sort(() => Math.random() - 0.5);
+        return new Set(shuffled.slice(0, Math.max(1, count)));
+    }
+
+    /**
+     * Returns the allowed direction Set for a layer, or null if unrestricted.
+     * @param {number} layer
+     * @returns {Set<string>|null}
+     */
+    _getAllowedDirs(layer) {
+        const dirs = this.behaviorState?.layerDirs;
+        if (!dirs) return null;
+        return dirs[layer] ?? null;
+    }
+
+    /**
+     * Ticks per-layer direction life timers each growth step.
+     * Expired layers queue a direction-change intent through actionBuffer (same as strip growth)
+     * so updates are ordered alongside other growth events rather than applied immediately.
+     */
+    _tickLayerDirs(s) {
+        const quadrantCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+
+        if (!s.layerDirs) return;
+        if (!s.layerDirLife) s.layerDirLife = {};
+
+        if (quadrantCount >= 4) {
+            // Unrestricted — clear any lingering restrictions so switching to "All" mid-run works
+            for (const layer in s.layerDirs) {
+                if (s.layerDirs[layer] !== null) {
+                    const l = parseInt(layer);
+                    this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[layer] = null; } });
+                }
+            }
+            return;
+        }
+
+        for (const layer in s.layerDirs) {
+            s.layerDirLife[layer] = (s.layerDirLife[layer] ?? 1) - 1;
+            if (s.layerDirLife[layer] <= 0) {
+                const newDirs = this._pickLayerDirs(quadrantCount);
+                const l = parseInt(layer);
+                // Queue the change through actionBuffer — applied in order with strip growth
+                this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[layer] = newDirs; } });
+                // Re-arm timer immediately (4–7 steps) so the next cycle is already scheduled
+                s.layerDirLife[layer] = 4 + Math.floor(Math.random() * 4);
+            }
+        }
     }
 
     // =========================================================
@@ -358,6 +444,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
 
         const addToSchedule = (layer, dir, stepPool) => {
+            // Spine strips are always seeded in all 4 directions regardless of quadrant restriction.
+            // The restriction only applies to secondary growth (nudge, invisible, inside-out),
+            // ensuring the backbone grows normally from center out.
             const step = stepPool[Math.floor(Math.random() * stepPool.length)];
             if (!schedule[step]) schedule[step] = [];
             schedule[step].push({ layer, dir, originX: scx, originY: scy });
@@ -640,33 +729,69 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (s.step < delay) return;
         if ((s.step - delay) % period !== 0) return;
 
-        const wave = s.insideOutWave;
         const bs    = this.getBlockSize();
         const halfW = Math.floor(this.g.cols / bs.w / 2);
         const halfH = Math.floor(this.g.rows / bs.h / 2);
-
-        if (wave > halfW && wave > halfH) return;
-
         const maxLayer = Math.min(1, this.c.get('quantizedGenerateV2LayerCount') ?? 0);
 
+        // Retry expansions that were blocked in previous waves.
+        // This runs every wave period regardless of wave bounds so pending
+        // strips always get a chance to fire once their direction rotates in.
+        if (!s.pendingExpansions) s.pendingExpansions = [];
+        const stillPending = [];
+        for (const pe of s.pendingExpansions) {
+            const allowed = this._getAllowedDirs(pe.l);
+            if (!allowed || allowed.has(pe.dir)) {
+                const { l, dir, ox, oy } = pe;
+                this.actionBuffer.push({ layer: l, fn: () => {
+                    this._createStrip(l, dir, ox, oy).isExpansion = true;
+                }});
+            } else {
+                stillPending.push(pe);
+            }
+        }
+        s.pendingExpansions = stillPending;
+
+        // Wave counter bounds check — after retrying pending so those still fire.
+        const wave = s.insideOutWave;
+        if (wave > halfW && wave > halfH) return;
+
+        // Wave 1 rows/columns sit immediately beside each axis and are structurally
+        // critical — always seed them unconditionally regardless of the restriction.
+        const axisAdjacent = (wave <= 1);
+
         for (let l = 0; l <= maxLayer; l++) {
+            const allowed = axisAdjacent ? null : this._getAllowedDirs(l);
+
             for (const dy of [wave, -wave]) {
                 const oy = s.scy + dy;
                 if (oy > -halfH && oy < halfH) {
-                    this.actionBuffer.push({ layer: l, fn: () => {
-                        this._createStrip(l, 'E', s.scx, oy).isExpansion = true;
-                        this._createStrip(l, 'W', s.scx, oy).isExpansion = true;
-                    }});
+                    const eOk = !allowed || allowed.has('E');
+                    const wOk = !allowed || allowed.has('W');
+                    if (eOk || wOk) {
+                        this.actionBuffer.push({ layer: l, fn: () => {
+                            if (eOk) this._createStrip(l, 'E', s.scx, oy).isExpansion = true;
+                            if (wOk) this._createStrip(l, 'W', s.scx, oy).isExpansion = true;
+                        }});
+                    }
+                    if (!eOk) s.pendingExpansions.push({ l, dir: 'E', ox: s.scx, oy });
+                    if (!wOk) s.pendingExpansions.push({ l, dir: 'W', ox: s.scx, oy });
                 }
             }
 
             for (const dx of [wave, -wave]) {
                 const ox = s.scx + dx;
                 if (ox > -halfW && ox < halfW) {
-                    this.actionBuffer.push({ layer: l, fn: () => {
-                        this._createStrip(l, 'N', ox, s.scy).isExpansion = true;
-                        this._createStrip(l, 'S', ox, s.scy).isExpansion = true;
-                    }});
+                    const nOk = !allowed || allowed.has('N');
+                    const sOk = !allowed || allowed.has('S');
+                    if (nOk || sOk) {
+                        this.actionBuffer.push({ layer: l, fn: () => {
+                            if (nOk) this._createStrip(l, 'N', ox, s.scy).isExpansion = true;
+                            if (sOk) this._createStrip(l, 'S', ox, s.scy).isExpansion = true;
+                        }});
+                    }
+                    if (!nOk) s.pendingExpansions.push({ l, dir: 'N', ox, oy: s.scy });
+                    if (!sOk) s.pendingExpansions.push({ l, dir: 'S', ox, oy: s.scy });
                 }
             }
         }
@@ -767,6 +892,17 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         if (!s.seedSchedule) {
             s.pattern      = this._generateRandomPattern();
             s.pausePattern = this._generateDistinctPattern(s.pattern);
+            if (!s.layerDirs) {
+                const qCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+                const qMaxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
+                const qBaseLife = 4 + Math.floor(Math.random() * 3);
+                s.layerDirs = {};
+                s.layerDirLife = {};
+                for (let l = 0; l <= qMaxLayer + 1; l++) {
+                    s.layerDirs[l] = this._pickLayerDirs(qCount);
+                    s.layerDirLife[l] = qBaseLife + l;
+                }
+            }
             s.seedSchedule = this._generateSeedSchedule(s.scx ?? 0, s.scy ?? 0);
             s.insideOutWave = 1;
             if (this.growthPool.size === 0) this._initBehaviors();
@@ -789,6 +925,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // Reset buffer for this step
         this.actionBuffer = [];
+
+        // 0. Tick per-layer direction life timers (Quadrant Restriction)
+        this._tickLayerDirs(s);
 
         // 1. Compute visible fill ratio (for Behaviors 2 & 3)
         this._updateFillRatio(s);
