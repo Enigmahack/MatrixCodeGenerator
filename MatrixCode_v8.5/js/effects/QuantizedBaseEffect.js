@@ -2743,7 +2743,7 @@ class QuantizedBaseEffect extends AbstractEffect {
              const targetGrid = this.layerGrids[layer];
              
              if (targetGrid) {
-                 // Check overlap and adjacency in one pass (O(area) instead of O(N_blocks))
+                 // Check overlap and orthogonal adjacency in one pass (O(area) instead of O(N_blocks))
                  // Expand search by 1 unit for adjacency
                  search: for (let gy = minY - 1; gy <= maxY + 1; gy++) {
                      if (gy < 0 || gy >= blocksY) continue;
@@ -2755,14 +2755,19 @@ class QuantizedBaseEffect extends AbstractEffect {
                          const isEdgeX = (gx < minX || gx > maxX);
                          
                          if (targetGrid[rowOff + gx] !== -1) {
+                             if (isEdgeX && isEdgeY) {
+                                 // Diagonal neighbor - skip corner connections
+                                 continue;
+                             }
+
                              if (isEdgeX || isEdgeY) {
+                                 // Edge neighbor - valid connection
                                  connected = true;
                              } else {
+                                 // Interior overlap - valid connection
                                  overlapArea++;
-                                 connected = true; // Overlap also implies connectivity
+                                 connected = true; 
                              }
-                             // If we found connectivity and don't need accurate overlapArea yet, we could break
-                             // But we need overlapArea for the internal stacking check
                          }
                      }
                  }

@@ -419,6 +419,7 @@ class ConfigurationManager {
             "quantizedZoomInnerColor": "#FFD700",
 
             "quantizedGenerateV2Enabled": false,
+            "quantizedGenerateV2GenerativeScaling": false,
             "quantizedGenerateV2RandomStart": false,
             "quantizedGenerateV2SpineBoost": 4,
             "quantizedGenerateV2NudgeEnabled": true,
@@ -436,6 +437,7 @@ class ConfigurationManager {
             "quantizedGenerateV2IntersectionPauseChance": 0.5,
             "quantizedGenerateV2FillThreshold": 0.33,
             "quantizedGenerateV2MaxBlockScale": 3,
+            "quantizedGenerateV2AllowAsymmetry": false,
             "quantizedGenerateV2InsideOutEnabled": true,
             "quantizedGenerateV2InsideOutDelay": 6,
             "quantizedGenerateV2InsideOutPeriod": 3,
