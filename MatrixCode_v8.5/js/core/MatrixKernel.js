@@ -271,7 +271,13 @@ class MatrixKernel {
         let resizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => this._resize(), 100); // Debounce resize events
+            resizeTimer = setTimeout(() => {
+                // Guard: skip if dimensions haven't actually changed (e.g. color picker popup firing spurious resize events)
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                if (w === this._lastWindowW && h === this._lastWindowH) return;
+                this._resize();
+            }, 100);
         });
     }
 
@@ -397,6 +403,8 @@ class MatrixKernel {
      * @private
      */
     _resize() {
+        this._lastWindowW = window.innerWidth;
+        this._lastWindowH = window.innerHeight;
         if (this.config.state.logErrors) console.log("[MatrixKernel] Resize Event Triggered.");
         this._lastResetReason = "Resize: " + new Date().toLocaleTimeString();
         const s = this.config.state;

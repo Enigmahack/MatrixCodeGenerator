@@ -739,7 +739,7 @@ class UIManager {
                             <line x1="3" y1="18" x2="21" y2="18"></line>
                         </svg>
                     </div>
-                    <div class="sortable-label">${id.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div class="sortable-label">${(data.label && data.label !== id) ? data.label.toUpperCase() : id.replace(/_/g, ' ').toUpperCase()}</div>
                     <div class="sortable-toggle">
                         <input type="checkbox" ${data.enabled ? 'checked' : ''} id="toggle-${id}">
                     </div>

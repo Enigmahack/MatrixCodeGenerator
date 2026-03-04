@@ -76,14 +76,15 @@ class GlyphAtlas {
         const fontBase = `${style}${s.fontWeight} ${maxSize}px ${fontFamily}`;
         const padding = 10 * 2; // Fixed padding, decoupled from tracerGlow
         
-        const paletteStr = d.paletteColorsStr.join(',');
-        const fullConfigStr = paletteStr + '|' + s.overlapColor + '|' + fontBase + '|' + padding;
+        // Palette/color changes do not affect atlas layout (glyphs are always drawn in white;
+        // color is applied by the shader). Only font properties invalidate the atlas.
+        const fullConfigStr = fontBase + '|' + padding;
 
         const isFontReady = document.fonts.check(fontBase);
 
-        if (this.currentFont === fontBase && 
-            this.currentPalette === fullConfigStr && 
-            this.fontReady === isFontReady && 
+        if (this.currentFont === fontBase &&
+            this.currentPalette === fullConfigStr &&
+            this.fontReady === isFontReady &&
             !this.needsUpdate) {
             return;
         }
@@ -92,7 +93,7 @@ class GlyphAtlas {
         this.currentFont = fontBase;
         this.currentPalette = fullConfigStr;
         this.fontReady = isFontReady;
-        
+
         // If font isn't ready, we force a retry next frame, but we TRY to render anyway (Canvas fallback)
         if (!isFontReady) {
             this.needsUpdate = true;
@@ -100,11 +101,11 @@ class GlyphAtlas {
         } else {
             this.needsUpdate = false;
         }
-        
+
         // Reset dynamic state
         // Use a representative string with high/low chars
         this.ctx.font = fontBase;
-        const metrics = this.ctx.measureText("Mjg|[]{}()"); 
+        const metrics = this.ctx.measureText("Mjg|[]{}()");
         // fallback if metrics not supported
         let actualHeight = maxSize;
         if (metrics.actualBoundingBoxAscent && metrics.actualBoundingBoxDescent) {
@@ -115,19 +116,45 @@ class GlyphAtlas {
 
         this.cellSize = Math.ceil(Math.max(maxSize, actualHeight) + padding);
         this.halfCell = this.cellSize / 2;
-        
+
         // Strategy 4: Fixed Width, Vertical Expansion
         // Fix columns based on a reasonable texture width (e.g., 2048)
         const TARGET_WIDTH = 2048;
         this.fixedCols = Math.max(1, Math.floor(TARGET_WIDTH / this.cellSize));
 
+        // Save previously used characters before clearing, so we can pre-populate after
+        // reset to avoid an empty GPU texture upload (which causes a one-frame blank flash)
+        const prevUsedChars = this.usedChars.slice();
+
         // Reset dynamic state
         this.usedChars = [];
         this.charMap.clear();
-        this.capacity = this.minCapacity;
-        
+        this.capacity = Math.max(this.minCapacity, prevUsedChars.length);
+
         // Initial sizing (reset = true)
         this._resizeAtlas(d, true);
+
+        // Pre-populate atlas with previous characters (drawn with the current font) so that
+        // the full GPU texture upload has valid glyph data rather than an empty canvas
+        if (prevUsedChars.length > 0) {
+            const cols = this._lastCols;
+            for (let i = 0; i < prevUsedChars.length; i++) {
+                const char = prevUsedChars[i];
+                const col = i % cols;
+                const row = (i / cols) | 0;
+                this.charMap.set(char, {
+                    x: col * this.cellSize,
+                    y: row * this.cellSize,
+                    w: this.cellSize,
+                    h: this.cellSize,
+                    id: i
+                });
+                this.ctx.fillText(char, col * this.cellSize + this.halfCell, row * this.cellSize + this.halfCell);
+                const code = char.charCodeAt(0);
+                if (code < 65536) this.codeToId[code] = i;
+            }
+            this.usedChars = prevUsedChars;
+        }
     }
 
     _resizeAtlas(d, reset = false) {

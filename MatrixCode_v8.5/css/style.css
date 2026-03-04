@@ -77,7 +77,7 @@
             border-left: 1px solid var(--panel-border);
             font-size: 0.9rem;
             color: var(--text-main);
-            overflow: hidden;
+            contain: layout paint;
         }
         #settingsPanel.open { transform: translateX(0); }
         
@@ -150,7 +150,7 @@
             padding: 1.5rem;
             padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 20px) + 60px);
             -webkit-overflow-scrolling: touch;
-            scrollbar-gutter: stable;
+            overflow-anchor: none;
         }
         .control-group { display: none; flex-direction: column; gap: 1.5rem; animation: fadeIn 0.3s ease; }
         .control-group.active { display: flex; }
