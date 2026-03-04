@@ -5,6 +5,8 @@ class QuantizedRenderer {
         this._distMapWidth = 0;
         this._distMapHeight = 0;
         this._distMapDirty = true;
+        this._edgeBatches = new Map();
+        this._edgeMaskBatches = new Map();
     }
 
     // --- Core Rendering ---
@@ -32,15 +34,13 @@ class QuantizedRenderer {
 
         const baseStep = Math.min(screenStepX, screenStepY);
         
-        const unifiedWidth = baseStep * 0.1 * thickness;
-        const lineWidthX = unifiedWidth;
-        const lineWidthY = unifiedWidth;
-        const halfLineX = lineWidthX / 2;
-        const halfLineY = lineWidthY / 2;
-        
-        const innerUnifiedWidth = baseStep * 0.1 * innerThickness;
-        const innerLineWidthX = innerUnifiedWidth;
-        const innerLineWidthY = innerUnifiedWidth;
+        const lineWidthX = baseStep * 0.1 * thickness;
+        const lineWidthY = lineWidthX;
+        const halfLineX = lineWidthX * 0.5;
+        const halfLineY = halfLineX;
+
+        const innerLineWidthX = baseStep * 0.1 * innerThickness;
+        const innerLineWidthY = innerLineWidthX;
         
         const gridPixW = fx.g.cols * d.cellWidth; 
         const gridPixH = fx.g.rows * d.cellHeight;
@@ -144,11 +144,9 @@ class QuantizedRenderer {
         }
 
         // Global Fade Check for Removal Grids
-        for (let by = 0; by < blocksY; by++) {
-            // Optimization: Only run this if we actually have removal grids
-            let hasRemovals = false;
-            for(let l=0; l<4; l++) if(fx.removalGrids[l]) { hasRemovals = true; break; }
-            if(!hasRemovals) break;
+        let hasRemovals = false;
+        for (let l = 0; l < 4; l++) if (fx.removalGrids[l]) { hasRemovals = true; break; }
+        if (hasRemovals) for (let by = 0; by < blocksY; by++) {
 
             colorLayerCtx.beginPath();
             let hasPath = false;
@@ -165,10 +163,12 @@ class QuantizedRenderer {
                         }
                     }
                     if (!isFading) {
-                        const sx = Math.round((bx - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const ex = Math.round((bx + 1 - l.offX + l.userBlockOffX) * l.cellPitchX);
-                        const sy = Math.round((by - l.offY + l.userBlockOffY) * l.cellPitchY);
-                        const ey = Math.round((by + 1 - l.offY + l.userBlockOffY) * l.cellPitchY);
+                        const bxBase = bx - l.offX + l.userBlockOffX;
+                        const byBase = by - l.offY + l.userBlockOffY;
+                        const sx = Math.round(bxBase * l.cellPitchX);
+                        const ex = Math.round((bxBase + 1) * l.cellPitchX);
+                        const sy = Math.round(byBase * l.cellPitchY);
+                        const ey = Math.round((byBase + 1) * l.cellPitchY);
                         const x = l.screenOriginX + (sx * l.screenStepX) + l.pixelOffX;
                         const y = l.screenOriginY + (sy * l.screenStepY) + l.pixelOffY;
                         const w = (ex - sx) * l.screenStepX;
@@ -367,8 +367,10 @@ class QuantizedRenderer {
         const fadeOutFrames = fx.getLineGfxValue('Persistence') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
-        const batches = new Map();
-        const maskBatches = new Map();
+        const batches = this._edgeBatches;
+        const maskBatches = this._edgeMaskBatches;
+        batches.clear();
+        maskBatches.clear();
         
         const getBatch = (c, o) => {
             const key = `${c}|${o.toFixed(3)}`;
@@ -673,10 +675,12 @@ class QuantizedRenderer {
         const lwX = l.lineWidthX;
         const lwY = l.lineWidthY;
         
-        let startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
-        let endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        let startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
-        let endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
+        const bxBase = bx - offX + l.userBlockOffX;
+        const byBase = by - offY + l.userBlockOffY;
+        let startCellX = Math.round(bxBase * l.cellPitchX);
+        let endCellX = Math.round((bxBase + 1) * l.cellPitchX);
+        let startCellY = Math.round(byBase * l.cellPitchY);
+        let endCellY = Math.round((byBase + 1) * l.cellPitchY);
 
         startCellX = Math.max(0, Math.min(fx.g.cols, startCellX));
         endCellX = Math.max(0, Math.min(fx.g.cols, endCellX));

@@ -213,7 +213,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     if (Math.abs(strip.originX - nx) + Math.abs(strip.originY - ny) < minSpacing) return;
                 }
 
-                const nudgeCount = Array.from(this.strips.values()).filter(st => st.isNudge && st.active).length;
+                let nudgeCount = 0;
+                for (const st of this.strips.values()) if (st.isNudge && st.active) nudgeCount++;
                 if (nudgeCount >= maxStrips) return;
 
                 const strip = this._createStrip(layer, dir, nx, ny);
@@ -274,7 +275,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     const maxStrips = (l === 2) ? l2Max : l3Max;
                     const spacing = (l === 2) ? l2Spacing : l3Spacing;
 
-                    const currentCount = Array.from(this.strips.values()).filter(st => st.layer === l && st.isInvisible && st.active).length;
+                    let currentCount = 0;
+                    for (const st of this.strips.values()) if (st.layer === l && st.isInvisible && st.active) currentCount++;
                     if (currentCount >= maxStrips) return;
 
                     const allowed = this._getAllowedDirs(l);
@@ -336,27 +338,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.registerBehavior('layer_collision_interference', function(s) {
             const flickerChance = this.c.get('quantizedGenerateV2L3FlickerChance') ?? 0.15;
             if (flickerChance <= 0) return;
-
             if (!s.pendingDeletions) s.pendingDeletions = [];
-            
-            const foundationBlocks = this.activeBlocks.filter(b => b.layer < 3);
-            const l3Blocks = this.activeBlocks.filter(b => b.layer === 3);
-            
-            for (const bf of foundationBlocks) {
-                for (const b3 of l3Blocks) {
-                    const intersects = !(
-                        bf.x > b3.x + b3.w - 1 || 
-                        bf.x + bf.w - 1 < b3.x || 
-                        bf.y > b3.y + b3.h - 1 || 
-                        bf.y + b3.h - 1 < b3.y
-                    );
-                    
-                    if (intersects) {
-                        if (Math.random() < flickerChance) {
-                            s.pendingDeletions.push({ x: b3.x, y: b3.y, w: b3.w, h: b3.h, layer: 3 });
-                            break;
-                        }
-                    }
+            for (const b of this.activeBlocks) {
+                if (b.layer === 3 && Math.random() < flickerChance) {
+                    s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
                 }
             }
         }, {
@@ -371,43 +356,27 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
             if (maxLayer < 3) return;
 
-            const lmd = s.layerMaxDist || {};
-            const l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
-            
-            const l3LockOffset = this.c.get('quantizedGenerateV2L3LockOffset') ?? 2;
+            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
             const l3Chance = this.c.get('quantizedGenerateV2InvisibleL3Chance') ?? 1.0;
+            const rangeN = l0md.N + 2;
+            const rangeS = l0md.S + 2;
 
-            const md = {
-                N: l0md.N + l3LockOffset,
-                S: l0md.S + l3LockOffset,
-                E: l0md.E + l3LockOffset,
-                W: l0md.W + l3LockOffset
-            };
-            
             const spawnCount = 2 + Math.floor(Math.random() * 3);
             for (let i = 0; i < spawnCount; i++) {
-                const ry = Math.floor(Math.random() * (md.N + md.S + 1)) - md.N;
-                this.actionBuffer.push({
-                    layer: 3,
-                    isSpine: true,
-                    fn: () => {
-                        this._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, false, 0, true, true, true, false, true);
-                    }
-                });
+                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
+                this.actionBuffer.push({ layer: 3, isSpine: true, fn: () => {
+                    this._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, false, 0, true, true, true, false, true);
+                }});
             }
 
             if (Math.random() < l3Chance) {
-                const ry = Math.floor(Math.random() * (md.N + md.S + 1)) - md.N;
-                this.actionBuffer.push({
-                    layer: 3,
-                    isSpine: false,
-                    fn: () => {
-                        const dir = Math.random() < 0.5 ? 'E' : 'W';
-                        const rStrip = this._createStrip(3, dir, s.scx, s.scy + ry);
-                        rStrip.isInvisible = true;
-                        rStrip.stepPhase = Math.floor(Math.random() * 6);
-                    }
-                });
+                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
+                this.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
+                    const dir = Math.random() < 0.5 ? 'E' : 'W';
+                    const rStrip = this._createStrip(3, dir, s.scx, s.scy + ry);
+                    rStrip.isInvisible = true;
+                    rStrip.stepPhase = Math.floor(Math.random() * 6);
+                }});
             }
         }, {
             enabled: true,
@@ -420,80 +389,20 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.registerBehavior('l3_quadrant_wipe', function(s) {
             if (!this.c.get('quantizedGenerateV2L3QuadrantWipeEnabled')) return;
 
-            const lmd = s.layerMaxDist || {};
-            const l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
-            
-            const l3LockOffset = this.c.get('quantizedGenerateV2L3LockOffset') ?? 2;
+            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
+            let removed = false;
 
-            const limit = {
-                N: l0md.N + l3LockOffset,
-                S: l0md.S + l3LockOffset,
-                E: l0md.E + l3LockOffset,
-                W: l0md.W + l3LockOffset
-            };
-
-            const violatingRows = new Set();
-            const violatingCols = new Set();
-            const dirsWithViolations = new Set();
-
-            for (const block of this.activeBlocks) {
-                if (block.layer !== 3) continue;
-                
-                const rx = block.x - s.scx;
-                const ry = block.y - s.scy;
-                
-                if (ry < -limit.N) { violatingCols.add(block.x); dirsWithViolations.add('N'); }
-                if ((ry + block.h - 1) > limit.S) { violatingCols.add(block.x); dirsWithViolations.add('S'); }
-                if ((rx + block.w - 1) > limit.E) { violatingRows.add(block.y); dirsWithViolations.add('E'); }
-                if (rx < -limit.W) { violatingRows.add(block.y); dirsWithViolations.add('W'); }
-            }
-
-            if (violatingRows.size === 0 && violatingCols.size === 0) return;
-
-            const toRemove = this.activeBlocks.filter(b => {
-                if (b.layer !== 3) return false;
-                if (b.x === s.scx) return false;
-
-                if (violatingRows.has(b.y)) {
-                    if (dirsWithViolations.has('E') && b.x > s.scx) return true;
-                    if (dirsWithViolations.has('W') && b.x < s.scx) return true;
-                }
-                if (violatingCols.has(b.x)) {
-                    if (dirsWithViolations.has('N') && b.y < s.scy) return true;
-                    if (dirsWithViolations.has('S') && b.y > s.scy) return true;
-                }
-                return false;
-            });
-
-            for (const b of toRemove) {
-                this._removeBlock(b.x, b.y, b.w, b.h, 3);
-            }
-
-            for (const strip of this.strips.values()) {
-                if (strip.layer !== 3 || !strip.active || strip.isSpine) continue;
-                
-                let match = false;
-                if (violatingRows.has(strip.originY)) {
-                    if (dirsWithViolations.has('E') && strip.originX > s.scx) match = true;
-                    if (dirsWithViolations.has('W') && strip.originX < s.scx) match = true;
-                }
-                if (violatingCols.has(strip.originX)) {
-                    if (dirsWithViolations.has('N') && strip.originY < s.scy) match = true;
-                    if (dirsWithViolations.has('S') && strip.originY > s.scy) match = true;
-                }
-
-                if (match) {
-                    strip.active = false;
+            for (const b of this.activeBlocks) {
+                if (b.layer !== 3) continue;
+                const rx = b.x - s.scx;
+                const ry = b.y - s.scy;
+                if (-ry > l0md.N + 2 || ry > l0md.S + 2 || rx > l0md.E + 2 || -rx > l0md.W + 2) {
+                    this._removeBlock(b.x, b.y, b.w, b.h, 3);
+                    removed = true;
                 }
             }
 
-            for (const dir of dirsWithViolations) {
-                if (s.layerMaxDist && s.layerMaxDist[3]) {
-                    s.layerMaxDist[3][dir] = 0;
-                }
-            }
-
-            this._gridsDirty = true;
+            if (removed) this._gridsDirty = true;
         }, {
             enabled: true,
             label: 'L3 Quadrant Wipe'
@@ -624,6 +533,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
     }
 
+    _deactivateStrip(strip) {
+        strip.active = false;
+        this.strips.delete(strip.id);
+    }
+
     _createStrip(layer, dir, originX, originY) {
         const id = `strip_${this._stripNextId++}`;
         const strip = {
@@ -682,6 +596,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             }
         }
 
+        const gridCX = Math.floor(this.logicGridW / 2);
+        const gridCY = Math.floor(this.logicGridH / 2);
+        s.allowNudges = !!this.c.get('quantizedGenerateV2L3AllowNudges');
+
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
@@ -691,11 +609,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 }
             }
 
-            const headOnBlock = this.activeBlocks.some(b =>
-                b.layer === strip.layer &&
-                strip.headX >= b.x && strip.headX <= b.x + b.w - 1 &&
-                strip.headY >= b.y && strip.headY <= b.y + b.h - 1
-            );
+            const grid = this.layerGrids?.[strip.layer];
+            const gx = gridCX + strip.headX;
+            const gy = gridCY + strip.headY;
+            const headOnBlock = !!grid && gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH
+                && grid[gy * this.logicGridW + gx] !== -1;
             if (!headOnBlock) continue;
 
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
@@ -791,10 +709,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const rx = x - s.scx;
             const ry = y - s.scy;
             
-            if (ry < 0) md.N = Math.max(md.N, Math.abs(ry));
+            if (ry < 0) md.N = Math.max(md.N, -ry);
             if (ry > 0) md.S = Math.max(md.S, ry + h - 1);
             if (rx > 0) md.E = Math.max(md.E, rx + w - 1);
-            if (rx < 0) md.W = Math.max(md.W, Math.abs(rx));
+            if (rx < 0) md.W = Math.max(md.W, -rx);
         }
         return id;
     }
@@ -813,42 +731,25 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
 
         if (strip.layer === 2) {
-            if (this.c.get('quantizedGenerateV2L2LockEnabled')) {
-                const l2Offset = this.c.get('quantizedGenerateV2L2LockOffset') ?? 1;
-                const md = {
-                    N: l0md.N + l2Offset, S: l0md.S + l2Offset,
-                    E: l0md.E + l2Offset, W: l0md.W + l2Offset
-                };
-                const headRX = strip.headX - s.scx;
-                const headRY = strip.headY - s.scy;
-
-                if (strip.direction === 'N' && Math.abs(headRY + dy * bh) > md.N) bh = Math.max(0, md.N - Math.abs(headRY));
-                if (strip.direction === 'S' && (headRY + dy * bh) > md.S) bh = Math.max(0, md.S - headRY);
-                if (strip.direction === 'E' && (headRX + dx * bw) > md.E) bw = Math.max(0, md.E - headRX);
-                if (strip.direction === 'W' && Math.abs(headRX + dx * bw) > md.W) bw = Math.max(0, md.W - Math.abs(headRX));
-
-                if (bw <= 0 && bh <= 0) return;
-            }
+            const headRX = strip.headX - s.scx;
+            const headRY = strip.headY - s.scy;
+            const exceeds =
+                (strip.direction === 'N' && -headRY > l0md.N + 1) ||
+                (strip.direction === 'S' &&  headRY > l0md.S + 1) ||
+                (strip.direction === 'E' &&  headRX > l0md.E + 1) ||
+                (strip.direction === 'W' && -headRX > l0md.W + 1);
+            if (exceeds) { this._deactivateStrip(strip); return; }
         } else if (strip.layer === 3) {
-            if (this.c.get('quantizedGenerateV2L3LockEnabled')) {
-                const l3Offset = this.c.get('quantizedGenerateV2L3LockOffset') ?? 2;
-                const md = {
-                    N: l0md.N + l3Offset, S: l0md.S + l3Offset,
-                    E: l0md.E + l3Offset, W: l0md.W + l3Offset
-                };
-                const headRX = strip.headX - s.scx;
-                const headRY = strip.headY - s.scy;
-
-                let exceeds = false;
-                if (strip.direction === 'N' && Math.abs(headRY + dy * bh) > md.N) exceeds = true;
-                if (strip.direction === 'S' && (headRY + dy * bh) > md.S) exceeds = true;
-                if (strip.direction === 'E' && (headRX + dx * bw) > md.E) exceeds = true;
-                if (strip.direction === 'W' && Math.abs(headRX + dx * bw) > md.W) exceeds = true;
-
-                if (exceeds) {
-                    if (!strip.isSpine) strip.active = false;
-                    return; 
-                }
+            const headRX = strip.headX - s.scx;
+            const headRY = strip.headY - s.scy;
+            const exceeds =
+                (strip.direction === 'N' && -headRY > l0md.N + 2) ||
+                (strip.direction === 'S' &&  headRY > l0md.S + 2) ||
+                (strip.direction === 'E' &&  headRX > l0md.E + 2) ||
+                (strip.direction === 'W' && -headRX > l0md.W + 2);
+            if (exceeds) {
+                if (!strip.isSpine) this._deactivateStrip(strip);
+                return;
             }
         }
 
@@ -863,7 +764,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const newHeadY = strip.headY + dy * bh;
 
         if (this.checkScreenEdge(newHeadX, newHeadY)) {
-            strip.active = false;
+            this._deactivateStrip(strip);
             return;
         }
 
@@ -883,7 +784,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             this._gridsDirty = true;
 
             // Layer Nudge Logic: L2 moves shift L3 blocks
-            if (strip.layer === 2 && this.c.get('quantizedGenerateV2L3AllowNudges')) {
+            if (strip.layer === 2 && s.allowNudges) {
                 this._nudgeLayer3(strip.direction, s);
             }
         }
@@ -900,11 +801,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         for (const b of this.activeBlocks) {
             if (b.layer === 3) {
                 const ry = b.y - scy;
-                let inQuadrant = false;
-                if (direction === 'N' && ry < 0) inQuadrant = true;
-                if (direction === 'S' && ry > 0) inQuadrant = true;
-
-                if (inQuadrant) {
+                if ((direction === 'N' && ry < 0) || (direction === 'S' && ry > 0)) {
                     b.y += dy;
                 }
             }
@@ -913,11 +810,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         for (const strip of this.strips.values()) {
             if (strip.layer === 3 && strip.active) {
                 const sry = strip.headY - scy;
-                let inQuadrant = false;
-                if (direction === 'N' && sry < 0) inQuadrant = true;
-                if (direction === 'S' && sry > 0) inQuadrant = true;
-
-                if (inQuadrant) {
+                if ((direction === 'N' && sry < 0) || (direction === 'S' && sry > 0)) {
                     strip.headY += dy;
                     strip.originY += dy;
                 }
@@ -983,12 +876,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const halfH = Math.floor(this.g.rows / bs.h / 2);
         const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
 
-        const lmd = s.layerMaxDist || {};
-        const l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
-        const limit = {
-            N: l0md.N + 2, S: l0md.S + 2,
-            E: l0md.E + 2, W: l0md.W + 2
-        };
+        const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
 
         if (!s.pendingExpansions) s.pendingExpansions = [];
         const stillPending = [];
@@ -996,10 +884,10 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (pe.l === 3) {
                 const rx = pe.ox - s.scx;
                 const ry = pe.oy - s.scy;
-                if (pe.dir === 'N' && Math.abs(ry) > limit.N) continue;
-                if (pe.dir === 'S' && ry > limit.S) continue;
-                if (pe.dir === 'E' && rx > limit.E) continue;
-                if (pe.dir === 'W' && Math.abs(rx) > limit.W) continue;
+                if (pe.dir === 'N' && -ry > l0md.N + 2) continue;
+                if (pe.dir === 'S' &&  ry > l0md.S + 2) continue;
+                if (pe.dir === 'E' &&  rx > l0md.E + 2) continue;
+                if (pe.dir === 'W' && -rx > l0md.W + 2) continue;
             }
 
             const allowed = this._getAllowedDirs(pe.l);
@@ -1027,8 +915,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                 if (oy > -halfH && oy < halfH) {
                     if (l === 2) continue;
                     if (l === 3) {
-                        if (dy < 0 && Math.abs(dy) > limit.N) continue;
-                        if (dy > 0 && dy > limit.S) continue;
+                        if (dy < 0 && -dy > l0md.N + 2) continue;
+                        if (dy > 0 &&  dy > l0md.S + 2) continue;
                     }
 
                     const eOk = !allowed || allowed.has('E');

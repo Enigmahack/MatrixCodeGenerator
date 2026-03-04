@@ -175,24 +175,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (c.bypassOccupancy) return true;
                 const grid = this.removalGrids[c.layer];
                 if (!grid) return true;
-                const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-                const x1 = Math.max(0, cx + c.x), y1 = Math.max(0, cy + c.y), x2 = Math.min(w - 1, x1 + c.w - 1), y2 = Math.min(h - 1, y1 + c.h - 1);
-                
-                // NEW: Disable cooldown to allow simultaneous write/fade
-                return true; 
-
-                // Cooldown: 3 expansion phases converted to frames
-                const cooldownSteps = 3;
-                const effectiveInterval = this._getEffectiveInterval();
-                const cooldownFrames = cooldownSteps * effectiveInterval;
-
-                for (let gy = y1; gy <= y2; gy++) {
-                    const rowOff = gy * w;
-                    for (let gx = x1; gx <= x2; gx++) {
-                        const remFrame = grid[rowOff + gx];
-                        if (remFrame !== -1 && this.animFrame - remFrame < cooldownFrames) return false;
-                    }
-                }
                 return true;
             }
         };
@@ -734,7 +716,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Clear step-local state
                 this._currentStepActions = [];
                 if (this.logicGridW && this.logicGridH) {
-                    this._stepOccupancy = new Uint8Array(this.logicGridW * this.logicGridH);
+                    const needed = this.logicGridW * this.logicGridH;
+                    if (this._stepOccupancy?.length === needed) {
+                        this._stepOccupancy.fill(0);
+                    } else {
+                        this._stepOccupancy = new Uint8Array(needed);
+                    }
                 }
                 
                 if (this.expansionPhase < this.sequence.length) {
@@ -1068,18 +1055,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._gridsDirty = true;
         }
 
-        // --- IDEAL SYSTEMIC FIX: Snapshot pre-operation occupancy ---
-        // We create a bitmask (or 4 masks) of which blocks existed BEFORE this logic frame.
-        // Only these blocks are allowed to trigger a removal fade.
-        const establishedMasks = [new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks)];
-        for (let l = 0; l < 4; l++) {
-            if (this.layerGrids[l]) {
-                for (let idx = 0; idx < totalBlocks; idx++) {
-                    if (this.layerGrids[l][idx] !== -1) establishedMasks[l][idx] = 1;
-                }
-            }
-        }
-
         for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
@@ -1100,6 +1075,20 @@ class QuantizedBaseEffect extends AbstractEffect {
         const startIndex = this._lastProcessedOpIndex || 0;
         let opsProcessed = 0;
         let i = startIndex;
+
+        // Snapshot pre-operation occupancy — only needed when there are ops to process.
+        // Allocating before the early-exit guards was wasting 4×Uint8Array every render frame.
+        let establishedMasks = null;
+        if (startIndex < this.maskOps.length) {
+            establishedMasks = [new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks)];
+            for (let l = 0; l < 4; l++) {
+                if (this.layerGrids[l]) {
+                    for (let idx = 0; idx < totalBlocks; idx++) {
+                        if (this.layerGrids[l][idx] !== -1) establishedMasks[l][idx] = 1;
+                    }
+                }
+            }
+        }
         
         const dirtyRects = [];
 
