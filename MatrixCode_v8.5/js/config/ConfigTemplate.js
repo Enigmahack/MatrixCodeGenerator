@@ -380,8 +380,9 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Generation Settings', dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', id: 'quantizedGenerateV2RandomStart', type: 'checkbox', label: 'Random Start Location', dep: 'quantizedGenerateV2Enabled', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateV2Enabled', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.' },
     { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2Enabled', description: "The maximum number of growth actions to attempt in a single step." },
-    { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Number of additional layers to generate (Layer 0 is always base, max 2 additional = 3 total)." },
+    { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 3, step: 1, dep: 'quantizedGenerateV2Enabled', description: "Number of additional layers to generate (Layer 0 is always base, max 3 additional = 4 total). Layers 2 and 3 are used by Invisible Layer Growth." },
     { cat: 'Effects', id: 'quantizedGenerateV2MinBlockWidth', type: 'range', label: 'Min Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockWidth', type: 'range', label: 'Max Block Width', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', id: 'quantizedGenerateV2MinBlockHeight', type: 'range', label: 'Min Block Height', min: 1, max: 8, step: 1, dep: 'quantizedGenerateV2Enabled' },
@@ -397,10 +398,30 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'accordion_subheader', label: 'Size Scaling', dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', id: 'quantizedGenerateV2FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, dep: 'quantizedGenerateV2Enabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.' },
     { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, dep: 'quantizedGenerateV2Enabled', description: 'Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).' },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Inside-Out Expansion', dep: 'quantizedGenerateV2Enabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutEnabled', type: 'checkbox', label: 'Enable', dep: 'quantizedGenerateV2Enabled', description: 'After the initial spine strips grow, seed parallel rows and columns at increasing perpendicular distances from both axes (wave 1 = ±1, wave 2 = ±2, etc.).' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: 'quantizedGenerateV2InsideOutEnabled', description: 'Number of global steps to wait before the first expansion wave fires. Gives the spine strips time to establish.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutPeriod', type: 'range', label: 'Wave Speed', min: 1, max: 10, step: 1, unit: 'steps', dep: 'quantizedGenerateV2InsideOutEnabled', description: 'Steps between each successive expansion wave. Lower = faster inside-out fill.' },
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Behavior Settings', dep: 'quantizedGenerateV2Enabled' },
     { cat: 'Effects', type: 'sortable_list', id: 'quantizedBehaviorPool', label: 'Behavior Pool', dep: 'quantizedGenerateV2Enabled' },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Main Nudge Growth', dep: 'quantizedGenerateV2Enabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeEnabled', type: 'checkbox', label: 'Enabled', dep: 'quantizedGenerateV2Enabled', description: 'Default enabled state for Main Nudge Growth. Can also be toggled live in the Behavior Pool above.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: 'quantizedGenerateV2NudgeEnabled', description: 'Number of global steps to wait before nudge strips begin spawning, giving main strips time to establish.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeChance', type: 'range', label: 'Spawn Rate', min: 0.05, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2NudgeEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability per tick that a new nudge strip is attempted.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2MaxNudgeStrips', type: 'range', label: 'Max Strips', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2NudgeEnabled', description: 'Maximum number of simultaneous nudge strips.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeAxisBias', type: 'range', label: 'Axis Bias', min: 0.0, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2NudgeEnabled', transform: v => v < 0.35 ? 'Vertical (E/W)' : v > 0.65 ? 'Horizontal (N/S)' : 'Mixed', description: 'Controls which axis nudge strips originate from. Left spawns from the vertical axis (x=origin), growing East/West. Right spawns from the horizontal axis (y=origin), growing North/South.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeSpacing', type: 'range', label: 'Min Spacing', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2NudgeEnabled', description: 'Minimum Manhattan distance between nudge strip origin points. Prevents crowding along the axis.' },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Invisible Layer Growth', dep: 'quantizedGenerateV2Enabled' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleEnabled', type: 'checkbox', label: 'Enabled', dep: 'quantizedGenerateV2Enabled', description: 'Spawns L2/L3 strips from pre-existing blocks on the axes. L2 originates on the X axis (y=origin) and grows N/S; L3 originates on the Y axis (x=origin) and grows E/W. Requires Layer Count ≥ 3 for L3.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Global steps to wait before invisible strips begin spawning.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleChance', type: 'range', label: 'Spawn Rate', min: 0.05, max: 1.0, step: 0.05, dep: 'quantizedGenerateV2InvisibleEnabled', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability per tick that a new invisible strip is attempted.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2MaxInvisibleStrips', type: 'range', label: 'Max Strips', min: 1, max: 20, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Maximum number of simultaneous invisible strips across both layers.' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InvisibleSpacing', type: 'range', label: 'Min Spacing', min: 1, max: 10, step: 1, dep: 'quantizedGenerateV2InvisibleEnabled', description: 'Minimum Manhattan distance between invisible strip origin points.' },
+
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'header', label: 'Special Effects' },

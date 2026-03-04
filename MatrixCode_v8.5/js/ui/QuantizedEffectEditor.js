@@ -1450,15 +1450,13 @@ class QuantizedEffectEditor {
                     this.effect.sequence[newStep - 1] = [];
                 }
                 
-                // Force manual recording for this growth attempt
+                // Force manual recording for this growth attempt.
+                // Set expansionPhase = newStep BEFORE calling _attemptGrowth so that
+                // _spawnBlock's targetIdx formula (max(0, expansionPhase-1) = newStep-1)
+                // writes ops into the correct sequence slot for this new step.
                 this.effect.manualStep = true;
-                
-                // Keep expansionPhase at oldStep so _attemptGrowth writes to sequence[oldStep]
-                this.effect.expansionPhase = oldStep;
-                this.effect._attemptGrowth();
-                
-                // Now advance to the new step
                 this.effect.expansionPhase = newStep;
+                this.effect._attemptGrowth();
                 
                 this._updateUI();
                 this.isDirty = true;

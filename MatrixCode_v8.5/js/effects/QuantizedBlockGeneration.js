@@ -40,9 +40,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
      * @param {string} [options.label] - Display name for the UI.
      */
     registerBehavior(id, fn, options = {}) {
+        const existing = this.growthPool.get(id);
         this.growthPool.set(id, {
             fn: fn,
-            enabled: options.enabled ?? true,
+            // Preserve live enabled state if already registered (survives re-triggers)
+            enabled: existing !== undefined ? existing.enabled : (options.enabled ?? true),
             label: options.label || id
         });
     }
@@ -85,6 +87,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.behaviorState.hitEdge = false;
         this.behaviorState.snapshots = [];
         this.behaviorState.fillRatio = 0;
+        this.behaviorState.insideOutWave = 1;
 
         // Generate random step patterns for this run (not user-configurable)
         this.behaviorState.pattern = this._generateRandomPattern();
@@ -119,7 +122,186 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 
     _initBehaviors() {
-        // Sub-behavior pool is empty by default — define behaviors here using registerBehavior().
+        // ─────────────────────────────────────────────────────
+        // Behavior 1: Main Nudge Growth
+        // Spawns perpendicular strips along the two axis lines
+        // (horizontal: y=scy, vertical: x=scx), growing outward
+        // in the direction perpendicular to that axis.
+        // Applies to layers 0 and 1 only.
+        // ─────────────────────────────────────────────────────
+        this.registerBehavior('main_nudge_growth', function(s) {
+            // Respect start delay — let main strips establish first
+            const startDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 4;
+            if (s.step < startDelay) return;
+
+            // Probabilistic gate
+            const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.3;
+            if (Math.random() > spawnChance) return;
+
+            // Cap simultaneous nudge strips
+            const maxStrips = this.c.get('quantizedGenerateV2MaxNudgeStrips') ?? 8;
+            let nudgeCount = 0;
+            for (const strip of this.strips.values()) {
+                if (strip.isNudge && strip.active) nudgeCount++;
+            }
+            if (nudgeCount >= maxStrips) return;
+
+            const minSpacing = this.c.get('quantizedGenerateV2NudgeSpacing') ?? 3;
+            const axisBias   = this.c.get('quantizedGenerateV2NudgeAxisBias') ?? 0.5;
+            const maxLayer   = Math.min(1, this.c.get('quantizedGenerateV2LayerCount') ?? 0);
+
+            // Choose axis, then find blocks that physically lie on it
+            const useHAxis = Math.random() < axisBias;
+
+            let candidates;
+            if (useHAxis) {
+                // Horizontal axis: y = s.scy
+                // Eligible blocks span the scy row (b.y <= scy <= b.y + b.h - 1)
+                candidates = this.activeBlocks.filter(b =>
+                    b.layer <= 1 &&
+                    b.y <= s.scy && s.scy <= b.y + b.h - 1
+                );
+            } else {
+                // Vertical axis: x = s.scx
+                // Eligible blocks span the scx column (b.x <= scx <= b.x + b.w - 1)
+                candidates = this.activeBlocks.filter(b =>
+                    b.layer <= 1 &&
+                    b.x <= s.scx && s.scx <= b.x + b.w - 1
+                );
+            }
+
+            if (candidates.length === 0) return;
+
+            // Pick a random candidate block and anchor the nudge origin within it
+            const block = candidates[Math.floor(Math.random() * candidates.length)];
+            let nx, ny, dir;
+
+            if (useHAxis) {
+                nx  = block.x + Math.floor(Math.random() * block.w);
+                ny  = s.scy;
+                dir = Math.random() < 0.5 ? 'N' : 'S';
+            } else {
+                nx  = s.scx;
+                ny  = block.y + Math.floor(Math.random() * block.h);
+                dir = Math.random() < 0.5 ? 'E' : 'W';
+            }
+
+            if (this.checkScreenEdge(nx, ny)) return;
+
+            // Enforce minimum spacing between nudge origins
+            for (const strip of this.strips.values()) {
+                if (!strip.isNudge) continue;
+                if (Math.abs(strip.originX - nx) + Math.abs(strip.originY - ny) < minSpacing) return;
+            }
+
+            // Inherit the source block's layer (already clamped to ≤ 1 by filter)
+            const layer = Math.min(1, block.layer);
+
+            const strip = this._createStrip(layer, dir, nx, ny);
+            strip.isNudge = true;
+            strip.stepPhase = Math.floor(Math.random() * 6);
+
+        }, {
+            enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true,
+            label: 'Main Nudge Growth'
+        });
+
+        // ─────────────────────────────────────────────────────
+        // Behavior 2: Invisible Layer Growth
+        // Mirrors Main Nudge Growth for layers 2 and 3.
+        // L2 originates on the X axis (y=scy), grows N or S.
+        // L3 originates on the Y axis (x=scx), grows E or W.
+        // ─────────────────────────────────────────────────────
+        this.registerBehavior('invisible_layer_growth', function(s) {
+            // Behavioral rules for Layer 2 and Layer 3 (Invisible Layers)
+            // L2: Grows vertically (N/S) from the Horizontal axis (y=scy)
+            // L3: Grows horizontally (E/W) from the Vertical axis (x=scx)
+            // Growth is "immediate" — as soon as the respective spine exists, nudges can sprout.
+            
+            const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
+            const hasL2 = maxLayer >= 2;
+            const hasL3 = maxLayer >= 3;
+            if (!hasL2 && !hasL3) return;
+
+            const spawnChance = this.c.get('quantizedGenerateV2InvisibleChance') ?? 0.3;
+            const maxStrips = this.c.get('quantizedGenerateV2MaxInvisibleStrips') ?? 8;
+            const minSpacing = this.c.get('quantizedGenerateV2InvisibleSpacing') ?? 3;
+
+            // Evaluate both layers independently to allow concurrent immediate growth
+            const targetLayers = [];
+            if (hasL2) targetLayers.push(2);
+            if (hasL3) targetLayers.push(3);
+
+            for (const targetLayer of targetLayers) {
+                // Probabilistic gate per layer
+                if (Math.random() > spawnChance) continue;
+
+                // Active strip cap check
+                let invCount = 0;
+                for (const strip of this.strips.values()) {
+                    if (strip.isInvisible && strip.active) invCount++;
+                }
+                if (invCount >= maxStrips) break;
+
+                const useHAxis = (targetLayer === 2);
+                let candidates;
+
+                if (useHAxis) {
+                    // L2: horizontal axis (y=scy), grow N/S
+                    candidates = this.activeBlocks.filter(b =>
+                        b.layer === 2 &&
+                        b.y <= s.scy && s.scy <= b.y + b.h - 1
+                    );
+                } else {
+                    // L3: vertical axis (x=scx), grow E/W
+                    candidates = this.activeBlocks.filter(b =>
+                        b.layer === 3 &&
+                        b.x <= s.scx && s.scx <= b.x + b.w - 1
+                    );
+                }
+
+                // "Provided the spine has extended" — meaning spine blocks exist on the axis
+                if (candidates.length === 0) continue;
+
+                // Pick a random candidate anchor block from the spine
+                const block = candidates[Math.floor(Math.random() * candidates.length)];
+                let nx, ny, dir;
+
+                if (useHAxis) {
+                    nx  = block.x + Math.floor(Math.random() * block.w);
+                    ny  = s.scy;
+                    dir = Math.random() < 0.5 ? 'N' : 'S';
+                } else {
+                    nx  = s.scx;
+                    ny  = block.y + Math.floor(Math.random() * block.h);
+                    dir = Math.random() < 0.5 ? 'E' : 'W';
+                }
+
+                if (this.checkScreenEdge(nx, ny)) continue;
+
+                // Spacing check to avoid origin clumping
+                let tooClose = false;
+                for (const strip of this.strips.values()) {
+                    if (!strip.isInvisible) continue;
+                    if (Math.abs(strip.originX - nx) + Math.abs(strip.originY - ny) < minSpacing) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                if (tooClose) continue;
+
+                const strip = this._createStrip(targetLayer, dir, nx, ny);
+                strip.isInvisible = true;
+                strip.stepPhase   = Math.floor(Math.random() * 6);
+            }
+
+        }, {
+            enabled: this.c.get('quantizedGenerateV2InvisibleEnabled') ?? true,
+            label: 'Invisible Layer Growth'
+        });
+
+        // ─────────────────────────────────────────────────────
+        // Future sub-behaviors go here.
         //
         // Template:
         //   this.registerBehavior('my_behavior', function(s) {
@@ -131,8 +313,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         //       // this.strips    — Map of all active strip objects
         //       // this._spawnBlock(x, y, w, h, layer, false, 0, true, true, true, false, true)
         //       // this.checkScreenEdge(x, y)  — returns false or edges object
-        //       // this._gridsDirty = true after any structural change
         //   }, { label: 'My Behavior' });
+        // ─────────────────────────────────────────────────────
     }
 
     // =========================================================
@@ -188,18 +370,29 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const dirs = ['N', 'S', 'E', 'W'];
         const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
 
-        const addToSchedule = (layer, dir) => {
-            const step = Math.floor(Math.random() * 6);
+        const addToSchedule = (layer, dir, stepPool) => {
+            const step = stepPool[Math.floor(Math.random() * stepPool.length)];
             if (!schedule[step]) schedule[step] = [];
             schedule[step].push({ layer, dir, originX: scx, originY: scy });
         };
 
-        // L0 always gets all 4 directions
-        [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d));
-
-        // L1 also gets all 4 directions if layer count >= 1
         if (maxLayer >= 1) {
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d));
+            // L1 seeds first (steps 0–2) so it starts growing before L0
+            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d, [0, 1, 2]));
+            // L0 seeds second (steps 3–5)
+            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d, [3, 4, 5]));
+        } else {
+            // Only L0 — spread across full range
+            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d, [0, 1, 2, 3, 4, 5]));
+        }
+
+        // L2: E and W spines along the horizontal axis (y=scy)
+        if (maxLayer >= 2) {
+            ['E', 'W'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(2, d, [0, 1, 2]));
+        }
+        // L3: N and S spines along the vertical axis (x=scx)
+        if (maxLayer >= 3) {
+            ['N', 'S'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(3, d, [0, 1, 2]));
         }
 
         return schedule;
@@ -208,8 +401,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _seedStrips(s) {
         const scheduled = s.seedSchedule ? s.seedSchedule[s.step] : null;
         if (!scheduled) return;
+        const boost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
         for (const { layer, dir, originX, originY } of scheduled) {
-            this._createStrip(layer, dir, originX, originY);
+            const strip = this._createStrip(layer, dir, originX, originY);
+            strip.isSpine = true;
+            strip.boostSteps = boost; // grow unconditionally for this many ticks first
         }
     }
 
@@ -243,10 +439,28 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
-            const pattern = strip.paused ? strip.pausePattern : strip.pattern;
+            // A strip may only tick when a block already exists at its head position.
+            // Spine strips always pass (origin block placed at trigger time).
+            // Expansion strips wait here until the spine grows into their row/column,
+            // enforcing the inside-out ordering without burning step-pattern slots.
+            const headOnBlock = this.activeBlocks.some(b =>
+                strip.headX >= b.x && strip.headX <= b.x + b.w - 1 &&
+                strip.headY >= b.y && strip.headY <= b.y + b.h - 1
+            );
+            if (!headOnBlock) continue;
 
-            // Hard gate: only grow if this step position is active (1)
-            if (pattern[strip.stepPhase]) {
+            // Spine boost: grow unconditionally for the first N ticks so the
+            // cardinal spines establish a visible lead before expansion follows.
+            let shouldGrow;
+            if (strip.boostSteps > 0) {
+                shouldGrow = true;
+                strip.boostSteps--;
+            } else {
+                const pattern = strip.paused ? strip.pausePattern : strip.pattern;
+                shouldGrow = pattern[strip.stepPhase];
+            }
+
+            if (shouldGrow) {
                 this._growStrip(strip, s);
             }
 
@@ -321,27 +535,36 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
-        const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
+        const { bw, bh } = strip.fixedSize ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
 
-        // Next head position: advance by block size in growth direction
-        const nextX = strip.headX + dx * bw;
-        const nextY = strip.headY + dy * bh;
+        // New head = leading edge of the block in growth direction (used for edge check + head advance).
+        // This is the same regardless of block size.
+        const newHeadX = strip.headX + dx * bw;
+        const newHeadY = strip.headY + dy * bh;
 
-        // Deactivate strip if head has reached screen edge
-        if (this.checkScreenEdge(nextX, nextY)) {
+        // Deactivate strip if growth would leave screen
+        if (this.checkScreenEdge(newHeadX, newHeadY)) {
             strip.active = false;
             return;
         }
 
+        // Spawn position (top-left corner of new block).
+        // For positive directions (E/S) the block must start one cell beyond the current
+        // head so there is no gap — dx*bw would skip (bw-1) cells.
+        // For negative directions (W/N) the formula is identical to newHead; the block
+        // naturally fills back toward the existing head with no gap.
+        const spawnX = dx > 0 ? strip.headX + 1 : newHeadX;
+        const spawnY = dy > 0 ? strip.headY + 1 : newHeadY;
+
         const id = this._spawnBlock(
-            nextX, nextY, bw, bh, strip.layer,
+            spawnX, spawnY, bw, bh, strip.layer,
             false, 0, true, true, true, false, true
         );
 
         if (id !== -1) {
             strip.blockIds.push(id);
-            strip.headX = nextX;
-            strip.headY = nextY;
+            strip.headX = newHeadX;
+            strip.headY = newHeadY;
             strip.growCount++;
             this._gridsDirty = true;
         }
@@ -373,6 +596,62 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         s.fillRatio = Math.min(1, filledCells / totalCells);
         this.behaviorState.fillRatio = s.fillRatio;
+    }
+
+    // =========================================================
+    // GLOBAL BEHAVIOR 4b: Inside-out expansion
+    // After the spines are established, seed parallel rows/columns
+    // at increasing perpendicular offsets from both axes:
+    //   Wave 1 → rows/cols at ±1 from center axes
+    //   Wave 2 → rows/cols at ±2
+    //   Wave 3 → rows/cols at ±3  … etc.
+    // =========================================================
+
+    _expandInsideOut(s) {
+        if (!this.c.get('quantizedGenerateV2InsideOutEnabled')) return;
+
+        const delay  = this.c.get('quantizedGenerateV2InsideOutDelay')  ?? 6;
+        const period = Math.max(1, this.c.get('quantizedGenerateV2InsideOutPeriod') ?? 3);
+
+        if (s.step < delay) return;
+        if ((s.step - delay) % period !== 0) return;
+
+        const wave = s.insideOutWave;
+
+        const bs    = this.getBlockSize();
+        const halfW = Math.floor(this.g.cols / bs.w / 2);
+        const halfH = Math.floor(this.g.rows / bs.h / 2);
+
+        // Stop once the wave has passed both screen axes
+        if (wave > halfW && wave > halfH) return;
+
+        const maxLayer = Math.min(1, this.c.get('quantizedGenerateV2LayerCount') ?? 0);
+
+        for (let l = 0; l <= maxLayer; l++) {
+            // Rows perpendicular to the horizontal axis: E + W from (scx, scy ± wave)
+            for (const dy of [wave, -wave]) {
+                const oy = s.scy + dy;
+                if (oy > -halfH && oy < halfH) {
+                    const e = this._createStrip(l, 'E', s.scx, oy);
+                    const w = this._createStrip(l, 'W', s.scx, oy);
+                    e.isExpansion = true;
+                    w.isExpansion = true;
+                }
+            }
+
+            // Columns perpendicular to the vertical axis: N + S from (scx ± wave, scy)
+            for (const dx of [wave, -wave]) {
+                const ox = s.scx + dx;
+                if (ox > -halfW && ox < halfW) {
+                    const n = this._createStrip(l, 'N', ox, s.scy);
+                    const sv = this._createStrip(l, 'S', ox, s.scy);
+                    n.isExpansion = true;
+                    sv.isExpansion = true;
+                }
+            }
+        }
+
+        s.insideOutWave++;
     }
 
     // =========================================================
@@ -414,14 +693,45 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     // =========================================================
 
     _attemptGrowth() {
-        if (this.expansionComplete) return;
+        // In editor manual-step mode, bypass the expansion-complete gate so the
+        // editor can always advance one tick regardless of lifecycle state.
+        if (this.expansionComplete && !this.manualStep) return;
 
         const s = this.behaviorState;
+
+        // Lazy initialisation: when the editor starts a fresh session it calls
+        // _initProceduralState() instead of trigger(), so seedSchedule/pattern/
+        // growthPool may never have been set up.  Bootstrap them here on first use.
+        if (!s.seedSchedule) {
+            s.pattern      = this._generateRandomPattern();
+            s.pausePattern = this._generateDistinctPattern(s.pattern);
+            s.seedSchedule = this._generateSeedSchedule(s.scx ?? 0, s.scy ?? 0);
+            s.insideOutWave = 1;
+            if (this.growthPool.size === 0) this._initBehaviors();
+        }
+
+        // Origin-block healing: after a full editor reconstruction (jumpToStep clears
+        // activeBlocks then replays the sequence from scratch), activeBlocks will be
+        // empty if the origin blocks were never recorded to sequence[0].  Place them
+        // now so the headOnBlock gate in _tickStrips can pass.  When manualStep=true
+        // (editor mode) _spawnBlock also writes them into sequence[0] automatically,
+        // so future backward-navigation will replay them correctly.
+        if (this.activeBlocks.length === 0) {
+            const ox = s.scx ?? 0;
+            const oy = s.scy ?? 0;
+            const maxLayer = this.c.get('quantizedGenerateV2LayerCount') ?? 0;
+            for (let l = 0; l <= maxLayer; l++) {
+                this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
+            }
+        }
+
         s.growTimer++;
 
         const speed = this.c.get('quantizedGenerateV2Speed') || 1;
         const delay = Math.max(1, Math.floor(11 - speed));
-        if (s.growTimer % delay !== 0) return;
+        // In manual/editor mode bypass the frame-rate throttle so every
+        // "next step" press always produces exactly one growth tick.
+        if (!this.manualStep && s.growTimer % delay !== 0) return;
 
         // 1. Compute visible fill ratio (for Behaviors 2 & 3)
         this._updateFillRatio(s);
@@ -434,6 +744,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         // 4. Detect intersection events and toggle patterns (Behavior 5)
         this._checkIntersections();
+
+        // 4b. Seed inside-out expansion waves (parallel rows/cols at ±1, ±2, ±3…)
+        this._expandInsideOut(s);
 
         // 5. Execute sub-behaviors from the growth pool
         for (const behavior of this.growthPool.values()) {

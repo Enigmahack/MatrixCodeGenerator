@@ -4,7 +4,7 @@ Run tests on all effects, behaviors, sliders, settings, etc.
 <- Bugs: 
 Clicking certain UI elements appears to move the canvas (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc.
 
-Bloom types like Box no longer function. Add a few different bloom types. 
+Tracer controls don't appear to work? 
 
 <- Behavior:
 Get the quantized effects working as intended. 

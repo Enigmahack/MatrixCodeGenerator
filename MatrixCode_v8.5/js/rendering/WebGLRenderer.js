@@ -587,8 +587,11 @@ class WebGLRenderer {
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
                                 }
                                 if (abs(o23NW - o23NE) > 0.5 && d < minDistA) {
-                                    minDistA = d; float sx = (o23NE > o23NW) ? 1.0 : -1.0;
-                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23NW, l23NE);
+                                    float l01Side = (o23NE > o23NW) ? max(o0NE, o1NE) : max(o0NW, o1NW);
+                                    if (l01Side < 0.01) {
+                                        minDistA = d; float sx = (o23NE > o23NW) ? 1.0 : -1.0;
+                                        reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23NW, l23NE);
+                                    }
                                 }
                                 if (abs(o1NW - o1NE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o1NE > o1NW) ? 1.0 : -1.0;
@@ -605,8 +608,11 @@ class WebGLRenderer {
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
                                 }
                                 if (abs(o23SW - o23SE) > 0.5 && d < minDistA) {
-                                    minDistA = d; float sx = (o23SE > o23SW) ? 1.0 : -1.0;
-                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23SW, l23SE);
+                                    float l01Side = (o23SE > o23SW) ? max(o0SE, o1SE) : max(o0SW, o1SW);
+                                    if (l01Side < 0.01) {
+                                        minDistA = d; float sx = (o23SE > o23SW) ? 1.0 : -1.0;
+                                        reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l23SW, l23SE);
+                                    }
                                 }
                                 if (abs(o1SW - o1SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o1SE > o1SW) ? 1.0 : -1.0;
@@ -623,8 +629,11 @@ class WebGLRenderer {
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
                                 }
                                 if (abs(o23NW - o23SW) > 0.5 && d < minDistA) {
-                                    minDistA = d; float sy = (o23SW > o23NW) ? 1.0 : -1.0;
-                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NW, l23SW);
+                                    float l01Side = (o23SW > o23NW) ? max(o0SW, o1SW) : max(o0NW, o1NW);
+                                    if (l01Side < 0.01) {
+                                        minDistA = d; float sy = (o23SW > o23NW) ? 1.0 : -1.0;
+                                        reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NW, l23SW);
+                                    }
                                 }
                                 if (abs(o1NW - o1SW) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o1SW > o1NW) ? 1.0 : -1.0;
@@ -641,8 +650,11 @@ class WebGLRenderer {
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
                                 }
                                 if (abs(o23NE - o23SE) > 0.5 && d < minDistA) {
-                                    minDistA = d; float sy = (o23SE > o23NE) ? 1.0 : -1.0;
-                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NE, l23SE);
+                                    float l01Side = (o23SE > o23NE) ? max(o0SE, o1SE) : max(o0NE, o1NE);
+                                    if (l01Side < 0.01) {
+                                        minDistA = d; float sy = (o23SE > o23NE) ? 1.0 : -1.0;
+                                        reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l23NE, l23SE);
+                                    }
                                 }
                                 if (abs(o1NE - o1SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o1SE > o1NE) ? 1.0 : -1.0;
