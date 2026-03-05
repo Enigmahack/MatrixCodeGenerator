@@ -731,25 +731,26 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         const l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
 
         if (strip.layer === 2) {
-            const headRX = strip.headX - s.scx;
-            const headRY = strip.headY - s.scy;
-            const exceeds =
-                (strip.direction === 'N' && -headRY > l0md.N + 1) ||
-                (strip.direction === 'S' &&  headRY > l0md.S + 1) ||
-                (strip.direction === 'E' &&  headRX > l0md.E + 1) ||
-                (strip.direction === 'W' && -headRX > l0md.W + 1);
-            if (exceeds) { this._deactivateStrip(strip); return; }
+            if (!strip.isSpine) {
+                const headRX = strip.headX - s.scx;
+                const headRY = strip.headY - s.scy;
+                const exceeds =
+                    (strip.direction === 'N' && -headRY > l0md.N + 1) ||
+                    (strip.direction === 'S' &&  headRY > l0md.S + 1) ||
+                    (strip.direction === 'E' &&  headRX > l0md.E + 1) ||
+                    (strip.direction === 'W' && -headRX > l0md.W + 1);
+                if (exceeds) { this._deactivateStrip(strip); return; }
+            }
         } else if (strip.layer === 3) {
-            const headRX = strip.headX - s.scx;
-            const headRY = strip.headY - s.scy;
-            const exceeds =
-                (strip.direction === 'N' && -headRY > l0md.N + 2) ||
-                (strip.direction === 'S' &&  headRY > l0md.S + 2) ||
-                (strip.direction === 'E' &&  headRX > l0md.E + 2) ||
-                (strip.direction === 'W' && -headRX > l0md.W + 2);
-            if (exceeds) {
-                if (!strip.isSpine) this._deactivateStrip(strip);
-                return;
+            if (!strip.isSpine) {
+                const headRX = strip.headX - s.scx;
+                const headRY = strip.headY - s.scy;
+                const exceeds =
+                    (strip.direction === 'N' && -headRY > l0md.N + 2) ||
+                    (strip.direction === 'S' &&  headRY > l0md.S + 2) ||
+                    (strip.direction === 'E' &&  headRX > l0md.E + 2) ||
+                    (strip.direction === 'W' && -headRX > l0md.W + 2);
+                if (exceeds) { this._deactivateStrip(strip); return; }
             }
         }
 
@@ -903,7 +904,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         s.pendingExpansions = stillPending;
 
         const wave = s.insideOutWave;
-        if (wave > halfW && wave > halfH) return;
+        const edgeBuf = 2; // match checkScreenEdge extension — seed strips up to 2 blocks past screen edge
+        if (wave > halfW + edgeBuf && wave > halfH + edgeBuf) return;
 
         const axisAdjacent = (wave <= 1);
 
@@ -912,7 +914,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             for (const dy of [wave, -wave]) {
                 const oy = s.scy + dy;
-                if (oy > -halfH && oy < halfH) {
+                if (oy >= -(halfH + edgeBuf) && oy <= halfH + edgeBuf) {
                     if (l === 2) continue;
                     if (l === 3) {
                         if (dy < 0 && -dy > l0md.N + 2) continue;
@@ -934,7 +936,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
             for (const dx of [wave, -wave]) {
                 const ox = s.scx + dx;
-                if (ox > -halfW && ox < halfW) {
+                if (ox >= -(halfW + edgeBuf) && ox <= halfW + edgeBuf) {
                     if (l === 3) continue;
 
                     const nOk = !allowed || allowed.has('N');

@@ -356,8 +356,9 @@ class QuantizedRenderer {
         const s = fx._snapSettings;
         const max = (axis === 'x') ? s.w : s.h;
         const thresh = (axis === 'x') ? s.tx : s.ty;
-        if (val < thresh) return 0;
-        if (val > max - thresh) return max;
+        // Only snap if the value is within the canvas bounds; off-screen values pass through.
+        if (val >= 0 && val < thresh) return 0;
+        if (val <= max && val > max - thresh) return max;
         return val;
     }
 
@@ -682,10 +683,7 @@ class QuantizedRenderer {
         let startCellY = Math.round(byBase * l.cellPitchY);
         let endCellY = Math.round((byBase + 1) * l.cellPitchY);
 
-        startCellX = Math.max(0, Math.min(fx.g.cols, startCellX));
-        endCellX = Math.max(0, Math.min(fx.g.cols, endCellX));
-        startCellY = Math.max(0, Math.min(fx.g.rows, startCellY));
-        endCellY = Math.max(0, Math.min(fx.g.rows, endCellY));
+        // Do NOT clamp to screen bounds — blocks beyond the edge must render past it.
 
         let drawX, drawY, drawW, drawH;
         
