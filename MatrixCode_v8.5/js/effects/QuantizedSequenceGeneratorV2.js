@@ -639,6 +639,14 @@ class QuantizedSequenceGeneratorV2 {
         // Loop until we perform one logical step or reach a max iterations per call (safety)
         for (let i = 0; i < 50; i++) {
             if (s.growTimer % delay === 0) {
+                // Process deferred removals from layer_collision_interference (mirrors _attemptGrowth top-of-step drain)
+                if (s.pendingDeletions && s.pendingDeletions.length > 0) {
+                    for (const d of s.pendingDeletions) {
+                        this._removeBlock(d.x, d.y, d.w, d.h, d.layer);
+                    }
+                    s.pendingDeletions = [];
+                }
+
                 this.actionBuffer = [];
                 this._tickLayerDirs(s);
                 this._updateFillRatio(s);
