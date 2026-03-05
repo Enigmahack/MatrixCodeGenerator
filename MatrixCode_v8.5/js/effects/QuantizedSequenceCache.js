@@ -162,34 +162,23 @@ class QuantizedSequenceCache {
                     configKey: configKey,
                     gen: new QuantizedSequenceGeneratorV2(this.cols, this.rows, this.config.state),
                     sequence: [],
-                    startTime: performance.now(),
-                    stepsGenerated: 0
+                    startTime: performance.now()
                 };
-                
-                // Initial step
-                const ox = this._activeGenerator.gen.behaviorState.scx;
-                const oy = this._activeGenerator.gen.behaviorState.scy;
-                const maxLayer = this._activeGenerator.gen._getConfig('LayerCount') ?? 0;
-                this._activeGenerator.gen.currentStepOps = [];
-                for (let l = 0; l <= maxLayer; l++) {
-                    this._activeGenerator.gen._spawnBlock(ox, oy, 1, 1, l);
-                }
-                this._activeGenerator.sequence.push(this._activeGenerator.gen.currentStepOps);
+
+                // Initial step (mirrors generate()'s seed via shared method)
+                this._activeGenerator.sequence.push(this._activeGenerator.gen.seedOriginStep());
             }
 
             const g = this._activeGenerator;
-            const maxSteps = 400; // Sequence length limit
+            const MAX_SEQUENCE_STEPS = 300;
             const chunkStartTime = performance.now();
 
             // Run steps until deadline or chunk budget (15ms)
             while (true) {
-                const done = g.gen.generateStep(); 
-                if (g.gen.currentStepOps.length > 0) {
-                    g.sequence.push(g.gen.currentStepOps);
-                    g.stepsGenerated++;
-                }
+                const done = g.gen.generateStep();
+                g.sequence.push(g.gen.currentStepOps); // always push, even if empty, to preserve timing parity with live path
 
-                if (done || g.stepsGenerated >= maxSteps) {
+                if (done || g.gen.behaviorState.step >= MAX_SEQUENCE_STEPS) {
                     if (!this.cache.has(configKey)) this.cache.set(configKey, []);
                     this.cache.get(configKey).push(g.sequence);
                     
@@ -234,7 +223,7 @@ class QuantizedSequenceCache {
         const keys = [
             'LayerCount', 'QuadrantCount', 'GenerativeScaling', 'RandomStart', 'SpineBoost',
             'SimultaneousSpawns', 'AllowAsymmetry',
-            'NudgeEnabled', 'NudgeChance', 'MaxNudgeStrips', 'NudgeSpacing', 'NudgeAxisBias', 'NudgeStartDelay',
+            'EnableNudge', 'NudgeChance', 'MaxNudgeStrips', 'NudgeSpacing', 'NudgeAxisBias', 'NudgeStartDelay',
             'InvisibleEnabled', 'InvisibleL2Chance', 'InvisibleL3Chance', 'MaxInvisibleL2Strips',
             'MaxInvisibleL3Strips', 'InvisibleL2Spacing', 'InvisibleL3Spacing', 'InvisibleStartDelay',
             'L2LockEnabled', 'L2LockOffset', 'L3LockEnabled', 'L3LockOffset', 'L3AllowNudges',

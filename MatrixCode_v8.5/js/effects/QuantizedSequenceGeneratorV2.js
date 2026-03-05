@@ -284,7 +284,7 @@ class QuantizedSequenceGeneratorV2 {
             for (let i = 0; i < spawnCount; i++) {
                 const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
                 gen.actionBuffer.push({ layer: 3, isSpine: true, fn: () => {
-                    gen._spawnBlock(s.scx, s.scy + ry, 1, 1, 3);
+                    gen._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, true);
                 }});
             }
             if (Math.random() < l3Chance) {
@@ -449,13 +449,13 @@ class QuantizedSequenceGeneratorV2 {
         const limit = strip.layer === 2 ? 1 : 2;
         if (!strip.isSpine && strip.layer >= 2) {
             const exceeds = (strip.direction === 'N' && -headRY > l0md.N + limit) || (strip.direction === 'S' && headRY > l0md.S + limit) ||
-                            (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRY > l0md.W + limit);
+                            (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRX > l0md.W + limit);
             if (exceeds) { strip.active = false; this.strips.delete(strip.id); return; }
         }
         if (strip.layer < 3 && this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) this._removeBlock(strip.headX + dx, strip.headY + dy, bw, bh, 3);
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { strip.active = false; this.strips.delete(strip.id); return; }
-        const id = this._spawnBlock(dx > 0 ? strip.headX + 1 : newHeadX, dy > 0 ? strip.headY + 1 : newHeadY, bw, bh, strip.layer);
+        const id = this._spawnBlock(dx > 0 ? strip.headX + 1 : newHeadX, dy > 0 ? strip.headY + 1 : newHeadY, bw, bh, strip.layer, true);
         if (id !== -1) { strip.headX = newHeadX; strip.headY = newHeadY; strip.growCount++; if (strip.layer === 2 && !!this._getConfig('L3AllowNudges')) this._nudgeLayer3(strip.direction, s); }
     }
 
@@ -478,14 +478,16 @@ class QuantizedSequenceGeneratorV2 {
         return (dir === 'N' || dir === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
     }
 
-    _spawnBlock(x, y, w, h, layer) {
+    _spawnBlock(x, y, w, h, layer, bypassOccupancy = false) {
         const x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
         const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
         if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return -1;
         const grid = this.layerGrids[layer];
-        for (let gy = gy1; gy <= gy2; gy++) {
-            for (let gx = gx1; gx <= gx2; gx++) {
-                if (grid[gy * this.logicGridW + gx] !== -1) return -1;
+        if (!bypassOccupancy) {
+            for (let gy = gy1; gy <= gy2; gy++) {
+                for (let gx = gx1; gx <= gx2; gx++) {
+                    if (grid[gy * this.logicGridW + gx] !== -1) return -1;
+                }
             }
         }
         const id = this.activeBlocks.length;
@@ -661,9 +663,19 @@ class QuantizedSequenceGeneratorV2 {
         return false;
     }
 
+    seedOriginStep() {
+        this.currentStepOps = [];
+        const s = this.behaviorState;
+        const maxLayer = this._getConfig('LayerCount') ?? 0;
+        for (let l = 0; l <= maxLayer; l++) {
+            this._spawnBlock(s.scx, s.scy, 1, 1, l);
+        }
+        return this.currentStepOps;
+    }
+
     /**
      * Runs the generator until completion or maxSteps.
-     * @param {number} maxSteps 
+     * @param {number} maxSteps
      * @param {Object} [cache] - Optional cache instance to check for activity aborts
      * @returns {Array} The generated sequence of operation steps.
      */
@@ -672,13 +684,7 @@ class QuantizedSequenceGeneratorV2 {
         const s = this.behaviorState;
 
         // Seed origin block(s) in Step 0
-        this.currentStepOps = [];
-        const maxLayer = this._getConfig('LayerCount') ?? 0;
-        const ox = s.scx, oy = s.scy;
-        for (let l = 0; l <= maxLayer; l++) {
-            this._spawnBlock(ox, oy, 1, 1, l);
-        }
-        sequence.push(this.currentStepOps);
+        sequence.push(this.seedOriginStep());
 
         while (s.step < maxSteps) {
             // Check if we should abort because an effect started during background generation
@@ -688,9 +694,7 @@ class QuantizedSequenceGeneratorV2 {
             }
 
             const done = this.generateStep();
-            if (this.currentStepOps.length > 0) {
-                sequence.push(this.currentStepOps);
-            }
+            sequence.push(this.currentStepOps); // always push, even if empty, to preserve timing parity with live path
             
             if (done) break;
         }

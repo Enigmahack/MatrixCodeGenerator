@@ -289,13 +289,17 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     getBlockSize() {
-        let w = this.c.state[this.configPrefix + 'BlockWidthCells'];
-        let h = this.c.state[this.configPrefix + 'BlockHeightCells'];
-        if (w === undefined) w = this.c.state.quantizedBlockWidthCells;
-        if (h === undefined) h = this.c.state.quantizedBlockHeightCells;
-        w = w || 4;
-        h = h || 4;
-        return { w, h };
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        let w, h;
+        if (!overrideDefaults) {
+            w = this.c.state['quantizedDefaultBlockWidthCells'];
+            h = this.c.state['quantizedDefaultBlockHeightCells'];
+        }
+        if (w == null) w = this.c.state[this.configPrefix + 'BlockWidthCells'];
+        if (h == null) h = this.c.state[this.configPrefix + 'BlockHeightCells'];
+        if (w == null) w = this.c.state.quantizedBlockWidthCells;
+        if (h == null) h = this.c.state.quantizedBlockHeightCells;
+        return { w: w || 4, h: h || 4 };
     }
 
     _initLogicGrid() {
@@ -651,11 +655,13 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _getEffectiveInterval() {
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
-        const userSpeed = this.getConfig('Speed') || 5;
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        let userSpeed = !overrideDefaults ? this.c.state['quantizedDefaultSpeed'] : null;
+        if (userSpeed == null) userSpeed = this.c.state[this.configPrefix + 'Speed'];
+        userSpeed = userSpeed || 5;
         const delayMult = 11 - userSpeed;
-        
         const enNudge = (this.getConfig('EnableNudge') === true);
-        const intervalMult = enNudge ? 0.15 : 0.25; 
+        const intervalMult = enNudge ? 0.15 : 0.25;
         return Math.max(1, baseDuration * (delayMult * intervalMult));
     }
 

@@ -198,22 +198,25 @@ class QuantizedSequence {
             });
         } else if (op === 'removeBlock' || op === 'rem') {
             let x1, y1, x2, y2;
-            if (args.length >= 4) { [x1, y1, x2, y2] = args; } 
+            if (args.length >= 4) { [x1, y1, x2, y2] = args; }
             else { [x1, y1] = args; x2 = x1; y2 = y1; }
-            
-            fx.maskOps.push({ type: 'removeBlock', x1, y1, x2, y2, startFrame: now, startPhase: fx.expansionPhase, layer, fade: args[4] });
+
+            const targetLayer = args.length >= 5 ? args[4] : layer;
+            const fade        = args.length >= 7 ? args[6] : undefined;
+
+            fx.maskOps.push({ type: 'removeBlock', x1, y1, x2, y2, startFrame: now, startPhase: fx.expansionPhase, layer: targetLayer, fade });
             const rx1 = Math.min(x1, x2), ry1 = Math.min(y1, y2);
             const rx2 = Math.max(x1, x2), ry2 = Math.max(y1, y2);
 
             for (let gy = ry1; gy <= ry2; gy++) {
                 for (let gx = rx1; gx <= rx2; gx++) {
-                    setLayerInactive(gx, gy, layer);
+                    setLayerInactive(gx, gy, targetLayer);
                     setLocalInactive(gx, gy);
                 }
             }
             if (fx.activeBlocks) {
                 fx.activeBlocks = fx.activeBlocks.filter(b => {
-                    if (layer !== undefined && b.layer !== layer) return true;
+                    if (targetLayer !== undefined && b.layer !== targetLayer) return true;
                     const bx1 = b.x, by1 = b.y, bx2 = b.x + b.w - 1, by2 = b.y + b.h - 1;
                     return (bx1 > rx2 || bx2 < rx1 || by1 > ry2 || by2 < ry1);
                 });
