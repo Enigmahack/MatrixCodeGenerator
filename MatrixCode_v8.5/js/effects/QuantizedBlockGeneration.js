@@ -76,6 +76,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.actionQueues.clear();
         this.activeBlocks = [];
         this.maskOps = [];
+        this.sequence = [[]];
         
         // Shared state reset
         this.behaviorState = {
@@ -96,6 +97,28 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         this.alpha = 1.0;
         this.state = 'GENERATING';
+
+        // --- CACHE LOGIC ---
+        if (this.getConfig('EnableAnimationCache') && window.sequenceCache) {
+            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
+            const cachedSeq = window.sequenceCache.get(configKey);
+            if (cachedSeq) {
+                if (this.c.state.logErrors) console.log("QuantizedBlockGenerator: Using cached sequence.");
+                this.sequence = cachedSeq;
+                this.expansionPhase = 0;
+                this._initShadowWorld();
+                this._updateRenderGridLogic();
+                return true;
+            } else {
+                if (this.c.state.logErrors) console.log("QuantizedBlockGenerator: Cache miss, generating live.");
+                this.sequence = [[]]; // Clear previous sequence
+                window.sequenceCache.ensureReady(configKey); // Start background generation for next time
+            }
+        } else if (window.sequenceCache) {
+            // Even if disabled, we might want to ensure a ready cache for when it IS enabled
+            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
+            window.sequenceCache.ensureReady(configKey);
+        }
 
         const randomStart = !!this.c.get('quantizedGenerateV2RandomStart');
         let scx = 0;
@@ -614,6 +637,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             const gy = gridCY + strip.headY;
             const headOnBlock = !!grid && gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH
                 && grid[gy * this.logicGridW + gx] !== -1;
+            
             if (!headOnBlock) continue;
 
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
@@ -1047,6 +1071,14 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptGrowth() {
         if (this.expansionComplete && !this.manualStep) return;
 
+        // If we are playing back a sequence, advance the phase
+        if (this.sequence && this.sequence.length > 1) {
+            if (this.expansionPhase < this.sequence.length) {
+                this._processAnimationStep();
+            }
+            return;
+        }
+
         const s = this.behaviorState;
 
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {
@@ -1109,6 +1141,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         s.step++;
         this._updateRenderGridLogic();
+
+        // Check for completion in live generation mode
+        if (s.fillRatio > 0.98 && this.strips.size === 0) {
+            this.expansionComplete = true;
+        }
     }
 
     // =========================================================
@@ -1116,12 +1153,15 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     // =========================================================
 
     _isOccupied(x, y, layer) {
-        return this.maskOps.some(op =>
-            op.layer === layer &&
-            op.type === 'addBlock' &&
-            x >= op.x1 && x <= op.x2 &&
-            y >= op.y1 && y <= op.y2
-        );
+        const gridCX = Math.floor(this.logicGridW / 2);
+        const gridCY = Math.floor(this.logicGridH / 2);
+        const gx = gridCX + x;
+        const gy = gridCY + y;
+        
+        if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
+        
+        const grid = this.layerGrids[layer];
+        return !!grid && grid[gy * this.logicGridW + gx] !== -1;
     }
 
     checkScreenEdge(bx, by) {

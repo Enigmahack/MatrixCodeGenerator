@@ -161,6 +161,10 @@ class MatrixKernel {
         this.simulation = sim0;
 
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
+        
+        if (window.sequenceCache) {
+            window.sequenceCache.init(this.config, this.grid.cols, this.grid.rows);
+        }
     }
 
     get activeWorld() { return this.worlds[this.activeWorldIndex]; }

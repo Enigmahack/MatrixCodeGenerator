@@ -162,18 +162,40 @@ class QuantizedSequence {
             setLayerActive(dx, dy, layer, now);
             fx.maskOps.push({ type: op, x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer, invisible });
             if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy), invisible });
-        } else if (op === 'addRect') {
+        } else if (op === 'addRect' || op === 'addBlock') {
             const [dx1, dy1, dx2, dy2] = args;
+            const targetLayer = (op === 'addBlock' && args.length >= 5) ? args[4] : layer;
+            const suppressFades = (op === 'addBlock' && args.length >= 7) ? args[6] : !!args.suppressFades;
+
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
-            fx.maskOps.push({ type: 'add', x1: dx1, y1: dy1, x2: dx2, y2: dy2, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer, invisible });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y), invisible });
+            
+            fx.maskOps.push({ 
+                type: 'addSmart', 
+                x1: dx1, y1: dy1, x2: dx2, y2: dy2, 
+                ext: false, startFrame: now, startPhase: fx.expansionPhase, 
+                layer: targetLayer, invisible, fade: !suppressFades 
+            });
+
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: targetLayer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y), invisible });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     setLocalActive(x + gx, y + gy);
-                    setLayerActive(x + gx, y + gy, layer, now);
+                    setLayerActive(x + gx, y + gy, targetLayer, now);
                 }
             }
+        } else if (op === 'shiftBlocks') {
+            const [l, quadrant, dx, dy, scx, scy] = args;
+            fx.maskOps.push({
+                type: 'shiftBlocks',
+                layer: l,
+                quadrant: quadrant,
+                dx: dx,
+                dy: dy,
+                scx: scx,
+                scy: scy,
+                startFrame: now
+            });
         } else if (op === 'removeBlock' || op === 'rem') {
             let x1, y1, x2, y2;
             if (args.length >= 4) { [x1, y1, x2, y2] = args; } 

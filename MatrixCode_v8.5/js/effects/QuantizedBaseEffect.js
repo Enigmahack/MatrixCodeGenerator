@@ -726,7 +726,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 
                 if (this.expansionPhase < this.sequence.length) {
                     this._processAnimationStep();
-                } else if (this.getConfig('AutoGenerateRemaining') || this.state === 'GENERATING') {
+                } else if (this.getConfig('EnableAnimationCache') || this.state === 'GENERATING') {
                     this._attemptGrowth();
                     this.expansionPhase++;
                 }
@@ -761,7 +761,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         } else if (this.state === 'SUSTAIN' || this.state === 'GENERATING') {
             this.timer++;
             const isFinished = (this.timer >= durationFrames);
-            const procFinished = (this.getConfig('AutoGenerateRemaining') || this.state === 'GENERATING') && this._isProceduralFinished();
+            const procFinished = (this.getConfig('EnableAnimationCache') || this.state === 'GENERATING') && this._isProceduralFinished();
 
             if (!this.debugMode && (isFinished || procFinished)) {
                 this.state = 'FADE_OUT';
