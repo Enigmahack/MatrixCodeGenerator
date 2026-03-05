@@ -76,7 +76,8 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.actionQueues.clear();
         this.activeBlocks = [];
         this.maskOps = [];
-        this.sequence = [[]];
+        this.sequence = []; // Start with truly empty sequence for live generation
+        this.expansionPhase = 0;
         
         // Shared state reset
         this.behaviorState = {
@@ -101,23 +102,28 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // --- CACHE LOGIC ---
         if (this.getConfig('EnableAnimationCache') && window.sequenceCache) {
             const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
-            const cachedSeq = window.sequenceCache.get(configKey);
-            if (cachedSeq) {
-                if (this.c.state.logErrors) console.log("QuantizedBlockGenerator: Using cached sequence.");
-                this.sequence = cachedSeq;
-                this.expansionPhase = 0;
-                this._initShadowWorld();
-                this._updateRenderGridLogic();
-                return true;
+            
+            // Use the cache if it has ANY sequences available
+            if (window.sequenceCache.has(configKey)) {
+                const cachedSeq = window.sequenceCache.get(configKey, true); // Use auto-refill
+                if (cachedSeq) {
+                    console.log(`%c[QuantizedBlockGenerator] Cache HIT. Using pre-generated sequence. Pool remaining: ${window.sequenceCache.cache.get(configKey)?.length || 0}`, "color: #00ff00; font-weight: bold;");
+                    this.sequence = cachedSeq;
+                    this.expansionPhase = 0;
+                    this._initShadowWorld();
+                    this._updateRenderGridLogic();
+                    return true;
+                }
             } else {
-                if (this.c.state.logErrors) console.log("QuantizedBlockGenerator: Cache miss, generating live.");
-                this.sequence = [[]]; // Clear previous sequence
-                window.sequenceCache.ensureReady(configKey); // Start background generation for next time
+                console.log(`[QuantizedBlockGenerator] Cache empty. Generating live and pausing cache refills.`);
+                this.sequence = []; 
+                // We do NOT call ensureReady here to avoid start-of-effect lag
             }
-        } else if (window.sequenceCache) {
-            // Even if disabled, we might want to ensure a ready cache for when it IS enabled
-            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
-            window.sequenceCache.ensureReady(configKey);
+        } else {
+            if (window.sequenceCache) {
+                console.log(`[QuantizedBlockGenerator] Cache DISABLED. Bypassing all cache activity.`);
+            }
+            this.sequence = [];
         }
 
         const randomStart = !!this.c.get('quantizedGenerateV2RandomStart');
@@ -1071,14 +1077,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     _attemptGrowth() {
         if (this.expansionComplete && !this.manualStep) return;
 
-        // If we are playing back a sequence, advance the phase
-        if (this.sequence && this.sequence.length > 1) {
-            if (this.expansionPhase < this.sequence.length) {
-                this._processAnimationStep();
-            }
-            return;
-        }
-
         const s = this.behaviorState;
 
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {
@@ -1118,10 +1116,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
         s.growTimer++;
 
-        const speed = this.c.get('quantizedGenerateV2Speed') || 1;
-        const delay = Math.max(1, Math.floor(11 - speed));
-        if (!this.manualStep && s.growTimer % delay !== 0) return;
-
+        // Removed double-throttling (s.growTimer % delay). 
+        // Throttling is now handled centrally by QuantizedBaseEffect._getEffectiveInterval.
+        
         this.actionBuffer = [];
 
         this._tickLayerDirs(s);
@@ -1203,5 +1200,12 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
 
     stop() {
         super.stop();
+        // Refill cache shortly after effect stops and system is idle
+        if (this.getConfig('EnableAnimationCache') && window.sequenceCache) {
+            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
+            setTimeout(() => {
+                window.sequenceCache.ensureReady(configKey);
+            }, 1500); // 1.5s delay to "settle"
+        }
     }
 }

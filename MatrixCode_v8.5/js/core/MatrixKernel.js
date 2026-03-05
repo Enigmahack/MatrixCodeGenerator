@@ -445,6 +445,11 @@ class MatrixKernel {
         // 3. Resize All Grids
         this.worlds.forEach(w => w.grid.resize(logicalW, logicalH));
         
+        // Update sequence cache dimensions
+        if (window.sequenceCache) {
+            window.sequenceCache.updateDimensions(this.grid.cols, this.grid.rows);
+        }
+        
         if (this.renderer) {
             this.renderer.resize();
         }

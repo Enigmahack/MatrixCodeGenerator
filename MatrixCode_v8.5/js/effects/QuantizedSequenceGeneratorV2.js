@@ -49,8 +49,44 @@ class QuantizedSequenceGeneratorV2 {
         this._init();
     }
 
-    _getConfig(key) {
-        return this.config['quantizedGenerateV2' + key];
+    _getConfig(keySuffix) {
+        const prefix = 'quantizedGenerateV2';
+        const overrideDefaults = this.config[prefix + 'OverrideDefaults'];
+        
+        // Settings that all Quantized effects share and can inherit from Quantized Defaults.
+        const inheritable = [
+            'ShadowWorldFadeSpeed', 'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold',
+            'LineGfxColor', 'LineGfxBrightness', 'LineGfxIntensity', 'LineGfxGlow', 'LineGfxPersistence',
+            'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 'GlassRefractionSaturation',
+            'GlassRefractionCompression', 'GlassRefractionOffset', 'GlassRefractionGlow',
+            'LineGfxTintOffset', 'LineGfxSaturation', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
+            'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
+            'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells'
+        ];
+
+        const isInheritable = inheritable.includes(keySuffix);
+        const key = prefix + keySuffix;
+        const val = this.config[key];
+
+        // 1. If we are NOT overriding, AND this is an inheritable setting, use the default.
+        if (!overrideDefaults && isInheritable) {
+            const defaultKey = 'quantizedDefault' + keySuffix;
+            const defaultVal = this.config[defaultKey];
+            if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
+
+            // Manual fallbacks for Width/Height if even the default is missing
+            if (keySuffix === 'BlockWidthCells') return this.config['quantizedBlockWidthCells'] ?? 4;
+            if (keySuffix === 'BlockHeightCells') return this.config['quantizedBlockHeightCells'] ?? 4;
+        }
+
+        // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
+        if (val !== undefined && val !== null && val !== "") return val;
+
+        // Final fallback for non-inheritable but common settings
+        if (keySuffix === 'BlockWidthCells') return this.config['quantizedBlockWidthCells'] ?? 4;
+        if (keySuffix === 'BlockHeightCells') return this.config['quantizedBlockHeightCells'] ?? 4;
+
+        return null;
     }
 
     _init() {
@@ -136,7 +172,9 @@ class QuantizedSequenceGeneratorV2 {
                     ny = block.y + Math.floor(Math.random() * block.h);
                     dir = validDirs[Math.floor(Math.random() * validDirs.length)];
                 }
-                if (gen.checkScreenEdge(nx, ny)) return;
+                const edge = gen.checkScreenEdge(nx, ny);
+                if (edge) return;
+
                 for (const strip of gen.strips.values()) {
                     if (!strip.isNudge) continue;
                     if (Math.abs(strip.originX - nx) + Math.abs(strip.originY - ny) < minSpacing) return;
@@ -405,12 +443,13 @@ class QuantizedSequenceGeneratorV2 {
             const burst = 1 + Math.floor(Math.random() * 2);
             if (dx !== 0) bw += burst; else if (dy !== 0) bh += burst;
         }
+        const lmd = s.layerMaxDist[strip.layer] || { N: 0, S: 0, E: 0, W: 0 };
         const l0md = s.layerMaxDist[0] || { N: 0, S: 0, E: 0, W: 0 };
         const headRX = strip.headX - s.scx, headRY = strip.headY - s.scy;
         const limit = strip.layer === 2 ? 1 : 2;
         if (!strip.isSpine && strip.layer >= 2) {
             const exceeds = (strip.direction === 'N' && -headRY > l0md.N + limit) || (strip.direction === 'S' && headRY > l0md.S + limit) ||
-                            (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRX > l0md.W + limit);
+                            (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRY > l0md.W + limit);
             if (exceeds) { strip.active = false; this.strips.delete(strip.id); return; }
         }
         if (strip.layer < 3 && this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) this._removeBlock(strip.headX + dx, strip.headY + dy, bw, bh, 3);
@@ -565,11 +604,70 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     checkScreenEdge(bx, by) {
-        const bs = this._getBlockSize(), limitW = Math.floor(this.cols / bs.w / 2) + 2, limitH = Math.floor(this.rows / bs.h / 2) + 2;
-        return (bx <= -limitW || bx >= limitW || by <= -limitH || by >= limitH);
+        const bs = this._getBlockSize();
+        const halfVisibleW = Math.floor(this.cols / bs.w / 2);
+        const halfVisibleH = Math.floor(this.rows / bs.h / 2);
+        const extension = 2;
+        const limitW = halfVisibleW + extension;
+        const limitH = halfVisibleH + extension;
+
+        const edges = {
+            left: bx <= -limitW,
+            right: bx >= limitW,
+            top: by <= -limitH,
+            bottom: by >= limitH
+        };
+
+        return (edges.left || edges.right || edges.top || edges.bottom) ? edges : false;
     }
 
-    generate(maxSteps = 300) {
+    /**
+     * Executes a single logical growth step.
+     * @returns {boolean} True if generation is complete.
+     */
+    generateStep() {
+        const s = this.behaviorState;
+        this.currentStepOps = [];
+        
+        const speed = this._getConfig('Speed') || 1;
+        const delay = Math.max(1, Math.floor(11 - speed));
+        
+        let logicalStepPerformed = false;
+        
+        // Loop until we perform one logical step or reach a max iterations per call (safety)
+        for (let i = 0; i < 50; i++) {
+            if (s.growTimer % delay === 0) {
+                this.actionBuffer = [];
+                this._tickLayerDirs(s);
+                this._updateFillRatio(s);
+                this._seedStrips(s);
+                this._tickStrips(s);
+                this._checkIntersections();
+                this._expandInsideOut(s);
+                for (const b of this.growthPool.values()) if (b.fn && b.enabled) b.fn.call(this, s);
+                this._processIntents();
+                
+                s.step++;
+                logicalStepPerformed = true;
+            }
+            s.growTimer++;
+            
+            // Heuristic for completion
+            if (s.fillRatio > 0.98 && this.strips.size === 0) return true;
+            
+            if (logicalStepPerformed) break;
+        }
+
+        return false;
+    }
+
+    /**
+     * Runs the generator until completion or maxSteps.
+     * @param {number} maxSteps 
+     * @param {Object} [cache] - Optional cache instance to check for activity aborts
+     * @returns {Array} The generated sequence of operation steps.
+     */
+    generate(maxSteps = 300, cache = null) {
         const sequence = [];
         const s = this.behaviorState;
 
@@ -583,25 +681,18 @@ class QuantizedSequenceGeneratorV2 {
         sequence.push(this.currentStepOps);
 
         while (s.step < maxSteps) {
-            this.currentStepOps = [];
-            const speed = this._getConfig('Speed') || 1, delay = Math.max(1, Math.floor(11 - speed));
-            if (s.growTimer % delay === 0) {
-                this.actionBuffer = [];
-                this._tickLayerDirs(s);
-                this._updateFillRatio(s);
-                this._seedStrips(s);
-                this._tickStrips(s);
-                this._checkIntersections();
-                this._expandInsideOut(s);
-                for (const b of this.growthPool.values()) if (b.fn && b.enabled) b.fn.call(this, s);
-                this._processIntents();
-                s.step++;
+            // Check if we should abort because an effect started during background generation
+            if (cache && cache.isAnyEffectActive()) {
+                console.log("[QuantizedSequenceGeneratorV2] Aborting background generation: Effect detected.");
+                return null; 
             }
-            s.growTimer++;
-            sequence.push(this.currentStepOps);
+
+            const done = this.generateStep();
+            if (this.currentStepOps.length > 0) {
+                sequence.push(this.currentStepOps);
+            }
             
-            // Heuristic for completion: fillRatio > 0.98 and no active strips
-            if (s.fillRatio > 0.98 && this.strips.size === 0) break;
+            if (done) break;
         }
         return sequence;
     }

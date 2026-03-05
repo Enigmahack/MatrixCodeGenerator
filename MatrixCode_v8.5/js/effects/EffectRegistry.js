@@ -157,6 +157,10 @@ class EffectRegistry {
         return null;
     }
 
+    getActiveEffects() {
+        return this.effects.filter(e => e.active);
+    }
+
     get(name) { return this.effects.find(e => e.name === name); }
 
     isQuantizedActive() {
