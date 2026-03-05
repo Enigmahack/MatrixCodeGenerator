@@ -1,5 +1,6 @@
 class QuantizedSequenceGenerator {
-    constructor() {
+    constructor(config = null) {
+        this.config = config;
         this.sequence = [];
         this.grid = null; 
         this.width = 0;
@@ -9,8 +10,12 @@ class QuantizedSequenceGenerator {
         this.scheduledOps = new Map();
     }
 
+    _log(...args) { if (this.config && this.config.logErrors) console.log(...args); }
+    _warn(...args) { if (this.config && this.config.logErrors) console.warn(...args); }
+    _error(...args) { if (this.config && this.config.logErrors) console.error(...args); }
+
     generate(width, height, maxSteps = 500, params = {}) {
-        // console.log("QuantizedSequenceGenerator: generate() called. Mode: ISOLATED CROSS");
+        // this._log("QuantizedSequenceGenerator: generate() called. Mode: ISOLATED CROSS");
         this.width = width;
         this.height = height;
         this.cx = Math.floor(width / 2);

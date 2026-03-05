@@ -107,7 +107,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             if (window.sequenceCache.has(configKey)) {
                 const cachedSeq = window.sequenceCache.get(configKey, true); // Use auto-refill
                 if (cachedSeq) {
-                    console.log(`%c[QuantizedBlockGenerator] Cache HIT. Using pre-generated sequence. Pool remaining: ${window.sequenceCache.cache.get(configKey)?.length || 0}`, "color: #00ff00; font-weight: bold;");
+                    this._log(`%c[QuantizedBlockGenerator] Cache HIT. Using pre-generated sequence. Pool remaining: ${window.sequenceCache.cache.get(configKey)?.length || 0}`, "color: #00ff00; font-weight: bold;");
                     this.sequence = cachedSeq;
                     this.expansionPhase = 0;
                     this._initShadowWorld();
@@ -115,13 +115,13 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
                     return true;
                 }
             } else {
-                console.log(`[QuantizedBlockGenerator] Cache empty. Generating live and pausing cache refills.`);
+                this._log(`[QuantizedBlockGenerator] Cache empty. Generating live and pausing cache refills.`);
                 this.sequence = []; 
                 // We do NOT call ensureReady here to avoid start-of-effect lag
             }
         } else {
             if (window.sequenceCache) {
-                console.log(`[QuantizedBlockGenerator] Cache DISABLED. Bypassing all cache activity.`);
+                this._log(`[QuantizedBlockGenerator] Cache DISABLED. Bypassing all cache activity.`);
             }
             this.sequence = [];
         }
@@ -161,7 +161,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // Build the strip seeding schedule (spread across first 6 steps)
         this.behaviorState.seedSchedule = this._generateSeedSchedule(scx, scy);
 
-        console.log(`QuantizedBlockGenerator: Starting at ${randomStart ? `random (${scx}, ${scy})` : 'center'}`);
+        this._log(`QuantizedBlockGenerator: Starting at ${randomStart ? `random (${scx}, ${scy})` : 'center'}`);
 
         this._initShadowWorld();
 

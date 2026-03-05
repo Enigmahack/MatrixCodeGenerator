@@ -16,7 +16,7 @@ class QuantizedSequenceCache {
         this.cols = cols;
         this.rows = rows;
 
-        console.log(`[QuantizedSequenceCache] Initialized with ${cols}x${rows}`);
+        this._log(`[QuantizedSequenceCache] Initialized with ${cols}x${rows}`);
 
         // Flush cache when generation settings change
         this.config.subscribe((key) => {
@@ -25,15 +25,15 @@ class QuantizedSequenceCache {
                 
                 if (key.endsWith('EnableAnimationCache')) {
                     if (this.config.get(key)) {
-                        console.log("[QuantizedSequenceCache] Cache toggled ON. Starting fill.");
+                        this._log("[QuantizedSequenceCache] Cache toggled ON. Starting fill.");
                         this.ensureReady(this.generateConfigKey('quantizedGenerateV2'));
                     } else {
-                        console.log("[QuantizedSequenceCache] Cache toggled OFF. Clearing pool.");
+                        this._log("[QuantizedSequenceCache] Cache toggled OFF. Clearing pool.");
                         this.clear();
                     }
                 } else {
                     // Potential logical setting change (Specific or Default)
-                    console.log(`[QuantizedSequenceCache] Settings changed (${key}), flushing cache.`);
+                    this._log(`[QuantizedSequenceCache] Settings changed (${key}), flushing cache.`);
                     this.clear();
                     this.ensureReady(this.generateConfigKey('quantizedGenerateV2'));
                 }
@@ -43,7 +43,7 @@ class QuantizedSequenceCache {
         // Proactive initialization
         setTimeout(() => {
             if (this.config.get('quantizedGenerateV2EnableAnimationCache')) {
-                console.log("[QuantizedSequenceCache] Startup proactive fill check...");
+                this._log("[QuantizedSequenceCache] Startup proactive fill check...");
                 this.ensureReady(this.generateConfigKey('quantizedGenerateV2'));
             }
         }, 3000); 
@@ -59,9 +59,13 @@ class QuantizedSequenceCache {
         }, 15000); // Check every 15s
     }
 
+    _log(...args) { if (this.config && this.config.state.logErrors) console.log(...args); }
+    _warn(...args) { if (this.config && this.config.state.logErrors) console.warn(...args); }
+    _error(...args) { if (this.config && this.config.state.logErrors) console.error(...args); }
+
     updateDimensions(cols, rows) {
         if (this.cols !== cols || this.rows !== rows) {
-            console.log(`[QuantizedSequenceCache] Resized: ${this.cols}x${this.rows} -> ${cols}x${rows}. flushing cache.`);
+            this._log(`[QuantizedSequenceCache] Resized: ${this.cols}x${this.rows} -> ${cols}x${rows}. flushing cache.`);
             this.cols = cols;
             this.rows = rows;
             this._cachedKey = null;
@@ -76,7 +80,7 @@ class QuantizedSequenceCache {
         const sequences = this.cache.get(configKey);
         if (sequences && sequences.length > 0) {
             const seq = sequences.shift();
-            console.log(`[QuantizedSequenceCache] Serving cached sequence. Pool remaining: ${sequences.length}`);
+            this._log(`[QuantizedSequenceCache] Serving cached sequence. Pool remaining: ${sequences.length}`);
             if (autoRefill) {
                 this.ensureReady(configKey);
             }
@@ -106,7 +110,7 @@ class QuantizedSequenceCache {
         if (!this.config.state[prefix + 'EnableAnimationCache'] || this.isAnyEffectActive()) {
             // If we have an active generator, we keep it but stop scheduling chunks
             if (this.generating.has(configKey)) {
-                console.log("[QuantizedSequenceCache] Effect active. Suspending background generation.");
+                this._log("[QuantizedSequenceCache] Effect active. Suspending background generation.");
                 this.generating.delete(configKey);
             }
             return;
@@ -117,7 +121,7 @@ class QuantizedSequenceCache {
 
         // Resume or Start new
         if (this._activeGenerator && this._activeGenerator.configKey === configKey) {
-            console.log("[QuantizedSequenceCache] Resuming suspended generation...");
+            this._log("[QuantizedSequenceCache] Resuming suspended generation...");
             this.generating.add(configKey);
             this._scheduleChunk(configKey);
         } else {
@@ -127,7 +131,7 @@ class QuantizedSequenceCache {
 
     generateInBackground(configKey) {
         if (this.generating.has(configKey)) return;
-        console.log(`[QuantizedSequenceCache] Starting background fill for ${configKey.split('|')[0]}...`);
+        this._log(`[QuantizedSequenceCache] Starting background fill for ${configKey.split('|')[0]}...`);
         this.generating.add(configKey);
         
         // If there was an old stale generator, clear it
@@ -184,7 +188,7 @@ class QuantizedSequenceCache {
                     
                     const duration = (performance.now() - g.startTime).toFixed(0);
                     const status = done ? "Complete" : "MaxSteps";
-                    console.log(`[QuantizedSequenceCache] Sequence Cached (${this.cache.get(configKey).length}/${this.maxCacheSize}). Steps: ${g.sequence.length}. Reason: ${status}. Took ${duration}ms`);
+                    this._log(`[QuantizedSequenceCache] Sequence Cached (${this.cache.get(configKey).length}/${this.maxCacheSize}). Steps: ${g.sequence.length}. Reason: ${status}. Took ${duration}ms`);
                     
                     this.generating.delete(configKey);
                     this._activeGenerator = null;
@@ -205,7 +209,7 @@ class QuantizedSequenceCache {
             }
 
         } catch (e) {
-            console.error("[QuantizedSequenceCache] Background generation failed", e);
+            this._error("[QuantizedSequenceCache] Background generation failed", e);
             this.generating.delete(configKey);
             this._activeGenerator = null;
         }

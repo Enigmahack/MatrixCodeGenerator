@@ -49,6 +49,10 @@ class QuantizedSequenceGeneratorV2 {
         this._init();
     }
 
+    _log(...args) { if (this.config && this.config.logErrors) console.log(...args); }
+    _warn(...args) { if (this.config && this.config.logErrors) console.warn(...args); }
+    _error(...args) { if (this.config && this.config.logErrors) console.error(...args); }
+
     _getConfig(keySuffix) {
         const prefix = 'quantizedGenerateV2';
         const overrideDefaults = this.config[prefix + 'OverrideDefaults'];
@@ -697,7 +701,7 @@ class QuantizedSequenceGeneratorV2 {
         while (s.step < maxSteps) {
             // Check if we should abort because an effect started during background generation
             if (cache && cache.isAnyEffectActive()) {
-                console.log("[QuantizedSequenceGeneratorV2] Aborting background generation: Effect detected.");
+                this._log("[QuantizedSequenceGeneratorV2] Aborting background generation: Effect detected.");
                 return null; 
             }
 

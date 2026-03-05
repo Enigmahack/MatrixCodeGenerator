@@ -22,7 +22,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         if (this.proceduralInitiated) return;
         this.proceduralInitiated = true;
         
-        console.log("QuantizedBlockBuilder: Seeding center blocks...");
+        this._log("QuantizedBlockBuilder: Seeding center blocks...");
         for (let l = 0; l <= 3; l++) {
             this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, true, false, true);
         }
@@ -32,7 +32,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
         if (this.expansionComplete) return;
         this._initProceduralState();
 
-        console.log(`QuantizedBlockBuilder: Step ${this.expansionPhase} Attempting growth...`);
+        this._log(`QuantizedBlockBuilder: Step ${this.expansionPhase} Attempting growth...`);
 
         const xChance = 0.66;
         const yChance = 0.66; 
@@ -71,7 +71,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
 
         const id = this._spawnBlock(tx, ty, 1, 1, layer, false, 0, true, true, true, false, true);
         if (id !== -1) {
-            console.log(`QuantizedBlockBuilder: Layer ${layer} grew West to (${tx}, ${ty})`);
+            this._log(`QuantizedBlockBuilder: Layer ${layer} grew West to (${tx}, ${ty})`);
             return true;
         }
         return false;
@@ -92,7 +92,7 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
 
         const id = this._spawnBlock(tx, ty, 1, 1, layer, false, 0, true, true, true, false, true);
         if (id !== -1) {
-            console.log(`QuantizedBlockBuilder: Layer ${layer} grew North to (${tx}, ${ty})`);
+            this._log(`QuantizedBlockBuilder: Layer ${layer} grew North to (${tx}, ${ty})`);
             return true;
         }
         return false;

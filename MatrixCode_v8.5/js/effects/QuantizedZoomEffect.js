@@ -69,7 +69,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         
         // 3. Generate Expansion Sequence (Bottom Center)
         if (typeof QuantizedSequenceGenerator !== 'undefined') {
-            const generator = new QuantizedSequenceGenerator();
+            const generator = new QuantizedSequenceGenerator(this.c.state);
             
             // Use erosion/innerLine logic to match GenerateEffect style
             // Allow Zoom-specific config, fallback to standard Generate defaults (0.2, 1)
