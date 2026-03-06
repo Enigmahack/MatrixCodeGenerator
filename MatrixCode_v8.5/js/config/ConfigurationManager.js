@@ -315,6 +315,10 @@ class ConfigurationManager {
             "quantizedDefaultLineGfxOffsetX": 0,
             "quantizedDefaultLineGfxOffsetY": 0,
             "quantizedDefaultLineGfxPersistence": 60,
+            "quantizedDefaultLineGfxBrightnessVarianceEnabled": false,
+            "quantizedDefaultLineGfxBrightnessVarianceAmount": 0.5,
+            "quantizedDefaultLineGfxBrightnessVarianceCoverage": 100,
+            "quantizedDefaultLineGfxBrightnessVarianceDirection": 1,
 
             "quantizedDefaultGlassRefractionEnabled": false,
             "quantizedDefaultGlassRefractionWidth": 0.1,
@@ -663,6 +667,7 @@ class ConfigurationManager {
             'LineGfxSharpness', 'LineGfxGlowFalloff', 'LineGfxRoundness', 
             'LineGfxMaskSoftness', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY', 
             'LineGfxOffsetX', 'LineGfxOffsetY', 'LineGfxPersistence',
+            'LineGfxBrightnessVarianceEnabled', 'LineGfxBrightnessVarianceAmount', 'LineGfxBrightnessVarianceCoverage', 'LineGfxBrightnessVarianceDirection',
             'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold', 
             'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 
             'GlassRefractionSaturation', 'GlassRefractionCompression', 

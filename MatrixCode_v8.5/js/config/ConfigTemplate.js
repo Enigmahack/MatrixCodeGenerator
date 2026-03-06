@@ -17,6 +17,10 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Basics', id: 'LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01 },
     { sub: 'Line Basics', id: 'LineGfxGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 10.0, step: 0.1, description: "Intensity of the soft glow around generated lines." },
     { sub: 'Line Basics', id: 'LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', description: "Similar to burn-in, controls how long lines linger." },
+    { sub: 'Line Basics', id: 'LineGfxBrightnessVarianceEnabled', type: 'checkbox', label: 'Enable Brightness Variance', description: "Applies random brightness variations to individual line segments." },
+    { sub: 'Line Basics', id: 'LineGfxBrightnessVarianceAmount', type: 'range', label: 'Variance Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'LineGfxBrightnessVarianceEnabled', description: "Amount of random brightness reduction applied to lines." },
+    { sub: 'Line Basics', id: 'LineGfxBrightnessVarianceCoverage', type: 'range', label: 'Variance Coverage', min: 0, max: 100, step: 5, unit: '%', dep: 'LineGfxBrightnessVarianceEnabled', description: "Percentage of rows/columns that will be affected by the variance." },
+    { sub: 'Line Basics', id: 'LineGfxBrightnessVarianceDirection', type: 'range', label: 'Variance Direction', min: 0, max: 2, step: 1, dep: 'LineGfxBrightnessVarianceEnabled', transform: v => ['H', 'Mixed', 'V'][v] ?? 'Mixed', description: "H = horizontal lines only, Mixed = both, V = vertical lines only." },
 
     { sub: 'Line Advanced', sub_header: 'Natural Refraction', id: 'GlassRefractionEnabled', type: 'checkbox', label: 'Enable Natural Refraction', description: "Adds a light-refraction highlight centered on block edges." },
     { sub: 'Line Advanced', id: 'GlassRefractionWidth', type: 'range', label: 'Width', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', description: "Width of the refraction band as a fraction of cell size." },

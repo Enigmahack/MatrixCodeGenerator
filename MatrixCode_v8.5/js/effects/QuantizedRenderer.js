@@ -410,6 +410,28 @@ class QuantizedRenderer {
             return { c: color, o: 1.0 };
         };
 
+        const varianceEnabled = fx.getLineGfxValue('BrightnessVarianceEnabled');
+        const varianceAmount = fx.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
+        const varianceCoverage = fx.getLineGfxValue('BrightnessVarianceCoverage') ?? 100;
+        const varianceDirection = fx.getLineGfxValue('BrightnessVarianceDirection') ?? 1;
+
+        const getVariance = (idx, type) => {
+            if (!varianceEnabled) return 1.0;
+
+            // Direction: 0=H only, 1=Mixed, 2=V only.
+            // type 'V'/0 = vertical boundary (keyed by column x), 'H'/1 = horizontal (keyed by row y).
+            const isV = (type === 'V' || type === 0);
+            if (varianceDirection === 0 && isV) return 1.0;   // H only: skip vertical
+            if (varianceDirection === 2 && !isV) return 1.0;  // V only: skip horizontal
+
+            const covSeed = isV ? (idx * 78.233 + 13.7) : (idx * 43.7581 + 27.3);
+            const covHash = Math.abs(Math.sin(covSeed) * 43758.5453) % 1.0;
+            if (covHash > (varianceCoverage / 100.0)) return 1.0;
+
+            // Covered lines are dimmed uniformly: amount=1 → invisible, amount=0 → full brightness.
+            return 1.0 - varianceAmount;
+        };
+
         const resolveEdge = (x, y, type) => {
             let ax, ay, bx, by;
             if (type === 'V') { ax = x - 1; ay = y; bx = x; by = y; }
@@ -523,6 +545,7 @@ class QuantizedRenderer {
 
         const drawEdge = (x, y, type) => {
             const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
+            const variance = getVariance(type === 'V' ? x : y, type);
             const state = fx.lineStates.get(key);
             if (!state) return;
 
@@ -532,8 +555,9 @@ class QuantizedRenderer {
             if (state.visible) {
                 const birth = getBirthState(state.birthFrame);
                 if (birth) {
-                    const path = getBatch(birth.c, birth.o);
-                    const mPath = getMaskBatch(birth.o);
+                    const finalOpacity = birth.o * variance;
+                    const path = getBatch(birth.c, finalOpacity);
+                    const mPath = getMaskBatch(finalOpacity);
                     this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
                 }
@@ -543,8 +567,9 @@ class QuantizedRenderer {
             if (state.deathFrame !== -1) {
                 const fade = getFadeState(state.deathFrame);
                 if (fade) {
-                    const path = getBatch(fade.c, fade.o);
-                    const mPath = getMaskBatch(fade.o);
+                    const finalOpacity = fade.o * variance;
+                    const path = getBatch(fade.c, finalOpacity);
+                    const mPath = getMaskBatch(finalOpacity);
                     this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
                 } else {
@@ -576,7 +601,7 @@ class QuantizedRenderer {
                 };
 
                 const l0Opacity = Math.max(getL0Opacity(ax, ay), getL0Opacity(bx, by));
-                const dimOpacity = activeState.o * l0Opacity;
+                const dimOpacity = activeState.o * l0Opacity * variance;
 
                 if (dimOpacity > 0.01) {
                     const path = getBatch(fadeColor, dimOpacity);
