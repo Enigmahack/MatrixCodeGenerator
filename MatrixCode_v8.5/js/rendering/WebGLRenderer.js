@@ -1430,6 +1430,7 @@ class WebGLRenderer {
         // Stride = 40 bytes (Optimized & Aligned)
         if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
         this.instanceBuffer = this.gl.createBuffer();
+        this.prevInstanceBuffer = null; // force full upload on next frame
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 40, this.gl.DYNAMIC_DRAW);
 
@@ -2151,9 +2152,41 @@ class WebGLRenderer {
              atlas.resetChanges();
         }
 
-        // --- UPLOAD ---
+        // --- UPLOAD (dirty-range) ---
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
+        const curr = this.instanceDataU32;
+        if (!this.prevInstanceBuffer) {
+            // First frame after buffer init: full upload then snapshot.
+            this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
+            this.prevInstanceBuffer = new Uint32Array(totalCells * 10);
+            this.prevInstanceBuffer.set(curr);
+        } else {
+            const prev = this.prevInstanceBuffer;
+            // Merge dirty runs separated by <= MERGE_GAP clean cells to reduce call overhead.
+            const MERGE_GAP = 8;
+            let rangeStart = -1, rangeEnd = -1;
+            for (let i = 0; i < totalCells; i++) {
+                const base = i * 10;
+                let dirty = false;
+                for (let j = 0; j < 10; j++) {
+                    if (curr[base + j] !== prev[base + j]) { dirty = true; break; }
+                }
+                if (dirty) {
+                    if (rangeStart === -1) {
+                        rangeStart = i; rangeEnd = i + 1;
+                    } else if (i < rangeEnd + MERGE_GAP) {
+                        rangeEnd = i + 1;
+                    } else {
+                        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, rangeStart * 40, this.instanceData, rangeStart * 10, (rangeEnd - rangeStart) * 10);
+                        rangeStart = i; rangeEnd = i + 1;
+                    }
+                }
+            }
+            if (rangeStart !== -1) {
+                this.gl.bufferSubData(this.gl.ARRAY_BUFFER, rangeStart * 40, this.instanceData, rangeStart * 10, (rangeEnd - rangeStart) * 10);
+            }
+            prev.set(curr);
+        }
 
 
         // --- SHADOW MASK PASS ---
