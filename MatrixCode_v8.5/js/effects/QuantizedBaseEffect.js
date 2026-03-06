@@ -4552,9 +4552,19 @@ class QuantizedBaseEffect extends AbstractEffect {
             const flickerChance = this.c.get('quantizedGenerateV2L3FlickerChance') ?? 0.15;
             if (flickerChance <= 0) return;
             if (!s.pendingDeletions) s.pendingDeletions = [];
+            
+            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
+            const margin = 2;
+
             for (const b of this.activeBlocks) {
                 if (b.layer === 3 && Math.random() < flickerChance) {
-                    s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                    // Protected if under Layer 0 or 1, or inside the central mass perimeter
+                    const rx = b.x - s.scx, ry = b.y - s.scy;
+                    const isOutside = (-ry > l0md.N + margin || ry > l0md.S + margin || rx > l0md.E + margin || -rx > l0md.W + margin);
+                    
+                    if (isOutside && !this._isUnderLayer(b, 0) && !this._isUnderLayer(b, 1)) {
+                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                    }
                 }
             }
         }, { enabled: true, label: 'L3 Collision Interference' });
@@ -4567,6 +4577,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             const l3Chance = this.c.get('quantizedGenerateV2InvisibleL3Chance') ?? 1.0;
             const rangeN = l0md.N + 2;
             const rangeS = l0md.S + 2;
+            
+            // Vertical Spine Spawning
             const spawnCount = 2 + Math.floor(Math.random() * 3);
             for (let i = 0; i < spawnCount; i++) {
                 const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
@@ -4574,14 +4586,19 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, false, 0, true, true, true, false, true);
                 }});
             }
-            if (Math.random() < l3Chance) {
-                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                this.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
-                    const dir = Math.random() < 0.5 ? 'E' : 'W';
-                    const rStrip = this._createStrip(3, dir, s.scx, s.scy + ry);
-                    rStrip.isInvisible = true;
-                    rStrip.stepPhase = Math.floor(Math.random() * 6);
-                }});
+
+            // Horizontal (Lateral) Spawning - Unlocked
+            const lateralSpawnCount = 1 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < lateralSpawnCount; i++) {
+                if (Math.random() < l3Chance) {
+                    const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
+                    this.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
+                        const dir = Math.random() < 0.5 ? 'E' : 'W';
+                        const rStrip = this._createStrip(3, dir, s.scx, s.scy + ry);
+                        rStrip.isInvisible = true;
+                        rStrip.stepPhase = Math.floor(Math.random() * 6);
+                    }});
+                }
             }
         }, { enabled: true, label: 'L3 Spine Randomness' });
 
@@ -4589,14 +4606,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.registerBehavior('l3_quadrant_wipe', function(s) {
             if (!this.c.get('quantizedGenerateV2L3QuadrantWipeEnabled')) return;
             const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
+            if (!s.pendingDeletions) s.pendingDeletions = [];
             let removed = false;
             for (const b of this.activeBlocks) {
                 if (b.layer !== 3) continue;
                 const rx = b.x - s.scx;
                 const ry = b.y - s.scy;
                 if (-ry > l0md.N + 2 || ry > l0md.S + 2 || rx > l0md.E + 2 || -rx > l0md.W + 2) {
-                    this._removeBlock(b.x, b.y, b.w, b.h, 3);
-                    removed = true;
+                    // Even in quadrant wipe, protect if under L0/L1
+                    if (!this._isUnderLayer(b, 0) && !this._isUnderLayer(b, 1)) {
+                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                        removed = true;
+                    }
                 }
             }
             if (removed) this._gridsDirty = true;
@@ -4809,7 +4830,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         if (strip.layer < 3) {
             if (this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) {
-                this._removeBlock(strip.headX + dx, strip.headY + dy, bw, bh, 3);
+                const tx = strip.headX + dx, ty = strip.headY + dy;
+                // Use pendingDeletions for L3
+                if (!s.pendingDeletions) s.pendingDeletions = [];
+                // Only if not protected by L0/L1
+                if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
+                    s.pendingDeletions.push({ x: tx, y: ty, w: bw, h: bh, layer: 3 });
+                }
             }
         }
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
@@ -5014,6 +5041,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) return false;
         const grid = this.layerGrids[layer];
         return !!grid && grid[gy * this.logicGridW + gx] !== -1;
+    }
+
+    _isUnderLayer(b, layer) {
+        const gridCX = Math.floor(this.logicGridW / 2), gridCY = Math.floor(this.logicGridH / 2);
+        const gx1 = gridCX + b.x, gy1 = gridCY + b.y, gx2 = gridCX + b.x + b.w - 1, gy2 = gridCY + b.y + b.h - 1;
+        const grid = this.layerGrids[layer];
+        if (!grid) return false;
+        for (let gy = gy1; gy <= gy2; gy++) {
+            for (let gx = gx1; gx <= gx2; gx++) {
+                if (gy >= 0 && gy < this.logicGridH && gx >= 0 && gx < this.logicGridW) {
+                    if (grid[gy * this.logicGridW + gx] !== -1) return true;
+                }
+            }
+        }
+        return false;
     }
 
     _removeBlock(x, y, w, h, layer) {

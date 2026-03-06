@@ -270,9 +270,19 @@ class QuantizedSequenceGeneratorV2 {
             const flickerChance = gen._getConfig('L3FlickerChance') ?? 0.15;
             if (flickerChance <= 0) return;
             if (!s.pendingDeletions) s.pendingDeletions = [];
+            
+            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
+            const margin = 2;
+
             for (const b of gen.activeBlocks) {
                 if (b.layer === 3 && Math.random() < flickerChance) {
-                    s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                    // Protected if under Layer 0 or 1, or inside the central mass perimeter
+                    const rx = b.x - s.scx, ry = b.y - s.scy;
+                    const isOutside = (-ry > l0md.N + margin || ry > l0md.S + margin || rx > l0md.E + margin || -rx > l0md.W + margin);
+                    
+                    if (isOutside && !gen._isUnderLayer(b, 0) && !gen._isUnderLayer(b, 1)) {
+                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                    }
                 }
             }
         });
@@ -284,6 +294,8 @@ class QuantizedSequenceGeneratorV2 {
             const l3Chance = gen._getConfig('InvisibleL3Chance') ?? 1.0;
             const rangeN = l0md.N + 2;
             const rangeS = l0md.S + 2;
+            
+            // Vertical Spine Spawning
             const spawnCount = 2 + Math.floor(Math.random() * 3);
             for (let i = 0; i < spawnCount; i++) {
                 const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
@@ -291,26 +303,35 @@ class QuantizedSequenceGeneratorV2 {
                     gen._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, true);
                 }});
             }
-            if (Math.random() < l3Chance) {
-                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                gen.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
-                    const dir = Math.random() < 0.5 ? 'E' : 'W';
-                    const rStrip = gen._createStrip(3, dir, s.scx, s.scy + ry);
-                    rStrip.isInvisible = true;
-                    rStrip.stepPhase = Math.floor(Math.random() * 6);
-                }});
+
+            // Horizontal (Lateral) Spawning - No longer limited to a single check
+            const lateralSpawnCount = 1 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < lateralSpawnCount; i++) {
+                if (Math.random() < l3Chance) {
+                    const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
+                    gen.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
+                        const dir = Math.random() < 0.5 ? 'E' : 'W';
+                        const rStrip = gen._createStrip(3, dir, s.scx, s.scy + ry);
+                        rStrip.isInvisible = true;
+                        rStrip.stepPhase = Math.floor(Math.random() * 6);
+                    }});
+                }
             }
         });
 
         this.registerBehavior('l3_quadrant_wipe', function(s) {
             if (!gen._getConfig('L3QuadrantWipeEnabled')) return;
             const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
+            if (!s.pendingDeletions) s.pendingDeletions = [];
             for (const b of gen.activeBlocks) {
                 if (b.layer !== 3) continue;
                 const rx = b.x - s.scx;
                 const ry = b.y - s.scy;
                 if (-ry > l0md.N + 2 || ry > l0md.S + 2 || rx > l0md.E + 2 || -rx > l0md.W + 2) {
-                    gen._removeBlock(b.x, b.y, b.w, b.h, 3);
+                    // Even in quadrant wipe, protect if under L0/L1
+                    if (!gen._isUnderLayer(b, 0) && !gen._isUnderLayer(b, 1)) {
+                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
+                    }
                 }
             }
         });
@@ -456,7 +477,16 @@ class QuantizedSequenceGeneratorV2 {
                             (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRX > l0md.W + limit);
             if (exceeds) { strip.active = false; this.strips.delete(strip.id); return; }
         }
-        if (strip.layer < 3 && this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) this._removeBlock(strip.headX + dx, strip.headY + dy, bw, bh, 3);
+        
+        // Queue L3 removal during growth if it's not protected by L0/L1
+        if (strip.layer < 3 && this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) {
+            const tx = strip.headX + dx, ty = strip.headY + dy;
+            if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
+                if (!s.pendingDeletions) s.pendingDeletions = [];
+                s.pendingDeletions.push({ x: tx, y: ty, w: bw, h: bh, layer: 3 });
+            }
+        }
+
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { strip.active = false; this.strips.delete(strip.id); return; }
         const id = this._spawnBlock(dx > 0 ? strip.headX + 1 : newHeadX, dy > 0 ? strip.headY + 1 : newHeadY, bw, bh, strip.layer, true);
@@ -607,6 +637,21 @@ class QuantizedSequenceGeneratorV2 {
         const gx = this.gridCX + x, gy = this.gridCY + y;
         const grid = this.layerGrids[layer];
         return !!grid && gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && grid[gy * this.logicGridW + gx] !== -1;
+    }
+
+    _isUnderLayer(b, layer) {
+        const x1 = b.x, y1 = b.y, x2 = b.x + b.w - 1, y2 = b.y + b.h - 1;
+        const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
+        const grid = this.layerGrids[layer];
+        if (!grid) return false;
+        for (let gy = gy1; gy <= gy2; gy++) {
+            for (let gx = gx1; gx <= gx2; gx++) {
+                if (gy >= 0 && gy < this.logicGridH && gx >= 0 && gx < this.logicGridW) {
+                    if (grid[gy * this.logicGridW + gx] !== -1) return true;
+                }
+            }
+        }
+        return false;
     }
 
     checkScreenEdge(bx, by) {
