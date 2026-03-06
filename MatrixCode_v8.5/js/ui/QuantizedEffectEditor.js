@@ -1458,6 +1458,12 @@ class QuantizedEffectEditor {
                 this.effect.expansionPhase = newStep;
                 this.effect._attemptGrowth();
                 
+                // CRITICAL: Reset manualStep and cycleTimer after the manual growth call.
+                // This prevents the effect's internal update loop from seeing manualStep 
+                // as true on the next frame and triggering a SECOND growth (step skipping).
+                this.effect.manualStep = false;
+                this.effect.cycleTimer = 0;
+                
                 this._updateUI();
                 this.isDirty = true;
                 this._broadcastSync();

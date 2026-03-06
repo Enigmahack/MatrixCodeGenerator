@@ -760,6 +760,10 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (!this.debugMode || this.manualStep) {
             this.cycleTimer++;
+            // If manual step is requested, force it to happen this frame regardless of interval
+            if (this.manualStep && this.cycleTimer < effectiveInterval) {
+                this.cycleTimer = effectiveInterval;
+            }
         }
 
         if (this.cycleTimer >= effectiveInterval) {
@@ -4995,9 +4999,43 @@ class QuantizedBaseEffect extends AbstractEffect {
         return (edges.left || edges.right || edges.top || edges.bottom) ? edges : false;
     }
 
+    _updateLayerMaxDist(s) {
+        if (!s.layerMaxDist) s.layerMaxDist = {};
+        
+        // Reset/Initialize for all active layers (0-3 supported)
+        const maxLayer = this.getConfig('LayerCount') || 0;
+        for (let l = 0; l <= 3; l++) {
+            s.layerMaxDist[l] = { N: 0, S: 0, E: 0, W: 0 };
+        }
+
+        const scx = s.scx || 0;
+        const scy = s.scy || 0;
+
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            const l = b.layer;
+            if (l < 0 || l > 3) continue;
+            
+            const md = s.layerMaxDist[l];
+            const rx = b.x - scx;
+            const ry = b.y - scy;
+
+            // North (negative Y)
+            if (ry < 0) md.N = Math.max(md.N, -ry);
+            // South (positive Y)
+            if (ry + b.h - 1 > 0) md.S = Math.max(md.S, ry + b.h - 1);
+            // West (negative X)
+            if (rx < 0) md.W = Math.max(md.W, -rx);
+            // East (positive X)
+            if (rx + b.w - 1 > 0) md.E = Math.max(md.E, rx + b.w - 1);
+        }
+    }
+
     _attemptV2Growth() {
         if (this.expansionComplete && !this.manualStep) return;
         const s = this.behaviorState;
+        this._updateLayerMaxDist(s);
+
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {
             for (const d of s.pendingDeletions) this._removeBlock(d.x, d.y, d.w, d.h, d.layer);
             s.pendingDeletions = [];
