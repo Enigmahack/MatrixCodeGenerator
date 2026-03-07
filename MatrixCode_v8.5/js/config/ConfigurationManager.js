@@ -2151,20 +2151,36 @@ void main() {
                     enableBloom: this.state.enableBloom,
                     shaderEnabled: this.state.shaderEnabled,
                     resolution: this.state.resolution,
-                    smoothingEnabled: this.state.smoothingEnabled
+                    smoothingEnabled: this.state.smoothingEnabled,
+                    dissolveEnabled: this.state.dissolveEnabled,
+                    deteriorationEnabled: this.state.deteriorationEnabled,
+                    pauseWhenHidden: this.state.pauseWhenHidden,
+                    pauseWhenIdle: this.state.pauseWhenIdle,
+                    releaseInterval: this.state.releaseInterval,
+                    globalBloomEnabled: this.state.globalBloomEnabled,
                 };
 
                 // Apply Performance Settings
                 // 1. Min Font Size 24 (Larger font = fewer cells = better performance)
                 this.state.fontSize = Math.max(24, this.state.fontSize);
-                
-                // 2. Disable Effects
+
+                // 2. Disable expensive visual features
                 this.state.enableBloom = false;
                 this.state.shaderEnabled = false;
                 this.state.smoothingEnabled = false;
+                this.state.dissolveEnabled = false;
+                this.state.deteriorationEnabled = false;
+                this.state.globalBloomEnabled = false;
 
                 // 3. Lower Resolution
                 this.state.resolution = 0.75;
+
+                // 4. Pause rendering when tab is hidden or user is idle
+                this.state.pauseWhenHidden = true;
+                this.state.pauseWhenIdle = true;
+
+                // 5. Reduce simulation spawn pressure
+                this.state.releaseInterval = Math.max(3, this.state.releaseInterval);
                 
                 this.state.performanceMode = true;
             } else {
@@ -2176,7 +2192,13 @@ void main() {
                     if (b.shaderEnabled !== undefined) this.state.shaderEnabled = b.shaderEnabled;
                     if (b.resolution !== undefined) this.state.resolution = b.resolution;
                     if (b.smoothingEnabled !== undefined) this.state.smoothingEnabled = b.smoothingEnabled;
-                    
+                    if (b.dissolveEnabled !== undefined) this.state.dissolveEnabled = b.dissolveEnabled;
+                    if (b.deteriorationEnabled !== undefined) this.state.deteriorationEnabled = b.deteriorationEnabled;
+                    if (b.pauseWhenHidden !== undefined) this.state.pauseWhenHidden = b.pauseWhenHidden;
+                    if (b.pauseWhenIdle !== undefined) this.state.pauseWhenIdle = b.pauseWhenIdle;
+                    if (b.releaseInterval !== undefined) this.state.releaseInterval = b.releaseInterval;
+                    if (b.globalBloomEnabled !== undefined) this.state.globalBloomEnabled = b.globalBloomEnabled;
+
                     this.state.performanceBackup = null;
                 }
                 this.state.performanceMode = false;
