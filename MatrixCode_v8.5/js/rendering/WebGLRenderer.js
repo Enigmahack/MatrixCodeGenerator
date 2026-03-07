@@ -1316,6 +1316,7 @@ class WebGLRenderer {
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.lastLogicGridWidth = 0;
         this.lastLogicGridHeight = 0;
+        this.occupancyBuffer = null;
 
         this.sourceGridTexture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
@@ -1555,29 +1556,41 @@ class WebGLRenderer {
         const d = this.config.derived;
         const fxState = fx.getWebGLRenderState(s, d);
         const [gw, gh] = fxState.logicGridSize;
+        if (gw <= 0 || gh <= 0) return;
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.shadowMaskFbo);
         this.gl.enable(this.gl.BLEND);
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
 
-                // 1. Prepare Logic Texture using consolidated shadowRevealGrid
+        // Ensure logic texture and buffer are initialized
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+            this.lastLogicGridWidth = gw;
+            this.lastLogicGridHeight = gh;
+            this.occupancyBuffer = new Uint8Array(gw * gh * 4);
+        }
+
+        // 1. Prepare Logic Texture using consolidated shadowRevealGrid
         // We only use Layers 0 and 1 for the shadow reveal perimeter as requested.
-        const occupancy = new Uint8Array(gw * gh * 4);
+        this.occupancyBuffer.fill(0);
+        const occupancy = this.occupancyBuffer;
         if (fx.shadowRevealGrid) {
             for (let i = 0; i < gw * gh; i++) {
                 // If it's in the filled perimeter of L0/L1, mark it as active
                 const val = (fx.shadowRevealGrid[i] === 1) ? 255 : 0;
                 // We fill all channels to ensure maskSum is non-zero regardless of u_layerOrder
-                occupancy[i * 4 + 0] = val;
-                occupancy[i * 4 + 1] = val;
-                occupancy[i * 4 + 2] = val;
-                occupancy[i * 4 + 3] = val;
+                const tidx = i * 4;
+                occupancy[tidx + 0] = val;
+                occupancy[tidx + 1] = val;
+                occupancy[tidx + 2] = val;
+                occupancy[tidx + 3] = val;
             }
         }
         
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
+        this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
         
         // 2. Prepare Uniforms
         const scale = s.resolution || 1.0;
@@ -1694,12 +1707,13 @@ class WebGLRenderer {
         const [gw, gh] = fxState.logicGridSize;
         if (gw <= 0 || gh <= 0) return false;
 
-        // Ensure logic texture is initialized
-        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight) {
+        // Ensure logic texture and buffer are initialized
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
+            this.occupancyBuffer = new Uint8Array(gw * gh * 4);
         }
 
         // 1. Prepare Data Logic (Occupancy & Source Characters)
@@ -1707,7 +1721,8 @@ class WebGLRenderer {
         const fadeIn = fx.getConfig('FadeInFrames') || 0;
         const fadeOut = fx.getConfig('FadeFrames') || 0;
 
-        const occupancy = new Uint8Array(gw * gh * 4);
+        this.occupancyBuffer.fill(0);
+        const occupancy = this.occupancyBuffer;
         for (let gy = 0; gy < gh; gy++) {
             const rowOff = gy * gw;
             for (let gx = 0; gx < gw; gx++) {

@@ -4,7 +4,13 @@ Run tests on all effects, behaviors, sliders, settings, etc.
 <- Bugs: 
 Clicking certain UI elements appears to move the canvas (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc.
 
+Generator doesn't need to 'autocomplete' itself. 
+
+There's a massive pause after the block generator takes over, instead of being seamless/continuing. 
+
 Tracer controls don't appear to work? 
+
+<- Optimizations: 
 
 #1 — Pre-allocate Occupancy Arrays (WebGLRenderer.js ~L1549, L1694)
 
@@ -15,13 +21,7 @@ Tracer controls don't appear to work?
   causes the worst frame spikes on low-end hardware.
 
   ---
-  #2 — Full Instance Buffer Rebuild Every Frame (WebGLRenderer.js ~L1968–2137)
-
-  Bottleneck: Every frame, the renderer loops over all cols × rows cells (~2,160+) to rebuild the instance buffer from
-  scratch, then uploads the entire ~86KB to the GPU via bufferSubData — even if only 5% of cells changed.
-
-  Fix: Implement a dirty-cell bitmask. Track which cells changed in the simulation tick and only rewrite + upload those.
-  Could reduce GPU upload cost by 70–90% on typical frames.
+#2 - [DONE]
 
   ---
   #3 — Per-Cell Color Blending with Math.floor + Bitwise Ops (SimulationSystem.js ~L564–588)
@@ -39,8 +39,7 @@ Tracer controls don't appear to work?
 
 
 <- Behavior:
-[DONE] Get the quantized effects working as intended. 
+
 
 <- Look:
 Clean up UI. 
-- Add variety of layer 2 and layer 3 spawn controls and adjustments. [DONE]
