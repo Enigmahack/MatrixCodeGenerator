@@ -219,29 +219,73 @@ class UIManager {
         const query = this.uiSearchQuery;
 
         // Filter definitions based on tier and search
-        const filteredDefs = this.defs.filter(def => {
-            // Category check
+        // Pass 1: Apply debug and tier filters
+        const baseDefs = this.defs.filter(def => {
             if (def.cat === 'Debug' && !showDebug) return false;
-
-            // Tier check: if 'basic', hide items tagged as 'advanced' (or not 'basic')
-            // Special structural items like accordion_header should usually pass through
             const isStructural = ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader'].includes(def.type);
             if (uiTier === 'basic' && !isStructural && def.tier !== 'basic') return false;
-
-            // Search query check
-            if (query) {
-                const searchStr = [
-                    def.label, 
-                    def.id, 
-                    def.description, 
-                    ...(def.tags || [])
-                ].filter(Boolean).join(' ').toLowerCase();
-                
-                if (!searchStr.includes(query)) return false;
-            }
-
             return true;
         });
+
+        let filteredDefs;
+        if (query) {
+            // Pass 2: Search with context preservation and forward inclusion
+            // 1. If a header matches, all its children are included.
+            // 2. If a child matches, its structural parents are included for context.
+            const matches = (d) => {
+                const searchStr = [
+                    d.label, 
+                    d.id, 
+                    d.description, 
+                    ...(d.tags || [])
+                ].filter(Boolean).join(' ').toLowerCase();
+                return searchStr.includes(query);
+            };
+
+            const keepIndices = new Set();
+            let lastHeaderIdx = -1;
+            let lastSubHeaderIdx = -1;
+
+            let headerActive = false;    // True if current accordion header matches
+            let subAccActive = false;    // True if current sub-accordion matches
+            let subHeaderActive = false; // True if current subheader (label) matches
+
+            baseDefs.forEach((def, i) => {
+                const isHeader = def.type === 'accordion_header';
+                const isSubAcc = def.type === 'sub_accordion' || def.type === 'accordion_subheader_group';
+                const isSubHeader = def.type === 'accordion_subheader';
+                const isEnd = def.type === 'end_group';
+
+                if (isHeader) {
+                    lastHeaderIdx = i;
+                    lastSubHeaderIdx = -1;
+                    headerActive = matches(def);
+                    subAccActive = false;
+                    subHeaderActive = false;
+                } else if (isSubAcc) {
+                    lastSubHeaderIdx = i;
+                    subAccActive = matches(def);
+                    subHeaderActive = false;
+                } else if (isSubHeader) {
+                    subHeaderActive = matches(def);
+                } else if (isEnd) {
+                    subAccActive = false;
+                }
+
+                // If the item matches directly, or any of its active containers match
+                if (matches(def) || headerActive || subAccActive || subHeaderActive) {
+                    keepIndices.add(i);
+                    // Backward inclusion: If child matched, ensure parents are shown
+                    if (lastHeaderIdx !== -1) keepIndices.add(lastHeaderIdx);
+                    if (lastSubHeaderIdx !== -1) keepIndices.add(lastSubHeaderIdx);
+                }
+            });
+
+            filteredDefs = baseDefs.filter((def, i) => keepIndices.has(i));
+        }
+ else {
+            filteredDefs = baseDefs;
+        }
 
         const categories = [...new Set(filteredDefs.map(def => def.cat))];
 
@@ -347,6 +391,16 @@ class UIManager {
             // Sub Accordion: Pushes new nested body onto the stack
             if (def.type === 'sub_accordion' || def.type === 'accordion_subheader_group') {
                 const parent = stack[stack.length - 1];
+                
+                // Flatten logic for search: don't push to stack if searching, just render as a subheader
+                if (this.uiSearchQuery) {
+                    const sub = document.createElement('div');
+                    sub.className = 'accordion-subheader search-flattened';
+                    sub.textContent = def.label;
+                    parent.appendChild(sub);
+                    return;
+                }
+
                 const subBody = this._createSubAccordion(parent, def.label, def.dep);
                 stack.push(subBody);
                 return;
@@ -354,6 +408,7 @@ class UIManager {
 
             // End Group: Manually return to previous nesting level
             if (def.type === 'end_group') {
+                if (this.uiSearchQuery) return; // Ignore end_groups during search as we flattened
                 if (stack.length > 1) stack.pop();
                 return;
             }
@@ -1606,6 +1661,8 @@ class UIManager {
         if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
         if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
+        if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion')) this.notifications.show('Quantized Expansion Triggered', 'success'); else this.notifications.show('Quantized Expansion active...', 'info'); }
+        if(action === 'quantizedCrawler') { if(this.effects.trigger('QuantizedCrawler')) this.notifications.show('Quantized Crawler Triggered', 'success'); else this.notifications.show('Quantized Crawler active...', 'info'); }
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }

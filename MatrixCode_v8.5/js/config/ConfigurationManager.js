@@ -2102,10 +2102,26 @@ void main() {
      * Used on startup to prevent persistence of old shaders.
      */
     clearShaderState() {
-        // Only clear the temporary effect shader used by system sequences.
-        // We preserve shaderEnabled and customShader so user preferences persist across refreshes
-        // and to prevent visual flickers during initialization.
-        this.state.effectShader = null;
+        // Clear all primary effect slots used by system sequences and dynamic effects.
+        // We preserve shaderEnabled and customShader so user preferences persist across refreshes.
+        this.state.effectShader1Enabled = false;
+        this.state.effectShader1Content = null;
+        this.state.effectShader1Name = 'none';
+        
+        this.state.effectShader2Enabled = false;
+        this.state.effectShader2Content = null;
+        this.state.effectShader2Name = 'none';
+        
+        this.state.totalFX1Enabled = false;
+        this.state.totalFX1ShaderContent = null;
+        this.state.totalFX1Name = 'none';
+        
+        this.state.totalFX2Enabled = false;
+        this.state.totalFX2ShaderContent = null;
+        this.state.totalFX2Name = 'none';
+
+        this.state.effectShader = null; // Legacy cleanup
+        
         this.save();
     }
 

@@ -100,6 +100,8 @@ class EffectRegistry {
             'quantizedRetract': QuantizedRetractEffect,
             'quantizedClimb': QuantizedClimbEffect,
             'quantizedZoom': QuantizedZoomEffect,
+            'quantizedExpansion': QuantizedExpansionEffect,
+            'quantizedCrawler': QuantizedCrawlerEffect,
             'QuantizedBlockGenerator': QuantizedBlockGeneration
         };
 

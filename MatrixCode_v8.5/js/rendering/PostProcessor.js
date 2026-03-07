@@ -615,7 +615,7 @@ class PostProcessor {
         const globalBloomProg = this._getBloomProgram(globalBloomType);
 
         // Define the pipeline chain
-        const activePasses = [
+        let activePasses = [
             { id: 'effect1', prog: this.effect1Program, param: params.effect1 ?? 0.5, enabled: this.config.get('effectShader1Enabled') },
             { id: 'effect2', prog: this.effect2Program, param: params.effect2 ?? 0.5, enabled: this.config.get('effectShader2Enabled') },
             { id: 'totalFX1', prog: this.totalFX1Program, param: params.totalFX1 ?? 0.5, enabled: this.config.get('totalFX1Enabled') },
@@ -637,6 +637,30 @@ class PostProcessor {
             { id: 'custom', prog: this.customProgram || this.defaultProgram, param: params.custom ?? 0.5, enabled: this.config.get('shaderEnabled'), customParams: params.customParams }
         ].filter(p => p.prog !== null && p.enabled);
         
+        // SYSTEM SEQUENCE BYPASS:
+        // If a core system sequence (Boot, Crash, DejaVu) is active, we bypass 
+        // subsequent user-defined effects like Global Bloom, Global FX, and Custom Shaders.
+        // This ensures the animation is consistent and not washed out by user settings.
+        const isSystemSequenceActive = activePasses.some(p => {
+            const name = this.config.get(p.id + 'Name');
+            return name && (
+                name.includes('BootSequence') || 
+                name.includes('CrashSequence') || 
+                name.includes('DejaVu')
+            );
+        });
+
+        if (isSystemSequenceActive) {
+            // Keep ONLY the primary sequence slots. Bypass Bloom, Global FX, and Custom Shaders.
+            activePasses = activePasses.filter(p => 
+                p.id === 'effect1' || p.id === 'effect2' || p.id === 'totalFX1' || p.id === 'totalFX2'
+            );
+            // Respect user brightness if lower than 1.0, with a floor for visibility.
+            const userBrightness = this.config.get('brightness') ?? 1.0;
+            brightness = Math.max(0.3, Math.min(1.0, userBrightness));
+        }
+
+
         if (activePasses.length === 0) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
             this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
