@@ -473,24 +473,31 @@ class SimulationSystem {
         const s = this.config.state;
         const d = this.config.derived;
         const grid = this.grid;
+
+        // Optimization #3: Extract tracer color once per frame
+        const tc = d.tracerColorUint32;
+        const tR = tc & 0xFF;
+        const tG = (tc >> 8) & 0xFF;
+        const tB = (tc >> 16) & 0xFF;
+
         const activeFlag = grid.activeFlag;
         const total = grid.cols * grid.rows;
 
         if (activeFlag) {
             for (let i = 0; i < total; i++) {
                 if (activeFlag[i] === 1) {
-                    this._updateCell(i, frame, s, d);
+                    this._updateCell(i, frame, s, d, tR, tG, tB);
                 }
             }
         } else {
             // Fallback for non-SAB mode
             for (const idx of grid.activeIndices) {
-                this._updateCell(idx, frame, s, d);
+                this._updateCell(idx, frame, s, d, tR, tG, tB);
             }
         }
     }
 
-    _updateCell(idx, frame, s, d) {
+    _updateCell(idx, frame, s, d, tR, tG, tB) {
         const grid = this.grid;
 
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
@@ -561,20 +568,16 @@ class SimulationSystem {
                 // Rotators use mix 0..1, so preserve values < 2.0
                 if (grid.mix[idx] >= 2.0) grid.mix[idx] = 0; 
             } else if (ratio > 0) {
-                // Blend
-                const tR = tracerColor & 0xFF;
-                const tG = (tracerColor >> 8) & 0xFF;
-                const tB = (tracerColor >> 16) & 0xFF;
-                
+                // Optimization #3: Bitwise blending and inlined packing
                 const bR = baseColor & 0xFF;
                 const bG = (baseColor >> 8) & 0xFF;
                 const bB = (baseColor >> 16) & 0xFF;
                 
-                const mR = Math.floor(tR + (bR - tR) * ratio);
-                const mG = Math.floor(tG + (bG - tG) * ratio);
-                const mB = Math.floor(tB + (bB - tB) * ratio);
+                const mR = (tR + (bR - tR) * ratio) | 0;
+                const mG = (tG + (bG - tG) * ratio) | 0;
+                const mB = (tB + (bB - tB) * ratio) | 0;
                 
-                grid.colors[idx] = Utils.packAbgr(mR, mG, mB);
+                grid.colors[idx] = (0xFF000000 | (mB << 16) | (mG << 8) | mR);
                 
                 if (isGradual && !isUpward) {
                     grid.glows[idx] = 0;

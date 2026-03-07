@@ -63,9 +63,9 @@ class WorkerSimulationSystem {
 
     _updateGlimmerLifecycle() {
         const s = this.config.state;
-        const indices = Array.from(this.grid.complexStyles.keys());
 
-        for (const idx of indices) {
+        // Optimization #3: Avoid per-frame Array.from() allocation by using iterator directly
+        for (const idx of this.grid.complexStyles.keys()) {
             const style = this.grid.complexStyles.get(idx);
             if (!style || style.type !== 'glimmer') continue;
 
@@ -204,16 +204,23 @@ class WorkerSimulationSystem {
     _updateCells(frame, timeScale = 1.0) {
         if (timeScale <= 0) return;
         const total = this.grid.cols * this.grid.rows;
+
+        // Optimization #3: Extract tracer color once per frame
+        const tc = config.derived.tracerColorUint32;
+        const tR = tc & 0xFF;
+        const tG = (tc >> 8) & 0xFF;
+        const tB = (tc >> 16) & 0xFF;
+
         if (this.grid.activeFlag) {
             for (let i = 0; i < total; i++) {
-                if (this.grid.activeFlag[i] === 1) this._updateCell(i, frame, config.state, config.derived);
+                if (this.grid.activeFlag[i] === 1) this._updateCell(i, frame, config.state, config.derived, tR, tG, tB);
             }
         } else {
-            for (const idx of this.grid.activeIndices) this._updateCell(idx, frame, config.state, config.derived);
+            for (const idx of this.grid.activeIndices) this._updateCell(idx, frame, config.state, config.derived, tR, tG, tB);
         }
     }
 
-    _updateCell(idx, frame, s, d) {
+    _updateCell(idx, frame, s, d, tR, tG, tB) {
         const grid = this.grid;
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         const ov = grid.overrideActive[idx];
@@ -235,7 +242,17 @@ class WorkerSimulationSystem {
                 grid.glows[idx] = 0; 
                 if (grid.mix[idx] >= 2.0) grid.mix[idx] = 0; 
             } else if (ratio > 0) {
-                grid.colors[idx] = this._lerpPackColor(d.tracerColorUint32, grid.baseColors[idx], ratio);
+                // Optimization #3: Bitwise blending and inlined packing
+                const bc = grid.baseColors[idx];
+                const bR = bc & 0xFF;
+                const bG = (bc >> 8) & 0xFF;
+                const bB = (bc >> 16) & 0xFF;
+                
+                const mR = (tR + (bR - tR) * ratio) | 0;
+                const mG = (tG + (bG - tG) * ratio) | 0;
+                const mB = (tB + (bB - tB) * ratio) | 0;
+                
+                grid.colors[idx] = (0xFF000000 | (mB << 16) | (mG << 8) | mR);
                 grid.glows[idx] = s.tracerGlow * (1.0 - ratio);
             } else {
                 grid.colors[idx] = d.tracerColorUint32;
@@ -270,12 +287,6 @@ class WorkerSimulationSystem {
         const attackHold = s.tracerAttackFrames + s.tracerHoldFrames;
         if (activeAge <= attackHold) return 0;
         return s.tracerReleaseFrames > 0 ? Math.min(1.0, (activeAge - attackHold) / s.tracerReleaseFrames) : 1.0;
-    }
-
-    _lerpPackColor(c1, c2, t) {
-        const r1=c1&0xFF, g1=(c1>>8)&0xFF, b1=(c1>>16)&0xFF;
-        const r2=c2&0xFF, g2=(c2>>8)&0xFF, b2=(c2>>16)&0xFF;
-        return (r1+(r2-r1)*t)|((g1+(g2-g1)*t)<<8)|((b1+(b2-b1)*t)<<16)|0xFF000000;
     }
 
     _handleRotator(idx, frame, s, d) {
