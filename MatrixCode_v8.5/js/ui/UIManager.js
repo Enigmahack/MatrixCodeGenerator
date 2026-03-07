@@ -14,6 +14,7 @@ class UIManager {
         this.scrollState = { isDown: false, startX: 0, scrollLeft: 0, dragDistance: 0 };
         this.ignoreNextClick = false; // Retain existing logic for drag/click distinction
         this.isKeyBindingActive = false; // Flag to suspend global key inputs
+        this.uiSearchQuery = "";
         this.defs = this._generateDefinitions();
 
         // Event subscriptions
@@ -93,6 +94,9 @@ class UIManager {
         // Toggle button for the settings panel
         this.dom.toggle.onclick = () => this.togglePanel();
 
+        // Setup search and tier header
+        this._setupSearchHeader();
+
         // Create and populate tabs and content containers
         this._setupTabs();
 
@@ -107,6 +111,84 @@ class UIManager {
 
         // Refresh UI
         this.refresh('ALL');
+    }
+
+    /**
+     * Creates and attaches the search bar and tier toggle to the top of the panel.
+     * @private
+     */
+    _setupSearchHeader() {
+        const header = document.createElement('div');
+        header.id = 'uiSearchHeader';
+        header.className = 'ui-search-header';
+
+        // Search Input
+        const searchContainer = document.createElement('div');
+        searchContainer.className = 'search-container';
+        
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search settings...';
+        searchInput.id = 'uiSearchInput';
+        searchInput.value = this.uiSearchQuery;
+        
+        searchInput.oninput = (e) => {
+            this.uiSearchQuery = e.target.value.toLowerCase();
+            this._setupTabs(); // Re-render tabs/content based on search
+        };
+
+        const clearBtn = document.createElement('span');
+        clearBtn.className = 'search-clear';
+        clearBtn.innerHTML = '&times;';
+        clearBtn.onclick = () => {
+            searchInput.value = '';
+            this.uiSearchQuery = '';
+            this._setupTabs();
+        };
+
+        searchContainer.appendChild(searchInput);
+        searchContainer.appendChild(clearBtn);
+
+        // Tier Toggle
+        const tierContainer = document.createElement('div');
+        tierContainer.className = 'tier-toggle-container';
+        
+        const currentTier = this.c.get('uiTier') || 'basic';
+        
+        const basicBtn = document.createElement('button');
+        basicBtn.className = `tier-btn ${currentTier === 'basic' ? 'active' : ''}`;
+        basicBtn.textContent = 'BASIC';
+        basicBtn.onclick = () => {
+            this.c.set('uiTier', 'basic');
+            this._updateTierButtons('basic');
+            this._setupTabs();
+        };
+
+        const advBtn = document.createElement('button');
+        advBtn.className = `tier-btn ${currentTier === 'advanced' ? 'active' : ''}`;
+        advBtn.textContent = 'ADVANCED';
+        advBtn.onclick = () => {
+            this.c.set('uiTier', 'advanced');
+            this._updateTierButtons('advanced');
+            this._setupTabs();
+        };
+
+        tierContainer.appendChild(basicBtn);
+        tierContainer.appendChild(advBtn);
+
+        header.appendChild(searchContainer);
+        header.appendChild(tierContainer);
+
+        // Insert before tabs
+        this.dom.panel.insertBefore(header, this.dom.tabs);
+    }
+
+    _updateTierButtons(activeTier) {
+        const btns = this.dom.panel.querySelectorAll('.tier-btn');
+        btns.forEach(btn => {
+            if (btn.textContent.toLowerCase() === activeTier) btn.classList.add('active');
+            else btn.classList.remove('active');
+        });
     }
 
     /**
@@ -133,10 +215,35 @@ class UIManager {
         }
 
         const showDebug = this.c.get('debugTabEnabled');
-        const categories = [...new Set(this.defs.map(def => def.cat))].filter(cat => {
-            if (cat === 'Debug' && !showDebug) return false;
+        const uiTier = this.c.get('uiTier') || 'basic';
+        const query = this.uiSearchQuery;
+
+        // Filter definitions based on tier and search
+        const filteredDefs = this.defs.filter(def => {
+            // Category check
+            if (def.cat === 'Debug' && !showDebug) return false;
+
+            // Tier check: if 'basic', hide items tagged as 'advanced' (or not 'basic')
+            // Special structural items like accordion_header should usually pass through
+            const isStructural = ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader'].includes(def.type);
+            if (uiTier === 'basic' && !isStructural && def.tier !== 'basic') return false;
+
+            // Search query check
+            if (query) {
+                const searchStr = [
+                    def.label, 
+                    def.id, 
+                    def.description, 
+                    ...(def.tags || [])
+                ].filter(Boolean).join(' ').toLowerCase();
+                
+                if (!searchStr.includes(query)) return false;
+            }
+
             return true;
         });
+
+        const categories = [...new Set(filteredDefs.map(def => def.cat))];
 
         const tabContentContainers = {}; // Mapping of category -> content container div
         this.dom.content.innerHTML = '';
@@ -152,8 +259,8 @@ class UIManager {
             tabContentContainers[category] = contentContainer;
         });
 
-        // Populate tab content
-        this._populateTabContent(tabContentContainers);
+        // Populate tab content with filtered definitions
+        this._populateTabContent(tabContentContainers, filteredDefs);
     }
 
     /**
@@ -212,11 +319,12 @@ class UIManager {
      * Populates tabs with content using a stack-based container system.
      * @private
      * @param {Object} tabContentContainers - A map of category names to their content container elements.
+     * @param {Array} filteredDefs - The list of definitions to render.
      */
-    _populateTabContent(tabContentContainers) {
+    _populateTabContent(tabContentContainers, filteredDefs) {
         const containerStacks = {}; // category -> [tabGroup, currentAccordion, currentSubAccordion]
 
-        this.defs.forEach(def => {
+        filteredDefs.forEach(def => {
             const tabGroup = tabContentContainers[def.cat];
             if (!tabGroup) return;
 
@@ -296,6 +404,20 @@ class UIManager {
             const controlElement = this.renderControl(def);
             if (controlElement) target.appendChild(controlElement);
         });
+
+        // Cleanup: Auto-expand first accordion if search is active
+        if (this.uiSearchQuery) {
+            Object.values(tabContentContainers).forEach(container => {
+                const firstAccordion = container.querySelector('.accordion-item');
+                if (firstAccordion) {
+                    const header = firstAccordion.querySelector('.accordion-header');
+                    const body = firstAccordion.querySelector('.accordion-content');
+                    if (header && body && !body.classList.contains('open')) {
+                        this._toggleAccordion(header, body);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -1485,7 +1607,7 @@ class UIManager {
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
         if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
-        if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('Deja Vu Triggered', 'success'); else this.notifications.show('Deja Vu already active...', 'info'); }
+        if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'unloadAllShaders') { this._unloadAllShaders(); }
     }
@@ -1728,12 +1850,9 @@ class UIManager {
                 });
             }
 
-            // Update dependents - more robust check than attribute contains
+            // Update dependents - Re-evaluate all dependent rows to handle cross-key dependencies (e.g. activeQuantizedEffect:prefix)
             this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
-                const depStr = row.getAttribute('data-dep');
-                if (depStr && depStr.includes(key)) {
-                    this._updateRowVisibility(row);
-                }
+                this._updateRowVisibility(row);
             });
         } catch(e) { console.warn("UI Refresh Error:", e); }
     }
@@ -1747,30 +1866,55 @@ class UIManager {
             const depRule = JSON.parse(row.getAttribute('data-dep')); 
             const rules = Array.isArray(depRule) ? depRule : [depRule]; 
             let conditionsMet = true;
+            
             for (let rule of rules) { 
                 let target = rule; 
                 let expected = true; 
-                if (target.startsWith('!')) { target = target.substring(1); expected = false; } 
+                let requiredValue = null;
+
+                // Handle negation
+                if (target.startsWith('!')) { 
+                    target = target.substring(1); 
+                    expected = false; 
+                } 
+
+                // Handle value matching (e.g. "activeQuantizedEffect:quantizedPulse")
+                if (target.includes(':')) {
+                    const parts = target.split(':');
+                    target = parts[0];
+                    requiredValue = parts[1];
+                }
+
                 let actualVal = this.c.get(target);
-                if (actualVal === 'true') actualVal = true;
-                if (actualVal === 'false') actualVal = false;
-                if (!!actualVal !== expected) { conditionsMet = false; break; } 
+                
+                if (requiredValue !== null) {
+                    // Check for specific value match
+                    const isMatch = String(actualVal) === requiredValue;
+                    if (isMatch !== expected) {
+                        conditionsMet = false;
+                        break;
+                    }
+                } else {
+                    // Standard boolean-ish check
+                    if (actualVal === 'true') actualVal = true;
+                    if (actualVal === 'false') actualVal = false;
+                    if (!!actualVal !== expected) { 
+                        conditionsMet = false; 
+                        break; 
+                    } 
+                }
             }
 
             // Apply visibility logic
             if(conditionsMet) {
                 row.classList.remove('control-disabled');
-                // Structural elements should be fully shown
-                if (row.classList.contains('sub-accordion') || row.classList.contains('accordion-subheader')) {
-                    row.style.display = '';
-                }
+                row.style.display = '';
             } else {
                 row.classList.add('control-disabled');
-                // Structural elements should be fully hidden when dependencies fail
-                if (row.classList.contains('sub-accordion') || row.classList.contains('accordion-subheader')) {
-                    row.style.display = 'none';
-                }
+                row.style.display = 'none';
             }
-        } catch(e) {}
+        } catch(e) {
+            if (this.c.get('logErrors')) console.warn("Dependency error for row:", row, e);
+        }
     }
 }
