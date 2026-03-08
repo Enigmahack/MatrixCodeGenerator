@@ -4,7 +4,8 @@
       "Bash(wc:*)",
       "Bash(xargs grep:*)",
       "Bash(grep:*)",
-      "Bash(dotnet:*)"
+      "Bash(dotnet:*)",
+      "Bash(python:*)"
     ]
   }
 }

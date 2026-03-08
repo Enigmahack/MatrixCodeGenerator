@@ -529,6 +529,8 @@ class ConfigurationManager {
             "layerEnableShadowWorld": true,
             "layerEnableQuantizedLines": true,
             "layerEnableQuantizedGridCache": false,
+            "layerEnableCanvasLines": true,
+            "layerEnablePerimeterEcho": true,
             "layerEnableEditorGrid": true,
             "layerEnableEditorOverlay": true,
             "quantizedSolidPerimeter": false,

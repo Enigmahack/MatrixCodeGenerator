@@ -24,6 +24,7 @@ class QuantizedRenderer {
         ctx.clearRect(0, 0, w, h);
         colorLayerCtx.clearRect(0, 0, w, h);
         lineCtx.clearRect(0, 0, w, h);
+        if (fx.echoCtx) fx.echoCtx.clearRect(0, 0, w, h);
 
         if (!fx.renderGrid) return;
 
@@ -186,6 +187,11 @@ class QuantizedRenderer {
         this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
         this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
 
+        // Perimeter Echo rendered to its own canvas (separate from canvas lines)
+        if (fx.echoCtx) {
+            this.renderEchoEdges(fx, fx.echoCtx, now, blocksX, blocksY);
+        }
+
         // Corner Cleanup
         this._renderCornerCleanup(fx, colorLayerCtx, now);
         
@@ -204,6 +210,11 @@ class QuantizedRenderer {
         const offX = l.offX || 0;
         const offY = l.offY || 0;
         
+        // Refraction (lineMaskCanvas / lineCtx) always needs the mask, 
+        // but the visual overlay (ctx) should only be drawn if enabled.
+        const isVisualPass = (ctx === fx.maskCtx || ctx === fx.perimeterMaskCanvas.getContext('2d'));
+        if (isVisualPass && fx.c.get('layerEnableCanvasLines') === false) return;
+
         // Apply Offsets to align Logic Grid with Screen
         const sBx = blockStart.x - offX;
         const sBy = blockStart.y - offY;
@@ -543,7 +554,7 @@ class QuantizedRenderer {
             }
         };
 
-        const drawEdge = (x, y, type) => {
+        const drawEdge = (x, y, type, isVisual) => {
             const key = (type === 'V' ? 0 : 1) + x * 2 + y * 4000;
             const variance = getVariance(type === 'V' ? x : y, type);
             const state = fx.lineStates.get(key);
@@ -556,10 +567,12 @@ class QuantizedRenderer {
                 const birth = getBirthState(state.birthFrame);
                 if (birth) {
                     const finalOpacity = birth.o * variance;
-                    const path = getBatch(birth.c, finalOpacity);
                     const mPath = getMaskBatch(finalOpacity);
-                    this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
+                    if (isVisual) {
+                        const path = getBatch(birth.c, finalOpacity);
+                        this._addFaceToPath(path, fx, x, y, face);
+                    }
                 }
             }
             
@@ -568,10 +581,12 @@ class QuantizedRenderer {
                 const fade = getFadeState(state.deathFrame);
                 if (fade) {
                     const finalOpacity = fade.o * variance;
-                    const path = getBatch(fade.c, finalOpacity);
                     const mPath = getMaskBatch(finalOpacity);
-                    this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
+                    if (isVisual) {
+                        const path = getBatch(fade.c, finalOpacity);
+                        this._addFaceToPath(path, fx, x, y, face);
+                    }
                 } else {
                     state.deathFrame = -1;
                 }
@@ -604,10 +619,12 @@ class QuantizedRenderer {
                 const dimOpacity = activeState.o * l0Opacity * variance;
 
                 if (dimOpacity > 0.01) {
-                    const path = getBatch(fadeColor, dimOpacity);
                     const mPath = getMaskBatch(dimOpacity);
-                    this._addFaceToPath(path, fx, x, y, face);
                     this._addFaceToPath(mPath, fx, x, y, face);
+                    if (isVisual) {
+                        const path = getBatch(fadeColor, dimOpacity);
+                        this._addFaceToPath(path, fx, x, y, face);
+                    }
                 }
                 
                 if (!dimFade && state.dimDeathFrame !== -1) {
@@ -668,55 +685,15 @@ class QuantizedRenderer {
             fx._lastResolvedFrame = now;
         }
 
-        // Always draw active/fading edges
+        // Always draw active/fading edges for MASK (Refraction)
+        // Only draw to VISUAL if toggled on.
+        const showCanvasLines = (fx.c.get('layerEnableCanvasLines') !== false);
         for (const [key, state] of fx.lineStates) {
             if (state.visible || state.deathFrame !== -1 || state.dimVisible || state.dimDeathFrame !== -1) {
                 const type = (key % 2 === 0) ? 'V' : 'H';
                 const x = Math.floor((key % 4000) / 2);
                 const y = Math.floor(key / 4000);
-                drawEdge(x, y, type);
-            }
-        }
-
-        // --- Perimeter Echo Pass ---
-        if (fx.getConfig('PerimeterEchoEnabled') && fx.perimeterHistory && fx.perimeterHistory.length >= 4) {
-            const echoGrid = fx.perimeterHistory[0];
-            const echoColor = color; 
-            const echoOpacity = 0.99; 
-            
-            for (let y = 0; y <= blocksY; y++) {
-                for (let x = 0; x <= blocksX; x++) {
-                    // Vertical
-                    if (x > 0 && x < blocksX && y < blocksY) {
-                         const idxA = y * blocksX + (x - 1);
-                         const idxB = y * blocksX + x;
-                         const a = echoGrid[idxA];
-                         const b = echoGrid[idxB];
-                         if ((a !== -1) !== (b !== -1)) {
-                             const variance = getVariance(x, 'V');
-                             const finalOpacity = echoOpacity * variance;
-                             const path = getBatch(echoColor, finalOpacity);
-                             const mPath = getMaskBatch(finalOpacity);
-                             this._addFaceToPath(path, fx, x, y, 'W');
-                             this._addFaceToPath(mPath, fx, x, y, 'W');
-                         }
-                    }
-                    // Horizontal
-                    if (y > 0 && y < blocksY && x < blocksX) {
-                         const idxA = (y - 1) * blocksX + x;
-                         const idxB = y * blocksX + x;
-                         const a = echoGrid[idxA];
-                         const b = echoGrid[idxB];
-                         if ((a !== -1) !== (b !== -1)) {
-                             const variance = getVariance(y, 'H');
-                             const finalOpacity = echoOpacity * variance;
-                             const path = getBatch(echoColor, finalOpacity);
-                             const mPath = getMaskBatch(finalOpacity);
-                             this._addFaceToPath(path, fx, x, y, 'N');
-                             this._addFaceToPath(mPath, fx, x, y, 'N');
-                         }
-                    }
-                }
+                drawEdge(x, y, type, showCanvasLines);
             }
         }
 
@@ -734,6 +711,86 @@ class QuantizedRenderer {
             maskCtx.globalAlpha = parseFloat(oStr);
             maskCtx.fill(path);
         });
+    }
+
+    // --- Perimeter Echo (separate from canvas lines) ---
+    renderEchoEdges(fx, echoCtx, now, blocksX, blocksY) {
+        if (!echoCtx) return;
+        if (!fx.getConfig('PerimeterEchoEnabled')) return;
+        if (!fx.perimeterHistory || fx.perimeterHistory.length < 4) return;
+        if (!fx.layout) return;
+
+        const echoGrid = fx.perimeterHistory[0];
+        const echoColor = fx.getConfig('PerimeterColor') || "#FFD700";
+        const echoOpacity = 1.0;
+
+        const varianceEnabled = fx.getLineGfxValue('BrightnessVarianceEnabled');
+        const varianceAmount = fx.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
+        const varianceCoverage = fx.getLineGfxValue('BrightnessVarianceCoverage') ?? 100;
+        const varianceDirection = fx.getLineGfxValue('BrightnessVarianceDirection') ?? 1;
+
+        const getVariance = (idx, type) => {
+            if (!varianceEnabled) return 1.0;
+            const isV = (type === 'V' || type === 0);
+            if (varianceDirection === 0 && isV) return 1.0;
+            if (varianceDirection === 2 && !isV) return 1.0;
+            const covSeed = isV ? (idx * 78.233 + 13.7) : (idx * 43.7581 + 27.3);
+            const covHash = Math.abs(Math.sin(covSeed) * 43758.5453) % 1.0;
+            if (covHash > (varianceCoverage / 100.0)) return 1.0;
+            return 1.0 - varianceAmount;
+        };
+
+        const echoOutside = this.computeTrueOutside(fx, blocksX, blocksY, echoGrid);
+
+        const echoBatches = new Map();
+        const getBatch = (c, o) => {
+            const key = `${c}|${o.toFixed(3)}`;
+            if (!echoBatches.has(key)) echoBatches.set(key, new Path2D());
+            return echoBatches.get(key);
+        };
+
+        for (let y = 0; y <= blocksY; y++) {
+            for (let x = 0; x <= blocksX; x++) {
+                // Vertical Edges
+                if (x > 0 && x < blocksX && y < blocksY) {
+                    const idxA = y * blocksX + (x - 1);
+                    const idxB = y * blocksX + x;
+                    const a = echoGrid[idxA];
+                    const b = echoGrid[idxB];
+                    if ((a !== -1) !== (b !== -1)) {
+                        const isExterior = (a === -1 && echoOutside[idxA]) || (b === -1 && echoOutside[idxB]);
+                        if (isExterior) {
+                            const variance = getVariance(x, 'V');
+                            const finalOpacity = echoOpacity * variance;
+                            this._addFaceToPath(getBatch(echoColor, finalOpacity), fx, x, y, 'W');
+                        }
+                    }
+                }
+                // Horizontal Edges
+                if (y > 0 && y < blocksY && x < blocksX) {
+                    const idxA = (y - 1) * blocksX + x;
+                    const idxB = y * blocksX + x;
+                    const a = echoGrid[idxA];
+                    const b = echoGrid[idxB];
+                    if ((a !== -1) !== (b !== -1)) {
+                        const isExterior = (a === -1 && echoOutside[idxA]) || (b === -1 && echoOutside[idxB]);
+                        if (isExterior) {
+                            const variance = getVariance(y, 'H');
+                            const finalOpacity = echoOpacity * variance;
+                            this._addFaceToPath(getBatch(echoColor, finalOpacity), fx, x, y, 'N');
+                        }
+                    }
+                }
+            }
+        }
+
+        echoBatches.forEach((path, key) => {
+            const [c, oStr] = key.split('|');
+            echoCtx.fillStyle = c;
+            echoCtx.globalAlpha = parseFloat(oStr);
+            echoCtx.fill(path);
+        });
+        echoCtx.globalAlpha = 1.0;
     }
 
     _addFaceToPath(path, fx, bx, by, face) {

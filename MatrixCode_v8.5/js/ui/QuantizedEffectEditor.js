@@ -1486,9 +1486,10 @@ class QuantizedEffectEditor {
                 }
 
                 this.effect._attemptGrowth();
-                
+                this.effect._capturePerimeterEcho();
+
                 // CRITICAL: Reset manualStep and cycleTimer after the manual growth call.
-                // This prevents the effect's internal update loop from seeing manualStep 
+                // This prevents the effect's internal update loop from seeing manualStep
                 // as true on the next frame and triggering a SECOND growth (step skipping).
                 this.effect.manualStep = false;
                 this.effect.cycleTimer = 0;
@@ -1514,6 +1515,8 @@ class QuantizedEffectEditor {
         this.effect.isReconstructing = true;
         this.effect.jumpToStep(newStep);
         this.effect.isReconstructing = false;
+        this.effect.perimeterHistory = [];
+        this.effect._capturePerimeterEcho();
 
         this._updateUI();
         this.isDirty = true;

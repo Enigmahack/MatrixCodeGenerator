@@ -1832,6 +1832,17 @@ class WebGLRenderer {
         this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
 
         // --- PASS 2: COMPOSITE ---
+        // Echo is rendered as a 2D overlay (see QuantizedBaseEffect.render), not in the WebGL pipeline.
+        // Pass 2 must still run when Natural Refraction is enabled, even if canvas lines are hidden.
+        const showCanvasLines = (s.layerEnableCanvasLines !== false);
+        const refractionActive = fxState.refractionEnabled && !s.performanceMode;
+
+        if (!showCanvasLines && !refractionActive) {
+             // Skip Pass 2: no lines to show and refraction is off.
+             this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+             return true;
+        }
+
         const compUniforms = { 
             ...sharedUniforms, 
             u_mode: 1,
