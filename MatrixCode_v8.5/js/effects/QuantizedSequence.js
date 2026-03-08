@@ -161,7 +161,7 @@ class QuantizedSequence {
             setLocalActive(dx, dy);
             setLayerActive(dx, dy, layer, now);
             fx.maskOps.push({ type: op, x1: dx, y1: dy, x2: dx, y2: dy, ext: false, startFrame: now, startPhase: fx.expansionPhase, layer, invisible });
-            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy), invisible });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy), invisible, stepAge: 0 });
         } else if (op === 'addRect' || op === 'addBlock') {
             const [dx1, dy1, dx2, dy2] = args;
             const targetLayer = (op === 'addBlock' && args.length >= 5) ? args[4] : layer;
@@ -177,7 +177,7 @@ class QuantizedSequence {
                 layer: targetLayer, invisible, fade: !suppressFades 
             });
 
-            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: targetLayer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y), invisible });
+            if (fx.activeBlocks) fx.activeBlocks.push({ x, y, w, h, layer: targetLayer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(x) + Math.abs(y), invisible, stepAge: 0 });
             for (let gy = 0; gy < h; gy++) {
                 for (let gx = 0; gx < w; gx++) {
                     setLocalActive(x + gx, y + gy);

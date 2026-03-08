@@ -231,6 +231,10 @@ class QuantizedEffectEditor {
                 if (this.effect) this.effect.c.set('layerEnableShadowWorld', msg.val); 
                 this.isDirty = true; 
                 break;
+            case 'togglePromotion':
+                if (this.effect) this.effect.c.set(this.effect.configPrefix + 'LayerPromotionEnabled', msg.val);
+                this.isDirty = true;
+                break;
             case 'toggleRemovals':
                 if (this.effect) this.effect.c.set('layerEnableEditorRemovals', msg.val); 
                 this.isDirty = true; 
@@ -1250,6 +1254,23 @@ class QuantizedEffectEditor {
         shadowToggle.append(shadowCheck, document.createTextNode(' Use Shadow World'));
         container.appendChild(shadowToggle);
 
+        const promotionToggle = document.createElement('label');
+        promotionToggle.style.display = 'block';
+        promotionToggle.style.marginTop = '5px';
+        promotionToggle.title = "After 3 steps, Layer 1 blocks move to Layer 0";
+        const promotionCheck = document.createElement('input');
+        promotionCheck.type = 'checkbox';
+        promotionCheck.checked = (this.effect && (this.effect.name === "QuantizedBlockGenerator" || this.effect.getConfig('LayerPromotionEnabled')));
+        promotionCheck.onchange = (e) => {
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'togglePromotion', val: e.target.checked });
+            }
+            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'LayerPromotionEnabled', e.target.checked);
+            this.isDirty = true;
+        };
+        promotionToggle.append(promotionCheck, document.createTextNode(' Layer Promotion (3 Steps)'));
+        container.appendChild(promotionToggle);
+
         const removalsToggle = document.createElement('label');
         removalsToggle.style.display = 'block';
         removalsToggle.style.marginTop = '5px';
@@ -1458,6 +1479,12 @@ class QuantizedEffectEditor {
                 // writes ops into the correct sequence slot for this new step.
                 this.effect.manualStep = true;
                 this.effect.expansionPhase = newStep;
+
+                // Call promotion logic before growth to match live behavior
+                if (this.effect.name === "QuantizedBlockGenerator" || this.effect.getConfig('LayerPromotionEnabled')) {
+                    this.effect._promoteLayer1Blocks();
+                }
+
                 this.effect._attemptGrowth();
                 
                 // CRITICAL: Reset manualStep and cycleTimer after the manual growth call.

@@ -299,7 +299,9 @@ class ConfigurationManager {
             "quantizedPulseLineGfxPersistence": null,
             
             "quantizedDefaultShadowWorldFadeSpeed": 0.5,
-            "quantizedDefaultGlassBloom": 1.0,
+            "quantizedDefaultLayerPromotionEnabled": true,
+            "quantizedDefaultGlassBloom": 1.2,
+
             "quantizedDefaultGlassBloomScaleToSize": false,
             "quantizedDefaultGlassCompressionThreshold": 0.0,
             "quantizedDefaultLineGfxColor": "#0cd709",
@@ -497,6 +499,7 @@ class ConfigurationManager {
             "quantizedGenerateV2Mode": "default",
             "quantizedGenerateV2LayerCount": 2,
             "quantizedGenerateV2QuadrantCount": "4",
+            "quantizedGenerateV2LayerPromotionEnabled": true,
             "quantizedGenerateV2SimultaneousSpawns": 3,
             "quantizedGenerateV2GreenFadeSeconds": 0.1,
             "quantizedGenerateV2MergeDelay": true,

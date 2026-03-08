@@ -32,6 +32,7 @@ class QuantizedStateCache {
             // Grids
             logicGrid: new Uint8Array(fx.logicGrid),
             renderGrid: new Int32Array(fx.renderGrid),
+            promotionGrid: fx.promotionGrid ? new Uint8Array(fx.promotionGrid) : null,
             layerGrids: fx.layerGrids.map(g => new Int32Array(g)),
             removalGrids: fx.removalGrids.map(g => new Int32Array(g)),
             
@@ -75,6 +76,7 @@ class QuantizedStateCache {
 
         fx.logicGrid.set(snapshot.logicGrid);
         fx.renderGrid.set(snapshot.renderGrid);
+        if (snapshot.promotionGrid && fx.promotionGrid) fx.promotionGrid.set(snapshot.promotionGrid);
         
         snapshot.layerGrids.forEach((g, i) => fx.layerGrids[i].set(g));
         snapshot.removalGrids.forEach((g, i) => fx.removalGrids[i].set(g));
