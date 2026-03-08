@@ -24,7 +24,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.renderGrid = null; 
         this.layerGrids = [];   
         this.removalGrids = []; 
-        
+        this.perimeterHistory = []; // Capture history for Perimeter Echo        
         // Debug/Editor State
         this.debugMode = false;
         this.manualStep = false;
@@ -544,6 +544,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.state = 'FADE_IN';
         this.timer = 0;
         this.step = 0;
+        this.lastCapturedStep = -1;
+        this.perimeterHistory = [];
         this.alpha = 0.0;
 
         if (this.debugMode) {
@@ -715,6 +717,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         return result;
     }
 
+    _capturePerimeterEcho() {
+        if (!this.getConfig('PerimeterEchoEnabled')) {
+            this.perimeterHistory = [];
+            return;
+        }
+
+        const grid0 = this.layerGrids[0];
+        if (!grid0 || !this.logicGridW || !this.logicGridH) return;
+
+        // Snapshot Layer 0 (Foundation)
+        const snapshot = new Int32Array(grid0.length);
+        snapshot.set(grid0);
+        
+        this.perimeterHistory.push(snapshot);
+        // We need 4 steps of history to get "3 steps behind" (current + 3 behind)
+        if (this.perimeterHistory.length > 4) {
+            this.perimeterHistory.shift();
+        }
+        
+        this._maskDirty = true;
+    }
+
     _getEffectiveInterval() {
         const baseDuration = Math.max(1, this.c.derived.cycleDuration);
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
@@ -820,6 +844,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Update Render Grid Logic immediately
         this._updateRenderGridLogic();
+
+        if (this.lastCapturedStep !== this.step) {
+            this._capturePerimeterEcho();
+            this.lastCapturedStep = this.step;
+        }
 
         // 3. Lifecycle State Machine
         const fadeInFrames = Math.max(1, this.getConfig('FadeInFrames') || 0);

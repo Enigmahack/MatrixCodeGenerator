@@ -678,6 +678,48 @@ class QuantizedRenderer {
             }
         }
 
+        // --- Perimeter Echo Pass ---
+        if (fx.getConfig('PerimeterEchoEnabled') && fx.perimeterHistory && fx.perimeterHistory.length >= 4) {
+            const echoGrid = fx.perimeterHistory[0];
+            const echoColor = color; 
+            const echoOpacity = 0.99; 
+            
+            for (let y = 0; y <= blocksY; y++) {
+                for (let x = 0; x <= blocksX; x++) {
+                    // Vertical
+                    if (x > 0 && x < blocksX && y < blocksY) {
+                         const idxA = y * blocksX + (x - 1);
+                         const idxB = y * blocksX + x;
+                         const a = echoGrid[idxA];
+                         const b = echoGrid[idxB];
+                         if ((a !== -1) !== (b !== -1)) {
+                             const variance = getVariance(x, 'V');
+                             const finalOpacity = echoOpacity * variance;
+                             const path = getBatch(echoColor, finalOpacity);
+                             const mPath = getMaskBatch(finalOpacity);
+                             this._addFaceToPath(path, fx, x, y, 'W');
+                             this._addFaceToPath(mPath, fx, x, y, 'W');
+                         }
+                    }
+                    // Horizontal
+                    if (y > 0 && y < blocksY && x < blocksX) {
+                         const idxA = (y - 1) * blocksX + x;
+                         const idxB = y * blocksX + x;
+                         const a = echoGrid[idxA];
+                         const b = echoGrid[idxB];
+                         if ((a !== -1) !== (b !== -1)) {
+                             const variance = getVariance(y, 'H');
+                             const finalOpacity = echoOpacity * variance;
+                             const path = getBatch(echoColor, finalOpacity);
+                             const mPath = getMaskBatch(finalOpacity);
+                             this._addFaceToPath(path, fx, x, y, 'N');
+                             this._addFaceToPath(mPath, fx, x, y, 'N');
+                         }
+                    }
+                }
+            }
+        }
+
         if (colorCtx) {
             batches.forEach((path, key) => {
                 const [c, oStr] = key.split('|');

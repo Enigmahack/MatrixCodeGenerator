@@ -300,6 +300,7 @@ class ConfigurationManager {
             
             "quantizedDefaultShadowWorldFadeSpeed": 0.5,
             "quantizedDefaultLayerPromotionEnabled": true,
+            "quantizedDefaultPerimeterEchoEnabled": false,
             "quantizedDefaultGlassBloom": 1.2,
 
             "quantizedDefaultGlassBloomScaleToSize": false,
@@ -678,7 +679,8 @@ class ConfigurationManager {
             'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold', 
             'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 
             'GlassRefractionSaturation', 'GlassRefractionCompression', 
-            'GlassRefractionOffset', 'GlassRefractionGlow', 'ShadowWorldFadeSpeed'
+            'GlassRefractionOffset', 'GlassRefractionGlow', 'ShadowWorldFadeSpeed',
+            'PerimeterEchoEnabled'
         ];
 
         prefixes.forEach(prefix => {
