@@ -1090,6 +1090,8 @@ class QuantizedEffectEditor {
                 if (this.isStandalone) this._sendRemote({ type: 'setLayer', layer: l });
             });
             btn.style.flex = '1';
+            btn.style.color = this.layerColors[l];
+            btn.style.borderColor = this.layerColors[l];
             btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay, L2-L3 are intersection revealers.`;
             layerBtnGroup.appendChild(btn);
             this.layerBtns[l] = btn;
@@ -1193,9 +1195,9 @@ class QuantizedEffectEditor {
             lbl.style.alignItems = 'center';
             lbl.style.fontSize = '12px';
             lbl.style.cursor = 'pointer';
-            
-            const chk = document.createElement('input');
-            chk.type = 'checkbox';
+            lbl.style.color = this.layerColors[l];
+
+            const chk = document.createElement('input');            chk.type = 'checkbox';
             chk.checked = this.visibleLayers[l];
             chk.style.marginRight = '5px';
             chk.onchange = (e) => {
@@ -1293,12 +1295,12 @@ class QuantizedEffectEditor {
         legend.style.background = 'rgba(0,0,0,0.5)';
         legend.style.padding = '5px';
         legend.innerHTML = `
-            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,255,0,0.5);margin-right:5px;border:1px solid #0f0;"></span>Add (L0)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,200,255,0.5);margin-right:5px;border:1px solid #0af;"></span>Add (L1)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,200,0.5);margin-right:5px;border:1px solid #f0c;"></span>Add (L2)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,0,0.5);margin-right:5px;border:1px solid #ff0;"></span>Add (L3)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,0,0.5);margin-right:5px;border:1px solid #f00;"></span>Remove</div>
-            <div style="display:flex;align-items:center;"><span style="display:inline-block;width:10px;height:10px;background:none;border:1px dashed #0088FF;margin-right:5px;"></span>Selection</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[0]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,255,0,0.5);margin-right:5px;border:1px solid #0f0;"></span>Add (L0)</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[1]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,200,255,0.5);margin-right:5px;border:1px solid #0af;"></span>Add (L1)</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[2]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,200,0.5);margin-right:5px;border:1px solid #f0c;"></span>Add (L2)</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[3]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,0,0.5);margin-right:5px;border:1px solid #ff0;"></span>Add (L3)</div>
+            <div style="display:flex;align-items:center;margin-bottom:2px;color:#f00;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,0,0.5);margin-right:5px;border:1px solid #f00;"></span>Remove</div>
+            <div style="display:flex;align-items:center;color:#0088FF;"><span style="display:inline-block;width:10px;height:10px;background:none;border:1px dashed #0088FF;margin-right:5px;"></span>Selection</div>
         `;
         container.appendChild(legend);
 
