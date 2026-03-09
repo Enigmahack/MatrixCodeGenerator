@@ -32,6 +32,7 @@ class QuantizedRenderer {
         const screenStepY = d.cellHeight * s.stretchY;
         const thickness = fx.getLineGfxValue('Thickness') || 1.0;
         const innerThickness = fx.getLineGfxValue('InnerThickness') || thickness;
+        const echoThickness = fx.getEchoGfxValue('Thickness') || 1.0;
 
         const baseStep = Math.min(screenStepX, screenStepY);
         
@@ -42,6 +43,11 @@ class QuantizedRenderer {
 
         const innerLineWidthX = baseStep * 0.1 * innerThickness;
         const innerLineWidthY = innerLineWidthX;
+
+        const echoLineWidthX = baseStep * 0.1 * echoThickness;
+        const echoLineWidthY = echoLineWidthX;
+        const echoHalfLineX = echoLineWidthX * 0.5;
+        const echoHalfLineY = echoHalfLineX;
         
         const gridPixW = fx.g.cols * d.cellWidth; 
         const gridPixH = fx.g.rows * d.cellHeight;
@@ -59,6 +65,8 @@ class QuantizedRenderer {
             lineWidthX, lineWidthY,
             innerLineWidthX, innerLineWidthY,
             halfLineX, halfLineY,
+            echoLineWidthX, echoLineWidthY,
+            echoHalfLineX, echoHalfLineY,
             screenOriginX, screenOriginY,
             gridPixW, gridPixH,
             cellPitchX, cellPitchY,
@@ -185,7 +193,7 @@ class QuantizedRenderer {
 
         // Unified Shared Edge Rendering (Populate masks for both 2D and WebGL)
         this.renderEdges(fx, ctx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
-        this.renderEdges(fx, colorLayerCtx, lineCtx, now, blocksX, blocksY, l.offX, l.offY);
+        this.renderEdges(fx, colorLayerCtx, null, now, blocksX, blocksY, l.offX, l.offY);
 
         // Perimeter Echo rendered to its own canvas (separate from canvas lines)
         if (fx.echoCtx) {
@@ -380,8 +388,9 @@ class QuantizedRenderer {
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
         const brightness = fx.getLineGfxValue('Brightness') ?? 1.0;
+        const opacitySetting = fx.getLineGfxValue('Opacity') ?? 1.0;
         const intensity = fx.getLineGfxValue('Intensity') ?? 1.0;
-        const lineOpacity = brightness * intensity;
+        const lineOpacity = brightness * opacitySetting * intensity;
 
         const batches = this._edgeBatches;
         const maskBatches = this._edgeMaskBatches;
@@ -705,15 +714,25 @@ class QuantizedRenderer {
             batches.forEach((path, key) => {
                 const [c, oStr] = key.split('|');
                 colorCtx.fillStyle = c;
-                colorCtx.globalAlpha = parseFloat(oStr);
-                colorCtx.fill(path);
+                let opacity = parseFloat(oStr);
+                // Multi-pass draw for Opacity > 1.0
+                while (opacity > 0.001) {
+                    colorCtx.globalAlpha = Math.min(1.0, opacity);
+                    colorCtx.fill(path);
+                    opacity -= 1.0;
+                }
             });
         }
 
         maskCtx.fillStyle = "#FFFFFF";
         maskBatches.forEach((path, oStr) => {
-            maskCtx.globalAlpha = parseFloat(oStr);
-            maskCtx.fill(path);
+            let opacity = parseFloat(oStr);
+            // Multi-pass draw for Opacity > 1.0 (mask needs to be solid white if > 1.0)
+            while (opacity > 0.001) {
+                maskCtx.globalAlpha = Math.min(1.0, opacity);
+                maskCtx.fill(path);
+                opacity -= 1.0;
+            }
         });
     }
 
@@ -725,11 +744,12 @@ class QuantizedRenderer {
         if (!fx.layout) return;
 
         const echoGrid = fx.perimeterHistory[0];
-        const echoColor = fx.getLineGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
+        const echoColor = fx.getEchoGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
         
-        const brightness = fx.getLineGfxValue('Brightness') ?? 1.0;
-        const intensity = fx.getLineGfxValue('Intensity') ?? 1.0;
-        const echoOpacity = brightness * intensity;
+        const brightness = fx.getEchoGfxValue('Brightness') ?? 1.0;
+        const opacitySetting = fx.getEchoGfxValue('Opacity') ?? 1.0;
+        const intensity = fx.getEchoGfxValue('Intensity') ?? 1.0;
+        const echoOpacity = brightness * opacitySetting * intensity;
 
         const varianceEnabled = fx.getLineGfxValue('BrightnessVarianceEnabled');
         const varianceAmount = fx.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
@@ -768,8 +788,7 @@ class QuantizedRenderer {
                         const isExterior = (a === -1 && echoOutside[idxA]) || (b === -1 && echoOutside[idxB]);
                         if (isExterior) {
                             const variance = getVariance(x, 'V');
-                            const finalOpacity = echoOpacity * variance;
-                            this._addFaceToPath(getBatch(echoColor, finalOpacity), fx, x, y, 'W');
+                            this._addFaceToPath(getBatch(echoColor, variance), fx, x, y, 'W', true);
                         }
                     }
                 }
@@ -783,29 +802,39 @@ class QuantizedRenderer {
                         const isExterior = (a === -1 && echoOutside[idxA]) || (b === -1 && echoOutside[idxB]);
                         if (isExterior) {
                             const variance = getVariance(y, 'H');
-                            const finalOpacity = echoOpacity * variance;
-                            this._addFaceToPath(getBatch(echoColor, finalOpacity), fx, x, y, 'N');
+                            this._addFaceToPath(getBatch(echoColor, variance), fx, x, y, 'N', true);
                         }
                     }
                 }
             }
         }
 
+        echoCtx.save();
+        const saturation = fx.getEchoGfxValue('Saturation') ?? 1.0;
+        if (saturation !== 1.0) {
+            echoCtx.filter = `saturate(${saturation * 100}%)`;
+        }
+
         echoBatches.forEach((path, key) => {
             const [c, oStr] = key.split('|');
             echoCtx.fillStyle = c;
-            echoCtx.globalAlpha = parseFloat(oStr);
-            echoCtx.fill(path);
+            let opacity = parseFloat(oStr);
+            // Multi-pass draw for Echo Opacity > 1.0
+            while (opacity > 0.001) {
+                echoCtx.globalAlpha = Math.min(1.0, opacity);
+                echoCtx.fill(path);
+                opacity -= 1.0;
+            }
         });
-        echoCtx.globalAlpha = 1.0;
+        echoCtx.restore();
     }
 
-    _addFaceToPath(path, fx, bx, by, face) {
+    _addFaceToPath(path, fx, bx, by, face, isEcho = false) {
         const l = fx.layout;
         const offX = l.offX || 0;
         const offY = l.offY || 0;
-        const lwX = l.lineWidthX;
-        const lwY = l.lineWidthY;
+        const lwX = isEcho ? l.echoLineWidthX : l.lineWidthX;
+        const lwY = isEcho ? l.echoLineWidthY : l.lineWidthY;
         
         const bxBase = bx - offX + l.userBlockOffX;
         const byBase = by - offY + l.userBlockOffY;

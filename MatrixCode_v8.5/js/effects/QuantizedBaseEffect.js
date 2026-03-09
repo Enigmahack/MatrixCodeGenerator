@@ -316,6 +316,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         return (val !== undefined && val !== null && val !== "") ? val : null;
     }
 
+    getEchoGfxValue(suffix) {
+        const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
+        const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'EchoGfx' + suffix);
+
+        const key = this.configPrefix + 'EchoGfx' + suffix;
+        const val = this.c.state[key];
+
+        // 1. If we are NOT overriding, AND this is an inheritable setting, use the default.
+        if (!overrideDefaults && isInheritable) {
+            const defaultKey = 'quantizedDefaultEchoGfx' + suffix;
+            const defaultVal = this.c.state[defaultKey];
+            if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
+        }
+
+        // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
+        return (val !== undefined && val !== null && val !== "") ? val : null;
+    }
+
     getBlockSize() {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
         let w, h;
@@ -1560,7 +1578,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             userBlockOffset: [this.userBlockOffX || 0, this.userBlockOffY || 0],
             layerOrder: new Int32Array(this.layerOrder || [0, 1, 2, 3]),
             showInterior: this.getConfig('ShowInterior') !== false,
-            intensity: (this.getLineGfxValue('Intensity') ?? 1.0) * this.alpha,
+            intensity: (this.getLineGfxValue('Intensity') ?? 1.0) * (this.getLineGfxValue('Opacity') ?? 1.0) * this.alpha,
             thickness: this.getLineGfxValue('Thickness') ?? 1.0,
             tintOffset: this.getLineGfxValue('TintOffset') ?? 0.0,
             sharpness: this.getLineGfxValue('Sharpness') ?? 0.05,
@@ -1599,18 +1617,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
     }
 
-    _drawMaskedLines(ctx, maskCanvas, width, height, s, d, alphaMult) {
+    _drawMaskedLines(ctx, maskCanvas, width, height, s, d, alphaMult, isEcho = false) {
         const scratchCtx = this.scratchCtx;
         const isSolid = this.c.state.quantizedSolidPerimeter || false;
-        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
+        
+        // Retrieve independent offsets based on the line type
+        const sampX = isEcho ? this.getEchoGfxValue('SampleOffsetX') : this.getLineGfxValue('SampleOffsetX');
+        const sampY = isEcho ? this.getEchoGfxValue('SampleOffsetY') : this.getLineGfxValue('SampleOffsetY');
+        const offX = isEcho ? this.getEchoGfxValue('OffsetX') : this.getLineGfxValue('OffsetX');
+        const offY = isEcho ? this.getEchoGfxValue('OffsetY') : this.getLineGfxValue('OffsetY');
+
+        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (sampX || 0);
+        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (sampY || 0);
 
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
         
         if (isSolid) {
             scratchCtx.globalAlpha = this.alpha;
+            scratchCtx.save();
+            scratchCtx.translate(offX || 0, offY || 0);
             scratchCtx.drawImage(maskCanvas, 0, 0);
+            scratchCtx.restore();
         } else {
             this._updateGridCache(width, height, s, d);
             scratchCtx.globalAlpha = 1.0;
@@ -1620,13 +1648,21 @@ class QuantizedBaseEffect extends AbstractEffect {
             scratchCtx.restore();
             scratchCtx.globalCompositeOperation = 'source-in';
             scratchCtx.globalAlpha = this.alpha;
+            scratchCtx.save();
+            scratchCtx.translate(offX || 0, offY || 0);
             scratchCtx.drawImage(maskCanvas, 0, 0);
+            scratchCtx.restore();
         }
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = alphaMult;
-        ctx.drawImage(this.scratchCanvas, 0, 0);
+        let remainingAlpha = alphaMult;
+        // Multi-pass draw for extra punchy lines if alphaMult > 1.0
+        while (remainingAlpha > 0.001) {
+            ctx.globalAlpha = Math.min(1.0, remainingAlpha);
+            ctx.drawImage(this.scratchCanvas, 0, 0);
+            remainingAlpha -= 1.0;
+        }
         ctx.restore();
     }
 
@@ -1651,19 +1687,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         const showLines = (this.c.state.layerEnableQuantizedLines !== false);
         const showEcho = (s.layerEnablePerimeterEcho !== false);
         const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
-        const alphaMult = Math.min(1.0, glowStrength / 4.0);
+        
+        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const alphaMult = lineGlow / 4.0;
 
-        // WebGL mode â€” lines in GLSL, Echo in 2D overlay
+        const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const echoAlphaMult = echoGlow / 4.0;
+
+        // WebGL mode - lines in GLSL, Echo in 2D overlay
         if (s.renderingEngine === 'webgl') {
             if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, alphaMult);
+                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
             }
             return;
         }
 
-        // 2D canvas mode â€” both lines and echo use the same masking pipeline.
-        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
+        // 2D canvas mode - both lines and echo use the same masking pipeline.
+        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
+        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);
 
         if (showSource) {
             this._updateGridCache(width, height, s, d);
@@ -1675,11 +1716,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.restore();
         }
 
-        if (glowStrength > 0 && showLines) {
-            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult);
+        if (lineGlow > 0 && showLines) {
+            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult, false);
         }
-        if (glowStrength > 0 && showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, alphaMult);
+        if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
         }
     }
 
@@ -1697,15 +1738,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this._updateGridCache(width, height, s, derived);
 
-        const glowStrength = this.getConfig('BorderIllumination') || 4.0;
-        const alphaMult = Math.min(1.0, glowStrength / 4.0);
+        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const alphaMult = Math.min(1.0, lineGlow / 4.0);
 
-        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult);
+        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult, false);
 
         // Echo with character masking in debug mode - same pipeline as canvas lines
         const showEchoDebug = (s.layerEnablePerimeterEcho !== false);
         if (showEchoDebug && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
+            const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
         }
     }
 
@@ -1757,19 +1800,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._updateGridCache(width, height, s, derived);
 
-        const glowStrength = this.getConfig('BorderIllumination') || 4.0;
-        const alphaMult = Math.min(1.0, glowStrength / 4.0);
+        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const alphaMult = Math.min(1.0, lineGlow / 4.0);
 
         if (s.renderingEngine === 'webgl') {
             const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
             if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
+                const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+                const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
+                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
             }
             return;
         }
 
-        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
+        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
+        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);
 
         if (this.c.state.layerEnableQuantizedGridCache === true) {
             this._updateGridCache(width, height, s, derived);
@@ -1781,12 +1826,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.restore();
         }
 
-        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult);
+        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult, false);
 
         // Echo with character masking - same pipeline as canvas lines
         const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
         if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
+            const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
         }
 
         if (this._previewActive) {

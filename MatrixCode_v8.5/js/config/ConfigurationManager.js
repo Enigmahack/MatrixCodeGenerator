@@ -306,6 +306,7 @@ class ConfigurationManager {
             "quantizedDefaultGlassBloomScaleToSize": false,
             "quantizedDefaultGlassCompressionThreshold": 0.0,
             "quantizedDefaultLineGfxColor": "#0cd709",
+            "quantizedDefaultLineGfxOpacity": 1.0,
             "quantizedDefaultLineGfxIntensity": 1.0,
             "quantizedDefaultLineGfxGlow": 4.0,
             "quantizedDefaultLineGfxTintOffset": 0.0,
@@ -325,6 +326,18 @@ class ConfigurationManager {
             "quantizedDefaultLineGfxBrightnessVarianceAmount": 0.5,
             "quantizedDefaultLineGfxBrightnessVarianceCoverage": 100,
             "quantizedDefaultLineGfxBrightnessVarianceDirection": 1,
+
+            "quantizedDefaultEchoGfxThickness": 1.0,
+            "quantizedDefaultEchoGfxBrightness": 1.0,
+            "quantizedDefaultEchoGfxOpacity": 1.0,
+            "quantizedDefaultEchoGfxIntensity": 1.0,
+            "quantizedDefaultEchoGfxColor": "#0cd709",
+            "quantizedDefaultEchoGfxSaturation": 1.0,
+            "quantizedDefaultEchoGfxGlow": 4.0,
+            "quantizedDefaultEchoGfxSampleOffsetX": 0,
+            "quantizedDefaultEchoGfxSampleOffsetY": 0,
+            "quantizedDefaultEchoGfxOffsetX": 0,
+            "quantizedDefaultEchoGfxOffsetY": 0,
 
             "quantizedDefaultGlassRefractionEnabled": false,
             "quantizedDefaultGlassRefractionWidth": 0.1,
@@ -672,7 +685,7 @@ class ConfigurationManager {
         
         // List of inheritable settings
         const inheritableSuffixes = [
-            'LineGfxColor', 'LineGfxIntensity', 'LineGfxGlow', 'LineGfxTintOffset', 
+            'LineGfxColor', 'LineGfxOpacity', 'LineGfxIntensity', 'LineGfxGlow', 'LineGfxTintOffset', 
             'LineGfxSaturation', 'LineGfxBrightness', 'LineGfxAdditiveStrength', 
             'LineGfxSharpness', 'LineGfxGlowFalloff', 'LineGfxRoundness', 
             'LineGfxMaskSoftness', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY', 
@@ -682,11 +695,12 @@ class ConfigurationManager {
             'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 
             'GlassRefractionSaturation', 'GlassRefractionCompression', 
             'GlassRefractionOffset', 'GlassRefractionGlow', 'ShadowWorldFadeSpeed',
-            'PerimeterEchoEnabled'
-        ];
+            'PerimeterEchoEnabled',
+            'EchoGfxThickness', 'EchoGfxBrightness', 'EchoGfxOpacity', 'EchoGfxIntensity', 'EchoGfxColor', 'EchoGfxSaturation', 'EchoGfxGlow',
+            'EchoGfxSampleOffsetX', 'EchoGfxSampleOffsetY', 'EchoGfxOffsetX', 'EchoGfxOffsetY'
+            ];
 
-        prefixes.forEach(prefix => {
-            inheritableSuffixes.forEach(suffix => {
+            prefixes.forEach(prefix => {            inheritableSuffixes.forEach(suffix => {
                 const effectKey = prefix + suffix;
                 const defaultKey = 'quantizedDefault' + suffix;
                 

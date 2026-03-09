@@ -16,7 +16,8 @@ const QuantizedInheritableSettings = [
     
     { sub: 'Line Basics', id: 'LineGfxColor', type: 'color', label: 'Line Tint', tier: 'basic', tags: ['color', 'tint', 'hue'] },
     { sub: 'Line Basics', id: 'LineGfxBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, tier: 'basic', description: "Scales the overall brightness of the lines.", tags: ['light', 'luminance'] },
-    { sub: 'Line Basics', id: 'LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 1.0, step: 0.01, tier: 'advanced', tags: ['strength', 'power'] },
+    { sub: 'Line Basics', id: 'LineGfxOpacity', type: 'range', label: 'Opacity', min: 0.0, max: 4.0, step: 0.05, tier: 'basic', description: "Overall opacity of the lines. Values > 1.0 will over-draw for extra punch.", tags: ['alpha', 'transparency'] },
+    { sub: 'Line Basics', id: 'LineGfxIntensity', type: 'range', label: 'Intensity', min: 0.01, max: 4.0, step: 0.01, tier: 'advanced', tags: ['strength', 'power'] },
     { sub: 'Line Basics', id: 'LineGfxGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 10.0, step: 0.1, tier: 'basic', description: "Intensity of the soft glow around generated lines.", tags: ['bloom', 'glow', 'blur'] },
     { sub: 'Line Basics', id: 'LineGfxPersistence', type: 'range', label: 'Fade Duration', min: 0, max: 180, step: 1, unit: 'fr', tier: 'advanced', description: "Similar to burn-in, controls how long lines linger.", tags: ['trail', 'fade', 'length'] },
     { sub: 'Line Basics', id: 'LineGfxBrightnessVarianceEnabled', type: 'checkbox', label: 'Enable Brightness Variance', tier: 'advanced', description: "Applies random brightness variations to individual line segments.", tags: ['random', 'flicker', 'variety'] },
@@ -45,6 +46,18 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Advanced', id: 'LineGfxMaskSoftness', type: 'range', label: 'Char Mask Softness', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Softens the character highlights for a smoother, antialiased look within the lines.", tags: ['blur', 'soft', 'smooth'] },
     { sub: 'Line Advanced', id: 'LineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
     { sub: 'Line Advanced', id: 'LineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
+
+    { sub: 'Line Advanced', sub_header: 'Echo Lines', id: 'EchoGfxThickness', type: 'range', label: 'Echo Width', min: 0.1, max: 10.0, step: 0.1, tier: 'basic', description: "Width of the echo lines.", tags: ['size', 'width'] },
+    { sub: 'Line Advanced', id: 'EchoGfxBrightness', type: 'range', label: 'Echo Brightness', min: 0.0, max: 2.0, step: 0.05, tier: 'basic', description: "Brightness of the echo lines.", tags: ['light', 'bright'] },
+    { sub: 'Line Advanced', id: 'EchoGfxOpacity', type: 'range', label: 'Echo Opacity', min: 0.0, max: 4.0, step: 0.05, tier: 'basic', description: "Overall opacity of the echo lines. Values > 1.0 will over-draw for extra punch.", tags: ['alpha', 'transparency'] },
+    { sub: 'Line Advanced', id: 'EchoGfxIntensity', type: 'range', label: 'Echo Intensity', min: 0.01, max: 4.0, step: 0.01, tier: 'advanced', tags: ['strength', 'power'] },
+    { sub: 'Line Advanced', id: 'EchoGfxColor', type: 'color', label: 'Echo Tint', tier: 'basic', tags: ['color', 'tint', 'hue'] },
+    { sub: 'Line Advanced', id: 'EchoGfxSaturation', type: 'range', label: 'Echo Saturation', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', tags: ['vivid', 'color'] },
+    { sub: 'Line Advanced', id: 'EchoGfxGlow', type: 'range', label: 'Echo Glow', min: 0.0, max: 10.0, step: 0.1, tier: 'basic', tags: ['bloom', 'glow', 'blur'] },
+    { sub: 'Line Advanced', id: 'EchoGfxSampleOffsetX', type: 'range', label: 'Echo Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['shift', 'sample'] },
+    { sub: 'Line Advanced', id: 'EchoGfxSampleOffsetY', type: 'range', label: 'Echo Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['shift', 'sample'] },
+    { sub: 'Line Advanced', id: 'EchoGfxOffsetX', type: 'range', label: 'Echo X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
+    { sub: 'Line Advanced', id: 'EchoGfxOffsetY', type: 'range', label: 'Echo Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
 ];
 
 const generateQuantizedEffectSettings = (prefix, label, action) => {
