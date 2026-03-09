@@ -740,9 +740,15 @@ class QuantizedRenderer {
     renderEchoEdges(fx, echoCtx, now, blocksX, blocksY) {
         if (!echoCtx) return;
         if (!fx.getConfig('PerimeterEchoEnabled')) return;
-        if (!fx.perimeterHistory || fx.perimeterHistory.length < 4) return;
+
+        // Retrieve dynamic delay from config (Range 1-8)
+        const delay = fx.getEchoGfxValue('Delay') || 3;
+        
+        // Ensure we have enough history for the current delay
+        if (!fx.perimeterHistory || fx.perimeterHistory.length < (delay + 1)) return;
         if (!fx.layout) return;
 
+        // Echo uses the oldest snapshot in the buffer, which is exactly 'delay' steps behind
         const echoGrid = fx.perimeterHistory[0];
         const echoColor = fx.getEchoGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
         

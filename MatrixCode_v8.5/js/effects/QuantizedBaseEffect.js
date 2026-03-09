@@ -741,16 +741,20 @@ class QuantizedBaseEffect extends AbstractEffect {
             return;
         }
 
-        const grid0 = this.layerGrids[0];
-        if (!grid0 || !this.logicGridW || !this.logicGridH) return;
+        const compositeGrid = this.renderGrid;
+        if (!compositeGrid || !this.logicGridW || !this.logicGridH) return;
 
-        // Snapshot Layer 0 (Foundation)
-        const snapshot = new Int32Array(grid0.length);
-        snapshot.set(grid0);
+        // Snapshot entire effect perimeter (Composite of all layers)
+        const snapshot = new Int32Array(compositeGrid.length);
+        snapshot.set(compositeGrid);
         
         this.perimeterHistory.push(snapshot);
-        // We need 4 steps of history to get "3 steps behind" (current + 3 behind)
-        if (this.perimeterHistory.length > 4) {
+        
+        // Retrieve dynamic delay from config (Default 3, Range 1-8)
+        const delay = this.getEchoGfxValue('Delay') || 3;
+        const maxHistory = delay + 1;
+
+        if (this.perimeterHistory.length > maxHistory) {
             this.perimeterHistory.shift();
         }
         

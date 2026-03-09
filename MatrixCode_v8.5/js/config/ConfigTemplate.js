@@ -8,7 +8,8 @@
  */
 const QuantizedInheritableSettings = [
     { sub: 'General', id: 'LayerPromotionEnabled', type: 'checkbox', label: 'Layer Promotion (3 Steps)', tier: 'basic', description: "After 3 logic steps, Layer 1 blocks move to Layer 0. This makes Layer 1 the active 'discovery' layer while Layer 0 represents the permanent structure.", tags: ['logic', 'foundation'] },
-    { sub: 'General', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Perimeter Echo', tier: 'basic', description: "When enabled, replicates the external perimeter but 3 steps behind.", tags: ['delay', 'echo', 'perimeter'] },
+    { sub: 'General', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Perimeter Echo', tier: 'basic', description: "When enabled, replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
+    { sub: 'General', id: 'EchoGfxDelay', type: 'range', label: 'Delay', min: 1, max: 8, step: 1, tier: 'basic', description: "How many steps behind the perimeter the echo follows.", tags: ['delay', 'echo', 'steps'] },
     { sub: 'General', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Shadow World Fade Rate', min: 0, max: 2, step: 0.1, unit: 's', tier: 'advanced', description: "Fading between current world and shadow world when blocks are added/removed.", tags: ['fade', 'speed', 'transition'] },
     { sub: 'General', id: 'GlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, tier: 'basic', description: "Scales character brightness inside quantized blocks.", tags: ['bright', 'bloom', 'glow'] },
     { sub: 'General', id: 'GlassBloomScaleToSize', type: 'checkbox', label: 'Scale to Effect Size', tier: 'advanced', description: "When enabled, Interior Brightness is at full strength when the effect begins and fades to 1 (flat) as blocks fill in.", tags: ['dynamic', 'scale'] },
@@ -47,7 +48,7 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Advanced', id: 'LineGfxOffsetX', type: 'range', label: 'X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
     { sub: 'Line Advanced', id: 'LineGfxOffsetY', type: 'range', label: 'Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
 
-    { sub: 'Line Advanced', sub_header: 'Echo Lines', id: 'EchoGfxThickness', type: 'range', label: 'Echo Width', min: 0.1, max: 10.0, step: 0.1, tier: 'basic', description: "Width of the echo lines.", tags: ['size', 'width'] },
+    { sub: 'Line Advanced', id: 'EchoGfxThickness', type: 'range', label: 'Echo Width', min: 0.1, max: 10.0, step: 0.1, tier: 'basic', description: "Width of the echo lines.", tags: ['size', 'width'] },
     { sub: 'Line Advanced', id: 'EchoGfxBrightness', type: 'range', label: 'Echo Brightness', min: 0.0, max: 2.0, step: 0.05, tier: 'basic', description: "Brightness of the echo lines.", tags: ['light', 'bright'] },
     { sub: 'Line Advanced', id: 'EchoGfxOpacity', type: 'range', label: 'Echo Opacity', min: 0.0, max: 4.0, step: 0.05, tier: 'basic', description: "Overall opacity of the echo lines. Values > 1.0 will over-draw for extra punch.", tags: ['alpha', 'transparency'] },
     { sub: 'Line Advanced', id: 'EchoGfxIntensity', type: 'range', label: 'Echo Intensity', min: 0.01, max: 4.0, step: 0.01, tier: 'advanced', tags: ['strength', 'power'] },

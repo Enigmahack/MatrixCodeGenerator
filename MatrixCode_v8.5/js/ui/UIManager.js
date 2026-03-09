@@ -1702,19 +1702,22 @@ class UIManager {
     refresh(key, isRecursive = false) {
         try {
             if(key === 'ALL') { 
-                this.defs.forEach(d => { if(d.id) this.refresh(d.id, true); }); 
-                this.updateSlotNames();
-                this.refresh('fontFamily', true);
+                // Single-pass update for all controls
+                this.defs.forEach(def => this._refreshControl(def));
                 
-                // Initialize Dynamic Shader Controls
+                this.updateSlotNames();
+                this._refreshFontControls();
+                
+                // Refresh all shader display names
+                this._refreshShaderDisplayNames();
+                
+                // Initialize Dynamic Shader Controls for the main custom shader
                 this._updateDynamicShaderControls(this.c.get('customShader'));
-                const nameEl = document.getElementById('currentShaderNameDisplay');
-                if (nameEl) {
-                    const savedName = this.c.get('customShaderName');
-                    nameEl.textContent = (savedName && savedName !== 'none') ? `Loaded: ${savedName}` : 'none';
-                }
 
-                // Unified initial dependency refresh
+                // Handle Quantized Editor initialization during ALL refresh
+                this.refresh('quantEditorEnabled', true);
+
+                // Unified initial dependency refresh - ONCE
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
                     this._updateRowVisibility(row);
                 });
@@ -1722,7 +1725,7 @@ class UIManager {
             }
 
             if (key === 'keyBindings') {
-                this.defs.filter(d => d.type === 'keybinder').forEach(d => this.refresh(d.id));
+                this.defs.filter(d => d.type === 'keybinder').forEach(d => this._refreshControl(d));
                 return;
             }
 
@@ -1732,35 +1735,11 @@ class UIManager {
             }
 
             if (key === 'fontFamily' || key === 'fontSettings') {
-                const sel = document.getElementById('in-fontFamily');
-                if(sel) { 
-                    sel.innerHTML = ''; 
-                    this._getFonts().forEach(o => { 
-                        const opt = document.createElement('option'); 
-                        opt.value = o.value; 
-                        opt.textContent = o.label; 
-                        if(o.custom) opt.className = 'custom-font-opt'; 
-                        if(this.c.get('fontFamily') === o.value) opt.selected = true; 
-                        sel.appendChild(opt); 
-                    }); 
-                }
-                const list = document.getElementById('fontListUI'); 
-                if (list) this.updateFontList(list); 
-                
-                const currentPrimaryColor = this.c.get('streamPalette')[0];
-                const logo = document.getElementById('matrixLogo');
-                if (logo) {
-                    const randomChar = Utils.getRandomKatakanaChar();
-                    logo.src = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 48, this.c.get('fontFamily'));
-                }
-                const favicon = document.getElementById('favicon');
-                if (favicon) {
-                    const randomChar = Utils.getRandomKatakanaChar();
-                    favicon.href = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 32, this.c.get('fontFamily'));
-                }
+                this._refreshFontControls();
                 return;
             }
 
+            // Individual shader refreshes
             const shaderKeys = [
                 { key: 'customShader', enabled: 'shaderEnabled', display: 'currentShaderNameDisplay', nameKey: 'customShaderName' },
                 { key: 'effectShader1Content', enabled: 'effectShader1Enabled', display: 'effectShader1NameDisplay', nameKey: 'effectShader1Name' },
@@ -1772,27 +1751,8 @@ class UIManager {
 
             const matchedKey = shaderKeys.find(sk => sk.key === key || sk.enabled === key);
             if (matchedKey) {
-                const displayEls = document.querySelectorAll(`[id^="${matchedKey.display}"]`);
-                displayEls.forEach(displayEl => {
-                    let name = 'none';
-                    const source = this.c.get(matchedKey.key);
-                    const enabled = this.c.get(matchedKey.enabled);
-                    const savedName = this.c.get(matchedKey.nameKey);
-                    
-                    if (enabled && savedName && savedName !== 'none') {
-                        name = savedName;
-                    } else if (enabled && source) {
-                        const nameMatch = source.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
-                        if (nameMatch && nameMatch[1]) name = nameMatch[1].trim();
-                        else if (source.trim().startsWith('precision')) name = 'Pass Shader (No Name)';
-                        else if (source.length < 200 && (source.includes('/') || source.includes('\\'))) {
-                             const parts = source.split(/[\/\\]/);
-                             name = parts[parts.length - 1];
-                        }
-                        else name = 'Pass Shader';
-                    }
-                    displayEl.textContent = (name === 'none') ? 'none' : `Loaded: ${name}`;
-                });
+                this._refreshShaderDisplayNames(matchedKey);
+                // We don't return here because we might want to let the generic refresh update the 'enabled' checkbox
             }
 
             if (key === 'streamPalette') {
@@ -1871,47 +1831,135 @@ class UIManager {
                 }
             }
 
-            // Update specific control values
+            // Update specific control value(s) matching the key
             if(key) {
                 this.defs.forEach(def => {
                     const bindKey = def.bind || def.id;
                     if (bindKey === key || def.id === key) {
-                        if (def.type === 'keybinder') {
-                            this.updateKeyBinderVisuals(def.id);
-                        }
-
-                        const inp = document.getElementById(`in-${def.id}`);
-                        if(inp) { 
-                            const val = this.c.get(bindKey); 
-                            if(def.type === 'checkbox') inp.checked = val; 
-                            else if(def.type === 'color_list') this._renderColorList(inp, def);
-                            else if(def.type === 'range') { 
-                                inp.value = def.invert ? (def.max+def.min)-val : val; 
-                                const disp = document.getElementById(`val-${def.id}`); 
-                                if(disp) {
-                                    let displayVal = val;
-                                    if (!def.transform && typeof val === 'number') {
-                                        const step = def.step || 1;
-                                        const decimals = (step.toString().split('.')[1] || '').length;
-                                        displayVal = parseFloat(val.toFixed(decimals));
-                                    }
-                                    disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
-                                }
-                            } else if (def.type === 'text') {
-                                inp.value = def.transform ? def.transform(val) : (val || "");
-                            } else if (def.type === 'select') {
-                                inp.value = String(val);
-                            }
-                        }
+                        this._refreshControl(def);
                     }
                 });
             }
 
-            // Update dependents - Re-evaluate all dependent rows to handle cross-key dependencies (e.g. activeQuantizedEffect:prefix)
-            this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
-                this._updateRowVisibility(row);
-            });
+            // Update dependents - Re-evaluate all dependent rows
+            if (!isRecursive) {
+                this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
+                    this._updateRowVisibility(row);
+                });
+            }
         } catch(e) { console.warn("UI Refresh Error:", e); }
+    }
+
+    /**
+     * Refreshes a single UI control based on its definition.
+     * @private
+     */
+    _refreshControl(def) {
+        if (!def) return;
+        
+        if (def.type === 'keybinder') {
+            this.updateKeyBinderVisuals(def.id);
+        }
+
+        const inp = document.getElementById(`in-${def.id}`);
+        if(inp) { 
+            const bindKey = def.bind || def.id;
+            const val = this.c.get(bindKey); 
+            
+            if(def.type === 'checkbox') inp.checked = val; 
+            else if(def.type === 'color_list') this._renderColorList(inp, def);
+            else if(def.type === 'range') { 
+                inp.value = def.invert ? (def.max+def.min)-val : val; 
+                const disp = document.getElementById(`val-${def.id}`); 
+                if(disp) {
+                    let displayVal = val;
+                    if (!def.transform && typeof val === 'number') {
+                        const step = def.step || 1;
+                        const decimals = (step.toString().split('.')[1] || '').length;
+                        displayVal = parseFloat(val.toFixed(decimals));
+                    }
+                    disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
+                }
+            } else if (def.type === 'text') {
+                inp.value = def.transform ? def.transform(val) : (val || "");
+            } else if (def.type === 'select') {
+                inp.value = String(val);
+            }
+        }
+    }
+
+    /**
+     * Refreshes all font-related UI elements.
+     * @private
+     */
+    _refreshFontControls() {
+        const sel = document.getElementById('in-fontFamily');
+        if(sel) { 
+            sel.innerHTML = ''; 
+            this._getFonts().forEach(o => { 
+                const opt = document.createElement('option'); 
+                opt.value = o.value; 
+                opt.textContent = o.label; 
+                if(o.custom) opt.className = 'custom-font-opt'; 
+                if(this.c.get('fontFamily') === o.value) opt.selected = true; 
+                sel.appendChild(opt); 
+            }); 
+        }
+        const list = document.getElementById('fontListUI'); 
+        if (list) this.updateFontList(list); 
+        
+        const currentPrimaryColor = this.c.get('streamPalette')[0];
+        const logo = document.getElementById('matrixLogo');
+        if (logo) {
+            const randomChar = Utils.getRandomKatakanaChar();
+            logo.src = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 48, this.c.get('fontFamily'));
+        }
+        const favicon = document.getElementById('favicon');
+        if (favicon) {
+            const randomChar = Utils.getRandomKatakanaChar();
+            favicon.href = Utils.generateGlyphSVG(randomChar, currentPrimaryColor, 32, this.c.get('fontFamily'));
+        }
+    }
+
+    /**
+     * Refreshes the display names for all or a specific shader slot.
+     * @private
+     */
+    _refreshShaderDisplayNames(specificKey = null) {
+        const shaderKeys = [
+            { key: 'customShader', enabled: 'shaderEnabled', display: 'currentShaderNameDisplay', nameKey: 'customShaderName' },
+            { key: 'effectShader1Content', enabled: 'effectShader1Enabled', display: 'effectShader1NameDisplay', nameKey: 'effectShader1Name' },
+            { key: 'effectShader2Content', enabled: 'effectShader2Enabled', display: 'effectShader2NameDisplay', nameKey: 'effectShader2Name' },
+            { key: 'totalFX1ShaderContent', enabled: 'totalFX1Enabled', display: 'totalFX1NameDisplay', nameKey: 'totalFX1Name' },
+            { key: 'totalFX2ShaderContent', enabled: 'totalFX2Enabled', display: 'totalFX2NameDisplay', nameKey: 'totalFX2Name' },
+            { key: 'globalFXShaderContent', enabled: 'globalFXEnabled', display: 'globalFXNameDisplay', nameKey: 'globalFXName' }
+        ];
+
+        const targets = specificKey ? [specificKey] : shaderKeys;
+
+        targets.forEach(sk => {
+            const displayEls = document.querySelectorAll(`[id^="${sk.display}"]`);
+            displayEls.forEach(displayEl => {
+                let name = 'none';
+                const source = this.c.get(sk.key);
+                const enabled = this.c.get(sk.enabled);
+                const savedName = this.c.get(sk.nameKey);
+                
+                if (enabled && savedName && savedName !== 'none') {
+                    name = savedName;
+                } else if (enabled && source) {
+                    const nameMatch = source.substring(0, 500).match(/^\s*\/\/\s*(?:Name|Shader|Title):\s*(.+)$/im);
+                    if (nameMatch && nameMatch[1]) name = nameMatch[1].trim();
+                    else if (source.trim().startsWith('precision')) name = 'Pass Shader (No Name)';
+                    else if (source.length < 200 && (source.includes('/') || source.includes('\\'))) {
+                         const parts = source.split(/[\/\\]/);
+                         name = parts[parts.length - 1];
+                    }
+                    else name = 'Pass Shader';
+                }
+                displayEl.textContent = (name === 'none') ? 'none' : `Loaded: ${name}`;
+            });
+        });
     }
 
     /**

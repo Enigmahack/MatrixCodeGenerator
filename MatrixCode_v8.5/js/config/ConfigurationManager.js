@@ -327,6 +327,7 @@ class ConfigurationManager {
             "quantizedDefaultLineGfxBrightnessVarianceCoverage": 100,
             "quantizedDefaultLineGfxBrightnessVarianceDirection": 1,
 
+            "quantizedDefaultEchoGfxDelay": 3,
             "quantizedDefaultEchoGfxThickness": 1.0,
             "quantizedDefaultEchoGfxBrightness": 1.0,
             "quantizedDefaultEchoGfxOpacity": 1.0,
@@ -696,7 +697,7 @@ class ConfigurationManager {
             'GlassRefractionSaturation', 'GlassRefractionCompression', 
             'GlassRefractionOffset', 'GlassRefractionGlow', 'ShadowWorldFadeSpeed',
             'PerimeterEchoEnabled',
-            'EchoGfxThickness', 'EchoGfxBrightness', 'EchoGfxOpacity', 'EchoGfxIntensity', 'EchoGfxColor', 'EchoGfxSaturation', 'EchoGfxGlow',
+            'EchoGfxDelay', 'EchoGfxThickness', 'EchoGfxBrightness', 'EchoGfxOpacity', 'EchoGfxIntensity', 'EchoGfxColor', 'EchoGfxSaturation', 'EchoGfxGlow',
             'EchoGfxSampleOffsetX', 'EchoGfxSampleOffsetY', 'EchoGfxOffsetX', 'EchoGfxOffsetY'
             ];
 
