@@ -1,4 +1,4 @@
-/**
+﻿/**
  * QuantizedBaseEffect.js - Version 8.5.1
  */
 class QuantizedBaseEffect extends AbstractEffect {
@@ -1014,6 +1014,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.echoCanvas.width = w;
             this.echoCanvas.height = h;
         }
+        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
+            this.lineMaskCanvas.width = w;
+            this.lineMaskCanvas.height = h;
+        }
+        if (this.echoCanvas.width !== w || this.echoCanvas.height !== h) {
+            this.echoCanvas.width = w;
+            this.echoCanvas.height = h;
+        }
         
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
@@ -1109,7 +1117,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Shadow reveal is handled by updateShadowSim via overrideActive=5 (PRIORITY 2),
                 // which provides a gradual sFade/oFade crossfade and disables the glow boost.
                 // Setting effectActive=3 here (PRIORITY 1) would bypass that fade entirely,
-                // showing raw sg.alphas with glow boost enabled → brightness flash on start.
+                // showing raw sg.alphas with glow boost enabled â†’ brightness flash on start.
                 if (!isInsideBlock && grid.effectActive[i] === 3) {
                     grid.effectActive[i] = 0;
                 }
@@ -1197,8 +1205,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         let opsProcessed = 0;
         let i = startIndex;
 
-        // Snapshot pre-operation occupancy — only needed when there are ops to process.
-        // Allocating before the early-exit guards was wasting 4×Uint8Array every render frame.
+        // Snapshot pre-operation occupancy â€” only needed when there are ops to process.
+        // Allocating before the early-exit guards was wasting 4Ã—Uint8Array every render frame.
         let establishedMasks = null;
         if (startIndex < this.maskOps.length) {
             establishedMasks = [new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks)];
@@ -1591,6 +1599,37 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
     }
 
+    _drawMaskedLines(ctx, maskCanvas, width, height, s, d, alphaMult) {
+        const scratchCtx = this.scratchCtx;
+        const isSolid = this.c.state.quantizedSolidPerimeter || false;
+        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
+
+        scratchCtx.globalCompositeOperation = 'source-over';
+        scratchCtx.clearRect(0, 0, width, height);
+        
+        if (isSolid) {
+            scratchCtx.globalAlpha = this.alpha;
+            scratchCtx.drawImage(maskCanvas, 0, 0);
+        } else {
+            this._updateGridCache(width, height, s, d);
+            scratchCtx.globalAlpha = 1.0;
+            scratchCtx.save();
+            scratchCtx.translate(srcOffX, srcOffY);
+            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
+            scratchCtx.restore();
+            scratchCtx.globalCompositeOperation = 'source-in';
+            scratchCtx.globalAlpha = this.alpha;
+            scratchCtx.drawImage(maskCanvas, 0, 0);
+        }
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = alphaMult;
+        ctx.drawImage(this.scratchCanvas, 0, 0);
+        ctx.restore();
+    }
+
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
         this._checkDirtiness();
@@ -1609,54 +1648,22 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Update Grid Cache (needed for both 2D and GPU rendering)
         this._updateGridCache(width, height, s, d);
 
-        // Canvas line drawing is handled by the GLSL pipeline in WebGL mode.
-        // Echo renders as a plain overlay on top of the GLSL output.
+        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
+        const showEcho = (s.layerEnablePerimeterEcho !== false);
+        const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
+        const alphaMult = Math.min(1.0, glowStrength / 4.0);
+
+        // WebGL mode â€” lines in GLSL, Echo in 2D overlay
         if (s.renderingEngine === 'webgl') {
-            const showEcho = (s.layerEnablePerimeterEcho !== false);
             if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                ctx.save();
-                ctx.globalCompositeOperation = 'lighter';
-                ctx.globalAlpha = this.alpha;
-                ctx.drawImage(this.echoCanvas, 0, 0);
-                ctx.restore();
+                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, alphaMult);
             }
             return;
         }
 
-        // 2D canvas mode — canvas lines and echo use the same character-masking pipeline.
-        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
-        const showEcho = (s.layerEnablePerimeterEcho !== false);
-        const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
-        const isSolid = this.c.state.quantizedSolidPerimeter || false;
-        const scratchCtx = this.scratchCtx;
+        // 2D canvas mode â€” both lines and echo use the same masking pipeline.
         const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
         const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
-        const alphaMult = Math.min(1.0, glowStrength / 4.0);
-
-        // Helper: composite a line-mask canvas using the character-masking pattern
-        const drawMaskedLines = (maskCanvas) => {
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-            if (isSolid) {
-                scratchCtx.globalAlpha = this.alpha;
-                scratchCtx.drawImage(maskCanvas, 0, 0);
-            } else {
-                this._updateGridCache(width, height, s, d);
-                scratchCtx.globalAlpha = 1.0;
-                scratchCtx.save();
-                scratchCtx.translate(srcOffX, srcOffY);
-                scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-                scratchCtx.restore();
-                scratchCtx.globalCompositeOperation = 'source-in';
-                scratchCtx.globalAlpha = this.alpha;
-                scratchCtx.drawImage(maskCanvas, 0, 0);
-            }
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = alphaMult;
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
-        };
 
         if (showSource) {
             this._updateGridCache(width, height, s, d);
@@ -1667,11 +1674,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.drawImage(this.gridCacheCanvas, 0, 0);
             ctx.restore();
         }
+
         if (glowStrength > 0 && showLines) {
-            drawMaskedLines(this.lineMaskCanvas);
+            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult);
         }
         if (glowStrength > 0 && showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            drawMaskedLines(this.echoCanvas);
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, alphaMult);
         }
     }
 
@@ -1689,67 +1697,29 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         this._updateGridCache(width, height, s, derived);
 
-        if (s.renderingEngine === 'webgl') return;
-
-        const scratchCtx = this.scratchCtx;
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-        scratchCtx.globalAlpha = 1.0; 
-        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
-        scratchCtx.save();
-        scratchCtx.translate(srcOffX, srcOffY);
-        scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-        scratchCtx.restore();
-        scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
-        ctx.save();
-        if (ctx.canvas.style.mixBlendMode !== 'plus-lighter') {
-            ctx.canvas.style.mixBlendMode = 'plus-lighter';
-        }
-        ctx.globalCompositeOperation = 'lighter';
         const glowStrength = this.getConfig('BorderIllumination') || 4.0;
-        ctx.globalAlpha = 1.0;
-        ctx.shadowBlur = (glowStrength * 4.0);
-        ctx.drawImage(this.scratchCanvas, 0, 0);
-        ctx.restore();
+        const alphaMult = Math.min(1.0, glowStrength / 4.0);
 
-        // Echo with character masking in debug mode — same destination-in pattern as canvas lines
+        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult);
+
+        // Echo with character masking in debug mode - same pipeline as canvas lines
         const showEchoDebug = (s.layerEnablePerimeterEcho !== false);
         if (showEchoDebug && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.save();
-            scratchCtx.translate(srcOffX, srcOffY);
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            scratchCtx.restore();
-            scratchCtx.globalCompositeOperation = 'destination-in';
-            scratchCtx.drawImage(this.echoCanvas, 0, 0);
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = 1.0;
-            ctx.shadowBlur = (glowStrength * 4.0);
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
         }
     }
 
     renderEditorPreview(ctx, derived, previewOp) {
         const opHash = previewOp ? JSON.stringify(previewOp) : "";
-        // Fix: Use base length (excluding active preview ops) for stateHash
         const baseOpsLen = this.maskOps.length - (this._previewActive ? this._lastPreviewOpsAddedCount : 0);
         const stateHash = `${baseOpsLen}_${this.expansionPhase}_${opHash}`;
 
         if (stateHash !== this._lastPreviewStateHash) {
-            // Snapshot logic state before applying preview op
-            // Optimization: Only snapshot if we are transitioning FROM a clean state
             if (!this._previewActive || (this._lastPreviewSavedLogic && this._lastPreviewSavedLogic.length !== this.logicGrid.length)) {
                 this._lastPreviewSavedLogic = new Uint8Array(this.logicGrid);
                 if (this.promotionGrid) this._lastPreviewSavedPromotion = new Uint8Array(this.promotionGrid);
                 this._lastPreviewSavedOpsLen = this.maskOps.length;
             } else {
-                // Already in preview mode? Restore base state first to clear previous preview op
                 if (this._lastPreviewSavedLogic && this._lastPreviewSavedLogic.length === this.logicGrid.length) {
                     this.logicGrid.set(this._lastPreviewSavedLogic);
                 }
@@ -1787,25 +1757,22 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         this._updateGridCache(width, height, s, derived);
 
+        const glowStrength = this.getConfig('BorderIllumination') || 4.0;
+        const alphaMult = Math.min(1.0, glowStrength / 4.0);
+
         if (s.renderingEngine === 'webgl') {
-            // In WebGL mode, preview ops stay in maskOps for the renderer.
-            // Echo renders as a plain overlay here since GLSL handles the main output.
             const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
             if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                ctx.save();
-                ctx.globalCompositeOperation = 'lighter';
-                ctx.globalAlpha = this.alpha;
-                ctx.drawImage(this.echoCanvas, 0, 0);
-                ctx.restore();
+                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
             }
             return;
         }
 
-        const isSolid = this.c.state.quantizedSolidPerimeter || false;
+        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
+        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
+
         if (this.c.state.layerEnableQuantizedGridCache === true) {
             this._updateGridCache(width, height, s, derived);
-            const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-            const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
             ctx.save();
             ctx.globalAlpha = 0.3;
             ctx.globalCompositeOperation = 'source-over';
@@ -1813,57 +1780,16 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.drawImage(this.gridCacheCanvas, 0, 0);
             ctx.restore();
         }
-        const scratchCtx = this.scratchCtx;
-        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0);
-        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0);
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-        if (isSolid) {
-            scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
-        } else {
-            this._updateGridCache(width, height, s, derived);
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.save();
-            scratchCtx.translate(srcOffX, srcOffY);
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            scratchCtx.restore();
-            scratchCtx.globalCompositeOperation = 'source-in';
-            scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.drawImage(this.lineMaskCanvas, 0, 0);
-        }
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(this.scratchCanvas, 0, 0);
-        ctx.restore();
 
-        // Echo with character masking — same pipeline as canvas lines
+        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult);
+
+        // Echo with character masking - same pipeline as canvas lines
         const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
         if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-            if (isSolid) {
-                scratchCtx.globalAlpha = this.alpha;
-                scratchCtx.drawImage(this.echoCanvas, 0, 0);
-            } else {
-                this._updateGridCache(width, height, s, derived);
-                scratchCtx.globalAlpha = 1.0;
-                scratchCtx.save();
-                scratchCtx.translate(srcOffX, srcOffY);
-                scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-                scratchCtx.restore();
-                scratchCtx.globalCompositeOperation = 'source-in';
-                scratchCtx.globalAlpha = this.alpha;
-                scratchCtx.drawImage(this.echoCanvas, 0, 0);
-            }
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, alphaMult);
         }
 
         if (this._previewActive) {
-            // Surgically remove exactly the number of ops we added for the preview
             if (this._lastPreviewOpsAddedCount > 0) {
                 this.maskOps.splice(this._lastPreviewSavedOpsLen, this._lastPreviewOpsAddedCount);
             }
@@ -1883,7 +1809,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     renderEditorGrid(ctx) {
-        if (!this.layout) return;
+        // if (!this.layout) return;
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
         const l = this.layout;
@@ -5385,3 +5311,4 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
 }
+console.log('QuantizedBaseEffect loaded');

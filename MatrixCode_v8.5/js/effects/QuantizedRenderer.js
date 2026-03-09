@@ -374,10 +374,14 @@ class QuantizedRenderer {
     }
 
     renderEdges(fx, maskCtx, colorCtx, now, blocksX, blocksY, offX, offY) {
-        const color = fx.getConfig('PerimeterColor') || "#FFD700";
+        const color = fx.getLineGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
         const fadeColor = fx.getConfig('PerimeterFadeColor') || (fx.getConfig('InnerColor') || "#FFD700");
         const fadeOutFrames = fx.getLineGfxValue('Persistence') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
+
+        const brightness = fx.getLineGfxValue('Brightness') ?? 1.0;
+        const intensity = fx.getLineGfxValue('Intensity') ?? 1.0;
+        const lineOpacity = brightness * intensity;
 
         const batches = this._edgeBatches;
         const maskBatches = this._edgeMaskBatches;
@@ -385,12 +389,12 @@ class QuantizedRenderer {
         maskBatches.clear();
         
         const getBatch = (c, o) => {
-            const key = `${c}|${o.toFixed(3)}`;
+            const key = `${c}|${(o * lineOpacity).toFixed(3)}`;
             if (!batches.has(key)) batches.set(key, new Path2D());
             return batches.get(key);
         };
         const getMaskBatch = (o) => {
-            const key = o.toFixed(3);
+            const key = (o * lineOpacity).toFixed(3);
             if (!maskBatches.has(key)) maskBatches.set(key, new Path2D());
             return maskBatches.get(key);
         };
@@ -721,8 +725,11 @@ class QuantizedRenderer {
         if (!fx.layout) return;
 
         const echoGrid = fx.perimeterHistory[0];
-        const echoColor = fx.getConfig('PerimeterColor') || "#FFD700";
-        const echoOpacity = 1.0;
+        const echoColor = fx.getLineGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
+        
+        const brightness = fx.getLineGfxValue('Brightness') ?? 1.0;
+        const intensity = fx.getLineGfxValue('Intensity') ?? 1.0;
+        const echoOpacity = brightness * intensity;
 
         const varianceEnabled = fx.getLineGfxValue('BrightnessVarianceEnabled');
         const varianceAmount = fx.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
@@ -744,7 +751,7 @@ class QuantizedRenderer {
 
         const echoBatches = new Map();
         const getBatch = (c, o) => {
-            const key = `${c}|${o.toFixed(3)}`;
+            const key = `${c}|${(o * echoOpacity).toFixed(3)}`;
             if (!echoBatches.has(key)) echoBatches.set(key, new Path2D());
             return echoBatches.get(key);
         };
