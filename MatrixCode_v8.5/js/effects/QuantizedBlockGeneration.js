@@ -17,6 +17,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.sequence = [];
 
         // Procedural initialization
+        this._initShadowWorld();
         this._initProceduralState(true);
         // _initBehaviors is already called inside _resetV2Engine via super.trigger
 

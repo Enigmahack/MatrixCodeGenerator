@@ -1402,13 +1402,16 @@ class QuantizedBaseEffect extends AbstractEffect {
             const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
             const l3Active = (layerGrids[3] && layerGrids[3][idx] !== -1);
 
-            // Calculate finalVal using fixed layer priority: Layer 0 > 1
+            // Calculate finalVal using fixed layer priority: Layer 0 > 1 > (2 & 3 intersection)
             // We no longer favor the "most recent" frame; this prevents activation time from affecting layering.
             let bestFrame = -1;
             if (l0Active) {
                 bestFrame = layerGrids[0][idx];
             } else if (l1Active) {
                 bestFrame = layerGrids[1][idx];
+            } else if (l2Active && l3Active) {
+                // For the intersection, we use the later of the two contributions as the birth frame
+                bestFrame = Math.max(layerGrids[2][idx], layerGrids[3][idx]);
             }
             finalVal = bestFrame;
 
@@ -1488,9 +1491,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         for (let i = 0; i < w * h; i++) {
             const l0Active = (g0 && g0[i] !== -1);
             const l1Active = (g1 && g1[i] !== -1);
+            const l2Active = (g2 && g2[i] !== -1);
+            const l3Active = (g3 && g3[i] !== -1);
 
-            // Shadow Reveal Rules: Layer 0 OR Layer 1
-            if (l0Active || l1Active) {
+            // Shadow Reveal Rules: Layer 0, Layer 1, OR (Layer 2 AND Layer 3)
+            if (l0Active || l1Active || (l2Active && l3Active)) {
                 mainMass[i] = 1;
             }
         }
