@@ -2117,7 +2117,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.nudgeState = {
                 dirCounts: { N: 0, S: 0, E: 0, W: 0 },
                 fieldExpansion: { N: 0, S: 0, E: 0, W: 0 },
-                lanes: new Map() // Tracks {0: count, 1: count} per lane
+                lanes: new Map(), // Tracks {0: count, 1: count} per lane
+                cycle: {
+                    step: 0, // 0: Expansion, 1: Retract/Pause, 2: Retract/Pause
+                    lastTempBlock: null
+                }
             };
         }
         if (!this.overlapState) this.overlapState = { step: 0 };
@@ -2504,108 +2508,125 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptNudgeGrowthWithParams(targetLayer, bw, bh) {
-        if (!this.logicGridW || !this.logicGridH) return false;
+        // Force focus on Layer 1 and 1x1 blocks as per instructions
+        const layer = 1;
+        const forcedBw = 1;
+        const forcedBh = 1;
 
-        const w = this.logicGridW;
-        const h = this.logicGridH;
-        const cx = Math.floor(w / 2);
-        const cy = Math.floor(h / 2);
-        const grid = this.layerGrids[targetLayer];
+        if (!this.nudgeState || !this.nudgeState.cycle) return false;
+        const cycle = this.nudgeState.cycle;
+
+        // "Randomness" (quantizedGenerateV2NudgeChance) controls probability:
+        // 0.05 (Min) -> 5% chance of temp blocks / 5% chance of retraction
+        // 1.0 (Max) -> 100% chance of temp blocks / 100% chance of retraction
+        const randomness = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
+
+        if (cycle.step === 0) {
+            // STEP 0: EXPANSION
+            // We always try to place the Permanent block. 
+            // Randomness controls if we also get a Temporary block.
+            const success = this._executeExpansionStep(layer, forcedBw, forcedBh, randomness);
+            if (success) {
+                cycle.step = 1;
+                return true;
+            }
+            return false;
+        } else {
+            // STEP 1 or 2: RETRACT or PAUSE
+            // Randomness controls probability of retraction vs pause
+            const isRetract = Math.random() < randomness; 
+            let success = false;
+
+            if (isRetract && cycle.lastTempBlock) {
+                const b = cycle.lastTempBlock;
+                this._removeBlock(b.x, b.y, b.w, b.h, layer, true);
+                cycle.lastTempBlock = null;
+                success = true;
+            } else {
+                // Pause (Action performed but no grid change)
+                success = true;
+            }
+
+            // Advance step: 1 -> 2, 2 -> 0
+            cycle.step = (cycle.step + 1) % 3;
+            return success;
+        }
+    }
+
+    _executeExpansionStep(layer, bw, bh, randomness = 0.8) {
+        if (!this.logicGridW || !this.logicGridH) return false;
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const grid = this.layerGrids[layer];
         if (!grid) return false;
 
-        // 1. Pick a Cardinal Face (Direction) - Biased by Aspect Ratio
         const faces = this._getBiasedDirections();
-
         for (const dir of faces) {
-            // Calculate extension ratio for THIS direction's main spoke (offset 0)
-            let spokeBlocks = 0;
-            let spokeMax = 0;
+            // Find first empty gap along the main spoke for this direction
+            let firstEmpty = null;
             if (dir === 'N' || dir === 'S') {
-                spokeMax = (dir === 'N') ? cy : h - 1 - cy;
+                const startY = (dir === 'N') ? cy - 1 : cy + 1;
+                const endY = (dir === 'N') ? 0 : h - 1;
                 const step = (dir === 'N') ? -1 : 1;
-                for (let gy = cy + step; (dir === 'N' ? gy >= 0 : gy < h); gy += step) {
-                    if (grid[gy * w + cx] !== -1) spokeBlocks++; else break;
+                for (let gy = startY; (dir === 'N' ? gy >= endY : gy <= endY); gy += step) {
+                    if (grid[gy * w + cx] === -1) {
+                        firstEmpty = { x: 0, y: gy - cy };
+                        break;
+                    }
                 }
             } else {
-                spokeMax = (dir === 'W') ? cx : w - 1 - cx;
+                const startX = (dir === 'W') ? cx - 1 : cx + 1;
+                const endX = (dir === 'W') ? 0 : w - 1;
                 const step = (dir === 'W') ? -1 : 1;
-                for (let gx = cx + step; (dir === 'W' ? gx >= 0 : gx < w); gx += step) {
-                    if (grid[cy * w + gx] !== -1) spokeBlocks++; else break;
+                for (let gx = startX; (dir === 'W' ? gx >= endX : gx <= endX); gx += step) {
+                    if (grid[cy * w + gx] === -1) {
+                        firstEmpty = { x: gx - cx, y: 0 };
+                        break;
+                    }
                 }
             }
-            const extRatio = spokeMax > 0 ? spokeBlocks / spokeMax : 1.0;
 
-            // Offsets from axis: 0, 1, -1, 2, -2, 3, -3...
-            const maxOffset = Math.max(cx, cy);
-            for (let offset = 0; offset <= maxOffset; offset++) {
-                // Rule: only one line (offset 0) until > 33% extension
-                if (offset > 0 && extRatio <= 0.33) break;
+            if (firstEmpty) {
+                // 1. PLACE PERMANENT BLOCK (Forward)
+                let px = firstEmpty.x, py = firstEmpty.y;
+                if (dir === 'N') { py = firstEmpty.y - bh + 1; px = firstEmpty.x - Math.floor(bw / 2); }
+                else if (dir === 'S') { py = firstEmpty.y; px = firstEmpty.x - Math.floor(bw / 2); }
+                else if (dir === 'W') { px = firstEmpty.x - bw + 1; py = firstEmpty.y - Math.floor(bh / 2); }
+                else if (dir === 'E') { px = firstEmpty.x; py = firstEmpty.y - Math.floor(bh / 2); }
 
-                // Rule: force 1-wide (single line) until > 33% extension
-                let currentBw = bw, currentBh = bh;
-                if (extRatio <= 0.33) {
-                    if (dir === 'N' || dir === 'S') currentBw = 1;
-                    else currentBh = 1;
-                }
+                const permId = this._spawnBlock(px, py, bw, bh, layer, false, 0, true, true, true, false, true);
+                if (permId !== -1) {
+                    // 2. OPTIONALLY PLACE TEMPORARY BLOCK (Scaled by Randomness)
+                    if (Math.random() < randomness) {
+                        const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
+                        const opp = { 'N': 'S', 'S': 'N', 'E': 'W', 'W': 'E' };
+                        const spawnDirs = shuffle(['N', 'S', 'E', 'W'].filter(d => d !== opp[dir]));
+                        
+                        let tempId = -1;
+                        for (const tempDir of spawnDirs) {
+                            let tx = px, ty = py;
+                            if (tempDir === 'N') ty -= bh;
+                            else if (tempDir === 'S') ty += bh;
+                            else if (tempDir === 'W') tx -= bw;
+                            else if (tempDir === 'E') tx += bw;
 
-                // Try both sides of the axis for this offset
-                const dxs = (offset === 0) ? [0] : [offset, -offset];
-                for (const dAxis of dxs) {
-                    let isContinuous = true;
-                    let firstEmpty = null;
-
-                    if (dir === 'N' || dir === 'S') {
-                        // Check Vertical Spoke at x = cx + dAxis
-                        const gx = cx + dAxis;
-                        if (gx < 0 || gx >= w) continue;
-
-                        const startY = (dir === 'N') ? cy - 1 : cy + 1;
-                        const endY = (dir === 'N') ? 0 : h - 1;
-                        const step = (dir === 'N') ? -1 : 1;
-
-                        for (let gy = startY; (dir === 'N' ? gy >= endY : gy <= endY); gy += step) {
-                            if (grid[gy * w + gx] === -1) {
-                                isContinuous = false;
-                                if (firstEmpty === null) firstEmpty = { x: dAxis, y: gy - cy };
+                            tempId = this._spawnBlock(tx, ty, bw, bh, layer, false, 0, true, true, true, false, true);
+                            if (tempId !== -1) {
+                                this.nudgeState.cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
+                                break; 
                             }
+                        }
+
+                        if (tempId === -1) {
+                            this.nudgeState.cycle.lastTempBlock = null;
                         }
                     } else {
-                        // Check Horizontal Spoke at y = cy + dAxis
-                        const gy = cy + dAxis;
-                        if (gy < 0 || gy >= h) continue;
-
-                        const startX = (dir === 'W') ? cx - 1 : cx + 1;
-                        const endX = (dir === 'W') ? 0 : w - 1;
-                        const step = (dir === 'W') ? -1 : 1;
-
-                        for (let gx = startX; (dir === 'W' ? gx >= endX : gx <= endX); gx += step) {
-                            if (grid[gy * w + gx] === -1) {
-                                isContinuous = false;
-                                if (firstEmpty === null) firstEmpty = { x: gx - cx, y: dAxis };
-                            }
-                        }
+                        this.nudgeState.cycle.lastTempBlock = null;
                     }
-
-                    // If the spoke isn't full, fill the gap closest to center
-                    if (!isContinuous && firstEmpty) {
-                        let spawnX = firstEmpty.x;
-                        let spawnY = firstEmpty.y;
-
-                        // Align requested dimensions
-                        if (dir === 'N') { spawnY = firstEmpty.y - currentBh + 1; spawnX = firstEmpty.x - Math.floor(currentBw / 2); }
-                        else if (dir === 'S') { spawnY = firstEmpty.y; spawnX = firstEmpty.x - Math.floor(currentBw / 2); }
-                        else if (dir === 'W') { spawnX = firstEmpty.x - currentBw + 1; spawnY = firstEmpty.y - Math.floor(currentBh / 2); }
-                        else if (dir === 'E') { spawnX = firstEmpty.x; spawnY = firstEmpty.y - Math.floor(currentBh / 2); }
-
-                        // Override Rule Stack to ensure continuity
-                        if (this._spawnBlock(spawnX, spawnY, currentBw, currentBh, targetLayer, false, 0, true, true, true, false, true) !== -1) {
-                            return true;
-                        }
-                    }
+                    return true;
                 }
             }
         }
-
         return false;
     }
 
@@ -4627,75 +4648,16 @@ class QuantizedBaseEffect extends AbstractEffect {
     _initBehaviors() {
         const self = this;
 
-        // Behavior 1: Main Nudge Growth
+        // Behavior 1: Main Nudge Growth (3-Step Cycle)
         this.registerBehavior('main_nudge_growth', function(s) {
-            const startDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 4;
+            const startDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 2;
             if (s.step < startDelay) return;
 
-            const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.3;
+            const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
             if (Math.random() > spawnChance) return;
 
-            const maxStrips = this.c.get('quantizedGenerateV2MaxNudgeStrips') ?? 8;
-            const minSpacing = this.c.get('quantizedGenerateV2NudgeSpacing') ?? 3;
-            const axisBias   = this.c.get('quantizedGenerateV2NudgeAxisBias') ?? 0.5;
-            const scalingEnabled = this.c.get('quantizedGenerateV2GenerativeScaling');
-
-            const useHAxis = Math.random() < axisBias;
-            const maxLayer = this._getMaxLayer();
-            let candidates;
-            if (useHAxis) {
-                candidates = this.activeBlocks.filter(b => b.layer <= maxLayer && b.y <= s.scy && s.scy <= b.y + b.h - 1);
-            } else {
-                candidates = this.activeBlocks.filter(b => b.layer <= maxLayer && b.x <= s.scx && s.scx <= b.x + b.w - 1);
-            }
-
-            if (candidates.length === 0) return;
-
-            const processCandidate = (block) => {
-                const layer = block.layer;
-                if (layer === 2 && !useHAxis) return;
-                if (layer === 3 && useHAxis) return;
-
-                const allowed = this._getAllowedDirs(layer);
-                let nx, ny, dir;
-                if (useHAxis) {
-                    const validDirs = ['N', 'S'].filter(d => !allowed || allowed.has(d));
-                    if (validDirs.length === 0) return;
-                    nx = block.x + Math.floor(Math.random() * block.w);
-                    ny = s.scy;
-                    dir = validDirs[Math.floor(Math.random() * validDirs.length)];
-                } else {
-                    const validDirs = ['E', 'W'].filter(d => !allowed || allowed.has(d));
-                    if (validDirs.length === 0) return;
-                    nx = s.scx;
-                    ny = block.y + Math.floor(Math.random() * block.h);
-                    dir = validDirs[Math.floor(Math.random() * validDirs.length)];
-                }
-
-                if (this.checkScreenEdge(nx, ny)) return;
-
-                for (const strip of this.strips.values()) {
-                    if (!strip.isNudge) continue;
-                    if (Math.abs(strip.originX - nx) + Math.abs(strip.originY - ny) < minSpacing) return;
-                }
-
-                let nudgeCount = 0;
-                for (const st of this.strips.values()) if (st.isNudge && st.active) nudgeCount++;
-                if (nudgeCount >= maxStrips) return;
-
-                const strip = this._createStrip(layer, dir, nx, ny);
-                strip.isNudge = true;
-                strip.stepPhase = Math.floor(Math.random() * 6);
-            };
-
-            if (scalingEnabled) {
-                for (const block of candidates) {
-                    this.actionBuffer.push({ layer: block.layer, fn: () => processCandidate(block) });
-                }
-            } else {
-                const block = candidates[Math.floor(Math.random() * candidates.length)];
-                this.actionBuffer.push({ layer: block.layer, fn: () => processCandidate(block) });
-            }
+            // Execute the stateful 3-step cycle logic (targeting Layer 1, forced 1x1)
+            this._attemptNudgeGrowthWithParams(1, 1, 1);
         }, { enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
         // Behavior 2: Spine Rib Seeding (L2/L3)
