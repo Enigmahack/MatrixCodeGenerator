@@ -100,7 +100,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             hitEdge: false,
             insideOutWave: 1,
             deferredCols: new Map(),
-            deferredRows: new Map()
+            deferredRows: new Map(),
+            spawnSpreaderSymmetryQueue: []
         };
         this.strips = new Map();
         this._stripNextId = 0;
@@ -488,7 +489,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             seedSchedule: null,
             ribOrigins: new Set(),
             pendingDeletions: [],
-            pendingExpansions: []
+            pendingExpansions: [],
+            spawnSpreaderSymmetryQueue: []
         };
         // Re-init behaviors to refresh their closure state if needed
         this._initBehaviors();
@@ -4736,6 +4738,119 @@ class QuantizedBaseEffect extends AbstractEffect {
                 console.log(`[BlockSpawner] Step ${s.step}: Spawned ${spawnedCount} anticipatory blocks.`);
             }
         }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
+
+        this.registerBehavior('spawn_spreader', function(s) {
+            if (!this.c.get('quantizedGenerateV2SpawnSpreaderEnabled')) return;
+            const startDelay = this.c.get('quantizedGenerateV2SpawnSpreaderStartDelay') ?? 20;
+            if (s.step < startDelay) return;
+
+            // Handle Symmetry Queue
+            if (s.spawnSpreaderSymmetryQueue && s.spawnSpreaderSymmetryQueue.length > 0) {
+                const pending = [];
+                for (const item of s.spawnSpreaderSymmetryQueue) {
+                    if (s.step >= item.stepToSpawn) {
+                        // Attempt to spawn mirrored nudge
+                        const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
+                        strip.isNudge = true;
+                        strip.stepPhase = Math.floor(Math.random() * 6);
+                    } else {
+                        pending.push(item);
+                    }
+                }
+                s.spawnSpreaderSymmetryQueue = pending;
+            }
+
+            const spawnsPerStep = this.c.get('quantizedGenerateV2SpawnSpreaderCount') ?? 1;
+            const lockToAxis = this.c.get('quantizedGenerateV2SpawnSpreaderLockToAxis') ?? true;
+            const preferCenter = this.c.get('quantizedGenerateV2SpawnSpreaderPreferCenter') ?? true;
+            const randomness = this.c.get('quantizedGenerateV2SpawnSpreaderRandomness') ?? 0.5;
+            const preferSymmetry = this.c.get('quantizedGenerateV2SpawnSpreaderSymmetry') ?? true;
+
+            const bs = this.getBlockSize();
+            const halfW = Math.floor(this.g.cols / bs.w / 2);
+            const halfH = Math.floor(this.g.rows / bs.h / 2);
+
+            for (let i = 0; i < spawnsPerStep; i++) {
+                // useVerticalAxis means we search along the Y axis (varying Y, X=scx)
+                const useVerticalAxis = Math.random() < 0.5; 
+                let rx, ry, found = false;
+                let dir;
+
+                const maxSteps = useVerticalAxis ? halfH : halfW;
+                const searchRange = Math.max(2, Math.floor(maxSteps * randomness));
+
+                // Determine search boundaries based on Prefer Center
+                let startDist, endDist;
+                if (preferCenter) {
+                    startDist = 1;
+                    endDist = searchRange;
+                } else {
+                    startDist = Math.floor(Math.random() * (maxSteps - searchRange));
+                    endDist = startDist + searchRange;
+                }
+
+                for (let dist = startDist; dist <= endDist; dist++) {
+                    const sides = Math.random() < 0.5 ? [1, -1] : [-1, 1];
+                    for (const side of sides) {
+                        const pos = dist * side;
+                        let ax, ay; // The reference point ON the axis
+                        if (useVerticalAxis) {
+                            ax = s.scx; ay = s.scy + pos;
+                        } else {
+                            ax = s.scx + pos; ay = s.scy;
+                        }
+
+                        // Rule: Only spawn if the block ON the axis already exists
+                        if (this._isOccupied(ax, ay, 0) || this._isOccupied(ax, ay, 1)) {
+                            // Check perpendicular neighbors (directly beside the axis)
+                            const perpSides = Math.random() < 0.5 ? [1, -1] : [-1, 1];
+                            for (const pSide of perpSides) {
+                                let tx, ty;
+                                if (useVerticalAxis) {
+                                    tx = ax + pSide; ty = ay; // Spawn East or West
+                                } else {
+                                    tx = ax; ty = ay + pSide; // Spawn South or North
+                                }
+
+                                const gx = (this.logicGridW / 2 + tx) | 0;
+                                const gy = (this.logicGridH / 2 + ty) | 0;
+                                if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) continue;
+
+                                if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
+                                    rx = tx; ry = ty;
+                                    if (useVerticalAxis) dir = (pSide > 0) ? 'E' : 'W';
+                                    else dir = (pSide > 0) ? 'S' : 'N';
+                                    found = true; break;
+                                }
+                            }
+                        }
+                        if (found) break;
+                    }
+                    if (found) break;
+                }
+
+                if (!found) continue;
+
+                const layer = Math.floor(Math.random() * (this._getMaxLayer() + 1));
+                const strip = this._createStrip(layer, dir, rx, ry);
+                strip.isNudge = true;
+                strip.stepPhase = Math.floor(Math.random() * 6);
+
+                if (preferSymmetry) {
+                    const mirX = !useVerticalAxis ? rx : s.scx - (rx - s.scx);
+                    const mirY = !useVerticalAxis ? s.scy - (ry - s.scy) : ry;
+                    const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
+                    
+                    s.spawnSpreaderSymmetryQueue.push({
+                        x: mirX,
+                        y: mirY,
+                        layer,
+                        dir: mirDir,
+                        stepToSpawn: s.step + 1 + Math.floor(Math.random() * 3)
+                    });
+                }
+            }
+        }, { enabled: this.c.get('quantizedGenerateV2SpawnSpreaderEnabled') ?? false, label: 'Spawn Spreader' });
     }
 
     _pickLayerDirs(count) {
