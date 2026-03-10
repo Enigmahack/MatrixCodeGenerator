@@ -868,7 +868,9 @@ class QuantizedRenderer {
             drawW = (rightX - leftX);
             
             path.rect(drawX, drawY, drawW, drawH);
+            path.moveTo(drawX + drawR, drawY + drawH * 0.5);
             path.arc(drawX, drawY + drawH*0.5, drawR, 0, Math.PI * 2);
+            path.moveTo(drawX + drawW + drawR, drawY + drawH * 0.5);
             path.arc(drawX + drawW, drawY + drawH*0.5, drawR, 0, Math.PI * 2);
         } else if (face === 'W') {
             let topY = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
@@ -883,7 +885,9 @@ class QuantizedRenderer {
             drawH = (bottomY - topY);
 
             path.rect(drawX, drawY, drawW, drawH);
+            path.moveTo(drawX + drawW * 0.5 + drawR, drawY);
             path.arc(drawX + drawW*0.5, drawY, drawR, 0, Math.PI * 2);
+            path.moveTo(drawX + drawW * 0.5 + drawR, drawY + drawH);
             path.arc(drawX + drawW*0.5, drawY + drawH, drawR, 0, Math.PI * 2);
         }
     }
