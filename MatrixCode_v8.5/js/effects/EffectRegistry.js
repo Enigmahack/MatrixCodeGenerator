@@ -137,23 +137,28 @@ class EffectRegistry {
      * @private
      */
     _discoverPrefix(template, action) {
-        // Look for the Enable key that co-exists with this action in the template
-        // Usually they are in the same block/accordion.
         const buttonIdx = template.findIndex(d => d.type === 'button' && d.action === action);
         if (buttonIdx === -1) return null;
 
-        // Search neighboring entries for an ID ending in "Enabled"
-        // Expanded range to handle larger effect blocks (like Crash)
+        // Primary: extract prefix from dep like 'activeQuantizedEffect:quantizedPulse'
+        const button = template[buttonIdx];
+        const deps = button.dep ? (Array.isArray(button.dep) ? button.dep : [button.dep]) : [];
+        for (const dep of deps) {
+            if (dep.includes(':')) {
+                const value = dep.split(':')[1];
+                if (template.some(d => d.id === value + 'Enabled') &&
+                    template.some(d => d.id === value + 'FrequencySeconds')) {
+                    return value;
+                }
+            }
+        }
+
+        // Fallback: position-based (handles boot, crash, pulse, etc.)
         for (let i = Math.max(0, buttonIdx - 10); i < Math.min(template.length, buttonIdx + 10); i++) {
             const def = template[i];
             if (def.id && def.id.endsWith('Enabled')) {
                 const prefix = def.id.replace('Enabled', '');
-                
-                // Verify that a Frequency key also exists for this prefix
-                const hasFreq = template.some(d => d.id === prefix + "FrequencySeconds");
-                if (hasFreq) {
-                    return prefix;
-                }
+                if (template.some(d => d.id === prefix + 'FrequencySeconds')) return prefix;
             }
         }
         return null;

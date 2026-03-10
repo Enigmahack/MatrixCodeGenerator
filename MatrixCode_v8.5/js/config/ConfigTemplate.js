@@ -64,10 +64,10 @@ const QuantizedInheritableSettings = [
 const generateQuantizedEffectSettings = (prefix, label, action) => {
     const effectDep = `activeQuantizedEffect:${prefix}`;
     const settings = [
-        { cat: 'Effects', type: 'button', label: "Trigger " + label, action: action, class: 'btn-warn', dep: effectDep, tier: 'basic', tags: [label.toLowerCase(), 'action', 'trigger'] },
+        { cat: 'Effects', type: 'accordion_subheader', label: 'Options', dep: effectDep },
         { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled', dep: effectDep, tier: 'basic', tags: ['auto', 'on'] },
         { cat: 'Effects', id: prefix + "EnableAnimationCache", type: 'checkbox', label: 'Enable Animation Cache', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "Passively pre-render the animation to be played back instead of generating live. Good for performance. Changes to generation settings flushes the cache, and will be generated live until pre-render is complete.", tags: ['perf', 'cache', 'smooth'] },
-        { cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] },
+        ...(prefix !== 'quantizedGenerateV2' ? [{ cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] }] : []),
         
         { cat: 'Effects', type: 'sub_accordion', label: 'Look Settings', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 600, step: 5, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'auto'] },
@@ -126,11 +126,12 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3, tier: 'basic', tags: ['green', 'hue', 'tint'] },
     { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend.", tags: ['color', 'mix', 'random'] },
     { cat: 'Global', id: 'colorMixType', type: 'range', label: 'Mix Type', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => v < 0.3 ? 'Stream Colors' : (v > 0.7 ? 'Character Colors' : 'Mixed'), description: "Controls whether colors are assigned per-stream or per-character.", tags: ['color', 'mode', 'type'] },
-    { cat: 'Global', id: 'brightness', type: 'range', label: 'Overall Brightness', min: 0.1, max: 3.0, step: 0.1, tier: 'basic', transform: v => (v * 100).toFixed(0) + '% Brightness', description: "Boosts the overall luminance of all characters.", tags: ['light', 'luminance', 'intensity'] },
     { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', tier: 'advanced', description: "The head of the stream that writes the code to the screen", tags: ['head', 'lead', 'front'] },
+    { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', tier: 'advanced', description: "Determines the glow intensity of the leading tracer characters.", tags: ['head', 'bloom', 'shine'] },
+    { cat: 'Global', id: 'brightness', type: 'range', label: 'Overall Brightness', min: 0.1, max: 3.0, step: 0.1, tier: 'basic', transform: v => (v * 100).toFixed(0) + '% Brightness', description: "Boosts the overall luminance of all characters.", tags: ['light', 'luminance', 'intensity'] },
+    { cat: 'Global', type: 'accordion_subheader', label: 'Code Style' },
     { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px', tier: 'basic', tags: ['size', 'big', 'small', 'scale'] },
     { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1, tier: 'basic', tags: ['fast', 'slow', 'motion'] },
-    { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for lower-end hardware. Disables: Bloom, Post-Process, Dissolve, Deterioration, Line Variance, Refraction. Sets 0.75x resolution, pauses when hidden/idle, and reduces spawn rate. All settings are restored when turned off.", tier: 'basic', tags: ['fast', 'lag', 'optimize', 'low', 'performance'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
     { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, tier: 'advanced', transform: v => v + 'x', tags: ['quality', 'sharp', 'pixel'] },
@@ -140,9 +141,10 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'glowIntensityMultiplier', type: 'range', label: 'Glow Intensity', min: 0.0, max: 1.0, step: 0.05, tier: 'advanced', description: "Controls the strength of the additive glow on characters. Lower values preserve more detail in dense characters.", tags: ['bloom', 'bright', 'detail'] },
     { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Controls the brightness boost applied to trails (phosphor persistence). Default is 2.0.", tags: ['ghost', 'trail', 'bright'] },
     { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, tier: 'advanced', description: "The maximum alpha (transparency) for characters. Default is 0.99.", tags: ['transparency', 'alpha', 'see-through'] },
+    { cat: 'Global', type: 'accordion_subheader', label: 'Quick Presets' },
+    { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for lower-end hardware. Disables: Bloom, Post-Process, Dissolve, Deterioration, Line Variance, Refraction. Sets 0.75x resolution, pauses when hidden/idle, and reduces spawn rate. All settings are restored when turned off.", tier: 'basic', tags: ['fast', 'lag', 'optimize', 'low', 'performance'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Global FX' },
-    { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', tier: 'advanced', description: "Determines the glow intensity of the leading tracer characters.", tags: ['head', 'bloom', 'shine'] },
     { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-In (Phosphor Persistence)', hideValue: true, min: 0.0, max: 1.0, step: 0.01, tier: 'basic', invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.', tags: ['trail', 'length', 'phosphor', 'smear'] },
     
     { cat: 'Global', type: 'accordion_subheader', label: 'Bloom FX' },
@@ -200,8 +202,10 @@ const ConfigTemplate = [
     { cat: 'Appearance', id: 'upwardTracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['smooth', 'start'] },
     { cat: 'Appearance', id: 'upwardTracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['stay', 'pause'] },
     { cat: 'Appearance', id: 'upwardTracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['smooth', 'end'] },
+    { cat: 'Appearance', type: 'accordion_subheader', label: 'Movement', dep: 'upwardTracerEnabled' },
     { cat: 'Appearance', id: 'upwardTracerSpeedMult', type: 'range', label: 'Vertical Climb Speed', min: 0.5, max: 4.0, step: 0.1, transform: v => v + 'x', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['fast', 'slow', 'motion'] },
     { cat: 'Appearance', id: 'upwardTracerGlimmerSpeed', type: 'range', label: 'Glimmer Blink Speed', min: 0.01, max: 10.0, step: 0.01, dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['blink', 'flash', 'fast'] },
+    { cat: 'Appearance', type: 'accordion_subheader', label: 'Glimmer Shape', dep: 'upwardTracerEnabled' },
     { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: "The number of mini blocks that determine the shape of the Glimmer highlighting.", tags: ['area', 'blocks'] },
     { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: "The amount of mini blocks that are lit within the Glimmer Grid.", tags: ['density', 'lit'] },
     { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['bloom', 'bright'] },
@@ -215,11 +219,14 @@ const ConfigTemplate = [
 
     // 3. BEHAVIOR TAB
     { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
+    { cat: 'Behavior', type: 'accordion_subheader', label: 'Timing' },
     { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', tier: 'advanced', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1, tags: ['timing', 'sync'] },
     { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: "Varies the speed and release timing of tracers. 0% is uniform sync.", tags: ['random', 'timing'] },
+    { cat: 'Behavior', type: 'accordion_subheader', label: 'Spacing' },
     { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 2, max: 50, unit: 'px', tier: 'advanced', tags: ['spacing', 'empty'] },
     { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px', tier: 'advanced', tags: ['spacing', 'empty'] },
     { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', tier: 'advanced', description: "Minimum space between tracer types, preventing short streams", tags: ['spacing', 'variety'] },
+    { cat: 'Behavior', type: 'accordion_subheader', label: 'Length' },
     { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit: 'fr', tier: 'advanced', tags: ['tail', 'fade', 'speed'] },
     { cat: 'Behavior', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length', tier: 'advanced', tags: ['random', 'variety'] },
     { cat: 'Behavior', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', tier: 'advanced', description: "Randomizes the length of the trail. Range is between Fade Speed and this value.", tags: ['random', 'range'] },
@@ -228,7 +235,6 @@ const ConfigTemplate = [
     { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.', tags: ['empty', 'broken', 'segments'] },
 
     { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
-    { cat: 'Behavior', type: 'accordion_subheader', label: 'Tracers' },
     { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, tier: 'basic', description: "Max number of tracers released per cycle. A tracer is the leading character that 'writes' the stream to the screen.", tags: ['density', 'amount', 'rain'] },
     { cat: 'Behavior', id: 'preferClusters', type: 'checkbox', label: 'Prefer Clusters', tier: 'advanced', description: "Slightly increases the chance of tracers spawning side-by-side.", tags: ['grouping', 'pattern'] },
     { cat: 'Behavior', id: 'tracerStopChance', type: 'range', label: 'Tracer Drop-out', min: 0, max: 10, step: 1, tier: 'advanced', transform: v => v + '%', description: 'Chance for a tracer to randomly stop, leaving a hanging stream.', tags: ['random', 'incomplete'] },
@@ -252,10 +258,9 @@ const ConfigTemplate = [
     { cat: 'Behavior', id: 'rotatorRandomSpeedEnabled', type: 'checkbox', label: 'Randomize Rotation Speed', dep: 'rotatorEnabled', tier: 'advanced', description: "Vary the rotation speed randomly throughout the rotator's life cycle.", tags: ['random', 'variety'] },
 
     // 4. EFFECTS TAB
-    { cat: 'Effects', type: 'header', label: 'Movie Effects' },
-    { cat: 'Effects', type: 'header', label: 'Trilogy' },
+    { cat: 'Effects', type: 'accordion_header', label: 'Trilogy', startOpen: true },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Pulse' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Pulse' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'ripple', 'action'] },
     { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses', tier: 'basic', tags: ['wave', 'auto'] },
     { cat: 'Effects', id: 'pulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'pulseEnabled', tier: 'advanced', description: "Enables movie-accurate timing and visuals, disabling custom controls.", tags: ['real', 'original'] },
@@ -274,7 +279,8 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: "Start at a full square", tags: ['fast', 'jump'] },
     { cat: 'Effects', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['round', 'ring'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Clear Pulse' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Clear Pulse' },
     { cat: 'Effects', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'reveal', 'action'] },
     { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse', tier: 'basic', tags: ['wave', 'reveal', 'auto'] },
     { cat: 'Effects', id: 'clearPulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'clearPulseEnabled', tier: 'advanced', description: "Enables movie-accurate visual artifacts (tearing/lag) without dimming the screen.", tags: ['real', 'original'] },
@@ -290,7 +296,8 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'clearPulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tier: 'advanced', description: "Start at a full square", tags: ['fast', 'jump'] },
     { cat: 'Effects', id: 'clearPulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tier: 'advanced', tags: ['round', 'ring'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Pulse Storm' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Pulse Storm' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn', tier: 'basic', tags: ['weather', 'chaos', 'action'] },
     { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms', tier: 'basic', tags: ['auto', 'chaos'] },
     { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
@@ -304,7 +311,8 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled', tier: 'advanced', tags: ['fast', 'slow'] },
     { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['size', 'area'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Deja Vu' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Deja Vu' },
     { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn', tier: 'basic', tags: ['glitch', 'error', 'action'] },
     { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu', tier: 'basic', tags: ['auto', 'glitch'] },
     { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
@@ -319,7 +327,8 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'dejaVuBarDurationFrames', type: 'range', label: 'Flash Length', min: 10, max: 60, unit: 'fr', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'fast'] },
     { cat: 'Effects', id: 'dejaVuVarianceFrames', type: 'range', label: 'Flash Length Variance', min: 0, max: 120, unit: 'fr', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['random', 'variety'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Superman' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Superman' },
     { cat: 'Effects', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn', tier: 'basic', tags: ['lightning', 'physics', 'action'] },
     { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects', tier: 'basic', tags: ['auto', 'lightning'] },
     { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'supermanEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
@@ -333,7 +342,8 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', tier: 'advanced', description: 'How vertically erratic the lightning path is.', tags: ['random', 'jitter'] },
     { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', tier: 'advanced', description: 'Speed from left to right', tags: ['fast', 'motion'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Boot/Crash' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Boot/Crash' },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
     { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot', tier: 'basic', tags: ['intro', 'start'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn', tier: 'basic', tags: ['intro', 'start', 'action'] },
@@ -343,7 +353,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'length'] },
 
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Visuals', dep: 'crashEnabled' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Crash Visuals', dep: 'crashEnabled' },
     { cat: 'Effects', id: 'crashSheetCount', type: 'range', label: 'Shadowbox Density', min: 0, max: 200, step: 1, dep: 'crashEnabled', tier: 'advanced', tags: ['blocks', 'amount'] },
     { cat: 'Effects', id: 'crashSheetSpeed', type: 'range', label: 'Shadowbox Speed', min: 0.1, max: 3.0, step: 0.1, dep: 'crashEnabled', transform: v => v + 'x', tier: 'advanced', tags: ['fast', 'slow'] },
     { cat: 'Effects', id: 'crashSheetOpacity', type: 'range', label: 'Shadowbox Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'crashEnabled', tier: 'advanced', tags: ['alpha', 'see-through'] },
@@ -353,11 +363,19 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'crashEnableSmith', type: 'checkbox', label: 'Infect Characters (Agent Smith)', dep: 'crashEnabled', tier: 'advanced', tags: ['faces', 'agent'] },
     { cat: 'Effects', id: 'crashEnableSuperman', type: 'checkbox', label: 'Simulate Physics (Superman)', dep: 'crashEnabled', tier: 'advanced', tags: ['lightning', 'sparks'] },
     { cat: 'Effects', id: 'crashEnableFlash', type: 'checkbox', label: 'Flash Screen on Crash', dep: 'crashEnabled', tier: 'advanced', tags: ['bright', 'white'] },
+    { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', tier: 'basic', tags: ['error', 'stop', 'action'] },
 
-    { cat: 'Effects', type: 'header', label: 'Resurrections' },
+    { cat: 'Effects', type: 'accordion_header', label: 'Resurrections', startOpen: true },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Quantized Master' },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse',     action: 'quantizedPulse',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedPulse',         tier: 'basic', tags: ['quantizedpulse', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add',       action: 'quantizedAdd',            class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedAdd',           tier: 'basic', tags: ['quantizedadd', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract',   action: 'quantizedRetract',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedRetract',       tier: 'basic', tags: ['quantizedretract', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb',     action: 'quantizedClimb',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedClimb',         tier: 'basic', tags: ['quantizedclimb', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom',      action: 'quantizedZoom',           class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedZoom',          tier: 'basic', tags: ['quantizedzoom', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Expansion', action: 'quantizedExpansion',      class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedExpansion',     tier: 'basic', tags: ['quantizedexpansion', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Crawler',   action: 'quantizedCrawler',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedCrawler',       tier: 'basic', tags: ['quantizedcrawler', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Block Generator',     action: 'QuantizedBlockGenerator', class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedGenerateV2',   tier: 'basic', tags: ['blockgenerator', 'action', 'trigger'] },
     { cat: 'Effects', id: 'activeQuantizedEffect', type: 'select', label: 'Selected Effect', options: [
         { label: 'Quantized Pulse', value: 'quantizedPulse' },
         { label: 'Quantized Add', value: 'quantizedAdd' },
@@ -436,7 +454,7 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'end_group' },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Quantized Defaults' },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Quantized Defaults' },
     ...(() => {
         const defaults = [];
         let currentSub = '';
@@ -472,9 +490,9 @@ const ConfigTemplate = [
         return defaults;
     })(),
 
-    { cat: 'Effects', type: 'header', label: 'Special Effects' },
+    { cat: 'Effects', type: 'accordion_header', label: 'Special Effects', startOpen: true },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Star Power' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Star Power' },
     { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', tier: 'basic', tags: ['sparkle', 'rainbow', 'glimmer'] },
     { cat: 'Effects', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', tier: 'advanced', unit: '%', tags: ['amount', 'chance'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'starPowerEnabled' },
@@ -485,13 +503,14 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'starPowerColorCycle', type: 'checkbox', label: 'Cycle Colors', dep: 'starPowerEnabled', tier: 'advanced', tags: ['rainbow', 'animate'] },
     { cat: 'Effects', id: 'starPowerCycleSpeed', type: 'range', label: 'Cycle Speed', min: 1, max: 20, dep: 'starPowerEnabled', tier: 'advanced', tags: ['fast', 'slow'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Rainbow Streams' },
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'sub_accordion', label: 'Rainbow Streams' },
     { cat: 'Effects', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams', tier: 'basic', tags: ['color', 'prismatic'] },
     { cat: 'Effects', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', tags: ['chance', 'amount'] },
     { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled', tier: 'advanced', tags: ['light', 'bright'] },
 
-    { cat: 'Effects', type: 'header', label: 'Post Processing' },
-    { cat: 'Effects', type: 'accordion_header', label: 'User Shader' },
+    { cat: 'Effects', type: 'accordion_header', label: 'Post Processing', startOpen: true },
+    { cat: 'Effects', type: 'sub_accordion', label: 'User Shader' },
     { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader', tier: 'basic', tags: ['custom', 'glsl', 'glitch'] },
     { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'none' },
     { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', id: 'importShader_effects', action: 'importShader', class: 'btn-info', tier: 'advanced', tags: ['upload', 'code'] },

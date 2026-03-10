@@ -382,11 +382,14 @@ class UIManager {
             
             // Accordion Header: Pops everything except tab root, pushes new accordion
             if (def.type === 'accordion_header') {
-                while (stack.length > 1) stack.pop(); 
+                while (stack.length > 1) stack.pop();
                 const accordionBody = this._createAccordion(tabGroup, def.label);
                 stack.push(accordionBody);
+                if (def.startOpen) {
+                    this._toggleAccordion(accordionBody.previousElementSibling, accordionBody);
+                }
                 return;
-            } 
+            }
 
             // Sub Accordion: Pushes new nested body onto the stack
             if (def.type === 'sub_accordion' || def.type === 'accordion_subheader_group') {
@@ -1095,13 +1098,16 @@ class UIManager {
         }
         const row = document.createElement('div');
         if (def.type === 'button') {
-            const btn = document.createElement('button'); 
-            btn.className = `action-btn ${def.class||'btn-info'}`; 
-            btn.textContent = def.label; 
-            btn.id = `btn-${def.id || def.action}`; 
-            btn.name = def.action; 
-            btn.onclick = () => this.handleAction(def.action); 
+            const btn = document.createElement('button');
+            btn.className = `action-btn ${def.class||'btn-info'}`;
+            btn.textContent = def.label;
+            btn.id = `btn-${def.id || def.action}`;
+            btn.name = def.action;
+            btn.onclick = () => this.handleAction(def.action);
             row.appendChild(btn);
+            if (def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep));
+            if (def.id) row.id = `row-${def.id}`;
+            return row;
         } else if (def.type === 'sortable_list') {
             this._renderSortableList(row, def);
         } else if (def.type === 'slot') {
@@ -1630,7 +1636,7 @@ class UIManager {
         if(action === 'reset' && confirm('Reset all settings?')) this.c.reset();
         if(action === 'clearCache' && confirm('Clear all custom fonts?')) this.fonts.deleteAllFonts();
         if(action === 'export') Utils.downloadJson({version:APP_VERSION, state:this.c.state, savedPresets:this.c.slots}, `matrix_conf_v${APP_VERSION}.json`);
-        if(action === 'import') document.getElementById('importFile').click();
+        if(action === 'import' && confirm('Importing a configuration will overwrite all current settings and save slots. Continue?')) document.getElementById('importFile').click();
         if(action === 'importFont') document.getElementById('importFontFile').click();
         // Shader Imports
         if(action === 'importShader') document.getElementById('importShaderFile').click();
