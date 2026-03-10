@@ -1149,7 +1149,7 @@ class QuantizedEffectEditor {
             btn.style.flex = '1';
             btn.style.color = this.layerColors[l];
             btn.style.borderColor = this.layerColors[l];
-            btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay, L2-L3 are intersection revealers.`;
+            btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay, L2-L3 are secondary layers.`;
             layerBtnGroup.appendChild(btn);
             this.layerBtns[l] = btn;
         });

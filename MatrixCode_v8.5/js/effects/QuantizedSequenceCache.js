@@ -228,10 +228,7 @@ class QuantizedSequenceCache {
             'LayerCount', 'QuadrantCount', 'GenerativeScaling', 'RandomStart', 'SpineBoost',
             'SimultaneousSpawns', 'AllowAsymmetry',
             'EnableNudge', 'NudgeChance', 'MaxNudgeStrips', 'NudgeSpacing', 'NudgeAxisBias', 'NudgeStartDelay',
-            'InvisibleEnabled', 'InvisibleL2Chance', 'InvisibleL3Chance', 'MaxInvisibleL2Strips',
-            'MaxInvisibleL3Strips', 'InvisibleL2Spacing', 'InvisibleL3Spacing', 'InvisibleStartDelay',
-            'L2LockEnabled', 'L2LockOffset', 'L3LockEnabled', 'L3LockOffset', 'L3AllowNudges',
-            'L3FlickerChance', 'L3QuadrantWipeEnabled', 'FillThreshold', 'MaxBlockScale',
+            'FillThreshold', 'MaxBlockScale',
             'InsideOutEnabled', 'InsideOutDelay', 'InsideOutPeriod', 'IntersectionPause',
             'IntersectionPauseChance', 'CleanInnerDistance',
             'Speed', 'BlockWidthCells', 'BlockHeightCells', 'OverrideDefaults'

@@ -159,8 +159,6 @@ class QuantizedSequenceGeneratorV2 {
 
             const processCandidate = (block) => {
                 const layer = block.layer;
-                if (layer === 2 && !useHAxis) return;
-                if (layer === 3 && useHAxis) return;
                 const allowed = gen._getAllowedDirs(layer);
                 let nx, ny, dir;
                 if (useHAxis) {
@@ -201,144 +199,85 @@ class QuantizedSequenceGeneratorV2 {
             }
         });
 
-        this.registerBehavior('spine_rib_seeding', function(s) {
-            const maxLayer = gen._getConfig('LayerCount') ?? 0;
-            if (maxLayer < 2) return;
-            const startDelay = gen._getConfig('InvisibleStartDelay') ?? 4;
+        this.registerBehavior('block_spawner', function(s) {
+            if (!gen._getConfig('BlockSpawnerEnabled')) return;
+            const startDelay = gen._getConfig('BlockSpawnerStartDelay') ?? 10;
             if (s.step < startDelay) return;
-            const l2Chance = gen._getConfig('InvisibleL2Chance') ?? 1.0;
-            const l3Chance = gen._getConfig('InvisibleL3Chance') ?? 1.0;
-            const l2Max = gen._getConfig('MaxInvisibleL2Strips') ?? 100;
-            const l3Max = gen._getConfig('MaxInvisibleL3Strips') ?? 100;
-            const l2Spacing = gen._getConfig('InvisibleL2Spacing') ?? 1;
-            const l3Spacing = gen._getConfig('InvisibleL3Spacing') ?? 1;
+            const randomness = gen._getConfig('BlockSpawnerRandomness') ?? 0.5;
+            const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 2;
 
-            if (!s.ribOrigins) s.ribOrigins = new Set();
-            for (const block of gen.activeBlocks) {
-                if (block.layer > 3) continue;
-                const onHAxis = (block.y <= s.scy && s.scy <= block.y + block.h - 1);
-                const onVAxis = (block.x <= s.scx && s.scx <= block.x + block.w - 1);
-                if (!onHAxis && !onVAxis) continue;
-                const processLayer = (l, ribs) => {
-                    if (maxLayer < l) return;
-                    const spawnChance = (l === 2) ? l2Chance : l3Chance;
-                    const maxStrips = (l === 2) ? l2Max : l3Max;
-                    const spacing = (l === 2) ? l2Spacing : l3Spacing;
-                    let currentCount = 0;
-                    for (const st of gen.strips.values()) if (st.layer === l && st.isInvisible && st.active) currentCount++;
-                    if (currentCount >= maxStrips) return;
-                    const allowed = gen._getAllowedDirs(l);
-                    if (Math.random() < spawnChance) {
-                        for (const rDir of ribs) {
-                            if (allowed && !allowed.has(rDir)) continue;
-                            let nx = block.x, ny = block.y;
-                            if (l === 2) { 
-                                const jitter = Math.floor(Math.random() * block.w);
-                                nx = block.x + jitter;
-                                ny = s.scy;
-                            } else { 
-                                const jitter = Math.floor(Math.random() * block.h);
-                                nx = s.scx;
-                                ny = block.y + jitter;
-                            }
-                            const idKey = `${l}_${rDir}_${nx}_${ny}`;
-                            if (s.ribOrigins.has(idKey)) continue;
-                            let tooClose = false;
-                            for (const st of gen.strips.values()) {
-                                if (st.layer === l && st.isInvisible && st.active) {
-                                    if (Math.abs(st.originX - nx) + Math.abs(st.originY - ny) < spacing) {
-                                        tooClose = true; break;
-                                    }
-                                }
-                            }
-                            if (tooClose) continue;
-                            s.ribOrigins.add(idKey);
-                            gen.actionBuffer.push({ layer: l, isSpine: false, fn: () => {
-                                const rStrip = gen._createStrip(l, rDir, nx, ny);
-                                rStrip.isInvisible = true;
-                                rStrip.stepPhase = Math.floor(Math.random() * 6);
-                            }});
+            // 1. Collect potential targets
+            const targets = [];
+            
+            // Expansion strips
+            for (const strip of gen.strips.values()) {
+                if (!strip.active) continue;
+                targets.push({ type: 'strip', obj: strip });
+            }
+
+            // Main nudge growth points
+            const faces = ['N', 'S', 'E', 'W'];
+            const w = gen.logicGridW, h = gen.logicGridH;
+            const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+            const layer = 1;
+            const grid = gen.layerGrids[layer];
+            if (grid) {
+                for (const dir of faces) {
+                    let headX = 0, headY = 0;
+                    if (dir === 'N' || dir === 'S') {
+                        const step = (dir === 'N') ? -1 : 1;
+                        for (let gy = cy + step; (dir === 'N' ? gy >= 0 : gy < h); gy += step) {
+                            if (grid[gy * w + cx] === -1) { headX = 0; headY = gy - cy - step; break; }
+                        }
+                    } else {
+                        const step = (dir === 'W') ? -1 : 1;
+                        for (let gx = cx + step; (dir === 'W' ? gx >= 0 : gx < w); gx += step) {
+                            if (grid[cy * w + gx] === -1) { headX = gx - cx - step; headY = 0; break; }
                         }
                     }
-                };
-                if (onHAxis) processLayer(2, ['N', 'S']);
-                if (onVAxis) processLayer(3, ['E', 'W']);
-            }
-        });
-
-        this.registerBehavior('layer_collision_interference', function(s) {
-            const flickerChance = gen._getConfig('L3FlickerChance') ?? 0.15;
-            if (flickerChance <= 0) return;
-            if (!s.pendingDeletions) s.pendingDeletions = [];
-            
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            const margin = 2;
-
-            for (const b of gen.activeBlocks) {
-                if (b.layer === 3 && Math.random() < flickerChance) {
-                    // Protected if under Layer 0 or 1, or inside the central mass perimeter
-                    const rx = b.x - s.scx, ry = b.y - s.scy;
-                    const isOutside = (-ry > l0md.N + margin || ry > l0md.S + margin || rx > l0md.E + margin || -rx > l0md.W + margin);
-                    
-                    if (isOutside && !gen._isUnderLayer(b, 0) && !gen._isUnderLayer(b, 1)) {
-                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
-                    }
+                    targets.push({ type: 'nudge', dir, x: headX, y: headY, layer });
                 }
             }
-        });
 
-        this.registerBehavior('l3_spine_randomness', function(s) {
-            const maxLayer = gen._getConfig('LayerCount') ?? 0;
-            if (maxLayer < 3) return;
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            const l3Chance = gen._getConfig('InvisibleL3Chance') ?? 1.0;
-            const rangeN = l0md.N + 2;
-            const rangeS = l0md.S + 2;
-            
-            // Vertical Spine Spawning
-            const spawnCount = 2 + Math.floor(Math.random() * 3);
-            for (let i = 0; i < spawnCount; i++) {
-                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                gen.actionBuffer.push({ layer: 3, isSpine: true, fn: () => {
-                    gen._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, true);
-                }});
-            }
+            if (targets.length === 0) return;
 
-            // Horizontal (Lateral) Spawning - No longer limited to a single check
-            const lateralSpawnCount = 1 + Math.floor(Math.random() * 2);
-            for (let i = 0; i < lateralSpawnCount; i++) {
-                if (Math.random() < l3Chance) {
-                    const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                    gen.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
-                        const dir = Math.random() < 0.5 ? 'E' : 'W';
-                        const rStrip = gen._createStrip(3, dir, s.scx, s.scy + ry);
-                        rStrip.isInvisible = true;
-                        rStrip.stepPhase = Math.floor(Math.random() * 6);
-                    }});
+            // 2. Shuffle and pick up to maxSpawn
+            const shuffled = targets.sort(() => Math.random() - 0.5);
+            let spawnedCount = 0;
+
+            for (const target of shuffled) {
+                if (spawnedCount >= maxSpawn) break;
+                if (Math.random() > randomness) continue;
+
+                let aheadX, aheadY;
+                const layer = 1; // Force Layer 1 for all spawner blocks
+                const dir = target.type === 'strip' ? target.obj.direction : target.dir;
+                const [dx, dy] = gen._dirDelta(dir);
+                const dist = 3 + Math.floor(Math.random() * 6);
+
+                if (target.type === 'strip') {
+                    aheadX = target.obj.headX + dx * dist;
+                    aheadY = target.obj.headY + dy * dist;
+                } else {
+                    aheadX = target.x + dx * dist;
+                    aheadY = target.y + dy * dist;
+                }
+
+                if (gen.checkScreenEdge(aheadX, aheadY)) continue;
+                if (!gen._isOccupied(aheadX, aheadY, layer)) {
+                    gen.actionBuffer.push({ layer: layer, fn: () => gen._spawnBlock(aheadX, aheadY, 1, 1, layer, true) });
+                    spawnedCount++;
                 }
             }
-        });
-
-        this.registerBehavior('l3_quadrant_wipe', function(s) {
-            if (!gen._getConfig('L3QuadrantWipeEnabled')) return;
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            if (!s.pendingDeletions) s.pendingDeletions = [];
-            for (const b of gen.activeBlocks) {
-                if (b.layer !== 3) continue;
-                const rx = b.x - s.scx;
-                const ry = b.y - s.scy;
-                if (-ry > l0md.N + 2 || ry > l0md.S + 2 || rx > l0md.E + 2 || -rx > l0md.W + 2) {
-                    // Even in quadrant wipe, protect if under L0/L1
-                    if (!gen._isUnderLayer(b, 0) && !gen._isUnderLayer(b, 1)) {
-                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
-                    }
-                }
-            }
-        });
+        }, { enabled: this._getConfig('BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
     }
 
-    registerBehavior(id, fn) {
-        this.growthPool.set(id, { fn, enabled: true });
+    registerBehavior(id, fn, options = {}) {
+        this.growthPool.set(id, { 
+            fn, 
+            enabled: options.enabled ?? true,
+            label: options.label ?? id
+        });
     }
 
     _generateRandomPattern() {
@@ -361,7 +300,7 @@ class QuantizedSequenceGeneratorV2 {
     _generateSeedSchedule(scx, scy) {
         const schedule = {};
         const dirs = ['N', 'S', 'E', 'W'];
-        const maxLayer = this._getConfig('LayerCount') ?? 0;
+        const maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
         const addToSchedule = (layer, dir, stepPool) => {
             const step = stepPool[Math.floor(Math.random() * stepPool.length)];
             if (!schedule[step]) schedule[step] = [];
@@ -373,8 +312,6 @@ class QuantizedSequenceGeneratorV2 {
         } else {
             [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d, [0, 1, 2, 3, 4, 5]));
         }
-        if (maxLayer >= 2) ['E', 'W'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(2, d, [0, 1, 2]));
-        if (maxLayer >= 3) ['N', 'S'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(3, d, [0, 1, 2]));
         return schedule;
     }
 
@@ -464,33 +401,11 @@ class QuantizedSequenceGeneratorV2 {
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
         let { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
-        if (strip.layer >= 2 && Math.random() < 0.5) {
-            const burst = 1 + Math.floor(Math.random() * 2);
-            if (dx !== 0) bw += burst; else if (dy !== 0) bh += burst;
-        }
-        const lmd = s.layerMaxDist[strip.layer] || { N: 0, S: 0, E: 0, W: 0 };
-        const l0md = s.layerMaxDist[0] || { N: 0, S: 0, E: 0, W: 0 };
-        const headRX = strip.headX - s.scx, headRY = strip.headY - s.scy;
-        const limit = strip.layer === 2 ? 1 : 2;
-        if (!strip.isSpine && strip.layer >= 2) {
-            const exceeds = (strip.direction === 'N' && -headRY > l0md.N + limit) || (strip.direction === 'S' && headRY > l0md.S + limit) ||
-                            (strip.direction === 'E' && headRX > l0md.E + limit) || (strip.direction === 'W' && -headRX > l0md.W + limit);
-            if (exceeds) { strip.active = false; this.strips.delete(strip.id); return; }
-        }
-        
-        // Queue L3 removal during growth if it's not protected by L0/L1
-        if (strip.layer < 3 && this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) {
-            const tx = strip.headX + dx, ty = strip.headY + dy;
-            if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
-                if (!s.pendingDeletions) s.pendingDeletions = [];
-                s.pendingDeletions.push({ x: tx, y: ty, w: bw, h: bh, layer: 3 });
-            }
-        }
 
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { strip.active = false; this.strips.delete(strip.id); return; }
         const id = this._spawnBlock(dx > 0 ? strip.headX + 1 : newHeadX, dy > 0 ? strip.headY + 1 : newHeadY, bw, bh, strip.layer, true);
-        if (id !== -1) { strip.headX = newHeadX; strip.headY = newHeadY; strip.growCount++; if (strip.layer === 2 && !!this._getConfig('L3AllowNudges')) this._nudgeLayer3(strip.direction, s); }
+        if (id !== -1) { strip.headX = newHeadX; strip.headY = newHeadY; strip.growCount++; }
     }
 
     _dirDelta(dir) { return dir === 'N' ? [0,-1] : (dir === 'S' ? [0,1] : (dir === 'E' ? [1,0] : (dir === 'W' ? [-1,0] : [0,0]))); }
@@ -545,14 +460,6 @@ class QuantizedSequenceGeneratorV2 {
         for (let gy = gy1; gy <= gy2; gy++) for (let gx = gx1; gx <= gx2; gx++) grid[gy * this.logicGridW + gx] = -1;
     }
 
-    _nudgeLayer3(dir, s) {
-        const dy = dir === 'N' ? -1 : (dir === 'S' ? 1 : 0);
-        if (dy === 0) return;
-        for (const b of this.activeBlocks) if (b.layer === 3) { const ry = b.y - s.scy; if ((dir === 'N' && ry < 0) || (dir === 'S' && ry > 0)) b.y += dy; }
-        for (const st of this.strips.values()) if (st.layer === 3 && st.active) { const sry = st.headY - s.scy; if ((dir === 'N' && sry < 0) || (dir === 'S' && sry > 0)) { st.headY += dy; st.originY += dy; } }
-        this.currentStepOps.push(['shiftBlocks', 3, dir, 0, dy, s.scx, s.scy]);
-    }
-
     _updateFillRatio(s) {
         const bs = this._getBlockSize(), visW = Math.max(1, Math.floor(this.cols / bs.w)), visH = Math.max(1, Math.floor(this.rows / bs.h));
         const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
@@ -568,13 +475,11 @@ class QuantizedSequenceGeneratorV2 {
         if (!this._getConfig('InsideOutEnabled')) return;
         const delay = this._getConfig('InsideOutDelay') ?? 6, period = Math.max(1, this._getConfig('InsideOutPeriod') ?? 3);
         if (s.step < delay || (s.step - delay) % period !== 0) return;
-        const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2), maxLayer = this._getConfig('LayerCount') ?? 0;
-        const l0md = s.layerMaxDist[0] || { N: 0, S: 0, E: 0, W: 0 };
+        const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2), maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
         
         if (!s.pendingExpansions) s.pendingExpansions = [];
         const stillPending = [];
         for (const pe of s.pendingExpansions) {
-            if (pe.l === 3) { const rx = pe.ox - s.scx, ry = pe.oy - s.scy; if ((pe.dir === 'N' && -ry > l0md.N + 2) || (pe.dir === 'S' && ry > l0md.S + 2) || (pe.dir === 'E' && rx > l0md.E + 2) || (pe.dir === 'W' && -rx > l0md.W + 2)) continue; }
             const allowed = this._getAllowedDirs(pe.l);
             if (!allowed || allowed.has(pe.dir)) this.actionBuffer.push({ layer: pe.l, fn: () => { this._createStrip(pe.l, pe.dir, pe.ox, pe.oy).isExpansion = true; } });
             else stillPending.push(pe);
@@ -589,8 +494,6 @@ class QuantizedSequenceGeneratorV2 {
             for (const dy of [wave, -wave]) {
                 const oy = s.scy + dy;
                 if (oy >= -(halfH + edgeBuf) && oy <= halfH + edgeBuf) {
-                    if (l === 2) continue;
-                    if (l === 3 && ((dy < 0 && -dy > l0md.N + 2) || (dy > 0 && dy > l0md.S + 2))) continue;
                     const eOk = !allowed || allowed.has('E'), wOk = !allowed || allowed.has('W');
                     if (eOk || wOk) this.actionBuffer.push({ layer: l, fn: () => { if (eOk) this._createStrip(l, 'E', s.scx, oy).isExpansion = true; if (wOk) this._createStrip(l, 'W', s.scx, oy).isExpansion = true; } });
                     if (!eOk) s.pendingExpansions.push({ l, dir: 'E', ox: s.scx, oy }); if (!wOk) s.pendingExpansions.push({ l, dir: 'W', ox: s.scx, oy });
@@ -599,7 +502,6 @@ class QuantizedSequenceGeneratorV2 {
             for (const dx of [wave, -wave]) {
                 const ox = s.scx + dx;
                 if (ox >= -(halfW + edgeBuf) && ox <= halfW + edgeBuf) {
-                    if (l === 3) continue;
                     const nOk = !allowed || allowed.has('N'), sOk = !allowed || allowed.has('S');
                     if (nOk || sOk) this.actionBuffer.push({ layer: l, fn: () => { if (nOk) this._createStrip(l, 'N', ox, s.scy).isExpansion = true; if (sOk) this._createStrip(l, 'S', ox, s.scy).isExpansion = true; } });
                     if (!nOk) s.pendingExpansions.push({ l, dir: 'N', ox, oy: s.scy }); if (!sOk) s.pendingExpansions.push({ l, dir: 'S', ox, oy: s.scy });

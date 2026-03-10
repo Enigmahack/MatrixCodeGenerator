@@ -4660,146 +4660,82 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._attemptNudgeGrowthWithParams(1, 1, 1);
         }, { enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
-        // Behavior 2: Spine Rib Seeding (L2/L3)
-        this.registerBehavior('spine_rib_seeding', function(s) {
-            const maxLayer = this._getMaxLayer();
-            if (maxLayer < 2) return;
-            const now = s.step;
-            const startDelay = this.c.get('quantizedGenerateV2InvisibleStartDelay') ?? 4;
-            if (now < startDelay) return;
+        // Behavior 2: Block Spawner (Anticipatory Growth)
+        this.registerBehavior('block_spawner', function(s) {
+            if (!this.c.get('quantizedGenerateV2BlockSpawnerEnabled')) return;
+            const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
+            if (s.step < startDelay) return;
+            const randomness = this.c.get('quantizedGenerateV2BlockSpawnerRandomness') ?? 0.5;
+            const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 2;
 
-            const l2Chance = this.c.get('quantizedGenerateV2InvisibleL2Chance') ?? 1.0;
-            const l3Chance = this.c.get('quantizedGenerateV2InvisibleL3Chance') ?? 1.0;
-            const l2Max = this.c.get('quantizedGenerateV2MaxInvisibleL2Strips') ?? 100;
-            const l3Max = this.c.get('quantizedGenerateV2MaxInvisibleL3Strips') ?? 100;
-            const l2Spacing = this.c.get('quantizedGenerateV2InvisibleL2Spacing') ?? 1;
-            const l3Spacing = this.c.get('quantizedGenerateV2InvisibleL3Spacing') ?? 1;
+            // 1. Collect potential targets
+            const targets = [];
+            
+            // Expansion strips
+            for (const strip of this.strips.values()) {
+                if (!strip.active) continue;
+                targets.push({ type: 'strip', obj: strip });
+            }
 
-            if (!s.ribOrigins) s.ribOrigins = new Set();
-
-            for (const block of this.activeBlocks) {
-                if (block.layer > 3) continue;
-                const onHAxis = (block.y <= s.scy && s.scy <= block.y + block.h - 1);
-                const onVAxis = (block.x <= s.scx && s.scx <= block.x + block.w - 1);
-                if (!onHAxis && !onVAxis) continue;
-
-                const processLayer = (l, ribs) => {
-                    if (maxLayer < l) return;
-                    const spawnChance = (l === 2) ? l2Chance : l3Chance;
-                    const maxStrips = (l === 2) ? l2Max : l3Max;
-                    const spacing = (l === 2) ? l2Spacing : l3Spacing;
-
-                    let currentCount = 0;
-                    for (const st of this.strips.values()) if (st.layer === l && st.isInvisible && st.active) currentCount++;
-                    if (currentCount >= maxStrips) return;
-
-                    const allowed = this._getAllowedDirs(l);
-                    if (Math.random() < spawnChance) {
-                        for (const rDir of ribs) {
-                            if (allowed && !allowed.has(rDir)) continue;
-                            let nx = block.x, ny = block.y;
-                            if (l === 2) { nx = block.x + Math.floor(Math.random() * block.w); ny = s.scy; }
-                            else { nx = s.scx; ny = block.y + Math.floor(Math.random() * block.h); }
-
-                            const idKey = `${l}_${rDir}_${nx}_${ny}`;
-                            if (s.ribOrigins.has(idKey)) continue;
-                            
-                            let tooClose = false;
-                            for (const st of this.strips.values()) {
-                                if (st.layer === l && st.isInvisible && st.active) {
-                                    if (Math.abs(st.originX - nx) + Math.abs(st.originY - ny) < spacing) { tooClose = true; break; }
-                                }
-                            }
-                            if (tooClose) continue;
-                            s.ribOrigins.add(idKey);
-                            this.actionBuffer.push({ layer: l, isSpine: false, fn: () => {
-                                const rStrip = this._createStrip(l, rDir, nx, ny);
-                                rStrip.isInvisible = true;
-                                rStrip.stepPhase = Math.floor(Math.random() * 6);
-                            }});
+            // Main nudge growth points
+            const faces = ['N', 'S', 'E', 'W'];
+            const w = this.logicGridW, h = this.logicGridH;
+            const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+            const layer = 1;
+            const grid = this.layerGrids[layer];
+            if (grid) {
+                for (const dir of faces) {
+                    let headX = 0, headY = 0;
+                    if (dir === 'N' || dir === 'S') {
+                        const step = (dir === 'N') ? -1 : 1;
+                        for (let gy = cy + step; (dir === 'N' ? gy >= 0 : gy < h); gy += step) {
+                            if (grid[gy * w + cx] === -1) { headX = 0; headY = gy - cy - step; break; }
+                        }
+                    } else {
+                        const step = (dir === 'W') ? -1 : 1;
+                        for (let gx = cx + step; (dir === 'W' ? gx >= 0 : gx < w); gx += step) {
+                            if (grid[cy * w + gx] === -1) { headX = gx - cx - step; headY = 0; break; }
                         }
                     }
-                };
-                if (onHAxis) processLayer(2, ['N', 'S']);
-                if (onVAxis) processLayer(3, ['E', 'W']);
-            }
-        }, { enabled: true, label: 'Spine Rib Seeding (L2/L3)' });
-
-        // Behavior 3: Layer Collision Interference
-        this.registerBehavior('layer_collision_interference', function(s) {
-            const flickerChance = this.c.get('quantizedGenerateV2L3FlickerChance') ?? 0.15;
-            if (flickerChance <= 0) return;
-            if (!s.pendingDeletions) s.pendingDeletions = [];
-            
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            const margin = 2;
-
-            for (const b of this.activeBlocks) {
-                if (b.layer === 3 && Math.random() < flickerChance) {
-                    // Protected if under Layer 0 or 1, or inside the central mass perimeter
-                    const rx = b.x - s.scx, ry = b.y - s.scy;
-                    const isOutside = (-ry > l0md.N + margin || ry > l0md.S + margin || rx > l0md.E + margin || -rx > l0md.W + margin);
-                    
-                    if (isOutside && !this._isUnderLayer(b, 0) && !this._isUnderLayer(b, 1)) {
-                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
-                    }
+                    targets.push({ type: 'nudge', dir, x: headX, y: headY, layer });
                 }
             }
-        }, { enabled: true, label: 'L3 Collision Interference' });
 
-        // Behavior 4: Layer 3 Axis Spawning & Randomness
-        this.registerBehavior('l3_spine_randomness', function(s) {
-            const maxLayer = this._getMaxLayer();
-            if (maxLayer < 3) return;
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            const l3Chance = this.c.get('quantizedGenerateV2InvisibleL3Chance') ?? 1.0;
-            const rangeN = l0md.N + 2;
-            const rangeS = l0md.S + 2;
-            
-            // Vertical Spine Spawning
-            const spawnCount = 2 + Math.floor(Math.random() * 3);
-            for (let i = 0; i < spawnCount; i++) {
-                const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                this.actionBuffer.push({ layer: 3, isSpine: true, fn: () => {
-                    this._spawnBlock(s.scx, s.scy + ry, 1, 1, 3, false, 0, true, true, true, false, true);
-                }});
-            }
+            if (targets.length === 0) return;
 
-            // Horizontal (Lateral) Spawning - Unlocked
-            const lateralSpawnCount = 1 + Math.floor(Math.random() * 2);
-            for (let i = 0; i < lateralSpawnCount; i++) {
-                if (Math.random() < l3Chance) {
-                    const ry = Math.floor(Math.random() * (rangeN + rangeS + 1)) - rangeN;
-                    this.actionBuffer.push({ layer: 3, isSpine: false, fn: () => {
-                        const dir = Math.random() < 0.5 ? 'E' : 'W';
-                        const rStrip = this._createStrip(3, dir, s.scx, s.scy + ry);
-                        rStrip.isInvisible = true;
-                        rStrip.stepPhase = Math.floor(Math.random() * 6);
-                    }});
+            // 2. Shuffle and pick up to maxSpawn
+            const shuffled = targets.sort(() => Math.random() - 0.5);
+            let spawnedCount = 0;
+
+            for (const target of shuffled) {
+                if (spawnedCount >= maxSpawn) break;
+                if (Math.random() > randomness) continue;
+
+                let aheadX, aheadY;
+                const layer = 1; // Force Layer 1 for all spawner blocks
+                const dir = target.type === 'strip' ? target.obj.direction : target.dir;
+                const [dx, dy] = this._dirDelta(dir);
+                const dist = 3 + Math.floor(Math.random() * 6);
+
+                if (target.type === 'strip') {
+                    aheadX = target.obj.headX + dx * dist;
+                    aheadY = target.obj.headY + dy * dist;
+                } else {
+                    aheadX = target.x + dx * dist;
+                    aheadY = target.y + dy * dist;
+                }
+
+                if (this.checkScreenEdge(aheadX, aheadY)) continue;
+                if (!this._isOccupied(aheadX, aheadY, layer)) {
+                    this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(aheadX, aheadY, 1, 1, layer, true) });
+                    spawnedCount++;
                 }
             }
-        }, { enabled: true, label: 'L3 Spine Randomness' });
 
-        // Behavior 5: Layer 3 Quadrant Wipe
-        this.registerBehavior('l3_quadrant_wipe', function(s) {
-            if (!this.c.get('quantizedGenerateV2L3QuadrantWipeEnabled')) return;
-            const l0md = (s.layerMaxDist || {})[0] || { N: 0, S: 0, E: 0, W: 0 };
-            if (!s.pendingDeletions) s.pendingDeletions = [];
-            let removed = false;
-            for (const b of this.activeBlocks) {
-                if (b.layer !== 3) continue;
-                const rx = b.x - s.scx;
-                const ry = b.y - s.scy;
-                if (-ry > l0md.N + 2 || ry > l0md.S + 2 || rx > l0md.E + 2 || -rx > l0md.W + 2) {
-                    // Even in quadrant wipe, protect if under L0/L1
-                    if (!this._isUnderLayer(b, 0) && !this._isUnderLayer(b, 1)) {
-                        s.pendingDeletions.push({ x: b.x, y: b.y, w: b.w, h: b.h, layer: 3 });
-                        removed = true;
-                    }
-                }
+            if (spawnedCount > 0 && this.c.get('logErrors')) {
+                console.log(`[BlockSpawner] Step ${s.step}: Spawned ${spawnedCount} anticipatory blocks.`);
             }
-            if (removed) this._gridsDirty = true;
-        }, { enabled: true, label: 'L3 Quadrant Wipe' });
+        }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
     }
 
     _pickLayerDirs(count) {
@@ -4822,8 +4758,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!s.layerDirLife) s.layerDirLife = {};
         if (quadrantCount >= 4) {
             for (const layer in s.layerDirs) {
+                const l = parseInt(layer);
+                if (l >= 2) continue;
                 if (s.layerDirs[layer] !== null) {
-                    const l = parseInt(layer);
                     this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[layer] = null; } });
                 }
             }
@@ -4835,7 +4772,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.layerDirLife[layer] <= 0) {
                 const newDirs = this._pickLayerDirs(quadrantCount);
                 const l = parseInt(layer);
-                this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[layer] = newDirs; } });
+                this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = newDirs; } });
                 s.layerDirLife[layer] = 4 + Math.floor(Math.random() * 4);
             }
         }
@@ -4862,7 +4799,6 @@ class QuantizedBaseEffect extends AbstractEffect {
     _generateSeedSchedule(scx, scy) {
         const schedule = {};
         const dirs = ['N', 'S', 'E', 'W'];
-        const maxLayer = this._getMaxLayer();
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
         const minL = usePromotion ? 1 : 0;
 
@@ -4871,14 +4807,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (!schedule[step]) schedule[step] = [];
             schedule[step].push({ layer: Math.max(minL, layer), dir, originX: scx, originY: scy });
         };
+        
+        const maxLayer = this._getMaxLayer();
         if (maxLayer >= 1) {
             [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d, [0, 1, 2]));
             [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(minL, d, [3, 4, 5]));
         } else {
             [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(minL, d, [0, 1, 2, 3, 4, 5]));
         }
-        if (maxLayer >= 2) ['E', 'W'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(2, d, [0, 1, 2]));
-        if (maxLayer >= 3) ['N', 'S'].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(3, d, [0, 1, 2]));
         return schedule;
     }
 
@@ -4995,31 +4931,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
         let { bw, bh } = strip.fixedSize ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
-        if (strip.layer >= 2 && !strip.fixedSize && Math.random() < 0.5) {
-            const burst = 1 + Math.floor(Math.random() * 2);
-            if (dx !== 0) bw += burst; if (dy !== 0) bh += burst;
-        }
-        const lmd = s.layerMaxDist || {}, l0md = lmd[0] || { N: 0, S: 0, E: 0, W: 0 };
-        if (strip.layer === 2 && !strip.isSpine) {
-            const headRX = strip.headX - s.scx, headRY = strip.headY - s.scy;
-            const exceeds = (strip.direction === 'N' && -headRY > l0md.N + 1) || (strip.direction === 'S' && headRY > l0md.S + 1) || (strip.direction === 'E' && headRX > l0md.E + 1) || (strip.direction === 'W' && -headRX > l0md.W + 1);
-            if (exceeds) { this._deactivateStrip(strip); return; }
-        } else if (strip.layer === 3 && !strip.isSpine) {
-            const headRX = strip.headX - s.scx, headRY = strip.headY - s.scy;
-            const exceeds = (strip.direction === 'N' && -headRY > l0md.N + 2) || (strip.direction === 'S' && headRY > l0md.S + 2) || (strip.direction === 'E' && headRX > l0md.E + 2) || (strip.direction === 'W' && -headRX > l0md.W + 2);
-            if (exceeds) { this._deactivateStrip(strip); return; }
-        }
-        if (strip.layer < 3) {
-            if (this._isOccupied(strip.headX + dx, strip.headY + dy, 3)) {
-                const tx = strip.headX + dx, ty = strip.headY + dy;
-                // Use pendingDeletions for L3
-                if (!s.pendingDeletions) s.pendingDeletions = [];
-                // Only if not protected by L0/L1
-                if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
-                    s.pendingDeletions.push({ x: tx, y: ty, w: bw, h: bh, layer: 3 });
-                }
-            }
-        }
+        
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { this._deactivateStrip(strip); return; }
         const spawnX = dx > 0 ? strip.headX + 1 : newHeadX;
@@ -5028,28 +4940,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (id !== -1) {
             strip.blockIds.push(id); strip.headX = newHeadX; strip.headY = newHeadY;
             strip.growCount++; this._gridsDirty = true;
-            if (strip.layer === 2 && s.allowNudges) this._nudgeLayer3(strip.direction, s);
         }
-    }
-
-    _nudgeLayer3(direction, s) {
-        const dy = direction === 'N' ? -1 : (direction === 'S' ? 1 : 0);
-        if (dy === 0) return;
-        const scy = s.scy;
-        for (const b of this.activeBlocks) {
-            if (b.layer === 3) {
-                const ry = b.y - scy;
-                if ((direction === 'N' && ry < 0) || (direction === 'S' && ry > 0)) b.y += dy;
-            }
-        }
-        for (const strip of this.strips.values()) {
-            if (strip.layer === 3 && strip.active) {
-                const sry = strip.headY - scy;
-                if ((direction === 'N' && sry < 0) || (direction === 'S' && sry > 0)) { strip.headY += dy; strip.originY += dy; }
-            }
-        }
-        this.maskOps.push({ type: 'shiftBlocks', layer: 3, quadrant: direction, dx: 0, dy: dy, scx: s.scx, scy: scy });
-        this._gridsDirty = true; this._maskDirty = true;
     }
 
     _updateFillRatio(s) {
@@ -5076,14 +4967,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const maxLayer = this._getMaxLayer();
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
         const minL = usePromotion ? 1 : 0;
-        const l0md = (s.layerMaxDist || {})[minL] || { N: 0, S: 0, E: 0, W: 0 };
+        
         if (!s.pendingExpansions) s.pendingExpansions = [];
         const stillPending = [];
         for (const pe of s.pendingExpansions) {
-            if (pe.l === 3) {
-                const rx = pe.ox - s.scx, ry = pe.oy - s.scy;
-                if ((pe.dir === 'N' && -ry > l0md.N + 2) || (pe.dir === 'S' && ry > l0md.S + 2) || (pe.dir === 'E' && rx > l0md.E + 2) || (pe.dir === 'W' && -rx > l0md.W + 2)) continue;
-            }
             const allowed = this._getAllowedDirs(pe.l);
             if (!allowed || allowed.has(pe.dir)) this.actionBuffer.push({ layer: pe.l, fn: () => { this._createStrip(pe.l, pe.dir, pe.ox, pe.oy).isExpansion = true; }});
             else stillPending.push(pe);
@@ -5092,13 +4979,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         const wave = s.insideOutWave, edgeBuf = 2;
         if (wave > halfW + edgeBuf && wave > halfH + edgeBuf) return;
         const axisAdjacent = (wave <= 1);
-        for (let l = minL; l <= maxLayer; l++) {
+        
+        const endL = Math.min(1, maxLayer);
+        for (let l = minL; l <= endL; l++) {
             const allowed = axisAdjacent ? null : this._getAllowedDirs(l);
             for (const dy of [wave, -wave]) {
                 const oy = s.scy + dy;
                 if (oy >= -(halfH + edgeBuf) && oy <= halfH + edgeBuf) {
-                    if (l === 2) continue;
-                    if (l === 3 && ((dy < 0 && -dy > l0md.N + 2) || (dy > 0 && dy > l0md.S + 2))) continue;
                     const eOk = !allowed || allowed.has('E'), wOk = !allowed || allowed.has('W');
                     if (eOk || wOk) this.actionBuffer.push({ layer: l, fn: () => { if (eOk) this._createStrip(l, 'E', s.scx, oy).isExpansion = true; if (wOk) this._createStrip(l, 'W', s.scx, oy).isExpansion = true; }});
                     if (!eOk) s.pendingExpansions.push({ l, dir: 'E', ox: s.scx, oy }); if (!wOk) s.pendingExpansions.push({ l, dir: 'W', ox: s.scx, oy });
@@ -5107,7 +4994,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (const dx of [wave, -wave]) {
                 const ox = s.scx + dx;
                 if (ox >= -(halfW + edgeBuf) && ox <= halfW + edgeBuf) {
-                    if (l === 3) continue;
                     const nOk = !allowed || allowed.has('N'), sOk = !allowed || allowed.has('S');
                     if (nOk || sOk) this.actionBuffer.push({ layer: l, fn: () => { if (nOk) this._createStrip(l, 'N', ox, s.scy).isExpansion = true; if (sOk) this._createStrip(l, 'S', ox, s.scy).isExpansion = true; }});
                     if (!nOk) s.pendingExpansions.push({ l, dir: 'N', ox, oy: s.scy }); if (!sOk) s.pendingExpansions.push({ l, dir: 'S', ox, oy: s.scy });
@@ -5180,31 +5066,23 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _updateLayerMaxDist(s) {
         if (!s.layerMaxDist) s.layerMaxDist = {};
+        const scx = s.scx || 0, scy = s.scy || 0;
 
-        // Reset/Initialize for all active layers (0-3 supported)
-        const maxLayer = this._getMaxLayer();
-        for (let l = 0; l <= 3; l++) {            s.layerMaxDist[l] = { N: 0, S: 0, E: 0, W: 0 };
-        }
-
-        const scx = s.scx || 0;
-        const scy = s.scy || 0;
+        // Reset for 0 and 1 only
+        s.layerMaxDist[0] = { N: 0, S: 0, E: 0, W: 0 };
+        s.layerMaxDist[1] = { N: 0, S: 0, E: 0, W: 0 };
 
         for (let i = 0; i < this.activeBlocks.length; i++) {
             const b = this.activeBlocks[i];
             const l = b.layer;
-            if (l < 0 || l > 3) continue;
+            if (l > 1) continue;
             
             const md = s.layerMaxDist[l];
-            const rx = b.x - scx;
-            const ry = b.y - scy;
+            const rx = b.x - scx, ry = b.y - scy;
 
-            // North (negative Y)
             if (ry < 0) md.N = Math.max(md.N, -ry);
-            // South (positive Y)
             if (ry + b.h - 1 > 0) md.S = Math.max(md.S, ry + b.h - 1);
-            // West (negative X)
             if (rx < 0) md.W = Math.max(md.W, -rx);
-            // East (positive X)
             if (rx + b.w - 1 > 0) md.E = Math.max(md.E, rx + b.w - 1);
         }
     }
