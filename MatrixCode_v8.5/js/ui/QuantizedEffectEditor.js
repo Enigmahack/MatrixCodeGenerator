@@ -104,6 +104,10 @@ class QuantizedEffectEditor {
                      this.effect.refreshStep();
                  }
 
+                 if (msg.shadowFade !== undefined && this.effect) {
+                     this.effect.c.set(this.effect.configPrefix + 'ShadowWorldFadeSpeed', msg.shadowFade);
+                 }
+
                  this._updateUI();
                  this.isDirty = true;
              }
@@ -190,6 +194,10 @@ class QuantizedEffectEditor {
                 this.effect.refreshStep();
             }
 
+            if (msg.shadowFade !== undefined && this.effect) {
+                this.effect.c.set(this.effect.configPrefix + 'ShadowWorldFadeSpeed', msg.shadowFade);
+            }
+
             this.isDirty = true;
             return;
         }
@@ -215,6 +223,12 @@ class QuantizedEffectEditor {
             case 'setDuration':
                 if (this.effect) {
                     this.effect.c.set(this.effect.configPrefix + 'DurationSeconds', msg.val);
+                    this._updateUI();
+                }
+                break;
+            case 'setShadowFade':
+                if (this.effect) {
+                    this.effect.c.set(this.effect.configPrefix + 'ShadowWorldFadeSpeed', msg.val);
                     this._updateUI();
                 }
                 break;
@@ -336,7 +350,8 @@ class QuantizedEffectEditor {
             selectionRect: this.selectionRect,
             selectedBlocks: this.selectedBlocks.size > 0 ? Array.from(this.selectedBlocks) : null,
             visibleLayers: this.visibleLayers,
-            currentStepOps: currentStepOps
+            currentStepOps: currentStepOps,
+            shadowFade: this.effect ? this.effect.getConfig('ShadowWorldFadeSpeed') : 0.5
         });
     }
 
@@ -963,6 +978,44 @@ class QuantizedEffectEditor {
         container.appendChild(speedControls);
         this.inpSpeed = inpSpeed;
 
+        // Row 2: Shadow Fade Speed
+        const row2 = document.createElement('div');
+        row2.style.marginBottom = '10px';
+        row2.style.paddingBottom = '10px';
+        row2.style.borderBottom = '1px dashed #444';
+        row2.style.display = 'flex';
+        row2.style.alignItems = 'center';
+
+        const lblShadow = document.createElement('span');
+        lblShadow.textContent = 'Shadow Fade:';
+        lblShadow.style.marginRight = '10px';
+        
+        const inpShadow = document.createElement('input');
+        inpShadow.type = 'number';
+        inpShadow.min = '0.01';
+        inpShadow.step = '0.05';
+        inpShadow.style.width = '50px';
+        inpShadow.style.background = '#333';
+        inpShadow.style.color = '#fff';
+        inpShadow.style.border = '1px solid #555';
+        inpShadow.style.marginRight = '10px';
+        
+        const btnSetShadow = this._createBtn('Set', () => {
+            const val = parseFloat(inpShadow.value);
+            const finalVal = isNaN(val) ? 0.5 : val;
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'setShadowFade', val: finalVal });
+            } else if (this.effect) {
+                this.effect.c.set(this.effect.configPrefix + 'ShadowWorldFadeSpeed', finalVal);
+                alert(`Shadow Fade Speed set to ${finalVal}s`);
+            }
+        });
+        btnSetShadow.title = "Set crossfade speed for Shadow World reveal";
+        
+        row2.append(lblShadow, inpShadow, btnSetShadow);
+        container.appendChild(row2);
+        this.inpShadowFade = inpShadow;
+
         const stepControls = document.createElement('div');
         stepControls.style.marginBottom = '10px';
         stepControls.style.paddingBottom = '10px';
@@ -1424,6 +1477,10 @@ class QuantizedEffectEditor {
             if (this.inpDuration) {
                 const dur = this.effect.c.state[this.effect.configPrefix + 'DurationSeconds'];
                 this.inpDuration.value = (dur !== undefined) ? dur : 5.0;
+            }
+
+            if (this.inpShadowFade) {
+                this.inpShadowFade.value = this.effect.getConfig('ShadowWorldFadeSpeed') || 0.5;
             }
         }
 

@@ -120,7 +120,7 @@ class QuantizedShadow {
             }
         }
 
-        let fadeSpeedSec = fx.c.state.quantizedShadowWorldFadeSpeed !== undefined ? fx.c.state.quantizedShadowWorldFadeSpeed : 0.5;
+        let fadeSpeedSec = fx.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         if (!Number.isFinite(fadeSpeedSec)) {
             fx._error(`[QuantizedShadow] fadeSpeedSec is not finite! Value: ${fadeSpeedSec}`);
             fadeSpeedSec = 0.5;
