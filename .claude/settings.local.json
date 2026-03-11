@@ -6,7 +6,8 @@
       "Bash(grep:*)",
       "Bash(dotnet:*)",
       "Bash(python:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(ls:*)"
     ]
   }
 }

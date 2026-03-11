@@ -101,7 +101,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             insideOutWave: 1,
             deferredCols: new Map(),
             deferredRows: new Map(),
-            spawnSpreaderSymmetryQueue: []
+            spawnSpreaderSymmetryQueue: [],
+            spawnSpreaderMissedQueue: []
         };
         this.strips = new Map();
         this._stripNextId = 0;
@@ -490,7 +491,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             ribOrigins: new Set(),
             pendingDeletions: [],
             pendingExpansions: [],
-            spawnSpreaderSymmetryQueue: []
+            spawnSpreaderSymmetryQueue: [],
+            spawnSpreaderMissedQueue: []
         };
         // Re-init behaviors to refresh their closure state if needed
         this._initBehaviors();
@@ -2137,12 +2139,15 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Seed the center block on all active layers to ensure they have an initial anchor.
             const maxLayer = this._getMaxLayer();
             const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+            // Use the current spawn center so Random Start Location is respected.
+            const ox = this.behaviorState?.scx ?? 0;
+            const oy = this.behaviorState?.scy ?? 0;
 
             for (let l = 0; l <= maxLayer; l++) {                // If promotion is active, only seed Layer 1 as the initial discovery anchor.
                 if (usePromotion && l !== 1) continue;
-                
+
                 // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
-                this._spawnBlock(0, 0, 1, 1, l, false, 0, true, true, true, false, true);
+                this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
             }
         }
     }
@@ -2565,26 +2570,53 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const faces = this._getBiasedDirections();
         for (const dir of faces) {
-            // Find first empty gap along the main spoke for this direction
-            let firstEmpty = null;
+            // Compute how far the center spoke has grown in this direction (extRatio).
+            // This gates lateral expansion: nudge only widens once the spine is >33% grown.
+            const stepDir = (dir === 'N' || dir === 'W') ? -1 : 1;
+            let spokeBlocks = 0;
             if (dir === 'N' || dir === 'S') {
-                const startY = (dir === 'N') ? cy - 1 : cy + 1;
-                const endY = (dir === 'N') ? 0 : h - 1;
-                const step = (dir === 'N') ? -1 : 1;
-                for (let gy = startY; (dir === 'N' ? gy >= endY : gy <= endY); gy += step) {
-                    if (grid[gy * w + cx] === -1) {
-                        firstEmpty = { x: cx - Math.floor(w / 2), y: gy - Math.floor(h / 2) };
-                        break;
-                    }
+                for (let gy = cy + stepDir; dir === 'N' ? gy >= 0 : gy < h; gy += stepDir) {
+                    if (grid[gy * w + cx] !== -1) spokeBlocks++; else break;
                 }
             } else {
-                const startX = (dir === 'W') ? cx - 1 : cx + 1;
-                const endX = (dir === 'W') ? 0 : w - 1;
-                const step = (dir === 'W') ? -1 : 1;
-                for (let gx = startX; (dir === 'W' ? gx >= endX : gx <= endX); gx += step) {
-                    if (grid[cy * w + gx] === -1) {
-                        firstEmpty = { x: gx - Math.floor(w / 2), y: cy - Math.floor(h / 2) };
-                        break;
+                for (let gx = cx + stepDir; dir === 'W' ? gx >= 0 : gx < w; gx += stepDir) {
+                    if (grid[cy * w + gx] !== -1) spokeBlocks++; else break;
+                }
+            }
+            const spokeHalf = (dir === 'N') ? cy : (dir === 'S') ? h - 1 - cy : (dir === 'W') ? cx : w - 1 - cx;
+            const extRatio = spokeHalf > 0 ? spokeBlocks / spokeHalf : 1.0;
+            // Allow up to 3 cells of lateral spread once the spoke is >33% grown
+            const maxOffset = extRatio > 0.33 ? Math.min(3, Math.ceil(extRatio * 3)) : 0;
+
+            // Find first empty gap along this direction's spoke, starting at center axis
+            // and expanding laterally (offset ±1, ±2, ...) as the structure grows wider.
+            let firstEmpty = null;
+            offSearch:
+            for (let off = 0; off <= maxOffset; off++) {
+                const offVals = off === 0 ? [0] : [off, -off];
+                for (const dAxis of offVals) {
+                    if (dir === 'N' || dir === 'S') {
+                        const gx = cx + dAxis;
+                        if (gx < 0 || gx >= w) continue;
+                        const startY = (dir === 'N') ? cy - 1 : cy + 1;
+                        const endY = (dir === 'N') ? 0 : h - 1;
+                        for (let gy = startY; (dir === 'N' ? gy >= endY : gy <= endY); gy += stepDir) {
+                            if (grid[gy * w + gx] === -1) {
+                                firstEmpty = { x: gx - Math.floor(w / 2), y: gy - Math.floor(h / 2) };
+                                break offSearch;
+                            }
+                        }
+                    } else {
+                        const gy = cy + dAxis;
+                        if (gy < 0 || gy >= h) continue;
+                        const startX = (dir === 'W') ? cx - 1 : cx + 1;
+                        const endX = (dir === 'W') ? 0 : w - 1;
+                        for (let gx = startX; (dir === 'W' ? gx >= endX : gx <= endX); gx += stepDir) {
+                            if (grid[gy * w + gx] === -1) {
+                                firstEmpty = { x: gx - Math.floor(w / 2), y: gy - Math.floor(h / 2) };
+                                break offSearch;
+                            }
+                        }
                     }
                 }
             }
@@ -4634,10 +4666,9 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     /** Registers a sub-behavior into the growth pool. */
     registerBehavior(id, fn, options = {}) {
-        const existing = this.growthPool.get(id);
         this.growthPool.set(id, {
             fn: fn,
-            enabled: existing !== undefined ? existing.enabled : (options.enabled ?? true),
+            enabled: options.enabled ?? true,
             label: options.label || id
         });
     }
@@ -4665,7 +4696,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Behavior 2: Block Spawner (Anticipatory Growth)
         this.registerBehavior('block_spawner', function(s) {
-            if (!this.c.get('quantizedGenerateV2BlockSpawnerEnabled')) return;
             const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
             if (s.step < startDelay) return;
             const randomness = this.c.get('quantizedGenerateV2BlockSpawnerRandomness') ?? 0.5;
@@ -4730,7 +4760,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 if (this.checkScreenEdge(aheadX, aheadY)) continue;
                 if (!this._isOccupied(aheadX, aheadY, layer)) {
-                    this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(aheadX, aheadY, 1, 1, layer, true) });
+                    this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(aheadX, aheadY, 1, 1, layer, false, 0, true, true, true, false, true) });
                     spawnedCount++;
                 }
             }
@@ -4741,23 +4771,81 @@ class QuantizedBaseEffect extends AbstractEffect {
         }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
 
         this.registerBehavior('spawn_spreader', function(s) {
-            if (!this.c.get('quantizedGenerateV2SpawnSpreaderEnabled')) return;
             const startDelay = this.c.get('quantizedGenerateV2SpawnSpreaderStartDelay') ?? 20;
             if (s.step < startDelay) return;
 
+            // Fix layer selection: _nudge returns false immediately for layer 0 on QuantizedBlockGenerator,
+            // so nudge strips on layer 0 would stall indefinitely. Skip layer 0 when promotion is active.
+            const maxLayer = this._getMaxLayer();
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+            const minLayer = usePromotion ? 1 : 0;
+
             // Handle Symmetry Queue
+            // Fix: seed strips from a real occupied block on the same axis rather than the (possibly empty)
+            // mirror coordinate, which would cause headOnBlock=false and the strip would never fire.
             if (s.spawnSpreaderSymmetryQueue && s.spawnSpreaderSymmetryQueue.length > 0) {
                 const pending = [];
                 for (const item of s.spawnSpreaderSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
-                        const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
-                        strip.isNudge = true;
-                        strip.stepPhase = Math.floor(Math.random() * 6);
+                        const isVertDir = (item.dir === 'N' || item.dir === 'S');
+                        const seedCandidates = this.activeBlocks.filter(b =>
+                            b.layer === item.layer && (isVertDir ? b.x === item.x : b.y === item.y));
+                        if (seedCandidates.length > 0) {
+                            // Pick the block closest to the mirror target position
+                            seedCandidates.sort((a, b) => {
+                                const da = isVertDir ? Math.abs(a.y - item.y) : Math.abs(a.x - item.x);
+                                const db = isVertDir ? Math.abs(b.y - item.y) : Math.abs(b.x - item.x);
+                                return da - db;
+                            });
+                            const seed = seedCandidates[0];
+                            const strip = this._createStrip(item.layer, item.dir, seed.x, seed.y);
+                            strip.isNudge = true;
+                            strip.stepPhase = Math.floor(Math.random() * 6);
+                        }
+                        // else: no valid seed exists for this mirror — drop it
                     } else {
                         pending.push(item);
                     }
                 }
                 s.spawnSpreaderSymmetryQueue = pending;
+            }
+
+            // Handle Missed Row/Column Retry Queue
+            if (!s.spawnSpreaderMissedQueue) s.spawnSpreaderMissedQueue = [];
+            if (s.spawnSpreaderMissedQueue.length > 0) {
+                const pendingMissed = [];
+                for (const missed of s.spawnSpreaderMissedQueue) {
+                    if (s.step < missed.retryStep) { pendingMissed.push(missed); continue; }
+                    // Scan all blocks on the missed row/column for any free perpendicular neighbor
+                    const blocksOnAxis = this.activeBlocks.filter(b =>
+                        missed.useVerticalGrowth ? b.x === missed.coord : b.y === missed.coord);
+                    let missedFound = false;
+                    for (const ab of blocksOnAxis) {
+                        for (const pSide of [1, -1]) {
+                            let tx, ty;
+                            if (missed.useVerticalGrowth) { tx = ab.x; ty = ab.y + pSide; }
+                            else { tx = ab.x + pSide; ty = ab.y; }
+                            const gx = (this.logicGridW / 2 + tx) | 0;
+                            const gy = (this.logicGridH / 2 + ty) | 0;
+                            if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) continue;
+                            if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
+                                const dir = missed.useVerticalGrowth ? (pSide > 0 ? 'S' : 'N') : (pSide > 0 ? 'E' : 'W');
+                                const strip = this._createStrip(missed.layer, dir, ab.x, ab.y);
+                                strip.isNudge = true;
+                                strip.stepPhase = Math.floor(Math.random() * 6);
+                                missedFound = true;
+                                break;
+                            }
+                        }
+                        if (missedFound) break;
+                    }
+                    if (!missedFound) {
+                        // Still blocked — retry again later
+                        missed.retryStep = s.step + 3 + Math.floor(Math.random() * 5);
+                        pendingMissed.push(missed);
+                    }
+                }
+                s.spawnSpreaderMissedQueue = pendingMissed;
             }
 
             const spawnsPerStep = this.c.get('quantizedGenerateV2SpawnSpreaderCount') ?? 1;
@@ -4767,25 +4855,25 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (this.activeBlocks.length === 0) continue;
                 // Randomly pick an anchor block
                 const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
-                
+
                 // Determine dominant axis of the anchor relative to the current spawn center
                 const dxFromCenter = anchor.x - s.scx;
                 const dyFromCenter = anchor.y - s.scy;
                 const isHorizontalAxis = Math.abs(dxFromCenter) >= Math.abs(dyFromCenter);
                 const useVerticalGrowth = isHorizontalAxis; // Perpendicular to X is Vertical (N/S)
-                
+
                 let found = false;
                 let dir;
 
                 // Move OUTWARD from the anchor, perpendicular to its dominant axis
                 // If we are on the horizontal axis, pBias determines North (-1) or South (+1)
                 const pBias = (useVerticalGrowth ? dyFromCenter : dxFromCenter) >= 0 ? 1 : -1;
-                const perpSides = [pBias, -pBias]; 
+                const perpSides = [pBias, -pBias];
 
                 for (const pSide of perpSides) {
                     let tx, ty;
                     if (useVerticalGrowth) {
-                        tx = anchor.x; ty = anchor.y + pSide; 
+                        tx = anchor.x; ty = anchor.y + pSide;
                     } else {
                         tx = anchor.x + pSide; ty = anchor.y;
                     }
@@ -4802,15 +4890,24 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
 
-                if (!found) continue;
+                if (!found) {
+                    // Track missed row/column for retry later
+                    const coord = useVerticalGrowth ? anchor.x : anchor.y;
+                    const missedLayer = minLayer + Math.floor(Math.random() * (maxLayer - minLayer + 1));
+                    s.spawnSpreaderMissedQueue.push({
+                        useVerticalGrowth, coord, layer: missedLayer,
+                        retryStep: s.step + 2 + Math.floor(Math.random() * 3)
+                    });
+                    continue;
+                }
 
-                const layer = Math.floor(Math.random() * (this._getMaxLayer() + 1));
-                
+                const layer = minLayer + Math.floor(Math.random() * (maxLayer - minLayer + 1));
+
                 // SEEDING FIX: We seed the strip ON the anchor itself (originX, originY).
                 // This ensures headOnBlock is true in _tickStrips, allowing it to start.
                 // The first _growStrip call will then spawn a block at the target (tx, ty).
                 const strip = this._createStrip(layer, dir, anchor.x, anchor.y);
-                strip.isNudge = true; 
+                strip.isNudge = true;
                 strip.stepPhase = Math.floor(Math.random() * 6);
 
                 // Occasional migration of the spawn center to follow the spread
@@ -4824,7 +4921,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const mirX = useVerticalGrowth ? anchor.x : s.scx - (anchor.x - s.scx);
                     const mirY = useVerticalGrowth ? s.scy - (anchor.y - s.scy) : anchor.y;
                     const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
-                    
+
                     s.spawnSpreaderSymmetryQueue.push({
                         x: mirX,
                         y: mirY,
@@ -4835,6 +4932,157 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }, { enabled: this.c.get('quantizedGenerateV2SpawnSpreaderEnabled') ?? false, label: 'Spawn Spreader' });
+
+        // ── Flood Fill ─────────────────────────────────────────────────────────
+        this.registerBehavior('flood_fill', function(s) {
+            const startDelay = this.c.get('quantizedGenerateV2FloodFillStartDelay') ?? 15;
+            const fillRate   = Math.max(1, this.c.get('quantizedGenerateV2FloodFillRate') ?? 5);
+            if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
+
+            const layer1Blocks = this.activeBlocks.filter(b => b.layer === 1);
+            if (layer1Blocks.length === 0) return;
+
+            // Pick a direction, never repeating the previous one
+            const allDirs = ['N', 'S', 'E', 'W'];
+            const availDirs = allDirs.filter(d => d !== s.lastFloodFillDir);
+            const dir = availDirs[Math.floor(Math.random() * availDirs.length)];
+            s.lastFloodFillDir = dir;
+
+            const bs    = this.getBlockSize();
+            const halfW = Math.floor(this.g.cols / bs.w / 2);
+            const halfH = Math.floor(this.g.rows / bs.h / 2);
+
+            if (dir === 'N' || dir === 'S') {
+                const delta = dir === 'N' ? -1 : 1;
+                const cols = [...new Set(layer1Blocks.map(b => b.x))];
+                if (cols.length === 0) return;
+
+                for (const col of cols) {
+                    // Sort: northernmost first for N (process outward-most first to avoid conflicts)
+                    const colBlocks = layer1Blocks
+                        .filter(b => b.x === col)
+                        .sort((a, b) => dir === 'N' ? a.y - b.y : b.y - a.y);
+
+                    for (const block of colBlocks) {
+                        const newY = block.y + delta;
+                        if (newY < -(halfH + 1) || newY > halfH + 1) continue;
+                        const bx = block.x, by = block.y, bw = block.w, bh = block.h;
+                        this.actionBuffer.push({ layer: 1, fn: () => {
+                            this._removeBlock(bx, by, bw, bh, 1, false);
+                            this._spawnBlock(bx, newY, 1, 1, 1, false, 0, true, true, true, false, true);
+                        }});
+                    }
+                }
+            } else {
+                const delta = dir === 'E' ? 1 : -1;
+                const rows = [...new Set(layer1Blocks.map(b => b.y))];
+                if (rows.length === 0) return;
+
+                for (const row of rows) {
+                    // Sort: easternmost first for E, westernmost first for W
+                    const rowBlocks = layer1Blocks
+                        .filter(b => b.y === row)
+                        .sort((a, b) => dir === 'E' ? b.x - a.x : a.x - b.x);
+
+                    for (const block of rowBlocks) {
+                        const newX = block.x + delta;
+                        if (newX < -(halfW + 1) || newX > halfW + 1) continue;
+                        const bx = block.x, by = block.y, bw = block.w, bh = block.h;
+                        this.actionBuffer.push({ layer: 1, fn: () => {
+                            this._removeBlock(bx, by, bw, bh, 1, false);
+                            this._spawnBlock(newX, by, 1, 1, 1, false, 0, true, true, true, false, true);
+                        }});
+                    }
+                }
+            }
+        }, { enabled: this.c.get('quantizedGenerateV2FloodFillEnabled') ?? false, label: 'Flood Fill' });
+
+        // ── Shove Fill ─────────────────────────────────────────────────────────
+        this.registerBehavior('shove_fill', function(s) {
+            const startDelay = this.c.get('quantizedGenerateV2ShoveFillStartDelay') ?? 20;
+            const fillRate   = Math.max(1, this.c.get('quantizedGenerateV2ShoveFillRate') ?? 4);
+            if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
+
+            const allBlocks = this.activeBlocks;
+            if (allBlocks.length === 0) return;
+
+            // Pick a direction, never repeating the previous one
+            const allDirs = ['N', 'S', 'E', 'W'];
+            const availDirs = allDirs.filter(d => d !== s.lastShoveFillDir);
+            const dir = availDirs[Math.floor(Math.random() * availDirs.length)];
+            s.lastShoveFillDir = dir;
+
+            const bs    = this.getBlockSize();
+            const halfW = Math.floor(this.g.cols / bs.w / 2);
+            const halfH = Math.floor(this.g.rows / bs.h / 2);
+
+            // 1–3 random lanes (columns for N/S, rows for E/W) get pushed outward by 1 block
+            const laneCount = 1 + Math.floor(Math.random() * 3);
+
+            if (dir === 'N' || dir === 'S') {
+                const delta = dir === 'N' ? -1 : 1;
+                const occupiedCols = [...new Set(allBlocks.map(b => b.x))];
+                if (occupiedCols.length === 0) return;
+                const cols = occupiedCols.sort(() => Math.random() - 0.5).slice(0, laneCount);
+
+                for (const col of cols) {
+                    // Sort outward-most first to avoid conflicts during sequential remove+respawn
+                    const colBlocks = allBlocks
+                        .filter(b => b.x === col)
+                        .sort((a, b) => dir === 'N' ? a.y - b.y : b.y - a.y);
+
+                    for (const block of colBlocks) {
+                        const newY = block.y + delta;
+                        if (newY < -(halfH + 1) || newY > halfH + 1) continue;
+                        const bx = block.x, by = block.y, bw = block.w, bh = block.h, bl = block.layer;
+                        this.actionBuffer.push({ layer: bl, fn: () => {
+                            this._removeBlock(bx, by, bw, bh, bl, false);
+                            this._spawnBlock(bx, newY, 1, 1, bl, false, 0, true, true, true, false, true);
+                        }});
+                    }
+
+                    // Backfill the trailing vacancy (innermost position left empty after the shift)
+                    if (colBlocks.length > 0) {
+                        const last = colBlocks[colBlocks.length - 1];
+                        const fillX = last.x, fillY = last.y;
+                        this.actionBuffer.push({ layer: 1, fn: () => {
+                            this._spawnBlock(fillX, fillY, 1, 1, 1, false, 0, true, true, true, false, true);
+                        }});
+                    }
+                }
+            } else {
+                const delta = dir === 'E' ? 1 : -1;
+                const occupiedRows = [...new Set(allBlocks.map(b => b.y))];
+                if (occupiedRows.length === 0) return;
+                const rows = occupiedRows.sort(() => Math.random() - 0.5).slice(0, laneCount);
+
+                for (const row of rows) {
+                    // Sort outward-most first to avoid conflicts during sequential remove+respawn
+                    const rowBlocks = allBlocks
+                        .filter(b => b.y === row)
+                        .sort((a, b) => dir === 'E' ? b.x - a.x : a.x - b.x);
+
+                    for (const block of rowBlocks) {
+                        const newX = block.x + delta;
+                        if (newX < -(halfW + 1) || newX > halfW + 1) continue;
+                        const bx = block.x, by = block.y, bw = block.w, bh = block.h, bl = block.layer;
+                        this.actionBuffer.push({ layer: bl, fn: () => {
+                            this._removeBlock(bx, by, bw, bh, bl, false);
+                            this._spawnBlock(newX, by, 1, 1, bl, false, 0, true, true, true, false, true);
+                        }});
+                    }
+
+                    // Backfill the trailing vacancy (innermost position left empty after the shift)
+                    if (rowBlocks.length > 0) {
+                        const last = rowBlocks[rowBlocks.length - 1];
+                        const fillX = last.x, fillY = last.y;
+                        this.actionBuffer.push({ layer: 1, fn: () => {
+                            this._spawnBlock(fillX, fillY, 1, 1, 1, false, 0, true, true, true, false, true);
+                        }});
+                    }
+                }
+            }
+        }, { enabled: this.c.get('quantizedGenerateV2ShoveFillEnabled') ?? false, label: 'Shove Fill' });
     }
 
     _pickLayerDirs(count) {
@@ -4901,12 +5149,22 @@ class QuantizedBaseEffect extends AbstractEffect {
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
         const minL = usePromotion ? 1 : 0;
 
+        // Compute per-direction boost based on canvas aspect ratio
+        const baseBoost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
+        const bs = this.getBlockSize();
+        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
+        const aspect = visW / visH;
+        const hBoost = Math.max(1, Math.round(baseBoost * Math.sqrt(aspect)));
+        const vBoost = Math.max(1, Math.round(baseBoost * Math.sqrt(1 / aspect)));
+        const dirBoost = { N: vBoost, S: vBoost, E: hBoost, W: hBoost };
+
         const addToSchedule = (layer, dir, stepPool) => {
             const step = stepPool[Math.floor(Math.random() * stepPool.length)];
             if (!schedule[step]) schedule[step] = [];
-            schedule[step].push({ layer: Math.max(minL, layer), dir, originX: scx, originY: scy });
+            schedule[step].push({ layer: Math.max(minL, layer), dir, originX: scx, originY: scy, boost: dirBoost[dir] });
         };
-        
+
         const maxLayer = this._getMaxLayer();
         if (maxLayer >= 1) {
             [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d, [0, 1, 2]));
@@ -4920,12 +5178,12 @@ class QuantizedBaseEffect extends AbstractEffect {
     _seedStrips(s) {
         const scheduled = s.seedSchedule ? s.seedSchedule[s.step] : null;
         if (!scheduled) return;
-        const boost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
-        for (const { layer, dir, originX, originY } of scheduled) {
+        const globalBoost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
+        for (const { layer, dir, originX, originY, boost } of scheduled) {
             this.actionBuffer.push({ layer, fn: () => {
                 const strip = this._createStrip(layer, dir, originX, originY);
                 strip.isSpine = true;
-                strip.boostSteps = boost;
+                strip.boostSteps = boost ?? globalBoost;
             }});
         }
     }
@@ -5007,29 +5265,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         return [0, 0];
     }
 
-    _calcBlockSize(strip, fillRatio) {
-        const fillThreshold = this.c.get('quantizedGenerateV2FillThreshold') ?? 0.33;
-        if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
-        const maxScale = this.c.get('quantizedGenerateV2MaxBlockScale') ?? 3;
-        const bs = this.getBlockSize();
-        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
-        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
-        const halfW = Math.floor(visW / 2);
-        const halfH = Math.floor(visH / 2);
-        const ox = strip.originX, oy = strip.originY, dir = strip.direction;
-        let distFactor, axisRatio;
-        if (dir === 'N') { distFactor = halfH > 0 ? (oy + halfH) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'S') { distFactor = halfH > 0 ? (halfH - oy) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'E') { distFactor = halfW > 0 ? (halfW - ox) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        else { distFactor = halfW > 0 ? (ox + halfW) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        distFactor = Math.max(0, Math.min(2, distFactor));
-        const size = Math.min(maxScale, Math.max(1, Math.round(distFactor * axisRatio)));
-        return (dir === 'N' || dir === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
-    }
-
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
-        let { bw, bh } = strip.fixedSize ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
+        // Force 1×1 on the very first growth step so new strips always begin with a single block,
+        // regardless of fillRatio. _calcBlockSize can return 1×2 / 2×1 at high fill, which causes
+        // visually jarring "back-to-back" placements when multiple strips fire in the same step.
+        const bw = 1, bh = 1;
         
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { this._deactivateStrip(strip); return; }
@@ -5077,87 +5318,81 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!this.c.get('quantizedGenerateV2InsideOutEnabled')) return;
         const delay = this.c.get('quantizedGenerateV2InsideOutDelay') ?? 6, period = Math.max(1, this.c.get('quantizedGenerateV2InsideOutPeriod') ?? 3);
         if (s.step < delay || (s.step - delay) % period !== 0) return;
+        const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
         const bs = this.getBlockSize();
         const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
+        const edgeBuf = 2;
         const maxLayer = this._getMaxLayer();
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
         const minL = usePromotion ? 1 : 0;
-        
-        if (!s.pendingExpansions) s.pendingExpansions = [];
-        const stillPending = [];
-        for (const pe of s.pendingExpansions) {
-            const allowed = this._getAllowedDirs(pe.l);
-            if (!allowed || allowed.has(pe.dir)) this.actionBuffer.push({ layer: pe.l, fn: () => { this._createStrip(pe.l, pe.dir, pe.ox, pe.oy).isExpansion = true; }});
-            else stillPending.push(pe);
-        }
-        s.pendingExpansions = stillPending;
-        const wave = s.insideOutWave, edgeBuf = 2;
-        if (wave > halfW + edgeBuf && wave > halfH + edgeBuf) return;
-        const axisAdjacent = (wave <= 1);
-        
         const endL = Math.min(1, maxLayer);
+
+        // Per-arm wave counters — asymmetry staggers arms by 0-2 waves at init
+        if (!s.insideOutArmWaves) {
+            s.insideOutArmWaves = {};
+            for (const arm of ['N', 'S', 'E', 'W'])
+                s.insideOutArmWaves[arm] = 1 + (allowAsymmetry ? Math.floor(Math.random() * 3) : 0);
+        }
+
+        const maxWave = Math.max(s.insideOutArmWaves['N'], s.insideOutArmWaves['S'], s.insideOutArmWaves['E'], s.insideOutArmWaves['W']);
+        if (maxWave > halfW + edgeBuf && maxWave > halfH + edgeBuf) return;
+
         for (let l = minL; l <= endL; l++) {
-            const allowed = axisAdjacent ? null : this._getAllowedDirs(l);
-            for (const dy of [wave, -wave]) {
-                const oy = s.scy + dy;
-                if (oy >= -(halfH + edgeBuf) && oy <= halfH + edgeBuf) {
-                    const eOk = !allowed || allowed.has('E'), wOk = !allowed || allowed.has('W');
-                    if (eOk || wOk) this.actionBuffer.push({ layer: l, fn: () => { if (eOk) this._createStrip(l, 'E', s.scx, oy).isExpansion = true; if (wOk) this._createStrip(l, 'W', s.scx, oy).isExpansion = true; }});
-                    if (!eOk) s.pendingExpansions.push({ l, dir: 'E', ox: s.scx, oy }); if (!wOk) s.pendingExpansions.push({ l, dir: 'W', ox: s.scx, oy });
-                }
+            const allowed = this._getAllowedDirs(l);
+
+            // N arm (row above origin) — seeds E+W strips; bypass restriction on wave 1
+            const wN = s.insideOutArmWaves['N'];
+            if ((wN <= 1 || !allowed || allowed.has('N')) && s.scy - wN >= -(halfH + edgeBuf)) {
+                const oy = s.scy - wN;
+                this.actionBuffer.push({ layer: l, fn: () => {
+                    this._createStrip(l, 'E', s.scx, oy).isExpansion = true;
+                    this._createStrip(l, 'W', s.scx, oy).isExpansion = true;
+                }});
             }
-            for (const dx of [wave, -wave]) {
-                const ox = s.scx + dx;
-                if (ox >= -(halfW + edgeBuf) && ox <= halfW + edgeBuf) {
-                    const nOk = !allowed || allowed.has('N'), sOk = !allowed || allowed.has('S');
-                    if (nOk || sOk) this.actionBuffer.push({ layer: l, fn: () => { if (nOk) this._createStrip(l, 'N', ox, s.scy).isExpansion = true; if (sOk) this._createStrip(l, 'S', ox, s.scy).isExpansion = true; }});
-                    if (!nOk) s.pendingExpansions.push({ l, dir: 'N', ox, oy: s.scy }); if (!sOk) s.pendingExpansions.push({ l, dir: 'S', ox, oy: s.scy });
-                }
+
+            // S arm (row below origin) — seeds E+W strips
+            const wS = s.insideOutArmWaves['S'];
+            if ((wS <= 1 || !allowed || allowed.has('S')) && s.scy + wS <= halfH + edgeBuf) {
+                const oy = s.scy + wS;
+                this.actionBuffer.push({ layer: l, fn: () => {
+                    this._createStrip(l, 'E', s.scx, oy).isExpansion = true;
+                    this._createStrip(l, 'W', s.scx, oy).isExpansion = true;
+                }});
+            }
+
+            // E arm (column right of origin) — seeds N+S strips
+            const wE = s.insideOutArmWaves['E'];
+            if ((wE <= 1 || !allowed || allowed.has('E')) && s.scx + wE <= halfW + edgeBuf) {
+                const ox = s.scx + wE;
+                this.actionBuffer.push({ layer: l, fn: () => {
+                    this._createStrip(l, 'N', ox, s.scy).isExpansion = true;
+                    this._createStrip(l, 'S', ox, s.scy).isExpansion = true;
+                }});
+            }
+
+            // W arm (column left of origin) — seeds N+S strips
+            const wW = s.insideOutArmWaves['W'];
+            if ((wW <= 1 || !allowed || allowed.has('W')) && s.scx - wW >= -(halfW + edgeBuf)) {
+                const ox = s.scx - wW;
+                this.actionBuffer.push({ layer: l, fn: () => {
+                    this._createStrip(l, 'N', ox, s.scy).isExpansion = true;
+                    this._createStrip(l, 'S', ox, s.scy).isExpansion = true;
+                }});
             }
         }
+
+        for (const arm of ['N', 'S', 'E', 'W']) s.insideOutArmWaves[arm]++;
         s.insideOutWave++;
     }
 
-    _checkIntersections() {
-        if (!this.c.get('quantizedGenerateV2IntersectionPause')) return;
-        const pauseChance = this.c.get('quantizedGenerateV2IntersectionPauseChance') ?? 0.5;
-        const vStrips = [], hStrips = [];
-        for (const strip of this.strips.values()) {
-            if (!strip.active) continue;
-            if (strip.direction === 'N' || strip.direction === 'S') vStrips.push(strip); else hStrips.push(strip);
-        }
-        const checkGroup = (group) => {
-            for (let i = 0; i < group.length; i++) {
-                for (let j = i + 1; j < group.length; j++) {
-                    if (group[i].growCount > 0 && group[i].growCount === group[j].growCount) {
-                        if (Math.random() < pauseChance) group[i].paused = !group[i].paused;
-                        if (Math.random() < pauseChance) group[j].paused = !group[j].paused;
-                    }
-                }
-            }
-        };
-        checkGroup(vStrips); checkGroup(hStrips);
-    }
-
     _processIntents() {
-        const scalingEnabled = this.c.get('quantizedGenerateV2GenerativeScaling');
         for (const intent of this.actionBuffer) {
             if (!this.actionQueues.has(intent.layer)) this.actionQueues.set(intent.layer, []);
             this.actionQueues.get(intent.layer).push(intent);
         }
         this.actionBuffer = [];
         for (const [layer, queue] of this.actionQueues.entries()) {
-            if (scalingEnabled) {
-                const spines = [], others = [];
-                while (queue.length > 0) { const intent = queue.shift(); if (intent.isSpine) spines.push(intent); else others.push(intent); }
-                for (const spineIntent of spines) if (spineIntent.fn) spineIntent.fn();
-                let budget = others.length > 0 ? Math.max(1, Math.round(others.length * 0.4)) : 0;
-                const toProcess = Math.min(budget, others.length);
-                for (let i = 0; i < toProcess; i++) { const intent = others.shift(); if (intent && intent.fn) intent.fn(); }
-                if (others.length > 0) this.actionQueues.set(layer, others); else this.actionQueues.delete(layer);
-            } else {
-                while (queue.length > 0) { const intent = queue.shift(); if (intent && intent.fn) intent.fn(); }
-            }
+            while (queue.length > 0) { const intent = queue.shift(); if (intent && intent.fn) intent.fn(); }
         }
     }
 
@@ -5250,7 +5485,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._updateFillRatio(s);
         this._seedStrips(s);
         this._tickStrips(s);
-        this._checkIntersections();
         this._expandInsideOut(s);
         for (const behavior of this.growthPool.values()) if (behavior.fn && behavior.enabled) behavior.fn.call(this, s);
         this._processIntents();

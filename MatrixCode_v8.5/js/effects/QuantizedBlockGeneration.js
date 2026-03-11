@@ -16,11 +16,7 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.expansionPhase = 0;
         this.sequence = [];
 
-        // Procedural initialization
-        this._initShadowWorld();
-        this._initProceduralState(true);
-        // _initBehaviors is already called inside _resetV2Engine via super.trigger
-
+        // Set spawn center BEFORE _initProceduralState so the seed block lands at the right position.
         if (this.getConfig('RandomStart')) {
             const bs = this.getBlockSize();
             const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
@@ -31,6 +27,11 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
             this.behaviorState.scx = 0;
             this.behaviorState.scy = 0;
         }
+
+        // Procedural initialization — uses behaviorState.scx/scy set above.
+        this._initShadowWorld();
+        this._initProceduralState(true);
+        // _initBehaviors is already called inside _resetV2Engine via super.trigger
 
         // Passively ensure the next sequence is ready in the background
         if (window.sequenceCache) {

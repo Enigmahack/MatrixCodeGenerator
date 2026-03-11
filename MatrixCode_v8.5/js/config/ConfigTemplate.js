@@ -443,6 +443,16 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedGenerateV2SpawnSpreaderCount', type: 'range', label: 'Spawns per Step', min: 1, max: 5, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpawnSpreaderEnabled'], tier: 'advanced', tags: ['amount', 'count'] },
     { cat: 'Effects', id: 'quantizedGenerateV2SpawnSpreaderSymmetry', type: 'checkbox', label: 'Prefer Symmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpawnSpreaderEnabled'], tier: 'advanced', description: 'Attempt to spawn a matching behavior on the opposite side of the axis within a few steps.', tags: ['symmetry', 'mirror'] },
 
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Flood Fill', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2FloodFillEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Periodically extends the layer 1 block extent by one full row or column in a random direction.', tags: ['fill', 'expand'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2FloodFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2FloodFillEnabled'], tier: 'advanced', description: 'Steps to wait before the first flood fill fires.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2FloodFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2FloodFillEnabled'], tier: 'advanced', description: 'How many steps between each fill. Lower values fill faster.', tags: ['speed', 'rate'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Shove Fill', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Shoots 1–3 cell wide strips outward from the spawn center in selected quadrant directions, backfilling behind each step. Stops at the canvas perimeter. Respects Quadrant Restriction and Allow Asymmetry.', tags: ['shove', 'push'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps to wait before the first shove fires.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps between each outward advance. Lower values move faster.', tags: ['speed', 'rate'] },
+
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'accordion_subheader', label: 'Quantized Defaults' },
