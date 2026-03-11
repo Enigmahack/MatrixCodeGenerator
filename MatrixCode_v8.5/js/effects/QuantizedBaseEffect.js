@@ -2509,7 +2509,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
-    _attemptNudgeGrowthWithParams(targetLayer, bw, bh) {
+    _attemptNudgeGrowthWithParams(targetLayer, bw, bh, originX = null, originY = null) {
         // Force focus on Layer 1 and 1x1 blocks as per instructions
         const layer = 1;
         const forcedBw = 1;
@@ -2527,7 +2527,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             // STEP 0: EXPANSION
             // We always try to place the Permanent block. 
             // Randomness controls if we also get a Temporary block.
-            const success = this._executeExpansionStep(layer, forcedBw, forcedBh, randomness);
+            const success = this._executeExpansionStep(layer, forcedBw, forcedBh, randomness, originX, originY);
             if (success) {
                 cycle.step = 1;
                 return true;
@@ -2555,10 +2555,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
-    _executeExpansionStep(layer, bw, bh, randomness = 0.8) {
+    _executeExpansionStep(layer, bw, bh, randomness = 0.8, originX = null, originY = null) {
         if (!this.logicGridW || !this.logicGridH) return false;
         const w = this.logicGridW, h = this.logicGridH;
-        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+        const cx = (originX !== null) ? (Math.floor(w / 2) + originX) : Math.floor(w / 2);
+        const cy = (originY !== null) ? (Math.floor(h / 2) + originY) : Math.floor(h / 2);
         const grid = this.layerGrids[layer];
         if (!grid) return false;
 
@@ -2572,7 +2573,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const step = (dir === 'N') ? -1 : 1;
                 for (let gy = startY; (dir === 'N' ? gy >= endY : gy <= endY); gy += step) {
                     if (grid[gy * w + cx] === -1) {
-                        firstEmpty = { x: 0, y: gy - cy };
+                        firstEmpty = { x: cx - Math.floor(w / 2), y: gy - Math.floor(h / 2) };
                         break;
                     }
                 }
@@ -2582,7 +2583,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const step = (dir === 'W') ? -1 : 1;
                 for (let gx = startX; (dir === 'W' ? gx >= endX : gx <= endX); gx += step) {
                     if (grid[cy * w + gx] === -1) {
-                        firstEmpty = { x: gx - cx, y: 0 };
+                        firstEmpty = { x: gx - Math.floor(w / 2), y: cy - Math.floor(h / 2) };
                         break;
                     }
                 }
@@ -4658,8 +4659,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
             if (Math.random() > spawnChance) return;
 
-            // Execute the stateful 3-step cycle logic (targeting Layer 1, forced 1x1)
-            this._attemptNudgeGrowthWithParams(1, 1, 1);
+            // Execute the stateful 3-step cycle logic, now using the dynamic spawn center
+            this._attemptNudgeGrowthWithParams(1, 1, 1, s.scx, s.scy);
         }, { enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
         // Behavior 2: Block Spawner (Anticipatory Growth)
@@ -4749,7 +4750,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const pending = [];
                 for (const item of s.spawnSpreaderSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
-                        // Attempt to spawn mirrored nudge
                         const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
                         strip.isNudge = true;
                         strip.stepPhase = Math.floor(Math.random() * 6);
@@ -4761,84 +4761,68 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
 
             const spawnsPerStep = this.c.get('quantizedGenerateV2SpawnSpreaderCount') ?? 1;
-            const lockToAxis = this.c.get('quantizedGenerateV2SpawnSpreaderLockToAxis') ?? true;
-            const preferCenter = this.c.get('quantizedGenerateV2SpawnSpreaderPreferCenter') ?? true;
-            const randomness = this.c.get('quantizedGenerateV2SpawnSpreaderRandomness') ?? 0.5;
             const preferSymmetry = this.c.get('quantizedGenerateV2SpawnSpreaderSymmetry') ?? true;
 
-            const bs = this.getBlockSize();
-            const halfW = Math.floor(this.g.cols / bs.w / 2);
-            const halfH = Math.floor(this.g.rows / bs.h / 2);
-
             for (let i = 0; i < spawnsPerStep; i++) {
-                // useVerticalAxis means we search along the Y axis (varying Y, X=scx)
-                const useVerticalAxis = Math.random() < 0.5; 
-                let rx, ry, found = false;
+                if (this.activeBlocks.length === 0) continue;
+                // Randomly pick an anchor block
+                const anchor = this.activeBlocks[Math.floor(Math.random() * this.activeBlocks.length)];
+                
+                // Determine dominant axis of the anchor relative to the current spawn center
+                const dxFromCenter = anchor.x - s.scx;
+                const dyFromCenter = anchor.y - s.scy;
+                const isHorizontalAxis = Math.abs(dxFromCenter) >= Math.abs(dyFromCenter);
+                const useVerticalGrowth = isHorizontalAxis; // Perpendicular to X is Vertical (N/S)
+                
+                let found = false;
                 let dir;
 
-                const maxSteps = useVerticalAxis ? halfH : halfW;
-                const searchRange = Math.max(2, Math.floor(maxSteps * randomness));
+                // Move OUTWARD from the anchor, perpendicular to its dominant axis
+                // If we are on the horizontal axis, pBias determines North (-1) or South (+1)
+                const pBias = (useVerticalGrowth ? dyFromCenter : dxFromCenter) >= 0 ? 1 : -1;
+                const perpSides = [pBias, -pBias]; 
 
-                // Determine search boundaries based on Prefer Center
-                let startDist, endDist;
-                if (preferCenter) {
-                    startDist = 1;
-                    endDist = searchRange;
-                } else {
-                    startDist = Math.floor(Math.random() * (maxSteps - searchRange));
-                    endDist = startDist + searchRange;
-                }
-
-                for (let dist = startDist; dist <= endDist; dist++) {
-                    const sides = Math.random() < 0.5 ? [1, -1] : [-1, 1];
-                    for (const side of sides) {
-                        const pos = dist * side;
-                        let ax, ay; // The reference point ON the axis
-                        if (useVerticalAxis) {
-                            ax = s.scx; ay = s.scy + pos;
-                        } else {
-                            ax = s.scx + pos; ay = s.scy;
-                        }
-
-                        // Rule: Only spawn if the block ON the axis already exists
-                        if (this._isOccupied(ax, ay, 0) || this._isOccupied(ax, ay, 1)) {
-                            // Check perpendicular neighbors (directly beside the axis)
-                            const perpSides = Math.random() < 0.5 ? [1, -1] : [-1, 1];
-                            for (const pSide of perpSides) {
-                                let tx, ty;
-                                if (useVerticalAxis) {
-                                    tx = ax + pSide; ty = ay; // Spawn East or West
-                                } else {
-                                    tx = ax; ty = ay + pSide; // Spawn South or North
-                                }
-
-                                const gx = (this.logicGridW / 2 + tx) | 0;
-                                const gy = (this.logicGridH / 2 + ty) | 0;
-                                if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) continue;
-
-                                if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
-                                    rx = tx; ry = ty;
-                                    if (useVerticalAxis) dir = (pSide > 0) ? 'E' : 'W';
-                                    else dir = (pSide > 0) ? 'S' : 'N';
-                                    found = true; break;
-                                }
-                            }
-                        }
-                        if (found) break;
+                for (const pSide of perpSides) {
+                    let tx, ty;
+                    if (useVerticalGrowth) {
+                        tx = anchor.x; ty = anchor.y + pSide; 
+                    } else {
+                        tx = anchor.x + pSide; ty = anchor.y;
                     }
-                    if (found) break;
+
+                    const gx = (this.logicGridW / 2 + tx) | 0;
+                    const gy = (this.logicGridH / 2 + ty) | 0;
+                    if (gx < 0 || gx >= this.logicGridW || gy < 0 || gy >= this.logicGridH) continue;
+
+                    // Only sprout if the target cell is free
+                    if (!this._isOccupied(tx, ty, 0) && !this._isOccupied(tx, ty, 1)) {
+                        if (useVerticalGrowth) dir = (pSide > 0) ? 'S' : 'N';
+                        else dir = (pSide > 0) ? 'E' : 'W';
+                        found = true; break;
+                    }
                 }
 
                 if (!found) continue;
 
                 const layer = Math.floor(Math.random() * (this._getMaxLayer() + 1));
-                const strip = this._createStrip(layer, dir, rx, ry);
-                strip.isNudge = true;
+                
+                // SEEDING FIX: We seed the strip ON the anchor itself (originX, originY).
+                // This ensures headOnBlock is true in _tickStrips, allowing it to start.
+                // The first _growStrip call will then spawn a block at the target (tx, ty).
+                const strip = this._createStrip(layer, dir, anchor.x, anchor.y);
+                strip.isNudge = true; 
                 strip.stepPhase = Math.floor(Math.random() * 6);
 
+                // Occasional migration of the spawn center to follow the spread
+                if (Math.random() < 0.15) {
+                    const [sx, sy] = this._dirDelta(dir);
+                    s.scx = anchor.x + sx;
+                    s.scy = anchor.y + sy;
+                }
+
                 if (preferSymmetry) {
-                    const mirX = !useVerticalAxis ? rx : s.scx - (rx - s.scx);
-                    const mirY = !useVerticalAxis ? s.scy - (ry - s.scy) : ry;
+                    const mirX = useVerticalGrowth ? anchor.x : s.scx - (anchor.x - s.scx);
+                    const mirY = useVerticalGrowth ? s.scy - (anchor.y - s.scy) : anchor.y;
                     const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
                     
                     s.spawnSpreaderSymmetryQueue.push({
@@ -5049,12 +5033,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { this._deactivateStrip(strip); return; }
-        const spawnX = dx > 0 ? strip.headX + 1 : newHeadX;
-        const spawnY = dy > 0 ? strip.headY + 1 : newHeadY;
-        const id = this._spawnBlock(spawnX, spawnY, bw, bh, strip.layer, false, 0, true, true, true, false, true);
-        if (id !== -1) {
-            strip.blockIds.push(id); strip.headX = newHeadX; strip.headY = newHeadY;
-            strip.growCount++; this._gridsDirty = true;
+        const spawnX = dx > 0 ? strip.headX + 1 : (dx < 0 ? newHeadX : strip.headX);
+        const spawnY = dy > 0 ? strip.headY + 1 : (dy < 0 ? newHeadY : strip.headY);
+
+        if (strip.isNudge) {
+            // Use _nudge for actual nudge growth effect
+            const success = this._nudge(spawnX, spawnY, bw, bh, strip.direction, strip.layer, strip.layer === 0);
+            if (success) {
+                strip.blockIds.push(null);
+                strip.headX = newHeadX;
+                strip.headY = newHeadY;
+                strip.growCount++;
+                this._gridsDirty = true;
+            }
+        } else {
+            const id = this._spawnBlock(spawnX, spawnY, bw, bh, strip.layer, false, 0, true, true, true, false, true);
+            if (id !== -1) {
+                strip.blockIds.push(id);
+                strip.headX = newHeadX;
+                strip.headY = newHeadY;
+                strip.growCount++;
+                this._gridsDirty = true;
+            }
         }
     }
 
