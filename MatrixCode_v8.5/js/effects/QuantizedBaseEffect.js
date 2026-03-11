@@ -99,10 +99,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             scy: 0,
             hitEdge: false,
             insideOutWave: 1,
-            deferredCols: new Map(),
             deferredRows: new Map(),
-            spawnSpreaderSymmetryQueue: [],
-            spawnSpreaderMissedQueue: []
+            spreadingNudgeSymmetryQueue: []
         };
         this.strips = new Map();
         this._stripNextId = 0;
@@ -491,8 +489,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             ribOrigins: new Set(),
             pendingDeletions: [],
             pendingExpansions: [],
-            spawnSpreaderSymmetryQueue: [],
-            spawnSpreaderMissedQueue: []
+            spreadingNudgeSymmetryQueue: []
         };
         // Re-init behaviors to refresh their closure state if needed
         this._initBehaviors();
@@ -549,9 +546,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.activeBlocks = [];
         this.unfoldSequences = [[], [], [], []];
         this.nextBlockId = 0;
-        this.nudgeState = null;
-        this.overlapState = { step: 0 };
-        this.cycleState = null;
         this.proceduralInitiated = false;
         this.finishedBranches.clear();
         this.nudgeAxisBalance = 0;
@@ -2117,8 +2111,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Initialize growth states if not already present
         if (!this.unfoldSequences) this.unfoldSequences = Array.from({ length: 3 }, () => []);
-        if (!this.nudgeState) {
-            this.nudgeState = {
+        if (!this.behaviorState.nudgeState) {
+            this.behaviorState.nudgeState = {
                 dirCounts: { N: 0, S: 0, E: 0, W: 0 },
                 fieldExpansion: { N: 0, S: 0, E: 0, W: 0 },
                 lanes: new Map(), // Tracks {0: count, 1: count} per lane
@@ -2127,6 +2121,20 @@ class QuantizedBaseEffect extends AbstractEffect {
                     lastTempBlock: null
                 }
             };
+        }
+        if (!this.behaviorState.spreadingNudgeCycles) {
+            this.behaviorState.spreadingNudgeCycles = {
+                'V1':  { step: 0, lastTempBlock: null },
+                'V-1': { step: 0, lastTempBlock: null },
+                'H1':  { step: 0, lastTempBlock: null },
+                'H-1': { step: 0, lastTempBlock: null }
+            };
+        }
+        if (!this.behaviorState.spreadingNudgeNextSpawnStep) {
+            this.behaviorState.spreadingNudgeNextSpawnStep = { 'V1': 0, 'V-1': 0, 'H1': 0, 'H-1': 0 };
+        }
+        if (!this.behaviorState.spreadingNudgeSymmetryQueue) {
+            this.behaviorState.spreadingNudgeSymmetryQueue = [];
         }
         if (!this.overlapState) this.overlapState = { step: 0 };
         if (!this.cycleState) this.cycleState = { step: 0, step1Block: null };
@@ -2514,19 +2522,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         return false;
     }
 
-    _attemptNudgeGrowthWithParams(targetLayer, bw, bh, originX = null, originY = null) {
+    _attemptNudgeGrowthWithParams(targetLayer, bw, bh, originX = null, originY = null, cycleState = null, chance = null) {
         // Force focus on Layer 1 and 1x1 blocks as per instructions
         const layer = 1;
         const forcedBw = 1;
         const forcedBh = 1;
 
-        if (!this.nudgeState || !this.nudgeState.cycle) return false;
-        const cycle = this.nudgeState.cycle;
+        const cycle = cycleState || (this.behaviorState.nudgeState ? this.behaviorState.nudgeState.cycle : null);
+        if (!cycle) return false;
 
-        // "Randomness" (quantizedGenerateV2NudgeChance) controls probability:
+        // "Randomness" controls probability:
         // 0.05 (Min) -> 5% chance of temp blocks / 5% chance of retraction
         // 1.0 (Max) -> 100% chance of temp blocks / 100% chance of retraction
-        const randomness = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
+        const randomness = chance ?? (this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8);
 
         if (cycle.step === 0) {
             // STEP 0: EXPANSION
@@ -2647,16 +2655,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                             tempId = this._spawnBlock(tx, ty, bw, bh, layer, false, 0, true, true, true, false, true);
                             if (tempId !== -1) {
-                                this.nudgeState.cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
+                                this.behaviorState.nudgeState.cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
                                 break; 
                             }
                         }
 
                         if (tempId === -1) {
-                            this.nudgeState.cycle.lastTempBlock = null;
+                            this.behaviorState.nudgeState.cycle.lastTempBlock = null;
                         }
                     } else {
-                        this.nudgeState.cycle.lastTempBlock = null;
+                        this.behaviorState.nudgeState.cycle.lastTempBlock = null;
                     }
                     return true;
                 }
@@ -4770,115 +4778,107 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
 
-        this.registerBehavior('spawn_spreader', function(s) {
-            const startDelay = this.c.get(this.configPrefix + 'SpawnSpreaderStartDelay') ?? 20;
+        this.registerBehavior('spreading_nudge', function(s) {
+            const startDelay = this.c.get(this.configPrefix + 'SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
 
-            // State Initialization: Use per-axis/side queues and distance trackers
-            if (!s.spawnSpreaderNextDist) {
-                s.spawnSpreaderNextDist = { 'V1': 1, 'V-1': 1, 'H1': 1, 'H-1': 1 };
-                s.spawnSpreaderQueues = { 'V1': 0, 'V-1': 0, 'H1': 0, 'H-1': 0 };
+            // State Initialization
+            if (!s.spreadingNudgeNextDist) {
+                s.spreadingNudgeNextDist = { 'V1': 1, 'V-1': 1, 'H1': 1, 'H-1': 1 };
+                s.spreadingNudgeNextSpawnStep = s.spreadingNudgeNextSpawnStep || { 'V1': 0, 'V-1': 0, 'H1': 0, 'H-1': 0 };
             }
 
-            const spawnsPerStep = this.c.get(this.configPrefix + 'SpawnSpreaderCount') ?? 1;
-            const randomness    = this.c.get(this.configPrefix + 'SpawnSpreaderRandomness') ?? 0.5;
-            const preferSymmetry = this.c.get(this.configPrefix + 'SpawnSpreaderSymmetry') ?? true;
-            const targetLayer = 1; // Always layer 1 for Spreader as per user request
+            const spawnSpeed   = this.c.get(this.configPrefix + 'SpreadingNudgeSpawnSpeed') ?? 1;
+            const spreadDensity = this.c.get(this.configPrefix + 'SpreadingNudgeRange') ?? 0.5;
+            const growthChance  = this.c.get(this.configPrefix + 'SpreadingNudgeChance') ?? 0.8;
+            const maxInstances  = this.c.get(this.configPrefix + 'SpreadingNudgeMaxInstances') ?? 20;
+            const preferSymmetry = this.c.get(this.configPrefix + 'SpreadingNudgeSymmetry') ?? true;
+            const targetLayer = 1;
 
             const arms = [
-                { key: 'V1',  vert: true,  side: 1,  arm: 'S' },
-                { key: 'V-1', vert: true,  side: -1, arm: 'N' },
-                { key: 'H1',  vert: false, side: 1,  arm: 'E' },
-                { key: 'H-1', vert: false, side: -1, arm: 'W' }
+                { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'] }, // South Axis -> Spawns E/W
+                { key: 'V-1', vert: true,  side: -1, perp: ['E', 'W'] }, // North Axis -> Spawns E/W
+                { key: 'H1',  vert: false, side: 1,  perp: ['N', 'S'] }, // East Axis -> Spawns N/S
+                { key: 'H-1', vert: false, side: -1, perp: ['N', 'S'] }  // West Axis -> Spawns N/S
             ];
 
-            // 1. Fill Queues: Check each arm independently
-            for (const arm of arms) {
-                const chance = (randomness === 0) ? 1.0 : randomness;
-                if (Math.random() < chance) {
-                    s.spawnSpreaderQueues[arm.key] += spawnsPerStep;
-                }
-            }
-
-            // 2. Process Symmetry Queue
-            if (s.spawnSpreaderSymmetryQueue && s.spawnSpreaderSymmetryQueue.length > 0) {
+            // 1. Process Symmetry Queue
+            if (s.spreadingNudgeSymmetryQueue && s.spreadingNudgeSymmetryQueue.length > 0) {
                 const pending = [];
-                for (const item of s.spawnSpreaderSymmetryQueue) {
+                for (const item of s.spreadingNudgeSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
                         const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
-                        strip.isNudge = true;
+                        strip.isNudge = item.isNudge || false;
+                        strip.bypassOccupancy = item.bypassOccupancy || false;
                         strip.stepPhase = Math.floor(Math.random() * 6);
                     } else {
                         pending.push(item);
                     }
                 }
-                s.spawnSpreaderSymmetryQueue = pending;
+                s.spreadingNudgeSymmetryQueue = pending;
             }
 
-            // 3. Fulfill Queue Requests: Move 1 block at a time along axes using Nudge Logic
+            // 2. Perform Nudge Growth at Spreading Origins
             const bs = this.getBlockSize();
             const halfW = Math.floor(this.g.cols / bs.w / 2);
             const halfH = Math.floor(this.g.rows / bs.h / 2);
 
-            // Fairness: Randomize arm processing order
+            // Count current active perpendicular "solid" strips for instance limiting
+            let activePerpStrips = 0;
+            for (const strip of this.strips.values()) {
+                if (strip.active && strip.bypassOccupancy && !strip.isNudge) activePerpStrips++;
+            }
+
             arms.sort(() => Math.random() - 0.5);
 
-            let totalStripsCreated = 0;
-            const maxFulfillmentGlobal = Math.max(spawnsPerStep * 8, 16);
-
             for (const arm of arms) {
-                // QUADRANT INDEPENDENCE: Spreader ignores global 'allowed' restrictions.
-
-                let armStripsCreated = 0;
-                while (s.spawnSpreaderQueues[arm.key] > 0 && totalStripsCreated < maxFulfillmentGlobal && armStripsCreated < spawnsPerStep * 2) {
-                    let d = s.spawnSpreaderNextDist[arm.key];
+                // Check if it's time for this arm to advance
+                if (s.step >= (s.spreadingNudgeNextSpawnStep[arm.key] || 0)) {
+                    let d = s.spreadingNudgeNextDist[arm.key];
                     const ax = arm.vert ? s.scx : s.scx + d * arm.side;
                     const ay = arm.vert ? s.scy + d * arm.side : s.scy;
 
                     // Boundary check
                     if (Math.abs(ax - s.scx) > halfW || Math.abs(ay - s.scy) > halfH) {
-                        s.spawnSpreaderQueues[arm.key] = 0; // Clear queue at edge
-                        break;
+                        // Reach edge, stop this arm
+                        s.spreadingNudgeNextSpawnStep[arm.key] = Infinity;
+                        continue;
                     }
 
-                    // CORE NUDGE PLUG-IN LOGIC:
-                    // A. Use _nudge to move the spreader's axial "head". 
-                    // This "places" the axial block and shifts everything ahead of it.
-                    this._nudge(ax, ay, 1, 1, arm.arm, targetLayer, false);
+                    // Axial point growth (Harden/Nudge logic at the spreader head)
+                    const cycle = s.spreadingNudgeCycles[arm.key];
+                    this._attemptNudgeGrowthWithParams(targetLayer, 1, 1, ax - s.scx, ay - s.scy, cycle, growthChance);
 
-                    // B. Spawn perpendicular Nudge Strips as "seeds" that expand outward.
-                    const perpDirs = arm.vert ? ['E', 'W'] : ['N', 'S'];
-                    for (const dir of perpDirs) {
-                        const [dx, dy] = this._dirDelta(dir);
-                        const tx = ax + dx;
-                        const ty = ay + dy;
-
-                        if (!this.checkScreenEdge(tx, ty)) {
-                            // The seed is placed at the axis point (occupied) and grows perpendicularly.
+                    // Spawn perpendicular "solid" strips to fill the area
+                    if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
+                        for (const dir of arm.perp) {
+                            if (activePerpStrips >= maxInstances) break;
                             const strip = this._createStrip(targetLayer, dir, ax, ay);
-                            strip.isNudge = true;
-                            strip.stepPhase = Math.floor(Math.random() * 6);
-                            totalStripsCreated++;
-                            armStripsCreated++;
+                            strip.isNudge = false; // Solid growth
+                            strip.bypassOccupancy = true; // No holes, uninterrupted
+                            strip.growCount = 0;
+                            activePerpStrips++;
 
                             if (preferSymmetry) {
                                 const mirX = arm.vert ? ax : s.scx - (ax - s.scx);
                                 const mirY = arm.vert ? s.scy - (ay - s.scy) : ay;
                                 const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
-                                s.spawnSpreaderSymmetryQueue.push({
+                                s.spreadingNudgeSymmetryQueue.push({
                                     x: mirX, y: mirY, layer: targetLayer, dir: mirDir,
+                                    isNudge: false, bypassOccupancy: true,
                                     stepToSpawn: s.step + 1 + Math.floor(Math.random() * 3)
                                 });
                             }
                         }
                     }
 
-                    // Always advance distance and consume queue item to keep moving independently
-                    s.spawnSpreaderNextDist[arm.key]++;
-                    s.spawnSpreaderQueues[arm.key]--;
+                    // Move the origin outward and schedule next spawn
+                    s.spreadingNudgeNextDist[arm.key]++;
+                    const delay = 1 + Math.floor(Math.random() * spawnSpeed);
+                    s.spreadingNudgeNextSpawnStep[arm.key] = s.step + delay;
                 }
             }
-        }, { enabled: this.c.get(this.configPrefix + 'SpawnSpreaderEnabled') ?? false, label: 'Spawn Spreader' });
+        }, { enabled: this.c.get(this.configPrefix + 'SpreadingNudgeEnabled') ?? false, label: 'Spreading Nudge' });
 
         // ── Flood Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('flood_fill', function(s) {
@@ -5265,7 +5265,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const spawnX = dx > 0 ? strip.headX + 1 : (dx < 0 ? newHeadX : strip.headX);
         const spawnY = dy > 0 ? strip.headY + 1 : (dy < 0 ? newHeadY : strip.headY);
 
-        const canPassThrough = (strip.isNudge || strip.layer === 1);
+        const canPassThrough = (strip.isNudge || strip.layer === 1 || strip.bypassOccupancy);
 
         if (strip.isNudge) {
             // Use _nudge for actual nudge growth effect
@@ -5278,9 +5278,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this._gridsDirty = true;
             }
         } else {
-            // Check occupancy for standard growth unless it's layer 1
+            // Check occupancy for standard growth unless it's layer 1 or bypassing
             if (canPassThrough || (!this._isOccupied(spawnX, spawnY, 0) && !this._isOccupied(spawnX, spawnY, 1))) {
-                const id = this._spawnBlock(spawnX, spawnY, bw, bh, strip.layer, false, 0, true, true, true, false, true);
+                const id = this._spawnBlock(spawnX, spawnY, bw, bh, strip.layer, strip.bypassOccupancy || false, 0, true, true, true, false, true);
                 if (id !== -1 || canPassThrough) {
                     strip.blockIds.push(id === -1 ? null : id);
                     strip.headX = newHeadX;
