@@ -245,6 +245,14 @@ class QuantizedEffectEditor {
                 if (this.effect) this.effect.c.set('layerEnableShadowWorld', msg.val); 
                 this.isDirty = true; 
                 break;
+            case 'toggleSingleLayerMode':
+                if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerMode', msg.val);
+                this.isDirty = true;
+                break;
+            case 'toggleRetainState':
+                if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerModeRetainState', msg.val);
+                this.isDirty = true;
+                break;
             case 'togglePromotion':
                 if (this.effect) this.effect.c.set(this.effect.configPrefix + 'LayerPromotionEnabled', msg.val);
                 this.isDirty = true;
@@ -1307,6 +1315,41 @@ class QuantizedEffectEditor {
         shadowToggle.append(shadowCheck, document.createTextNode(' Use Shadow World'));
         container.appendChild(shadowToggle);
 
+        const singleLayerToggle = document.createElement('label');
+        singleLayerToggle.style.display = 'block';
+        singleLayerToggle.style.marginTop = '5px';
+        singleLayerToggle.title = "Use only Layer 1 with no Layer 0 promotion. Perimeter Echo becomes a hold/fade effect.";
+        const singleLayerCheck = document.createElement('input');
+        singleLayerCheck.type = 'checkbox';
+        singleLayerCheck.checked = (this.effect && !!this.effect.getConfig('SingleLayerMode'));
+        singleLayerCheck.onchange = (e) => {
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'toggleSingleLayerMode', val: e.target.checked });
+            }
+            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerMode', e.target.checked);
+            this.isDirty = true;
+        };
+        singleLayerToggle.append(singleLayerCheck, document.createTextNode(' Single Layer Mode'));
+        container.appendChild(singleLayerToggle);
+
+        const retainStateToggle = document.createElement('label');
+        retainStateToggle.style.display = 'block';
+        retainStateToggle.style.marginTop = '3px';
+        retainStateToggle.style.marginLeft = '14px';
+        retainStateToggle.title = "Echo takes periodic snapshots of L1 state, replays them delayed then fades out";
+        const retainStateCheck = document.createElement('input');
+        retainStateCheck.type = 'checkbox';
+        retainStateCheck.checked = (this.effect && !!this.effect.getConfig('SingleLayerModeRetainState'));
+        retainStateCheck.onchange = (e) => {
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'toggleRetainState', val: e.target.checked });
+            }
+            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerModeRetainState', e.target.checked);
+            this.isDirty = true;
+        };
+        retainStateToggle.append(retainStateCheck, document.createTextNode(' Retain Original State'));
+        container.appendChild(retainStateToggle);
+
         const promotionToggle = document.createElement('label');
         promotionToggle.style.display = 'block';
         promotionToggle.style.marginTop = '5px';
@@ -1536,13 +1579,17 @@ class QuantizedEffectEditor {
                 // writes ops into the correct sequence slot for this new step.
                 this.effect.manualStep = true;
                 this.effect.expansionPhase = newStep;
+                this.effect.step = newStep;
 
                 // Call promotion logic before growth to match live behavior
-                if (this.effect.name === "QuantizedBlockGenerator" || this.effect.getConfig('LayerPromotionEnabled')) {
+                if (this.effect.name === "QuantizedBlockGenerator" || this.effect.getConfig('LayerPromotionEnabled') || this.effect.getConfig('SingleLayerMode')) {
                     this.effect._promoteLayer1Blocks();
                 }
 
                 this.effect._attemptGrowth();
+                this.effect.echoEdgeMap = null;
+                this.effect.echoLastEdgeStep = -1;
+                this.effect.echoHoldEntries = null;
                 this.effect._capturePerimeterEcho();
 
                 // CRITICAL: Reset manualStep and cycleTimer after the manual growth call.
@@ -1573,6 +1620,9 @@ class QuantizedEffectEditor {
         this.effect.jumpToStep(newStep);
         this.effect.isReconstructing = false;
         this.effect.perimeterHistory = [];
+        this.effect.echoEdgeMap = null;
+        this.effect.echoLastEdgeStep = -1;
+        this.effect.echoHoldEntries = null;
         this.effect._capturePerimeterEcho();
 
         this._updateUI();

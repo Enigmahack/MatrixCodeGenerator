@@ -740,18 +740,12 @@ class QuantizedRenderer {
     renderEchoEdges(fx, echoCtx, now, blocksX, blocksY) {
         if (!echoCtx) return;
         if (!fx.getConfig('PerimeterEchoEnabled')) return;
+        if (!fx.layout) return;
 
         // Retrieve dynamic delay from config (Range 1-8)
         const delay = fx.getEchoGfxValue('Delay') || 3;
-        
-        // Ensure we have enough history for the current delay
-        if (!fx.perimeterHistory || fx.perimeterHistory.length < (delay + 1)) return;
-        if (!fx.layout) return;
 
-        // Echo uses the oldest snapshot in the buffer, which is exactly 'delay' steps behind
-        const echoGrid = fx.perimeterHistory[0];
         const echoColor = fx.getEchoGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
-        
         const brightness = fx.getEchoGfxValue('Brightness') ?? 1.0;
         const opacitySetting = fx.getEchoGfxValue('Opacity') ?? 1.0;
         const intensity = fx.getEchoGfxValue('Intensity') ?? 1.0;
@@ -773,6 +767,106 @@ class QuantizedRenderer {
             return 1.0 - varianceAmount;
         };
 
+        // SingleLayerMode + RetainState uses the standard ring-buffer path below —
+        // _capturePerimeterEcho fills perimeterHistory every step, oldest entry is
+        // exactly `delay` steps behind, rendered identically to the non-SLM echo.
+
+        if (fx.getConfig('SingleLayerMode') && !fx.getConfig('SingleLayerModeRetainState')) {
+            // --- Hold mode: per-edge tracking ---
+            // Each exterior perimeter edge is tracked individually.
+            // While the edge exists in the live perimeter its lastSeen step stays current → full opacity.
+            // Once removed, it holds for `delay` steps at full opacity then fades out over `delay` more steps.
+
+            const currentStep = fx.step;
+
+            // Update the edge map once per logic step
+            if (fx.echoLastEdgeStep !== currentStep) {
+                fx.echoLastEdgeStep = currentStep;
+                if (!fx.echoEdgeMap) fx.echoEdgeMap = new Map();
+
+                const grid = fx.renderGrid;
+                if (grid && blocksX && blocksY) {
+                    const outside = this.computeTrueOutside(fx, blocksX, blocksY, grid);
+
+                    // Refresh lastSeen for all edges currently in the live perimeter
+                    for (let y = 0; y <= blocksY; y++) {
+                        for (let x = 0; x <= blocksX; x++) {
+                            // Vertical edge (W face)
+                            if (x > 0 && x < blocksX && y < blocksY) {
+                                const idxA = y * blocksX + (x - 1);
+                                const idxB = y * blocksX + x;
+                                if ((grid[idxA] !== -1) !== (grid[idxB] !== -1)) {
+                                    if ((grid[idxA] === -1 && outside[idxA]) || (grid[idxB] === -1 && outside[idxB])) {
+                                        fx.echoEdgeMap.set(`${x}|${y}|W`, { x, y, face: 'W', lastSeen: currentStep });
+                                    }
+                                }
+                            }
+                            // Horizontal edge (N face)
+                            if (y > 0 && y < blocksY && x < blocksX) {
+                                const idxA = (y - 1) * blocksX + x;
+                                const idxB = y * blocksX + x;
+                                if ((grid[idxA] !== -1) !== (grid[idxB] !== -1)) {
+                                    if ((grid[idxA] === -1 && outside[idxA]) || (grid[idxB] === -1 && outside[idxB])) {
+                                        fx.echoEdgeMap.set(`${x}|${y}|N`, { x, y, face: 'N', lastSeen: currentStep });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Evict entries that have fully faded (older than hold + fade window)
+                    const maxAge = delay * 2;
+                    for (const [key, entry] of fx.echoEdgeMap) {
+                        if (currentStep - entry.lastSeen > maxAge) fx.echoEdgeMap.delete(key);
+                    }
+                }
+            }
+
+            if (!fx.echoEdgeMap || !fx.echoEdgeMap.size) return;
+
+            // Build draw batches keyed by opacity so we can multi-pass for values > 1.0
+            const echoBatches = new Map();
+            for (const entry of fx.echoEdgeMap.values()) {
+                const age = currentStep - entry.lastSeen;
+                let ageOpacity;
+                if (age <= delay) {
+                    ageOpacity = 1.0;                          // hold phase
+                } else {
+                    ageOpacity = 1.0 - (age - delay) / delay; // fade phase
+                }
+                if (ageOpacity <= 0.001) continue;
+
+                const variance = getVariance(entry.face === 'W' ? entry.x : entry.y, entry.face === 'W' ? 'V' : 'H');
+                const finalOpacity = ageOpacity * echoOpacity * variance;
+                if (finalOpacity <= 0.001) continue;
+
+                const bKey = `${echoColor}|${finalOpacity.toFixed(3)}`;
+                if (!echoBatches.has(bKey)) echoBatches.set(bKey, new Path2D());
+                this._addFaceToPath(echoBatches.get(bKey), fx, entry.x, entry.y, entry.face, true);
+            }
+
+            if (!echoBatches.size) return;
+            echoCtx.save();
+            const saturation = fx.getEchoGfxValue('Saturation') ?? 1.0;
+            if (saturation !== 1.0) echoCtx.filter = `saturate(${saturation * 100}%)`;
+            echoBatches.forEach((path, key) => {
+                const [c, oStr] = key.split('|');
+                echoCtx.fillStyle = c;
+                let opacity = parseFloat(oStr);
+                while (opacity > 0.001) {
+                    echoCtx.globalAlpha = Math.min(1.0, opacity);
+                    echoCtx.fill(path);
+                    opacity -= 1.0;
+                }
+            });
+            echoCtx.restore();
+            return;
+        }
+
+        // --- Standard trailing echo: single oldest snapshot ---
+        if (!fx.perimeterHistory || fx.perimeterHistory.length < (delay + 1)) return;
+
+        const echoGrid = fx.perimeterHistory[0];
         const echoOutside = this.computeTrueOutside(fx, blocksX, blocksY, echoGrid);
 
         const echoBatches = new Map();

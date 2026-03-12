@@ -285,7 +285,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _getMaxLayer() {
         let maxLayer = this.getConfig('LayerCount');
         if (maxLayer === undefined || maxLayer === null) maxLayer = 0;
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         if (usePromotion && (maxLayer === undefined || maxLayer === null || maxLayer < 1)) return 1;
         return maxLayer;
     }
@@ -658,7 +658,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        this.expansionPhase = targetStepsCompleted; 
+        this.expansionPhase = targetStepsCompleted;
+        this.step = targetStepsCompleted;
         this.animFrame = targetStepsCompleted * framesPerStep;
         this.isReconstructing = false; // Reconstruction complete
 
@@ -736,26 +737,53 @@ class QuantizedBaseEffect extends AbstractEffect {
     _capturePerimeterEcho() {
         if (!this.getConfig('PerimeterEchoEnabled')) {
             this.perimeterHistory = [];
+            this.echoEdgeMap = null;
+            return;
+        }
+
+        if (this.getConfig('SingleLayerMode')) {
+            const compositeGrid = this.renderGrid;
+            if (!compositeGrid || !this.logicGridW || !this.logicGridH) return;
+
+            const delay = this.getEchoGfxValue('Delay') || 3;
+
+            if (this.getConfig('SingleLayerModeRetainState')) {
+                // Retain Original State: exact delayed copy — capture every step, same ring buffer
+                // as the standard echo. The oldest entry is always exactly `delay` steps behind.
+                this.echoHoldEntries = null;
+                this.echoEdgeMap = null;
+
+                const snapshot = new Int32Array(compositeGrid.length);
+                snapshot.set(compositeGrid);
+                this.perimeterHistory.push(snapshot);
+                const maxHistory = delay + 1;
+                if (this.perimeterHistory.length > maxHistory) {
+                    this.perimeterHistory.shift();
+                }
+            } else {
+                // Hold mode: per-edge tracking handled inside renderEchoEdges.
+                this.echoHoldEntries = null;
+                this.perimeterHistory = [];
+            }
+
+            this._maskDirty = true;
             return;
         }
 
         const compositeGrid = this.renderGrid;
         if (!compositeGrid || !this.logicGridW || !this.logicGridH) return;
 
-        // Snapshot entire effect perimeter (Composite of all layers)
+        // Standard trailing echo: ring buffer of renderGrid snapshots
         const snapshot = new Int32Array(compositeGrid.length);
         snapshot.set(compositeGrid);
-        
         this.perimeterHistory.push(snapshot);
-        
-        // Retrieve dynamic delay from config (Default 3, Range 1-8)
+
         const delay = this.getEchoGfxValue('Delay') || 3;
         const maxHistory = delay + 1;
-
         if (this.perimeterHistory.length > maxHistory) {
             this.perimeterHistory.shift();
         }
-        
+
         this._maskDirty = true;
     }
 
@@ -841,7 +869,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
                 
                 // Allow immediate transition to procedural growth if state is already GENERATING (e.g. BlockGenerator)
-                if (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled')) {
+                if (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode')) {
                     this._promoteLayer1Blocks();
                 }
 
@@ -2146,7 +2174,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Principle #3: Adhere to LayerCount setting.
             // Seed the center block on all active layers to ensure they have an initial anchor.
             const maxLayer = this._getMaxLayer();
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
             // Use the current spawn center so Random Start Location is respected.
             const ox = this.behaviorState?.scx ?? 0;
             const oy = this.behaviorState?.scy ?? 0;
@@ -2176,6 +2204,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _promoteLayer1Blocks() {
+        // Single Layer Mode: no promotion, Layer 1 is the only permanent layer
+        if (this.getConfig('SingleLayerMode')) return;
         const w = this.logicGridW, h = this.logicGridH;
         if (!w || !h) return;
         
@@ -2321,7 +2351,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         this.proceduralLayerIndex = (this.proceduralLayerIndex + 1) % (maxLayer + 1);
-        if (this.proceduralLayerIndex === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled')) && maxLayer >= 1) {
+        if (this.proceduralLayerIndex === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode')) && maxLayer >= 1) {
             this.proceduralLayerIndex = 1;
         }
     }
@@ -2358,7 +2388,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         let successInStep = false;
         const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
 
         for (const spine of xSpines) {
             let finished = this.finishedBranches.has(spine.id);
@@ -2947,7 +2977,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (const [dx, dy] of ds) pushIfOutside(curr.x + dx, curr.y + dy);
             }
             const maxLayer = this._getMaxLayer();
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
             const startL = usePromotion ? 1 : 0;
 
             for (let bx = minX; bx <= maxX; bx++) {            for (let by = minY; by <= maxY; by++) {
@@ -2961,7 +2991,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _revertFrontier(ox, oy, dx, dy, layer, chance, branchId) {
         if (this.finishedBranches.has(branchId)) return false;
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         const minL = usePromotion ? 1 : 0;
         if (layer <= minL || Math.random() > chance) return false;
         const w = this.logicGridW, h = this.logicGridH, cx = Math.floor(w / 2), cy = Math.floor(h / 2);
@@ -2991,7 +3021,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _syncSubLayers() {
         const s = this.c.state;
         const pref = this.configPrefix;
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         
         if (!s[pref + 'EnableSyncSubLayers'] && !s.quantizedGenerateV2EnableSyncSubLayers && !usePromotion) return;
         if (this._syncFrame === this.animFrame) return;
@@ -3175,7 +3205,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Principle #4: Disable spawning on Layer 0 if promotion is enabled
         // EXCEPT if it's a promotion/forced spawn (indicated by bypassOccupancy)
-        if (!bypassOccupancy && layer === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'))) {
+        if (!bypassOccupancy && layer === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'))) {
              return -1;
         }
 
@@ -3273,7 +3303,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             else if (f === 'W') { axis = 'X'; dir = -1; }
         }
         // Principle #5: Disable starting nudges for Layer 0 when promotion is enabled
-        if (layer === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'))) {
+        if (layer === 0 && (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'))) {
              return false;
         }
 
@@ -5018,7 +5048,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _generateSeedSchedule(scx, scy) {
         const schedule = {};
         const dirs = ['N', 'S', 'E', 'W'];
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         const minL = usePromotion ? 1 : 0;
 
         // Compute per-direction boost based on canvas aspect ratio
@@ -5220,7 +5250,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
         const edgeBuf = 2;
         const maxLayer = this._getMaxLayer();
-        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         const minL = usePromotion ? 1 : 0;
         const endL = Math.min(1, maxLayer);
 
@@ -5364,7 +5394,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const qCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
                 const qMaxLayer = this._getMaxLayer();
                 const qBaseLife = 4 + Math.floor(Math.random() * 3);
-                const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+                const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
                 const minL = usePromotion ? 1 : 0;
 
                 s.layerDirs = {}; s.layerDirLife = {};
@@ -5380,7 +5410,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (this.activeBlocks.length === 0) {
             const ox = s.scx ?? 0, oy = s.scy ?? 0;
             const maxLayer = this._getMaxLayer();
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled'));
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
             for (let l = 0; l <= maxLayer; l++) {
                 if (usePromotion && l !== 1) continue;
                 this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);

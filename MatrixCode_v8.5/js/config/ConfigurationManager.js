@@ -299,6 +299,8 @@ class ConfigurationManager {
             "quantizedPulseLineGfxPersistence": null,
             
             "quantizedDefaultShadowWorldFadeSpeed": 0.5,
+            "quantizedDefaultSingleLayerMode": false,
+            "quantizedDefaultSingleLayerModeRetainState": false,
             "quantizedDefaultLayerPromotionEnabled": true,
             "quantizedDefaultPerimeterEchoEnabled": false,
             "quantizedDefaultGlassBloom": 1.2,

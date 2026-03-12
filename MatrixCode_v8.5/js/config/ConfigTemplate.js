@@ -7,6 +7,8 @@
  * To add a new shared setting, simply add its definition here.
  */
 const QuantizedInheritableSettings = [
+    { sub: 'General', id: 'SingleLayerMode', type: 'checkbox', label: 'Single Layer Mode', tier: 'basic', description: "Simplified mode that uses only Layer 1 with no Layer 0 promotion. Perimeter Echo becomes a hold effect — captured lines persist for the Delay duration then fade out.", tags: ['layer', 'simple', 'single', 'hold'] },
+    { sub: 'General', id: 'SingleLayerModeRetainState', type: 'checkbox', label: 'Retain Original State', tier: 'basic', dep: 'SingleLayerMode', description: "When enabled, the echo takes periodic snapshots of the L1 perimeter state and replays them with a delay, fading out over time — instead of tracking every edge individually.", tags: ['echo', 'delay', 'snapshot', 'fade'] },
     { sub: 'General', id: 'LayerPromotionEnabled', type: 'checkbox', label: 'Layer Promotion (3 Steps)', tier: 'basic', description: "After 3 logic steps, Layer 1 blocks move to Layer 0. This makes Layer 1 the active 'discovery' layer while Layer 0 represents the permanent structure.", tags: ['logic', 'foundation'] },
     { sub: 'General', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Perimeter Echo', tier: 'basic', description: "When enabled, replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
     { sub: 'General', id: 'EchoGfxDelay', type: 'range', label: 'Delay', min: 1, max: 8, step: 1, tier: 'basic', description: "How many steps behind the perimeter the echo follows.", tags: ['delay', 'echo', 'steps'] },
