@@ -1719,11 +1719,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
         const echoAlphaMult = echoGlow / 4.0;
 
-        // WebGL mode - lines in GLSL, Echo in 2D overlay
+        // WebGL mode - lines and echo are both rendered via GPU in _renderQuantizedLineGfx.
+        // No canvas overlay needed.
         if (s.renderingEngine === 'webgl') {
-            if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
-            }
             return;
         }
 
@@ -1829,12 +1827,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const alphaMult = Math.min(1.0, lineGlow / 4.0);
 
         if (s.renderingEngine === 'webgl') {
-            const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
-            if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-                const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-                const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
-                this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
-            }
+            // Echo handled by GPU pass in _renderQuantizedLineGfx
             return;
         }
 

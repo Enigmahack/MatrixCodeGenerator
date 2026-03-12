@@ -1301,9 +1301,13 @@ class WebGLRenderer {
         // Line Persistence
         this.fboLinePersist = this.gl.createFramebuffer();
         this.texLinePersist = this.gl.createTexture();
-        
+
+        // Echo Line Persistence (GPU echo pass)
+        this.fboEchoLinePersist = this.gl.createFramebuffer();
+        this.texEchoLinePersist = this.gl.createTexture();
+
         // Shadow Mask FBO
-        this.shadowMaskFbo = this.gl.createFramebuffer(); 
+        this.shadowMaskFbo = this.gl.createFramebuffer();
         this.shadowMaskTex = this.gl.createTexture();
     }
 
@@ -1317,6 +1321,29 @@ class WebGLRenderer {
         this.lastLogicGridWidth = 0;
         this.lastLogicGridHeight = 0;
         this.occupancyBuffer = null;
+
+        // Echo logic grid texture (delayed occupancy)
+        this.echoLogicGridTexture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.echoLogicGridTexture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+
+        // 1x1 TRANSPARENT black texture — bound as u_characterBuffer in echo Mode 1.
+        // Alpha=0 causes Mode 1 to output premultiplied alpha: (lineAlpha*color, lineAlpha),
+        // so non-line areas are fully transparent and ONE/ONE_MINUS_SRC_ALPHA blend works correctly.
+        this.blackTexture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, 1, 1, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+
+        // Ring buffer of occupancy snapshots for GPU echo
+        this.echoOccupancyHistory = [];
+        this.lastEchoStepCaptured = -1;
+        this.lastEchoGridWidth = 0;
+        this.lastEchoGridHeight = 0;
 
         this.sourceGridTexture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
@@ -1392,7 +1419,16 @@ class WebGLRenderer {
                         this._configureFramebuffer(this.fboA, this.texA, this.fboWidth, this.fboHeight);
                         this._configureFramebuffer(this.fboA2, this.texA2, this.fboWidth, this.fboHeight);
                         this._configureFramebuffer(this.fboCodeProcessed, this.texCodeProcessed, this.fboWidth, this.fboHeight);
-                        this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);                this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
+                        this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);
+                        this._configureFramebuffer(this.fboEchoLinePersist, this.texEchoLinePersist, this.fboWidth, this.fboHeight);
+                        // Clear echo persistence FBO to black so it starts clean
+                        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
+                        this.gl.clearColor(0, 0, 0, 0);
+                        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+                        this.echoOccupancyHistory = [];
+                        this.lastEchoStepCaptured = -1;
+                        this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
                 this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
                 
                 // Shadow Mask (Matches Render Resolution)
@@ -1641,6 +1677,9 @@ class WebGLRenderer {
         // 3. Blend State
         if (blend) {
             this.gl.enable(this.gl.BLEND);
+            if (blend.color) {
+                this.gl.blendColor(blend.color[0], blend.color[1], blend.color[2], blend.color[3]);
+            }
             this.gl.blendFunc(blend.src, blend.dst);
             if (blend.eq) {
                 this.gl.blendEquation(blend.eq);
@@ -1832,8 +1871,7 @@ class WebGLRenderer {
         this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
 
         // --- PASS 2: COMPOSITE ---
-        // Echo is rendered as a 2D overlay (see QuantizedBaseEffect.render), not in the WebGL pipeline.
-        // Pass 2 must still run when Natural Refraction is enabled, even if canvas lines are hidden.
+        // Echo is now rendered via GPU passes below. Pass 2 runs first for the main lines.
         const showCanvasLines = (s.layerEnableCanvasLines !== false);
         const refractionActive = fxState.refractionEnabled && !s.performanceMode;
 
@@ -1869,6 +1907,142 @@ class WebGLRenderer {
         };
 
         this._drawFullscreenPass(prog, targetFBO || this.fboA2, compUniforms, compTextures, null);
+
+        // --- GPU ECHO PASSES ---
+        // Snapshot occupancy per logic step into a ring buffer, then re-run the line+refraction
+        // pipeline with the delayed snapshot blended additively on top of the main output.
+        const gpuEchoEnabled = fx.getConfig('PerimeterEchoEnabled') && (s.layerEnablePerimeterEcho !== false);
+        if (gpuEchoEnabled) {
+            const echoDelay = fx.getEchoGfxValue('Delay') || 3;
+            const currentStep = fx.step;
+
+            // Resize echo grid texture if logic grid dimensions changed; also clear persistence FBO
+            if (gw !== this.lastEchoGridWidth || gh !== this.lastEchoGridHeight) {
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.echoLogicGridTexture);
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+                this.lastEchoGridWidth = gw;
+                this.lastEchoGridHeight = gh;
+                this.echoOccupancyHistory = [];
+                this.lastEchoStepCaptured = -1;
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
+                this.gl.clearColor(0, 0, 0, 0);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            }
+
+            // Capture one occupancy snapshot per logic step
+            if (currentStep !== this.lastEchoStepCaptured) {
+                this.lastEchoStepCaptured = currentStep;
+                const snap = new Uint8Array(gw * gh * 4);
+                snap.set(occupancy);
+                this.echoOccupancyHistory.push(snap);
+                const maxHistory = echoDelay + 1;
+                while (this.echoOccupancyHistory.length > maxHistory) this.echoOccupancyHistory.shift();
+            }
+
+            // Only render once the ring buffer is full (enough history accumulated)
+            if (this.echoOccupancyHistory.length >= echoDelay + 1) {
+                const echoSnap = this.echoOccupancyHistory[0]; // oldest entry = exactly `delay` steps behind
+
+                // Upload delayed snapshot to echo logic grid texture
+                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.echoLogicGridTexture);
+                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, echoSnap);
+                this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
+
+                // Echo visual params (EchoGfx values, fall back to main LineGfx where not set)
+                const echoColHex = fx.getEchoGfxValue('Color') || fx.getLineGfxValue('Color') || '#ffffff';
+                const echoCol = Utils.hexToRgb(echoColHex) || { r: 255, g: 255, b: 255 };
+                const echoIntensity = (fx.getEchoGfxValue('Intensity') ?? fxState.intensity) * (fx.getEchoGfxValue('Opacity') ?? 1.0) * fx.alpha;
+                const echoPersistFrames = fx.getEchoGfxValue('Persistence') ?? 0;
+                const echoPersistence = echoPersistFrames > 0 ? (1.0 / echoPersistFrames) : 0.0;
+                const echoGlow = fx.getEchoGfxValue('Glow') ?? fxState.glow;
+
+                const echoSharedUniforms = {
+                    ...sharedUniforms,
+                    u_logicGrid: 1,
+                    u_intensity: echoIntensity,
+                    u_glow: echoGlow,
+                    u_thickness: fx.getEchoGfxValue('Thickness') ?? fxState.thickness,
+                    u_tintOffset: fx.getEchoGfxValue('TintOffset') ?? fxState.tintOffset,
+                    u_sharpness: fx.getEchoGfxValue('Sharpness') ?? fxState.sharpness,
+                    u_glowFalloff: fx.getEchoGfxValue('GlowFalloff') ?? fxState.glowFalloff,
+                    u_roundness: fx.getEchoGfxValue('Roundness') ?? fxState.roundness,
+                    u_maskSoftness: fx.getEchoGfxValue('MaskSoftness') ?? fxState.maskSoftness,
+                    u_brightness: (fx.getEchoGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0),
+                    u_saturation: fx.getEchoGfxValue('Saturation') ?? fxState.saturation,
+                    u_additiveStrength: fx.getEchoGfxValue('AdditiveStrength') ?? fxState.additiveStrength,
+                    u_color: [echoCol.r / 255, echoCol.g / 255, echoCol.b / 255],
+                };
+
+                const echoTextures = {
+                    1: this.echoLogicGridTexture,
+                    3: this.shadowMaskTex,
+                    4: this.sourceGridTexture
+                };
+
+                // Echo Pass 1A: Decay or clear the echo persistence buffer.
+                // When persistence = 0, clear each frame so only the current delayed snapshot is shown.
+                // When persistence > 0, subtract a fixed amount per frame for a trailing fade.
+                if (echoPersistence > 0.0) {
+                    this._drawFullscreenPass(this.colorProgram, this.fboEchoLinePersist,
+                        { u_color: [echoPersistence, echoPersistence, 0.0, 0.0] },
+                        {},
+                        { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT }
+                    );
+                } else {
+                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
+                    this.gl.clearColor(0, 0, 0, 0);
+                    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+                }
+
+                // Echo Pass 1B: Generate echo lines into echo persistence buffer (Mode 0)
+                this._drawFullscreenPass(prog, this.fboEchoLinePersist,
+                    { ...echoSharedUniforms, u_mode: 0 },
+                    echoTextures,
+                    { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX }
+                );
+
+                // Echo Pass 2: Composite echo lines additively onto already-rendered main output.
+                // u_characterBuffer is bound to blackTexture so the echo Mode 1 outputs only
+                // the line glow contribution (no interior source fill), then we blend it on top.
+                const echoCompUniforms = {
+                    ...echoSharedUniforms,
+                    u_mode: 1,
+                    u_characterBuffer: 0,
+                    u_persistenceBuffer: 2,
+                    u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
+                    u_sampleOffset: [(fx.getEchoGfxValue('SampleOffsetX') || 0) * scale, (fx.getEchoGfxValue('SampleOffsetY') || 0) * scale],
+                    u_offset: [(fx.getEchoGfxValue('OffsetX') || 0) * scale, (fx.getEchoGfxValue('OffsetY') || 0) * scale],
+                    u_glassBloom: fxState.glassBloom,
+                    u_refractionEnabled: s.performanceMode ? false : fxState.refractionEnabled,
+                    u_refractionWidth: fxState.refractionWidth,
+                    u_refractionBrightness: fxState.refractionBrightness,
+                    u_refractionSaturation: fxState.refractionSaturation,
+                    u_refractionCompression: fxState.refractionCompression,
+                    u_refractionOffset: fxState.refractionOffset,
+                    u_refractionGlow: fxState.refractionGlow,
+                    u_compressionThreshold: fxState.compressionThreshold,
+                };
+
+                const echoCompTextures = {
+                    ...echoTextures,
+                    0: this.blackTexture,
+                    2: this.texEchoLinePersist
+                };
+
+                // Alpha-composite echo lines over the main output.
+                // blackTexture (alpha=0) as u_characterBuffer causes Mode 1 to output premultiplied alpha:
+                //   non-line pixels: (0,0,0,0) → fully transparent, main output preserved
+                //   line pixels:     (lineAlpha*color, lineAlpha) → echo composited over main
+                // ONE/ONE_MINUS_SRC_ALPHA is the correct blend for premultiplied alpha.
+                this._drawFullscreenPass(prog, targetFBO || this.fboA2, echoCompUniforms, echoCompTextures, {
+                    src: this.gl.ONE,
+                    dst: this.gl.ONE_MINUS_SRC_ALPHA
+                });
+            }
+        }
 
         // Final Cleanup
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
