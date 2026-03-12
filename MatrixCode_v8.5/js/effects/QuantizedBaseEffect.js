@@ -4705,76 +4705,65 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Behavior 2: Block Spawner (Anticipatory Growth)
         this.registerBehavior('block_spawner', function(s) {
             const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
-            if (s.step < startDelay) return;
-            const randomness = this.c.get('quantizedGenerateV2BlockSpawnerRandomness') ?? 0.5;
-            const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 2;
+            const spawnRate  = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerRate') ?? 4);
+            if (s.step < startDelay || (s.step - startDelay) % spawnRate !== 0) return;
 
-            // 1. Collect potential targets
-            const targets = [];
-            
-            // Expansion strips
-            for (const strip of this.strips.values()) {
-                if (!strip.active) continue;
-                targets.push({ type: 'strip', obj: strip });
-            }
-
-            // Main nudge growth points
-            const faces = ['N', 'S', 'E', 'W'];
-            const w = this.logicGridW, h = this.logicGridH;
-            const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+            const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 5;
             const layer = 1;
-            const grid = this.layerGrids[layer];
-            if (grid) {
-                for (const dir of faces) {
-                    let headX = 0, headY = 0;
-                    if (dir === 'N' || dir === 'S') {
-                        const step = (dir === 'N') ? -1 : 1;
-                        for (let gy = cy + step; (dir === 'N' ? gy >= 0 : gy < h); gy += step) {
-                            if (grid[gy * w + cx] === -1) { headX = 0; headY = gy - cy - step; break; }
-                        }
-                    } else {
-                        const step = (dir === 'W') ? -1 : 1;
-                        for (let gx = cx + step; (dir === 'W' ? gx >= 0 : gx < w); gx += step) {
-                            if (grid[cy * w + gx] === -1) { headX = gx - cx - step; headY = 0; break; }
-                        }
-                    }
-                    targets.push({ type: 'nudge', dir, x: headX, y: headY, layer });
-                }
-            }
 
-            if (targets.length === 0) return;
+            // 1. Collect perimeter blocks (blocks that have at least one free neighbor)
+            const perimeterBlocks = this.activeBlocks.filter(b => {
+                if (b.layer !== layer) return false;
+                // Check neighbors in logic grid units
+                const neighbors = [
+                    {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
+                    {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
+                ];
+                return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
+            });
 
-            // 2. Shuffle and pick up to maxSpawn
-            const shuffled = targets.sort(() => Math.random() - 0.5);
+            if (perimeterBlocks.length === 0) return;
+
+            const sizes = [
+                {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
+                {w: 1, h: 3}, {w: 3, h: 1}
+            ];
+
             let spawnedCount = 0;
+            for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
+                const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
+                const size = sizes[Math.floor(Math.random() * sizes.length)];
+                
+                // Pick a side of the parent to attach to
+                const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                let nx, ny;
 
-            for (const target of shuffled) {
-                if (spawnedCount >= maxSpawn) break;
-                if (Math.random() > randomness) continue;
-
-                let aheadX, aheadY;
-                const layer = 1; // Force Layer 1 for all spawner blocks
-                const dir = target.type === 'strip' ? target.obj.direction : target.dir;
-                const [dx, dy] = this._dirDelta(dir);
-                const dist = 3 + Math.floor(Math.random() * 6);
-
-                if (target.type === 'strip') {
-                    aheadX = target.obj.headX + dx * dist;
-                    aheadY = target.obj.headY + dy * dist;
-                } else {
-                    aheadX = target.x + dx * dist;
-                    aheadY = target.y + dy * dist;
+                // "Allow slight overlap": shift the new block 1 unit into the parent's area
+                // Normally, if parent is at (px, py) with size (pw, ph)
+                // North: ny = py - size.h (flush). Overlap: ny = py - size.h + 1
+                if (side === 'N') {
+                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                    ny = parent.y - size.h + 1;
+                } else if (side === 'S') {
+                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                    ny = parent.y + parent.h - 1;
+                } else if (side === 'W') {
+                    nx = parent.x - size.w + 1;
+                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                } else { // E
+                    nx = parent.x + parent.w - 1;
+                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
                 }
 
-                if (this.checkScreenEdge(aheadX, aheadY)) continue;
-                if (!this._isOccupied(aheadX, aheadY, layer)) {
-                    this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(aheadX, aheadY, 1, 1, layer, false, 0, true, true, true, false, true) });
-                    spawnedCount++;
-                }
-            }
+                if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
 
-            if (spawnedCount > 0 && this.c.get('logErrors')) {
-                console.log(`[BlockSpawner] Step ${s.step}: Spawned ${spawnedCount} anticipatory blocks.`);
+                // Check occupancy (excluding the 1-unit overlap area is complex, so we just spawn if the majority is free)
+                // For simplicity, we just check the "new" area not including the overlap edge if possible, 
+                // but _spawnBlock handles overlaps anyway.
+                this.actionBuffer.push({ layer: layer, fn: () => {
+                    this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, true, true, true, false, true);
+                }});
+                spawnedCount++;
             }
         }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
 
@@ -5147,12 +5136,32 @@ class QuantizedBaseEffect extends AbstractEffect {
         return [0, 0];
     }
 
+    _calcBlockSize(strip, fillRatio) {
+        const fillThreshold = this.c.get('quantizedGenerateV2FillThreshold') ?? 0.33;
+        if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
+        const maxScale = this.c.get('quantizedGenerateV2MaxBlockScale') ?? 3;
+        const bs = this.getBlockSize();
+        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
+        const halfW = Math.floor(visW / 2);
+        const halfH = Math.floor(visH / 2);
+        const ox = strip.originX, oy = strip.originY, dir = strip.direction;
+        let distFactor, axisRatio;
+        if (dir === 'N') { distFactor = halfH > 0 ? (oy + halfH) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
+        else if (dir === 'S') { distFactor = halfH > 0 ? (halfH - oy) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
+        else if (dir === 'E') { distFactor = halfW > 0 ? (halfW - ox) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
+        else { distFactor = halfW > 0 ? (ox + halfW) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
+        distFactor = Math.max(0, Math.min(2, distFactor));
+        const size = Math.min(maxScale, Math.max(1, Math.round(distFactor * axisRatio)));
+        return (dir === 'N' || dir === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+    }
+
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
-        // Force 1×1 on the very first growth step so new strips always begin with a single block,
-        // regardless of fillRatio. _calcBlockSize can return 1×2 / 2×1 at high fill, which causes
-        // visually jarring "back-to-back" placements when multiple strips fire in the same step.
-        const bw = 1, bh = 1;
+        
+        // Force 1×1 on the very first growth step so new strips always begin with a single block.
+        // Otherwise, use _calcBlockSize to adhere to size scaling settings.
+        let { bw, bh } = (strip.growCount === 0) ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
         
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         if (this.checkScreenEdge(newHeadX, newHeadY)) { this._deactivateStrip(strip); return; }
