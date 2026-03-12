@@ -291,14 +291,6 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     getLineGfxValue(suffix) {
-        // Special case for Thickness: prioritze the 'PerimeterThickness' slider in the effect UI
-        if (suffix === 'Thickness') {
-            const effectThick = this.getConfig('PerimeterThickness');
-            if (effectThick !== undefined && effectThick !== null) {
-                return effectThick;
-            }
-        }
-
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
         const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'LineGfx' + suffix);
 
@@ -1115,9 +1107,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridCacheDirty = false;
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
-        const glowStrength = this.getConfig('BorderIllumination') || 0;
-        const t = Math.min(1.0, glowStrength / 10.0);
-        const intensity = Math.min(1.0, glowStrength / 1.0); 
+
         const charColor = '#FFFFFF';
         const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
         const style = s.italicEnabled ? 'italic ' : '';
@@ -1129,7 +1119,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.fillStyle = charColor;
         const grid = this.g;
         const shadowGrid = this.shadowGrid;
-        const distMap = this.renderer._distMap;
         const distW = this.renderer._distMapWidth;
         const distH = this.renderer._distMapHeight;
         const l = this.layout;

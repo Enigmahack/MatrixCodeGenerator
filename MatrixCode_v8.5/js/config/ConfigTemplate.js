@@ -77,8 +77,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Speed', min: 0.1, max: 10.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'basic', tags: ['fast', 'slow', 'motion'] },
         { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'width', 'grid'] },
         { cat: 'Effects', id: prefix + "BlockHeightCells", type: 'range', label: 'Block Height', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'height', 'grid'] },
-        { cat: 'Effects', id: prefix + "BorderIllumination", type: 'range', label: 'Intensity', min: 0, max: 10, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['bright', 'glow'] },
-        { cat: 'Effects', id: prefix + "PerimeterThickness", type: 'range', label: 'Line Width', min: 0.1, max: 10.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], description: "10.0 = 1 Character width. 0.1 = ~1 Pixel.", tier: 'basic', tags: ['size', 'width', 'line'] },
         { cat: 'Effects', type: 'end_group' },
 
         { cat: 'Effects', id: prefix + "OverrideDefaults", type: 'checkbox', label: 'Override Quantized Defaults', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When enabled, you can customize the individual look of this effect. Otherwise, it will inherit from 'Quantized Defaults'.", tags: ['custom', 'unique'] },
@@ -375,8 +373,6 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract',   action: 'quantizedRetract',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedRetract',       tier: 'basic', tags: ['quantizedretract', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb',     action: 'quantizedClimb',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedClimb',         tier: 'basic', tags: ['quantizedclimb', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom',      action: 'quantizedZoom',           class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedZoom',          tier: 'basic', tags: ['quantizedzoom', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Expansion', action: 'quantizedExpansion',      class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedExpansion',     tier: 'basic', tags: ['quantizedexpansion', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Crawler',   action: 'quantizedCrawler',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedCrawler',       tier: 'basic', tags: ['quantizedcrawler', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Block Generator',     action: 'QuantizedBlockGenerator', class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedGenerateV2',   tier: 'basic', tags: ['blockgenerator', 'action', 'trigger'] },
     { cat: 'Effects', id: 'activeQuantizedEffect', type: 'select', label: 'Selected Effect', options: [
         { label: 'Quantized Pulse', value: 'quantizedPulse' },
@@ -384,8 +380,6 @@ const ConfigTemplate = [
         { label: 'Quantized Retract', value: 'quantizedRetract' },
         { label: 'Quantized Climb', value: 'quantizedClimb' },
         { label: 'Quantized Zoom', value: 'quantizedZoom' },
-        { label: 'Quantized Expansion', value: 'quantizedExpansion' },
-        { label: 'Quantized Crawler', value: 'quantizedCrawler' },
         { label: 'Block Generator', value: 'quantizedGenerateV2' }
     ], tier: 'basic', tags: ['mode', 'switch', 'type'] },
 
@@ -394,8 +388,6 @@ const ConfigTemplate = [
     ...generateQuantizedEffectSettings('quantizedRetract', 'Quantized Retract', 'quantizedRetract'),
     ...generateQuantizedEffectSettings('quantizedClimb', 'Quantized Climb', 'quantizedClimb'),
     ...generateQuantizedEffectSettings('quantizedZoom', 'Quantized Zoom', 'quantizedZoom'),
-    ...generateQuantizedEffectSettings('quantizedExpansion', 'Quantized Expansion', 'quantizedExpansion'),
-    ...generateQuantizedEffectSettings('quantizedCrawler', 'Quantized Crawler', 'quantizedCrawler'),
 
     ...generateQuantizedEffectSettings('quantizedGenerateV2', 'Quantized Block Generator', 'QuantizedBlockGenerator'),
 

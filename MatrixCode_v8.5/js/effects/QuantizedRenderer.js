@@ -31,7 +31,6 @@ class QuantizedRenderer {
         const screenStepX = d.cellWidth * s.stretchX;
         const screenStepY = d.cellHeight * s.stretchY;
         const thickness = fx.getLineGfxValue('Thickness') || 1.0;
-        const innerThickness = fx.getLineGfxValue('InnerThickness') || thickness;
         const echoThickness = fx.getEchoGfxValue('Thickness') || 1.0;
 
         const baseStep = Math.min(screenStepX, screenStepY);
@@ -40,9 +39,6 @@ class QuantizedRenderer {
         const lineWidthY = lineWidthX;
         const halfLineX = lineWidthX * 0.5;
         const halfLineY = halfLineX;
-
-        const innerLineWidthX = baseStep * 0.1 * innerThickness;
-        const innerLineWidthY = innerLineWidthX;
 
         const echoLineWidthX = baseStep * 0.1 * echoThickness;
         const echoLineWidthY = echoLineWidthX;
@@ -63,7 +59,6 @@ class QuantizedRenderer {
         fx.layout = {
             screenStepX, screenStepY,
             lineWidthX, lineWidthY,
-            innerLineWidthX, innerLineWidthY,
             halfLineX, halfLineY,
             echoLineWidthX, echoLineWidthY,
             echoHalfLineX, echoHalfLineY,
@@ -199,9 +194,6 @@ class QuantizedRenderer {
         if (fx.echoCtx) {
             this.renderEchoEdges(fx, fx.echoCtx, now, blocksX, blocksY);
         }
-
-        // Corner Cleanup
-        this._renderCornerCleanup(fx, colorLayerCtx, now);
         
         fx.lastMaskUpdateFrame = now;
         fx._snapSettings = null;
@@ -382,8 +374,8 @@ class QuantizedRenderer {
     }
 
     renderEdges(fx, maskCtx, colorCtx, now, blocksX, blocksY, offX, offY) {
-        const color = fx.getLineGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
-        const fadeColor = fx.getConfig('PerimeterFadeColor') || (fx.getConfig('InnerColor') || "#FFD700");
+        const color = fx.getLineGfxValue('Color') || "#FFD700";
+        const fadeColor = fx.getLineGfxValue('PersistenceColor') || color;
         const fadeOutFrames = fx.getLineGfxValue('Persistence') || 0;
         const fadeInFrames = fx.getConfig('FadeInFrames') || 0;
 
@@ -745,7 +737,7 @@ class QuantizedRenderer {
         // Retrieve dynamic delay from config (Range 1-8)
         const delay = fx.getEchoGfxValue('Delay') || 3;
 
-        const echoColor = fx.getEchoGfxValue('Color') || fx.getConfig('PerimeterColor') || "#FFD700";
+        const echoColor = fx.getEchoGfxValue('Color') || "#FFD700";
         const brightness = fx.getEchoGfxValue('Brightness') ?? 1.0;
         const opacitySetting = fx.getEchoGfxValue('Opacity') ?? 1.0;
         const intensity = fx.getEchoGfxValue('Intensity') ?? 1.0;
@@ -986,43 +978,9 @@ class QuantizedRenderer {
         }
     }
 
-    _renderCornerCleanup(fx, ctx, now) {
-        // Corner cleanup no longer needs manual removal tracking
-    }
 
-    _removeBlockCorner(fx, ctx, bx, by, corner) {
-        const l = fx.layout;
-        const offX = l.offX || 0;
-        const offY = l.offY || 0;
 
-        const startCellX = Math.round((bx - offX + l.userBlockOffX) * l.cellPitchX);
-        const endCellX = Math.round((bx + 1 - offX + l.userBlockOffX) * l.cellPitchX);
-        const startCellY = Math.round((by - offY + l.userBlockOffY) * l.cellPitchY);
-        const endCellY = Math.round((by + 1 - offY + l.userBlockOffY) * l.cellPitchY);
-        
-        let cx, cy;
-        if (corner === 'NW') {
-            cx = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
-        } else if (corner === 'NE') {
-            cx = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((startCellY) * l.screenStepY) + l.pixelOffY;
-        } else if (corner === 'SW') {
-            cx = l.screenOriginX + ((startCellX) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
-        } else if (corner === 'SE') {
-            cx = l.screenOriginX + ((endCellX) * l.screenStepX) + l.pixelOffX;
-            cy = l.screenOriginY + ((endCellY) * l.screenStepY) + l.pixelOffY;
-        }
-        
-        cx = this._getSnap(fx, cx, 'x');
-        cy = this._getSnap(fx, cy, 'y');
 
-        const inflate = 1.0; 
-        ctx.beginPath();
-        ctx.rect(cx - l.halfLineX - inflate, cy - l.halfLineY - inflate, l.lineWidthX + (inflate*2), l.lineWidthY + (inflate*2));
-        ctx.fill();
-    }
 
     computeTrueOutside(fx, blocksX, blocksY, gridOverride = null) {
         if (!gridOverride && fx._outsideMap && fx._outsideMapWidth === blocksX && fx._outsideMapHeight === blocksY && !fx._outsideMapDirty) {
