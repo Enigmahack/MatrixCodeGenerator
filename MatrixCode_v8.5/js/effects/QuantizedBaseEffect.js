@@ -1242,15 +1242,28 @@ class QuantizedBaseEffect extends AbstractEffect {
         let opsProcessed = 0;
         let i = startIndex;
 
-        // Snapshot pre-operation occupancy â€” only needed when there are ops to process.
-        // Allocating before the early-exit guards was wasting 4Ã—Uint8Array every render frame.
+        // Snapshot pre-operation occupancy — only needed when there are ops to process.
         let establishedMasks = null;
         if (startIndex < this.maskOps.length) {
-            establishedMasks = [new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks), new Uint8Array(totalBlocks)];
+            // Use pooled buffers for established masks
+            if (!this._establishedMasksPool) {
+                this._establishedMasksPool = [
+                    new Uint8Array(6400), new Uint8Array(6400), 
+                    new Uint8Array(6400), new Uint8Array(6400)
+                ];
+            }
+            
+            establishedMasks = this._establishedMasksPool;
             for (let l = 0; l < 4; l++) {
-                if (this.layerGrids[l]) {
+                if (establishedMasks[l].length !== totalBlocks) {
+                    establishedMasks[l] = new Uint8Array(totalBlocks);
+                }
+                establishedMasks[l].fill(0);
+                
+                const grid = this.layerGrids[l];
+                if (grid) {
                     for (let idx = 0; idx < totalBlocks; idx++) {
-                        if (this.layerGrids[l][idx] !== -1) establishedMasks[l][idx] = 1;
+                        if (grid[idx] !== -1) establishedMasks[l][idx] = 1;
                     }
                 }
             }
@@ -3123,32 +3136,36 @@ class QuantizedBaseEffect extends AbstractEffect {
              const targetGrid = this.layerGrids[layer];
              
              if (targetGrid) {
-                 // Check overlap and orthogonal adjacency in one pass (O(area) instead of O(N_blocks))
-                 // Expand search by 1 unit for adjacency
-                 search: for (let gy = minY - 1; gy <= maxY + 1; gy++) {
-                     if (gy < 0 || gy >= blocksY) continue;
+                 // Check overlap and orthogonal adjacency in one pass (O(area))
+                 for (let gy = minY; gy <= maxY; gy++) {
                      const rowOff = gy * blocksX;
-                     const isEdgeY = (gy < minY || gy > maxY);
-                     
-                     for (let gx = minX - 1; gx <= maxX + 1; gx++) {
-                         if (gx < 0 || gx >= blocksX) continue;
-                         const isEdgeX = (gx < minX || gx > maxX);
-                         
+                     for (let gx = minX; gx <= maxX; gx++) {
                          if (targetGrid[rowOff + gx] !== -1) {
-                             if (isEdgeX && isEdgeY) {
-                                 // Diagonal neighbor - skip corner connections
-                                 continue;
-                             }
-
-                             if (isEdgeX || isEdgeY) {
-                                 // Edge neighbor - valid connection
-                                 connected = true;
-                             } else {
-                                 // Interior overlap - valid connection
-                                 overlapArea++;
-                                 connected = true; 
-                             }
+                             overlapArea++;
+                             connected = true; 
                          }
+                     }
+                 }
+                 
+                 // If no overlap, check orthogonal neighbors (N,S,E,W)
+                 if (!connected) {
+                     // North
+                     if (minY > 0) {
+                         const rowOff = (minY - 1) * blocksX;
+                         for (let gx = minX; gx <= maxX; gx++) if (targetGrid[rowOff + gx] !== -1) { connected = true; break; }
+                     }
+                     // South
+                     if (!connected && maxY < blocksY - 1) {
+                         const rowOff = (maxY + 1) * blocksX;
+                         for (let gx = minX; gx <= maxX; gx++) if (targetGrid[rowOff + gx] !== -1) { connected = true; break; }
+                     }
+                     // West
+                     if (!connected && minX > 0) {
+                         for (let gy = minY; gy <= maxY; gy++) if (targetGrid[gy * blocksX + (minX - 1)] !== -1) { connected = true; break; }
+                     }
+                     // East
+                     if (!connected && maxX < blocksX - 1) {
+                         for (let gy = minY; gy <= maxY; gy++) if (targetGrid[gy * blocksX + (maxX + 1)] !== -1) { connected = true; break; }
                      }
                  }
              }

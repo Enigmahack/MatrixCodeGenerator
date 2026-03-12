@@ -1344,6 +1344,7 @@ class WebGLRenderer {
         this.lastEchoStepCaptured = -1;
         this.lastEchoGridWidth = 0;
         this.lastEchoGridHeight = 0;
+        this.lastRenderedFx = null;
 
         this.sourceGridTexture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
@@ -1745,6 +1746,20 @@ class WebGLRenderer {
         const fxState = fx.getWebGLRenderState(s, d);
         const [gw, gh] = fxState.logicGridSize;
         if (gw <= 0 || gh <= 0) return false;
+
+        // Detect effect change or step reset (new run) — clear echo state so the previous
+        // run's tail doesn't bleed into the next run.
+        if (fx !== this.lastRenderedFx || (this.lastEchoStepCaptured > 0 && fx.step === 0)) {
+            this.lastRenderedFx = fx;
+            this.echoOccupancyHistory = [];
+            this.lastEchoStepCaptured = -1;
+            if (this.fboEchoLinePersist) {
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
+                this.gl.clearColor(0, 0, 0, 0);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            }
+        }
 
         // Ensure logic texture and buffer are initialized
         if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
