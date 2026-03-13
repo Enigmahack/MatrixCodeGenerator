@@ -891,6 +891,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this._attemptGrowth();
                     this.expansionPhase++;
                 }
+
+                // Perform Auto Actions (Filling holes, etc.) every logic step if enabled
+                this._performAutoActions();
+
                 this.manualStep = false;
             }
         }
@@ -2626,7 +2630,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const grid = this.layerGrids[layer];
         if (!grid) return false;
 
-        const faces = this._getBiasedDirections();
+        const allowed = this._getAllowedDirs(layer);
+        const faces = this._getBiasedDirections().filter(f => !allowed || allowed.has(f));
+        if (faces.length === 0) return false;
+
         for (const dir of faces) {
             // Compute how far the center spoke has grown in this direction (extRatio).
             // This gates lateral expansion: nudge only widens once the spine is >33% grown.
@@ -4540,62 +4547,62 @@ class QuantizedBaseEffect extends AbstractEffect {
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
             if (val !== undefined) return val;
-            return this.c.state['quantizedGenerateV2' + key];
+            return this.c.state[this.configPrefix + key];
         };
 
         const now = this.animFrame;
-        const interval = 30; 
+        const interval = 30;
 
-        if (getGenConfig('EnableAutoFillHoles') === true && now % interval === 0) {
-            for (let i = 0; i < 3; i++) this._fillHoles(i);
+        // Perform hole filler every logic step if enabled
+        if (getGenConfig('HoleFillerEnabled') === true) {
+            this._performHoleCleanup();
         }
-        
+
+        // Maintain structural integrity and connect islands on an interval or every few steps
         if (getGenConfig('EnableAutoConnectIslands') === true && now % interval === 15) {
             this._connectIslands();
         }
     }
 
-    _fillHoles(layer) {
-        if (!this._gridsDirty && this.activeBlocks.length > 0) return;
+    /**
+     * More robust and aggressive hole filling logic that handles all active layers simultaneously.
+     * Seeds BFS from the edges of the logic grid (edges of the world) to find enclosed spaces.
+     */
+    _performHoleCleanup() {
         if (!this.logicGridW || !this.logicGridH) return;
+        if (!this._gridsDirty && this.activeBlocks.length > 0) return;
 
         const w = this.logicGridW, h = this.logicGridH;
-        const grid = this.layerGrids[layer];
-        if (!grid) return;
-
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
-        const bs = this.getBlockSize();
-        
-        // 1. Define Visible Boundary (with a 2-block safety buffer)
-        const visW = Math.ceil(this.g.cols / bs.w);
-        const visH = Math.ceil(this.g.rows / bs.h);
-        const xLim = Math.floor(visW / 2) + 2;
-        const yLim = Math.floor(visH / 2) + 2;
 
-        const minGX = Math.max(0, cx - xLim), maxGX = Math.min(w - 1, cx + xLim);
-        const minGY = Math.max(0, cy - yLim), maxGY = Math.min(h - 1, cy + yLim);
+        // Use the composite grid (renderGrid) for finding holes in the overall mass.
+        // If renderGrid is stale, we'll re-calculate composite occupancy on the fly.
+        const compositeMap = this._getBuffer('compositeMap', w * h, Int8Array);
+        compositeMap.fill(-1);
+        for (let l = 0; l < this.layerGrids.length; l++) {
+            const grid = this.layerGrids[l];
+            if (!grid) continue;
+            for (let i = 0; i < grid.length; i++) if (grid[i] !== -1) compositeMap[i] = 1;
+        }
 
-        // 2. BFS from the Visibility Perimeter to find "Outside"
+        // 1. BFS from the LOGIC GRID Perimeter to find the "Outside" empty area
         const outsideMap = this._getBuffer('connectedMap', w * h, Uint8Array);
         outsideMap.fill(0);
         const queue = this._getBuffer('queue', w * h, Int32Array);
         let head = 0, tail = 0;
 
         const add = (gx, gy) => {
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return;
             const idx = gy * w + gx;
-            if (outsideMap[idx] === 0 && grid[idx] === -1) { 
-                outsideMap[idx] = 1; 
-                queue[tail++] = idx; 
+            if (outsideMap[idx] === 0 && compositeMap[idx] === -1) {
+                outsideMap[idx] = 1;
+                queue[tail++] = idx;
             }
         };
 
-        // Seed BFS from any empty cell on or outside the visible boundary
-        for (let gy = 0; gy < h; gy++) {
-            for (let gx = 0; gx < w; gx++) {
-                const isOutsideVis = (gx <= minGX || gx >= maxGX || gy <= minGY || gy >= maxGY);
-                if (isOutsideVis) add(gx, gy);
-            }
-        }
+        // Seed BFS from the 4 edges of the world
+        for (let gx = 0; gx < w; gx++) { add(gx, 0); add(gx, h - 1); }
+        for (let gy = 0; gy < h; gy++) { add(0, gy); add(w - 1, gy); }
 
         while (head < tail) {
             const idx = queue[head++];
@@ -4604,34 +4611,54 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (cgx > 0) add(cgx - 1, cgy); if (cgx < w - 1) add(cgx + 1, cgy);
         }
 
-        // 3. Fill holes inside the visible area
+        // 2. Identify and fill holes within the mass
         let filledCount = 0;
-        for (let gy = minGY + 1; gy < maxGY; gy++) {
-            for (let gx = minGX + 1; gx < maxGX; gx++) {
+        const maxLayer = this._getMaxLayer();
+        const startL = (this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode')) ? 1 : 0;
+
+        // Iterate entire grid (visible + logic padding)
+        for (let gy = 1; gy < h - 1; gy++) {
+            for (let gx = 1; gx < w - 1; gx++) {
                 const i = gy * w + gx;
-                if (grid[i] === -1) {
-                    // Case A: Enclosed Hole (Cannot reach visible boundary)
+                if (compositeMap[i] === -1) {
+                    // Case A: Enclosed Hole (Cannot reach edge of world)
                     const isEnclosed = (outsideMap[i] === 0);
-                    
-                    // Case B: Aggressive Infill (3 or 4 cardinal neighbors are full)
-                    // This catches inlets and dead-ends that are connected to the outside.
+
+                    // Case B: Inlets / Dead-ends (3 or 4 cardinal neighbors are full)
                     let neighborCount = 0;
-                    if (grid[i - 1] !== -1) neighborCount++;
-                    if (grid[i + 1] !== -1) neighborCount++;
-                    if (grid[i - w] !== -1) neighborCount++;
-                    if (grid[i + w] !== -1) neighborCount++;
-                    
+                    if (compositeMap[i - 1] !== -1) neighborCount++;
+                    if (compositeMap[i + 1] !== -1) neighborCount++;
+                    if (compositeMap[i - w] !== -1) neighborCount++;
+                    if (compositeMap[i + w] !== -1) neighborCount++;
                     const isSmallGap = (neighborCount >= 3);
 
                     if (isEnclosed || isSmallGap) {
-                        this._spawnBlock(gx - cx, gy - cy, 1, 1, layer, false, 0, true, true, true);
-                        this._gridsDirty = true;
+                        // Fill on ALL active layers to ensure immediate solidity
+                        for (let l = startL; l <= maxLayer; l++) {
+                            this._spawnBlock(gx - cx, gy - cy, 1, 1, l, false, 0, true, true, true, false, true, 'hole_filler');
+                        }
+                        compositeMap[i] = 1; // Mark as filled for neighbor check of next cell
                         filledCount++;
                     }
                 }
             }
         }
-        if (filledCount > 0) this._log(`[AutoFill] Layer ${layer}: Filled ${filledCount} holes/gaps.`);
+
+        if (filledCount > 0) {
+            this._gridsDirty = true;
+            this._maskDirty = true;
+            if (this.c.state.logErrors) this._log(`[HoleCleanup] Filled ${filledCount} blocks across layers ${startL}-${maxLayer}.`);
+        }
+    }
+
+    _maintainStructuralIntegrity() {
+        // Now redirects to the more robust _performHoleCleanup
+        this._performHoleCleanup();
+    }
+
+    _fillHoles(layer) {
+        // Kept for backward compatibility, but redirects to the centralized cleanup
+        this._performHoleCleanup();
     }
 
     _connectIslands() {
@@ -4793,27 +4820,13 @@ class QuantizedBaseEffect extends AbstractEffect {
     _initBehaviors() {
         const self = this;
 
-        // Behavior 1: Main Nudge Growth (3-Step Cycle)
-        this.registerBehavior('main_nudge_growth', function(s) {
-            const startDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 2;
-            if (s.step < startDelay) return;
-
-            const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
-            if (Math.random() > spawnChance) return;
-
-            // NEW: Use _calcBlockSize to determine if we should scale up the nudge
-            // We pass a dummy strip object to satisfy the requirements of _calcBlockSize
-            const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-
-            // Execute the stateful 3-step cycle logic, now using the dynamic spawn center
-            this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
-        }, { enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
-
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s) {
             const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerRate') ?? 4);
             const layer = 1;
+
+            const allowed = this._getAllowedDirs(layer);
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
@@ -4823,10 +4836,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const perimeterBlocks = this.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
                     const neighbors = [
-                        {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
-                        {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
+                        {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
+                        {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, y: b.y, dir: 'E'}  // W, E
                     ];
-                    return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
+                    return neighbors.some(n => (!allowed || allowed.has(n.dir)) && !this._isOccupied(n.x, n.y, layer));
                 });
 
                 if (perimeterBlocks.length > 0) {
@@ -4840,7 +4853,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
                         const size = sizes[Math.floor(Math.random() * sizes.length)];
                         
-                        const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                        const availSides = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
+                        if (availSides.length === 0) continue;
+                        const side = availSides[Math.floor(Math.random() * availSides.length)];
                         let nx, ny;
 
                         if (side === 'N') {
@@ -4934,6 +4949,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             const startDelay = this.c.get(this.configPrefix + 'SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
 
+            const targetLayer = 1;
+            const allowed = this._getAllowedDirs(targetLayer);
+
             // State Initialization
             if (!s.spreadingNudgeNextDist) {
                 s.spreadingNudgeNextDist = { 'V1': 1, 'V-1': 1, 'H1': 1, 'H-1': 1 };
@@ -4945,13 +4963,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             const growthChance  = this.c.get(this.configPrefix + 'SpreadingNudgeChance') ?? 0.8;
             const maxInstances  = this.c.get(this.configPrefix + 'SpreadingNudgeMaxInstances') ?? 20;
             const preferSymmetry = this.c.get(this.configPrefix + 'SpreadingNudgeSymmetry') ?? true;
-            const targetLayer = 1;
 
             const arms = [
-                { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'] }, // South Axis -> Spawns E/W
-                { key: 'V-1', vert: true,  side: -1, perp: ['E', 'W'] }, // North Axis -> Spawns E/W
-                { key: 'H1',  vert: false, side: 1,  perp: ['N', 'S'] }, // East Axis -> Spawns N/S
-                { key: 'H-1', vert: false, side: -1, perp: ['N', 'S'] }  // West Axis -> Spawns N/S
+                { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'], dir: 'S' }, // South Axis -> Spawns E/W
+                { key: 'V-1', vert: true,  side: -1, perp: ['E', 'W'], dir: 'N' }, // North Axis -> Spawns E/W
+                { key: 'H1',  vert: false, side: 1,  perp: ['N', 'S'], dir: 'E' }, // East Axis -> Spawns N/S
+                { key: 'H-1', vert: false, side: -1, perp: ['N', 'S'], dir: 'W' }  // West Axis -> Spawns N/S
             ];
 
             // 1. Process Symmetry Queue
@@ -4959,10 +4976,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const pending = [];
                 for (const item of s.spreadingNudgeSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
-                        const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
-                        strip.isNudge = item.isNudge || false;
-                        strip.bypassOccupancy = item.bypassOccupancy || false;
-                        strip.stepPhase = Math.floor(Math.random() * 6);
+                        if (!allowed || allowed.has(item.dir)) {
+                            const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
+                            strip.isNudge = item.isNudge || false;
+                            strip.bypassOccupancy = item.bypassOccupancy || false;
+                            strip.stepPhase = Math.floor(Math.random() * 6);
+                        }
                     } else {
                         pending.push(item);
                     }
@@ -4984,6 +5003,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             arms.sort(() => Math.random() - 0.5);
 
             for (const arm of arms) {
+                // QUADRANT CHECK
+                if (allowed && !allowed.has(arm.dir)) continue;
+
                 // Check if it's time for this arm to advance
                 if (s.step >= (s.spreadingNudgeNextSpawnStep[arm.key] || 0)) {
                     let d = s.spreadingNudgeNextDist[arm.key];
@@ -5040,6 +5062,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             const fillRate   = Math.max(1, this.c.get('quantizedGenerateV2ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
 
+            const targetLayer = 1;
+            const allowed = this._getAllowedDirs(targetLayer);
             const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
             const bs    = this.getBlockSize();
             const halfW = Math.floor(this.g.cols / bs.w / 2);
@@ -5052,7 +5076,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             if (s.shoveStrips.length === 0) {
                 const qCount    = Math.min(4, parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4));
-                const allowed   = this._getAllowedDirs(1);
                 const availDirs = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
                 if (availDirs.length === 0) return;
                 const count = Math.min(qCount, availDirs.length);
@@ -5075,6 +5098,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             for (const strip of s.shoveStrips) {
                 if (!strip.active) continue;
+                if (allowed && !allowed.has(strip.dir)) continue; // QUADRANT CHECK
                 if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
@@ -5091,12 +5115,12 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 if (isEW) {
                     // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
-                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, 1, false, 0, true, true, true, false, true) });
-                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, 1, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
                 } else {
                     // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
-                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, 1, false, 0, true, true, true, false, true) });
-                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, 1, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
                 }
 
                 strip.leadPos += step;
@@ -5109,6 +5133,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.step % fillRate !== 0) return;
 
             const layer = 1;
+            const allowed = this._getAllowedDirs(layer);
             const w = this.logicGridW, h = this.logicGridH;
             const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
             const grid = this.layerGrids[layer];
@@ -5122,11 +5147,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             const q = s.holeQIdx;
             s.holeQIdx = (s.holeQIdx + 1) % 4;
 
-            let minX = (q === 0 || q === 2) ? -xVis : 0;
-            let maxX = (q === 0 || q === 2) ? 0 : xVis;
+            const qDirs = ['N', 'E', 'S', 'W'];
+            if (allowed && !allowed.has(qDirs[q])) return; // QUADRANT CHECK
+
+            let minX = (q === 0 || q === 3) ? -xVis : 0;
+            let maxX = (q === 0 || q === 3) ? 0 : xVis;
             let minY = (q === 0 || q === 1) ? -yVis : 0;
             let maxY = (q === 0 || q === 1) ? 0 : yVis;
-
+            // ... (rest of hole_filler logic remains same)
             const scanMinX = -xVis, scanMaxX = xVis;
             const scanMinY = -yVis, scanMaxY = yVis;
             const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
@@ -5182,28 +5210,76 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _tickLayerDirs(s) {
-        const quadrantCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
-        if (!s.layerDirs) return;
-        if (!s.layerDirLife) s.layerDirLife = {};
-        if (quadrantCount >= 4) {
-            for (const layer in s.layerDirs) {
-                const l = parseInt(layer);
-                if (l >= 2) continue;
-                if (s.layerDirs[layer] !== null) {
-                    this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[layer] = null; } });
+        const genScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+        let userMax = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+        
+        // 1. Determine Min/Max Counts based on Fill Ratio (as per instructions)
+        let minCount = 1, maxCount = userMax;
+        if (genScaling) {
+            if (s.fillRatio < 0.15) { maxCount = Math.min(userMax, 2); minCount = 1; }
+            else if (s.fillRatio < 0.30) { maxCount = Math.min(userMax, 3); minCount = 2; }
+            else { maxCount = userMax; minCount = userMax; }
+        } else {
+            minCount = userMax; maxCount = userMax;
+        }
+
+        if (!s.dirPools) s.dirPools = { 0: [], 1: [] };
+        if (!s.lastLayerDirs) s.lastLayerDirs = { 0: null, 1: null };
+
+        const all = ['N', 'S', 'E', 'W'];
+
+        for (let l = 0; l <= 1; l++) {
+            // Pick a random count for this step within the allowed range
+            let count = (minCount === maxCount) ? minCount : Math.floor(Math.random() * (maxCount - minCount + 1)) + minCount;
+            
+            // If 4 directions are allowed, we set to null (all active)
+            if (count >= 4) {
+                if (s.layerDirs[l] !== null) {
+                    this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = null; } });
+                    s.lastLayerDirs[l] = null;
+                }
+                continue;
+            }
+
+            let pool = s.dirPools[l];
+            let selected = new Set();
+            
+            // Fairness and Variation Logic: "Different than previous" + "Each gets a turn"
+            for (let attempt = 0; attempt < 5; attempt++) {
+                selected.clear();
+                // Ensure the pool has enough directions for this turn
+                if (pool.length < count) {
+                    const fresh = [...all];
+                    Utils.shuffle(fresh);
+                    s.dirPools[l] = pool = [...pool, ...fresh];
+                }
+                
+                // Peek at the first 'count' directions
+                const candidates = pool.slice(0, count);
+                for (const d of candidates) selected.add(d);
+
+                // Verify "Different than previous step"
+                const last = s.lastLayerDirs[l];
+                let isSame = false;
+                if (last && last.size === selected.size) {
+                    isSame = true;
+                    for (const d of selected) {
+                        if (!last.has(d)) { isSame = false; break; }
+                    }
+                }
+
+                // If it's unique or we've exhausted attempts, commit this choice
+                if (!isSame || attempt === 4) {
+                    pool.splice(0, count);
+                    break;
+                } else {
+                    // If it was the same, reshuffle the pool to ensure variation
+                    Utils.shuffle(pool);
                 }
             }
-            return;
-        }
-        for (const layer in s.layerDirs) {
-            if (parseInt(layer) >= 2) continue;
-            s.layerDirLife[layer] = (s.layerDirLife[layer] ?? 1) - 1;
-            if (s.layerDirLife[layer] <= 0) {
-                const newDirs = this._pickLayerDirs(quadrantCount);
-                const l = parseInt(layer);
-                this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = newDirs; } });
-                s.layerDirLife[layer] = 4 + Math.floor(Math.random() * 4);
-            }
+
+            this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = selected; } });
+            s.lastLayerDirs[l] = selected;
         }
     }
 
@@ -5315,6 +5391,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
             
+            const allowed = this._getAllowedDirs(strip.layer);
+            if (allowed && !allowed.has(strip.direction)) continue; // QUADRANT RESTRICTION
+
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
 
             if (allowAsymmetry && strip.layer < 2) {
@@ -5640,6 +5719,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._tickLayerDirs(s);
         this._updateFillRatio(s);
         this._seedStrips(s);
+
+        // PERMANENT CORE BEHAVIOR: Main Nudge Growth
+        if (this.c.get('quantizedGenerateV2NudgeEnabled') !== false) {
+            const nudgeStartDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 2;
+            if (s.step >= nudgeStartDelay) {
+                const nudgeChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
+                if (Math.random() <= nudgeChance) {
+                    const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+                    this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+                }
+            }
+        }
+
         this._tickStrips(s);
         this._expandInsideOut(s);
 
