@@ -168,69 +168,107 @@ class QuantizedSequenceGeneratorV2 {
             const spawnChance = gen._getConfig('NudgeChance') ?? 0.8;
             if (Math.random() > spawnChance) return;
 
+            // NEW: Use _calcBlockSize to determine if we should scale up the nudge
+            const { bw, bh } = gen._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+
             // Execute the stateful 3-step cycle logic
-            gen._attemptNudgeGrowthWithParams(1, 1, 1, s.scx, s.scy);
+            gen._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
         }, { enabled: gen._getConfig('NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
-        this.registerBehavior('block_spawner', function(s) {
-            if (!gen._getConfig('BlockSpawnerEnabled')) return;
+        this.registerBehavior('block_spawner_despawner', function(s) {
             const startDelay = gen._getConfig('BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, gen._getConfig('BlockSpawnerRate') ?? 4);
-            if (s.step < startDelay || (s.step - startDelay) % spawnRate !== 0) return;
-
-            const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 5;
             const layer = 1;
 
-            // 1. Collect perimeter blocks (blocks that have at least one free neighbor)
-            const perimeterBlocks = gen.activeBlocks.filter(b => {
-                if (b.layer !== layer) return false;
-                // Check neighbors in logic grid units
-                const neighbors = [
-                    {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
-                    {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
-                ];
-                return neighbors.some(n => !gen._isOccupied(n.x, n.y, layer));
-            });
+            // 1. Spawning Logic
+            if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
+                const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 5;
 
-            if (perimeterBlocks.length === 0) return;
+                const perimeterBlocks = gen.activeBlocks.filter(b => {
+                    if (b.layer !== layer) return false;
+                    const neighbors = [
+                        {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
+                        {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
+                    ];
+                    return neighbors.some(n => !gen._isOccupied(n.x, n.y, layer));
+                });
 
-            const sizes = [
-                {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
-                {w: 1, h: 3}, {w: 3, h: 1}
-            ];
+                if (perimeterBlocks.length > 0) {
+                    const sizes = [
+                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
+                        {w: 1, h: 3}, {w: 3, h: 1}
+                    ];
 
-            let spawnedCount = 0;
-            for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
-                const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
-                const size = sizes[Math.floor(Math.random() * sizes.length)];
-                
-                // Pick a side of the parent to attach to
-                const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
-                let nx, ny;
+                    let spawnedCount = 0;
+                    for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
+                        const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
+                        const size = sizes[Math.floor(Math.random() * sizes.length)];
+                        
+                        const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                        let nx, ny;
 
-                // "Allow slight overlap": shift the new block 1 unit into the parent's area
-                if (side === 'N') {
-                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                    ny = parent.y - size.h + 1;
-                } else if (side === 'S') {
-                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                    ny = parent.y + parent.h - 1;
-                } else if (side === 'W') {
-                    nx = parent.x - size.w + 1;
-                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
-                } else { // E
-                    nx = parent.x + parent.w - 1;
-                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        if (side === 'N') {
+                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                            ny = parent.y - size.h + 1;
+                        } else if (side === 'S') {
+                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                            ny = parent.y + parent.h - 1;
+                        } else if (side === 'W') {
+                            nx = parent.x - size.w + 1;
+                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        } else { // E
+                            nx = parent.x + parent.w - 1;
+                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        }
+
+                        if (gen.checkScreenEdge(nx, ny) || gen.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
+
+                        // NEW: Spine Check (Never spawn on X or Y axis)
+                        const overlapsYSpine = (nx <= s.scx && nx + size.w - 1 >= s.scx);
+                        const overlapsXSpine = (ny <= s.scy && ny + size.h - 1 >= s.scy);
+                        if (overlapsXSpine || overlapsYSpine) continue;
+
+                        // NEW: Occupancy Check (Only spawn in unoccupied blocks)
+                        let isAreaFree = true;
+                        for (let ly = 0; ly < gen.layerGrids.length; ly++) {
+                            for (let gy = ny; gy < ny + size.h; gy++) {
+                                for (let gx = nx; gx < nx + size.w; gx++) {
+                                    if (gen._isOccupied(gx, gy, ly)) { isAreaFree = false; break; }
+                                }
+                                if (!isAreaFree) break;
+                            }
+                            if (!isAreaFree) break;
+                        }
+                        if (!isAreaFree) continue;
+
+                        gen.actionBuffer.push({ layer: layer, fn: () => {
+                            // Set bypassOccupancy to false to enforce strict placement
+                            gen._spawnBlock(nx, ny, size.w, size.h, layer, false, 'block_spawner');
+                        }});
+                        spawnedCount++;
+                    }
                 }
-
-                if (gen.checkScreenEdge(nx, ny) || gen.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
-
-                gen.actionBuffer.push({ layer: layer, fn: () => {
-                    gen._spawnBlock(nx, ny, size.w, size.h, layer, true);
-                }});
-                spawnedCount++;
             }
-        }, { enabled: this._getConfig('BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
+
+            // 2. Despawning Logic
+            const despawnRate = Math.max(1, gen._getConfig('BlockSpawnerDespawnRate') ?? 8);
+            if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
+                const despawnCount = gen._getConfig('BlockSpawnerDespawnCount') ?? 2;
+                
+                const candidates = gen.activeBlocks.filter(b => b.source === 'block_spawner' && b.w === 1 && b.h === 1);
+                
+                if (candidates.length > 0) {
+                    // Headless shuffle helper or simple sort
+                    candidates.sort(() => Math.random() - 0.5);
+                    const toRemove = candidates.slice(0, despawnCount);
+                    for (const b of toRemove) {
+                        gen.actionBuffer.push({ layer: layer, fn: () => {
+                            gen._removeBlock(b.x, b.y, b.w, b.h, b.layer);
+                        }});
+                    }
+                }
+            }
+        }, { enabled: gen._getConfig('BlockSpawnerEnabled') ?? false, label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s) {
             if (!gen._getConfig('SpreadingNudgeEnabled')) return;
@@ -297,7 +335,8 @@ class QuantizedSequenceGeneratorV2 {
                     }
 
                     const cycle = s.spreadingNudgeCycles[arm.key];
-                    gen._attemptNudgeGrowthWithParams(targetLayer, 1, 1, ax - s.scx, ay - s.scy, cycle, growthChance);
+                    const { bw, bh } = gen._calcBlockSize({ originX: ax, originY: ay, direction: 'N' }, s.fillRatio);
+                    gen._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.scx, ay - s.scy, cycle, growthChance);
 
                     if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
                         for (const dir of arm.perp) {
@@ -395,6 +434,68 @@ class QuantizedSequenceGeneratorV2 {
                 }
 
                 strip.leadPos += step;
+            }
+        });
+
+        this.registerBehavior('hole_filler', function(s) {
+            if (!gen._getConfig('HoleFillerEnabled')) return;
+            const fillRate = Math.max(1, gen._getConfig('HoleFillerRate') ?? 1);
+            if (s.step % fillRate !== 0) return;
+
+            const layer = 1;
+            const w = gen.logicGridW, h = gen.logicGridH;
+            const grid = gen.layerGrids[layer];
+            if (!grid) return;
+
+            const bs = gen._getBlockSize();
+            const xVis = Math.ceil(gen.cols / bs.w / 2) + 2;
+            const yVis = Math.ceil(gen.rows / bs.h / 2) + 2;
+
+            if (s.holeQIdx === undefined) s.holeQIdx = 0;
+            const q = s.holeQIdx;
+            s.holeQIdx = (s.holeQIdx + 1) % 4;
+
+            let minX = (q === 0 || q === 2) ? -xVis : 0;
+            let maxX = (q === 0 || q === 2) ? 0 : xVis;
+            let minY = (q === 0 || q === 1) ? -yVis : 0;
+            let maxY = (q === 0 || q === 1) ? 0 : yVis;
+
+            const scanMinX = -xVis, scanMaxX = xVis;
+            const scanMinY = -yVis, scanMaxY = yVis;
+            const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
+            const outsideMap = new Uint8Array(scanW * scanH);
+            const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
+
+            const queue = new Int32Array(scanW * scanH);
+            let head = 0, tail = 0;
+
+            const add = (bx, by) => {
+                if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
+                const idx = getIdx(bx, by);
+                if (outsideMap[idx] === 0 && !gen._isOccupied(bx, by, layer)) {
+                    outsideMap[idx] = 1;
+                    queue[tail++] = idx;
+                }
+            };
+
+            for (let bx = scanMinX; bx <= scanMaxX; bx++) { add(bx, scanMinY); add(bx, scanMaxY); }
+            for (let by = scanMinY; by <= scanMaxY; by++) { add(scanMinX, by); add(scanMaxX, by); }
+
+            while (head < tail) {
+                const idx = queue[head++];
+                const bx = scanMinX + (idx % scanW);
+                const by = scanMinY + Math.floor(idx / scanW);
+                add(bx + 1, by); add(bx - 1, by); add(bx, by + 1); add(bx, by - 1);
+            }
+
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                    if (!gen._isOccupied(bx, by, layer) && outsideMap[getIdx(bx, by)] === 0) {
+                        gen.actionBuffer.push({ layer, fn: () => {
+                            gen._spawnBlock(bx, by, 1, 1, layer, false, null);
+                        }});
+                    }
+                }
             }
         });
     }
@@ -495,7 +596,15 @@ class QuantizedSequenceGeneratorV2 {
             if (firstEmpty) {
                 // Growth Variance: Up to 20% chance of consecutive steps (streak)
                 let bonusSteps = (Math.random() < 0.2) ? 1 + Math.floor(Math.random() * 2) : 0;
-                let totalSteps = 1 + bonusSteps;
+                
+                // NEW: Use the scale as the base number of steps for the nudge
+                const scale = Math.max(bw, bh);
+                let totalSteps = scale + bonusSteps;
+                
+                // Force 1x1 blocks for the actual nudge spawn steps
+                const spawnW = 1;
+                const spawnH = 1;
+
                 let currentPos = { x: firstEmpty.x, y: firstEmpty.y };
                 let lastSuccess = false;
 
@@ -505,13 +614,13 @@ class QuantizedSequenceGeneratorV2 {
                     // Principle: Don't spawn on top of existing Layer 1 blocks (prevents hole-making on retraction)
                     if (this._isOccupied(currentPos.x, currentPos.y, layer)) break;
 
-                    const success = this._nudge(currentPos.x, currentPos.y, bw, bh, dir, layer, false);
+                    const success = this._nudge(currentPos.x, currentPos.y, spawnW, spawnH, dir, layer, false);
                     
                     if (success) {
                         lastSuccess = true;
                         if (isTemp) {
                             const cycle = this.behaviorState.cycle || (this.behaviorState.cycle = { step: 0, lastTempBlock: null });
-                            cycle.lastTempBlock = { x: currentPos.x, y: currentPos.y, w: bw, h: bh };
+                            cycle.lastTempBlock = { x: currentPos.x, y: currentPos.y, w: spawnW, h: spawnH };
                         }
 
                         // If we have more steps, find the next empty in the same lane
@@ -545,13 +654,11 @@ class QuantizedSequenceGeneratorV2 {
 
     _attemptNudgeGrowthWithParams(targetLayer, bw, bh, originX = null, originY = null, cycleState = null, chance = null) {
         const layer = 1;
-        const forcedBw = 1;
-        const forcedBh = 1;
         const cycle = cycleState || (this.behaviorState.nudgeState ? this.behaviorState.nudgeState.cycle : (this.behaviorState.nudgeState = { cycle: { step: 0, lastTempBlock: null } }).cycle);
         const randomness = chance ?? (this._getConfig('NudgeChance') ?? 0.8);
 
         if (cycle.step === 0) {
-            const success = this._executeExpansionStep(layer, forcedBw, forcedBh, randomness, originX, originY);
+            const success = this._executeExpansionStep(layer, bw, bh, randomness, originX, originY);
             if (success) { cycle.step = 1; return true; }
             return false;
         } else {
@@ -670,13 +777,15 @@ class QuantizedSequenceGeneratorV2 {
         const id = `strip_${this._stripNextId++}`;
         const strip = { id, layer, direction: dir, originX, originY, headX: originX, headY: originY,
             pattern: this.behaviorState.pattern, pausePattern: this.behaviorState.pausePattern,
-            stepPhase: 0, growCount: 0, paused: false, active: true, blockIds: [] };
+            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: [] };
         this.strips.set(id, strip);
         return strip;
     }
 
     _tickStrips(s) {
         const allowAsymmetry = !!this._getConfig('AllowAsymmetry');
+        const useGenerativeScaling = !!this._getConfig('GenerativeScaling');
+
         if (allowAsymmetry) {
             for (const [col, ticks] of s.deferredCols.entries()) {
                 if (ticks <= 1) s.deferredCols.delete(col); else s.deferredCols.set(col, ticks - 1);
@@ -693,19 +802,45 @@ class QuantizedSequenceGeneratorV2 {
         }
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
+
+            strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
+
             if (allowAsymmetry && strip.layer < 2 && (s.deferredCols.has(strip.headX) || s.deferredRows.has(strip.headY))) continue;
             
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
                 strip.pattern = this._generateRandomPattern();
                 strip.pausePattern = this._generateDistinctPattern(strip.pattern);
             }
-            let shouldGrow = strip.boostSteps > 0 ? (strip.boostSteps--, true) : (strip.paused ? strip.pausePattern : strip.pattern)[strip.stepPhase];
+
+            let shouldGrow = false;
+            if (strip.boostSteps > 0 && !useGenerativeScaling) {
+                shouldGrow = true;
+                strip.boostSteps--;
+            } else {
+                if (useGenerativeScaling && strip.growCount < 7) {
+                    const gc = strip.growCount;
+                    const requiredSteps = (gc < 2) ? 3 : (gc < 4) ? 2 : 1;
+                    if (strip.stepsSinceLastGrowth >= requiredSteps) {
+                        shouldGrow = true;
+                    }
+                } else {
+                    shouldGrow = (strip.paused ? strip.pausePattern : strip.pattern)[strip.stepPhase];
+                }
+            }
+
             if (shouldGrow) this.actionBuffer.push({ layer: strip.layer, isSpine: !!strip.isSpine, fn: () => this._growStrip(strip, s) });
             strip.stepPhase = (strip.stepPhase + 1) % 6;
         }
     }
 
     _calcBlockSize(strip, fillRatio) {
+        const useGenerativeScaling = !!this._getConfig('GenerativeScaling');
+        if (useGenerativeScaling && strip.growCount < 7) {
+            const gc = strip.growCount;
+            const size = (gc < 2 || gc === 4) ? 1 : 2;
+            return (strip.direction === 'N' || strip.direction === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        }
+
         const fillThreshold = this._getConfig('FillThreshold') ?? 0.33;
         if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
         const maxScale = this._getConfig('MaxBlockScale') ?? 3;
@@ -758,6 +893,7 @@ class QuantizedSequenceGeneratorV2 {
                 strip.headX = newHeadX;
                 strip.headY = newHeadY;
                 strip.growCount++;
+                strip.stepsSinceLastGrowth = 0;
             }
         } else {
             // Check occupancy for standard growth unless it's layer 1 (or nudge)
@@ -766,6 +902,7 @@ class QuantizedSequenceGeneratorV2 {
                 strip.headX = newHeadX;
                 strip.headY = newHeadY;
                 strip.growCount++;
+                strip.stepsSinceLastGrowth = 0;
             }
         }
     }
@@ -829,7 +966,7 @@ class QuantizedSequenceGeneratorV2 {
 
     _dirDelta(dir) { return dir === 'N' ? [0,-1] : (dir === 'S' ? [0,1] : (dir === 'E' ? [1,0] : (dir === 'W' ? [-1,0] : [0,0]))); }
 
-    _spawnBlock(x, y, w, h, layer, bypassOccupancy = false) {
+    _spawnBlock(x, y, w, h, layer, bypassOccupancy = false, source = null) {
         const x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
         const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
         if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return -1;
@@ -842,7 +979,7 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
         const id = this.activeBlocks.length;
-        this.activeBlocks.push({ x, y, w, h, layer, id });
+        this.activeBlocks.push({ x, y, w, h, layer, id, source: source });
         for (let gy = gy1; gy <= gy2; gy++) {
             for (let gx = gx1; gx <= gx2; gx++) grid[gy * this.logicGridW + gx] = id;
         }

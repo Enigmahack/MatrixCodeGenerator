@@ -2559,10 +2559,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _attemptNudgeGrowthWithParams(targetLayer, bw, bh, originX = null, originY = null, cycleState = null, chance = null) {
-        // Force focus on Layer 1 and 1x1 blocks as per instructions
+        // Force focus on Layer 1 as per instructions
         const layer = 1;
-        const forcedBw = 1;
-        const forcedBh = 1;
 
         const cycle = cycleState || (this.behaviorState.nudgeState ? this.behaviorState.nudgeState.cycle : null);
         if (!cycle) return false;
@@ -2576,7 +2574,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             // STEP 0: EXPANSION
             // We always try to place the Permanent block. 
             // Randomness controls if we also get a Temporary block.
-            const success = this._executeExpansionStep(layer, forcedBw, forcedBh, randomness, originX, originY);
+            const success = this._executeExpansionStep(layer, bw, bh, randomness, originX, originY);
             if (success) {
                 cycle.step = 1;
                 return true;
@@ -2668,22 +2666,30 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (firstEmpty) {
                 // Growth Variance: Up to 20% chance of consecutive steps (streak)
                 let bonusSteps = (Math.random() < 0.2) ? 1 + Math.floor(Math.random() * 2) : 0;
-                let totalSteps = 1 + bonusSteps;
+                
+                // NEW: Use the scale as the base number of steps for the nudge
+                const scale = Math.max(bw, bh);
+                let totalSteps = scale + bonusSteps;
+                
+                // Force 1x1 blocks for the actual nudge spawn steps
+                const spawnW = 1;
+                const spawnH = 1;
+
                 let currentPos = { x: firstEmpty.x, y: firstEmpty.y };
                 let lastSpawnedId = -1;
 
                 for (let sIdx = 0; sIdx < totalSteps; sIdx++) {
                     // 1. PLACE PERMANENT BLOCK (Forward)
                     let px = currentPos.x, py = currentPos.y;
-                    if (dir === 'N') { py = currentPos.y - bh + 1; px = currentPos.x - Math.floor(bw / 2); }
-                    else if (dir === 'S') { py = currentPos.y; px = currentPos.x - Math.floor(bw / 2); }
-                    else if (dir === 'W') { px = currentPos.x - bw + 1; py = currentPos.y - Math.floor(bh / 2); }
-                    else if (dir === 'E') { px = currentPos.x; py = currentPos.y - Math.floor(bh / 2); }
+                    if (dir === 'N') { py = currentPos.y - spawnH + 1; px = currentPos.x - Math.floor(spawnW / 2); }
+                    else if (dir === 'S') { py = currentPos.y; px = currentPos.x - Math.floor(spawnW / 2); }
+                    else if (dir === 'W') { px = currentPos.x - spawnW + 1; py = currentPos.y - Math.floor(spawnH / 2); }
+                    else if (dir === 'E') { px = currentPos.x; py = currentPos.y - Math.floor(spawnH / 2); }
 
                     // Bug Fix: If L1 already exists here, skip (prevents hole-making on retraction)
                     if (this._isOccupied(px, py, layer)) break;
 
-                    const permId = this._spawnBlock(px, py, bw, bh, layer, false, 0, true, true, true, false, true);
+                    const permId = this._spawnBlock(px, py, spawnW, spawnH, layer, false, 0, true, true, true, false, true);
                     if (permId !== -1) {
                         lastSpawnedId = permId;
                         
@@ -2697,18 +2703,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                             let tempId = -1;
                             for (const tempDir of spawnDirs) {
                                 let tx = px, ty = py;
-                                if (tempDir === 'N') ty -= bh;
-                                else if (tempDir === 'S') ty += bh;
-                                else if (tempDir === 'W') tx -= bw;
-                                else if (tempDir === 'E') tx += bw;
+                                if (tempDir === 'N') ty -= spawnH;
+                                else if (tempDir === 'S') ty += spawnH;
+                                else if (tempDir === 'W') tx -= spawnW;
+                                else if (tempDir === 'E') tx += spawnW;
 
                                 // Bug Fix: If L1 already exists here, skip (prevents hole-making on retraction)
                                 if (this._isOccupied(tx, ty, layer)) continue;
 
-                                tempId = this._spawnBlock(tx, ty, bw, bh, layer, false, 0, true, true, true, false, true);
+                                tempId = this._spawnBlock(tx, ty, spawnW, spawnH, layer, false, 0, true, true, true, false, true);
                                 if (tempId !== -1) {
                                     const cycle = this.behaviorState.nudgeState ? this.behaviorState.nudgeState.cycle : null;
-                                    if (cycle) cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
+                                    if (cycle) cycle.lastTempBlock = { x: tx, y: ty, w: spawnW, h: spawnH };
                                     break; 
                                 }
                             }
@@ -2936,7 +2942,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             c.x, c.y, c.w, c.h, c.layer,
             c.isShifter, c.expireFrames,
             true, 
-            c.allowInternal, c.suppressFades, c.isMirroredSpawn, c.bypassOccupancy
+            c.allowInternal, c.suppressFades, c.isMirroredSpawn, c.bypassOccupancy,
+            false, c.source || null
         );
         if (id !== -1) {
             if (!this._currentStepActions) this._currentStepActions = [];
@@ -2980,12 +2987,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
-    _spawnBlock(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false) {
+    _spawnBlock(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false, source = null) {
         const candidate = {
             x, y, w, h, layer,
             isShifter, expireFrames, skipConnectivity, allowInternal,
             suppressFades, isMirroredSpawn, bypassOccupancy,
-            bypassSpatial: skipConnectivity
+            bypassSpatial: skipConnectivity,
+            source: source
         };
         return this._proposeCandidate(candidate);
     }
@@ -3149,7 +3157,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
-    _spawnBlockCore(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false, invisible = false) {
+    _spawnBlockCore(x, y, w, h, layer = 0, isShifter = false, expireFrames = 0, skipConnectivity = false, allowInternal = false, suppressFades = false, isMirroredSpawn = false, bypassOccupancy = false, invisible = false, source = null) {
         const bs = this.getBlockSize();
         const blocksX = this.logicGridW;
         const blocksY = this.logicGridH;
@@ -3264,7 +3272,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             layer, id, isShifter,
             dist: Math.abs(x) + Math.abs(y),
             invisible: invisible, // Record for local state
-            stepAge: 0
+            stepAge: 0,
+            source: source
         };
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
@@ -3278,7 +3287,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             blockId: id,
             isShifter: isShifter,
             fade: !suppressFades,
-            invisible: invisible // NEW: Record invisibility in op
+            invisible: invisible, // NEW: Record invisibility in op
+            source: source
         };
         this.maskOps.push(op);
         this._gridsDirty = true;
@@ -4775,74 +4785,110 @@ class QuantizedBaseEffect extends AbstractEffect {
             const spawnChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
             if (Math.random() > spawnChance) return;
 
+            // NEW: Use _calcBlockSize to determine if we should scale up the nudge
+            // We pass a dummy strip object to satisfy the requirements of _calcBlockSize
+            const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+
             // Execute the stateful 3-step cycle logic, now using the dynamic spawn center
-            this._attemptNudgeGrowthWithParams(1, 1, 1, s.scx, s.scy);
+            this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
         }, { enabled: this.c.get('quantizedGenerateV2NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
-        // Behavior 2: Block Spawner (Anticipatory Growth)
-        this.registerBehavior('block_spawner', function(s) {
+        // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
+        this.registerBehavior('block_spawner_despawner', function(s) {
             const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerRate') ?? 4);
-            if (s.step < startDelay || (s.step - startDelay) % spawnRate !== 0) return;
-
-            const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 5;
             const layer = 1;
 
-            // 1. Collect perimeter blocks (blocks that have at least one free neighbor)
-            const perimeterBlocks = this.activeBlocks.filter(b => {
-                if (b.layer !== layer) return false;
-                // Check neighbors in logic grid units
-                const neighbors = [
-                    {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
-                    {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
-                ];
-                return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
-            });
+            // 1. Spawning Logic
+            if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
+                const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 5;
 
-            if (perimeterBlocks.length === 0) return;
+                // Collect perimeter blocks
+                const perimeterBlocks = this.activeBlocks.filter(b => {
+                    if (b.layer !== layer) return false;
+                    const neighbors = [
+                        {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
+                        {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
+                    ];
+                    return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
+                });
 
-            const sizes = [
-                {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
-                {w: 1, h: 3}, {w: 3, h: 1}
-            ];
+                if (perimeterBlocks.length > 0) {
+                    const sizes = [
+                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
+                        {w: 1, h: 3}, {w: 3, h: 1}
+                    ];
 
-            let spawnedCount = 0;
-            for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
-                const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
-                const size = sizes[Math.floor(Math.random() * sizes.length)];
-                
-                // Pick a side of the parent to attach to
-                const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
-                let nx, ny;
+                    let spawnedCount = 0;
+                    for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
+                        const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
+                        const size = sizes[Math.floor(Math.random() * sizes.length)];
+                        
+                        const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                        let nx, ny;
 
-                // "Allow slight overlap": shift the new block 1 unit into the parent's area
-                // Normally, if parent is at (px, py) with size (pw, ph)
-                // North: ny = py - size.h (flush). Overlap: ny = py - size.h + 1
-                if (side === 'N') {
-                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                    ny = parent.y - size.h + 1;
-                } else if (side === 'S') {
-                    nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                    ny = parent.y + parent.h - 1;
-                } else if (side === 'W') {
-                    nx = parent.x - size.w + 1;
-                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
-                } else { // E
-                    nx = parent.x + parent.w - 1;
-                    ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        if (side === 'N') {
+                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                            ny = parent.y - size.h + 1;
+                        } else if (side === 'S') {
+                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
+                            ny = parent.y + parent.h - 1;
+                        } else if (side === 'W') {
+                            nx = parent.x - size.w + 1;
+                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        } else { // E
+                            nx = parent.x + parent.w - 1;
+                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                        }
+
+                        if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
+
+                        // NEW: Spine Check (Never spawn on X or Y axis)
+                        const overlapsYSpine = (nx <= s.scx && nx + size.w - 1 >= s.scx);
+                        const overlapsXSpine = (ny <= s.scy && ny + size.h - 1 >= s.scy);
+                        if (overlapsXSpine || overlapsYSpine) continue;
+
+                        // NEW: Occupancy Check (Only spawn in unoccupied blocks)
+                        let isAreaFree = true;
+                        for (let ly = 0; ly < this.layerGrids.length; ly++) {
+                            for (let gy = ny; gy < ny + size.h; gy++) {
+                                for (let gx = nx; gx < nx + size.w; gx++) {
+                                    if (this._isOccupied(gx, gy, ly)) { isAreaFree = false; break; }
+                                }
+                                if (!isAreaFree) break;
+                            }
+                            if (!isAreaFree) break;
+                        }
+                        if (!isAreaFree) continue;
+
+                        this.actionBuffer.push({ layer: layer, fn: () => {
+                            // Set bypassOccupancy to false to enforce strict placement
+                            this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, true, true, true, false, false, 'block_spawner');
+                        }});
+                        spawnedCount++;
+                    }
                 }
-
-                if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
-
-                // Check occupancy (excluding the 1-unit overlap area is complex, so we just spawn if the majority is free)
-                // For simplicity, we just check the "new" area not including the overlap edge if possible, 
-                // but _spawnBlock handles overlaps anyway.
-                this.actionBuffer.push({ layer: layer, fn: () => {
-                    this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, true, true, true, false, true);
-                }});
-                spawnedCount++;
             }
-        }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner' });
+
+            // 2. Despawning Logic
+            const despawnRate = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerDespawnRate') ?? 8);
+            if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
+                const despawnCount = this.c.get('quantizedGenerateV2BlockSpawnerDespawnCount') ?? 2;
+                
+                // Select 1x1 blocks that were spawned by THIS behavior (source: 'block_spawner')
+                const candidates = this.activeBlocks.filter(b => b.source === 'block_spawner' && b.w === 1 && b.h === 1);
+                
+                if (candidates.length > 0) {
+                    Utils.shuffle(candidates);
+                    const toRemove = candidates.slice(0, despawnCount);
+                    for (const b of toRemove) {
+                        this.actionBuffer.push({ layer: layer, fn: () => {
+                            this._removeBlock(b.x, b.y, b.w, b.h, b.layer, true);
+                        }});
+                    }
+                }
+            }
+        }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s) {
             const startDelay = this.c.get(this.configPrefix + 'SpreadingNudgeStartDelay') ?? 20;
@@ -4913,7 +4959,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     // Axial point growth (Harden/Nudge logic at the spreader head)
                     const cycle = s.spreadingNudgeCycles[arm.key];
-                    this._attemptNudgeGrowthWithParams(targetLayer, 1, 1, ax - s.scx, ay - s.scy, cycle, growthChance);
+                    const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: 'N' }, s.fillRatio);
+                    this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.scx, ay - s.scy, cycle, growthChance);
 
                     // Spawn perpendicular "solid" strips to fill the area
                     if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
@@ -5015,6 +5062,69 @@ class QuantizedBaseEffect extends AbstractEffect {
                 strip.leadPos += step;
             }
         }, { enabled: this.c.get('quantizedGenerateV2ShoveFillEnabled') ?? false, label: 'Shove Fill' });
+
+        this.registerBehavior('hole_filler', function(s) {
+            if (!this.c.get('quantizedGenerateV2HoleFillerEnabled')) return;
+            const fillRate = Math.max(1, this.c.get('quantizedGenerateV2HoleFillerRate') ?? 1);
+            if (s.step % fillRate !== 0) return;
+
+            const layer = 1;
+            const w = this.logicGridW, h = this.logicGridH;
+            const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+            const grid = this.layerGrids[layer];
+            if (!grid) return;
+
+            const bs = this.getBlockSize();
+            const xVis = Math.ceil(this.g.cols / bs.w / 2) + 2;
+            const yVis = Math.ceil(this.g.rows / bs.h / 2) + 2;
+
+            if (s.holeQIdx === undefined) s.holeQIdx = 0;
+            const q = s.holeQIdx;
+            s.holeQIdx = (s.holeQIdx + 1) % 4;
+
+            let minX = (q === 0 || q === 2) ? -xVis : 0;
+            let maxX = (q === 0 || q === 2) ? 0 : xVis;
+            let minY = (q === 0 || q === 1) ? -yVis : 0;
+            let maxY = (q === 0 || q === 1) ? 0 : yVis;
+
+            const scanMinX = -xVis, scanMaxX = xVis;
+            const scanMinY = -yVis, scanMaxY = yVis;
+            const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
+            const outsideMap = new Uint8Array(scanW * scanH);
+            const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
+
+            const queue = new Int32Array(scanW * scanH);
+            let head = 0, tail = 0;
+
+            const add = (bx, by) => {
+                if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
+                const idx = getIdx(bx, by);
+                if (outsideMap[idx] === 0 && !this._isOccupied(bx, by, layer)) {
+                    outsideMap[idx] = 1;
+                    queue[tail++] = idx;
+                }
+            };
+
+            for (let bx = scanMinX; bx <= scanMaxX; bx++) { add(bx, scanMinY); add(bx, scanMaxY); }
+            for (let by = scanMinY; by <= scanMaxY; by++) { add(scanMinX, by); add(scanMaxX, by); }
+
+            while (head < tail) {
+                const idx = queue[head++];
+                const bx = scanMinX + (idx % scanW);
+                const by = scanMinY + Math.floor(idx / scanW);
+                add(bx + 1, by); add(bx - 1, by); add(bx, by + 1); add(bx, by - 1);
+            }
+
+            for (let by = minY; by <= maxY; by++) {
+                for (let bx = minX; bx <= maxX; bx++) {
+                    if (!this._isOccupied(bx, by, layer) && outsideMap[getIdx(bx, by)] === 0) {
+                        this.actionBuffer.push({ layer, fn: () => {
+                            this._spawnBlock(bx, by, 1, 1, layer, false, 0, true, true, true, false, true);
+                        }});
+                    }
+                }
+            }
+        }, { enabled: true, label: 'Aggressive Hole Filler' });
     }
 
     _pickLayerDirs(count) {
@@ -5127,7 +5237,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const strip = {
             id, layer, direction: dir, originX, originY, headX: originX, headY: originY,
             pattern: this._getStepPattern(), pausePattern: this._getPausePattern(),
-            stepPhase: 0, growCount: 0, paused: false, active: true, blockIds: []
+            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: []
         };
         this.strips.set(id, strip);
         return strip;
@@ -5135,6 +5245,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _tickStrips(s) {
         const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
+        const useGenerativeScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+
         if (allowAsymmetry) {
             if (!s.deferredCols) s.deferredCols = new Map();
             if (!s.deferredRows) s.deferredRows = new Map();
@@ -5158,29 +5270,43 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
-        const gridCX = Math.floor(this.logicGridW / 2);
-        const gridCY = Math.floor(this.logicGridH / 2);
+        
         s.allowNudges = !!this.c.get('quantizedGenerateV2L3AllowNudges');
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
+            
+            strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
+
             if (allowAsymmetry && strip.layer < 2) {
                 if (s.deferredCols?.has(strip.headX) || s.deferredRows?.has(strip.headY)) continue;
             }
-            
-            // INDEPENDENCE FIX: Removed the 'headOnBlock' requirement. 
-            // Strips should continue their path even if the underlying block was removed or shifted,
-            // as they "carry" their own state and will simply add new blocks as they go.
             
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
                 strip.pattern = this._generateRandomPattern();
                 strip.pausePattern = this._generateDistinctPattern(strip.pattern);
             }
-            let shouldGrow;
-            if (strip.boostSteps > 0) { shouldGrow = true; strip.boostSteps--; }
-            else {
-                const pattern = strip.paused ? strip.pausePattern : strip.pattern;
-                shouldGrow = pattern[strip.stepPhase];
+
+            let shouldGrow = false;
+            // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
+            if (strip.boostSteps > 0 && !useGenerativeScaling) { 
+                shouldGrow = true; 
+                strip.boostSteps--; 
+            } else {
+                if (useGenerativeScaling && strip.growCount < 7) {
+                    // Stage 1-2: 1 block taking 3 steps (gc 0,1)
+                    // Stage 3-4: 1-2 blocks taking 2 steps (gc 2,3)
+                    // Stage 5+: 1 block per step (gc 4+)
+                    const gc = strip.growCount;
+                    const requiredSteps = (gc < 2) ? 3 : (gc < 4) ? 2 : 1;
+                    if (strip.stepsSinceLastGrowth >= requiredSteps) {
+                        shouldGrow = true;
+                    }
+                } else {
+                    const pattern = strip.paused ? strip.pausePattern : strip.pattern;
+                    shouldGrow = pattern[strip.stepPhase];
+                }
             }
+
             if (shouldGrow) {
                 this.actionBuffer.push({ layer: strip.layer, isSpine: !!strip.isSpine, fn: () => this._growStrip(strip, s) });
             }
@@ -5197,6 +5323,17 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _calcBlockSize(strip, fillRatio) {
+        const useGenerativeScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+        if (useGenerativeScaling && strip.growCount < 7) {
+            // Stage 1-2: 1 block (size 1) (gc 0,1)
+            // Stage 3-4: 1-2 blocks (size 1-2) (gc 2,3)
+            // Stage 5: 1 block (size 1) (gc 4)
+            // Stage 6-7: 1-2 blocks (size 1-2) (gc 5,6)
+            const gc = strip.growCount;
+            const size = (gc < 2 || gc === 4) ? 1 : 2;
+            return (strip.direction === 'N' || strip.direction === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        }
+
         const fillThreshold = this.c.get('quantizedGenerateV2FillThreshold') ?? 0.33;
         if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
         const maxScale = this.c.get('quantizedGenerateV2MaxBlockScale') ?? 3;
@@ -5248,6 +5385,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 strip.headX = newHeadX;
                 strip.headY = newHeadY;
                 strip.growCount++;
+                strip.stepsSinceLastGrowth = 0;
                 this._gridsDirty = true;
             }
         } else {
@@ -5259,6 +5397,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     strip.headX = newHeadX;
                     strip.headY = newHeadY;
                     strip.growCount++;
+                    strip.stepsSinceLastGrowth = 0;
                     this._gridsDirty = true;
                 }
             }
