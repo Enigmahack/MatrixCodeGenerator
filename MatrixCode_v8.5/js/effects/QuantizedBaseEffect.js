@@ -4973,11 +4973,12 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 for (const dir of chosen) {
                     const isEW = dir === 'E' || dir === 'W';
+                    const width = 1 + Math.floor(Math.random() * 3);
                     if (isEW) {
-                        const perpMid = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
-                        s.shoveStrips.push({ dir, perpStart: perpMid - 1, perpEnd: perpMid + 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        const perpMid   = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
+                        const perpStart = perpMid - Math.floor((width - 1) / 2);
+                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     } else {
-                        const width     = 1 + Math.floor(Math.random() * 3);
                         const perpMid   = s.scx + Math.round((Math.random() * 2 - 1) * proxW);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
                         s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
@@ -4999,21 +5000,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
                 const bp   = lp - step;
+                const rangeSize = strip.perpEnd - strip.perpStart + 1;
 
                 if (isEW) {
-                    for (let py = strip.perpStart; py <= strip.perpEnd; py++) {
-                        if (!this._isOccupied(lp, py, 1))
-                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(lp, py, 1, 1, 1, true) });
-                        if (!this._isOccupied(bp, py, 1))
-                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(bp, py, 1, 1, 1, true) });
-                    }
+                    // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
+                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, 1, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, 1, false, 0, true, true, true, false, true) });
                 } else {
-                    for (let px = strip.perpStart; px <= strip.perpEnd; px++) {
-                        if (!this._isOccupied(px, lp, 1))
-                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(px, lp, 1, 1, 1, true) });
-                        if (!this._isOccupied(px, bp, 1))
-                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(px, bp, 1, 1, 1, true) });
-                    }
+                    // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
+                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, 1, false, 0, true, true, true, false, true) });
+                    this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, 1, false, 0, true, true, true, false, true) });
                 }
 
                 strip.leadPos += step;
