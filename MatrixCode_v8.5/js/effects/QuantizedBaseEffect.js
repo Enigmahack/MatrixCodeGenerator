@@ -473,7 +473,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             fillRatio: 0,
             scx: 0,
             scy: 0,
-            hitEdge: false,
+            hitEdge: { N: false, S: false, E: false, W: false },
             insideOutWave: 1,
             deferredCols: new Map(),
             deferredRows: new Map(),
@@ -699,8 +699,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Weights: 1.0 is neutral. 
         // If ratio > 1.0 (Horizontal), E/W are preferred.
         // If ratio < 1.0 (Vertical), N/S are preferred.
-        const horizWeight = Math.max(1.0, ratio);
-        const vertWeight = Math.max(1.0, 1.0 / ratio);
+        let horizWeight = Math.max(1.0, ratio);
+        let vertWeight = Math.max(1.0, 1.0 / ratio);
+
+        // Axis-Hit Bias: If N/S hit edges, boost E/W weights (and vice-versa)
+        const s = this.behaviorState;
+        if (s && s.hitEdge) {
+            const hitNS = s.hitEdge.N || s.hitEdge.S;
+            const hitEW = s.hitEdge.E || s.hitEdge.W;
+            if (hitNS && !hitEW) horizWeight *= 1.5;
+            if (hitEW && !hitNS) vertWeight *= 1.5;
+        }
 
         const weightedPool = [
             { id: 'N', w: vertWeight },
@@ -2657,44 +2666,81 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
 
             if (firstEmpty) {
-                // 1. PLACE PERMANENT BLOCK (Forward)
-                let px = firstEmpty.x, py = firstEmpty.y;
-                if (dir === 'N') { py = firstEmpty.y - bh + 1; px = firstEmpty.x - Math.floor(bw / 2); }
-                else if (dir === 'S') { py = firstEmpty.y; px = firstEmpty.x - Math.floor(bw / 2); }
-                else if (dir === 'W') { px = firstEmpty.x - bw + 1; py = firstEmpty.y - Math.floor(bh / 2); }
-                else if (dir === 'E') { px = firstEmpty.x; py = firstEmpty.y - Math.floor(bh / 2); }
+                // Growth Variance: Up to 20% chance of consecutive steps (streak)
+                let bonusSteps = (Math.random() < 0.2) ? 1 + Math.floor(Math.random() * 2) : 0;
+                let totalSteps = 1 + bonusSteps;
+                let currentPos = { x: firstEmpty.x, y: firstEmpty.y };
+                let lastSpawnedId = -1;
 
-                const permId = this._spawnBlock(px, py, bw, bh, layer, false, 0, true, true, true, false, true);
-                if (permId !== -1) {
-                    // 2. OPTIONALLY PLACE TEMPORARY BLOCK (Scaled by Randomness)
-                    if (Math.random() < randomness) {
-                        const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
-                        const opp = { 'N': 'S', 'S': 'N', 'E': 'W', 'W': 'E' };
-                        const spawnDirs = shuffle(['N', 'S', 'E', 'W'].filter(d => d !== opp[dir]));
+                for (let sIdx = 0; sIdx < totalSteps; sIdx++) {
+                    // 1. PLACE PERMANENT BLOCK (Forward)
+                    let px = currentPos.x, py = currentPos.y;
+                    if (dir === 'N') { py = currentPos.y - bh + 1; px = currentPos.x - Math.floor(bw / 2); }
+                    else if (dir === 'S') { py = currentPos.y; px = currentPos.x - Math.floor(bw / 2); }
+                    else if (dir === 'W') { px = currentPos.x - bw + 1; py = currentPos.y - Math.floor(bh / 2); }
+                    else if (dir === 'E') { px = currentPos.x; py = currentPos.y - Math.floor(bh / 2); }
+
+                    // Bug Fix: If L1 already exists here, skip (prevents hole-making on retraction)
+                    if (this._isOccupied(px, py, layer)) break;
+
+                    const permId = this._spawnBlock(px, py, bw, bh, layer, false, 0, true, true, true, false, true);
+                    if (permId !== -1) {
+                        lastSpawnedId = permId;
                         
-                        let tempId = -1;
-                        for (const tempDir of spawnDirs) {
-                            let tx = px, ty = py;
-                            if (tempDir === 'N') ty -= bh;
-                            else if (tempDir === 'S') ty += bh;
-                            else if (tempDir === 'W') tx -= bw;
-                            else if (tempDir === 'E') tx += bw;
+                        // 2. OPTIONALLY PLACE TEMPORARY BLOCK (Scaled by Randomness)
+                        // Only place temp block for the LAST step of the streak to avoid over-crowding
+                        if (sIdx === totalSteps - 1 && Math.random() < randomness) {
+                            const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
+                            const opp = { 'N': 'S', 'S': 'N', 'E': 'W', 'W': 'E' };
+                            const spawnDirs = shuffle(['N', 'S', 'E', 'W'].filter(d => d !== opp[dir]));
+                            
+                            let tempId = -1;
+                            for (const tempDir of spawnDirs) {
+                                let tx = px, ty = py;
+                                if (tempDir === 'N') ty -= bh;
+                                else if (tempDir === 'S') ty += bh;
+                                else if (tempDir === 'W') tx -= bw;
+                                else if (tempDir === 'E') tx += bw;
 
-                            tempId = this._spawnBlock(tx, ty, bw, bh, layer, false, 0, true, true, true, false, true);
-                            if (tempId !== -1) {
-                                this.behaviorState.nudgeState.cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
-                                break; 
+                                // Bug Fix: If L1 already exists here, skip (prevents hole-making on retraction)
+                                if (this._isOccupied(tx, ty, layer)) continue;
+
+                                tempId = this._spawnBlock(tx, ty, bw, bh, layer, false, 0, true, true, true, false, true);
+                                if (tempId !== -1) {
+                                    const cycle = this.behaviorState.nudgeState ? this.behaviorState.nudgeState.cycle : null;
+                                    if (cycle) cycle.lastTempBlock = { x: tx, y: ty, w: bw, h: bh };
+                                    break; 
+                                }
                             }
-                        }
-
-                        if (tempId === -1) {
+                            if (tempId === -1 && this.behaviorState.nudgeState?.cycle) this.behaviorState.nudgeState.cycle.lastTempBlock = null;
+                        } else if (sIdx === totalSteps - 1 && this.behaviorState.nudgeState?.cycle) {
                             this.behaviorState.nudgeState.cycle.lastTempBlock = null;
                         }
+
+                        // If we have more steps, find the next empty in the same lane
+                        if (sIdx < totalSteps - 1) {
+                            let nextEmpty = null;
+                            const curGX = cx + currentPos.x, curGY = cy + currentPos.y;
+                            for (let gy = curGY + stepDir, gx = curGX + stepDir; (dir === 'N' ? gy >= 0 : dir === 'S' ? gy < h : dir === 'W' ? gx >= 0 : gx < w); (dir === 'N' || dir === 'S' ? gy += stepDir : gx += stepDir)) {
+                                const tx = (dir === 'N' || dir === 'S') ? curGX : gx;
+                                const ty = (dir === 'N' || dir === 'S') ? gy : curGY;
+                                if (grid[ty * w + tx] === -1) {
+                                    nextEmpty = { x: tx - cx, y: ty - cy };
+                                    break;
+                                }
+                            }
+                            if (nextEmpty) {
+                                currentPos = nextEmpty;
+                            } else {
+                                break; // No more space in this lane
+                            }
+                        }
                     } else {
-                        this.behaviorState.nudgeState.cycle.lastTempBlock = null;
+                        break; // Failed to spawn
                     }
-                    return true;
                 }
+                
+                if (lastSpawnedId !== -1) return true;
             }
         }
         return false;
@@ -4902,88 +4948,75 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // ── Shove Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s) {
+            if (!this.c.get('quantizedGenerateV2ShoveFillEnabled')) return;
             const startDelay = this.c.get('quantizedGenerateV2ShoveFillStartDelay') ?? 20;
             const fillRate   = Math.max(1, this.c.get('quantizedGenerateV2ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
 
-            const allBlocks = this.activeBlocks;
-            if (allBlocks.length === 0) return;
-
-            // Pick a direction, never repeating the previous one
-            const allDirs = ['N', 'S', 'E', 'W'];
-            const availDirs = allDirs.filter(d => d !== s.lastShoveFillDir);
-            const dir = availDirs[Math.floor(Math.random() * availDirs.length)];
-            s.lastShoveFillDir = dir;
-
+            const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
             const bs    = this.getBlockSize();
             const halfW = Math.floor(this.g.cols / bs.w / 2);
             const halfH = Math.floor(this.g.rows / bs.h / 2);
+            const proxW = Math.max(2, Math.floor(halfW * 0.25));
+            const proxH = Math.max(2, Math.floor(halfH * 0.25));
 
-            // 1–3 random lanes (columns for N/S, rows for E/W) get pushed outward by 1 block
-            const laneCount = 1 + Math.floor(Math.random() * 3);
+            if (!s.shoveStrips) s.shoveStrips = [];
+            s.shoveStrips = s.shoveStrips.filter(st => st.active);
 
-            if (dir === 'N' || dir === 'S') {
-                const delta = dir === 'N' ? -1 : 1;
-                const occupiedCols = [...new Set(allBlocks.map(b => b.x))];
-                if (occupiedCols.length === 0) return;
-                const cols = occupiedCols.sort(() => Math.random() - 0.5).slice(0, laneCount);
+            if (s.shoveStrips.length === 0) {
+                const qCount    = Math.min(4, parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4));
+                const allowed   = this._getAllowedDirs(1);
+                const availDirs = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
+                if (availDirs.length === 0) return;
+                const count = Math.min(qCount, availDirs.length);
+                const chosen = [...availDirs].sort(() => Math.random() - 0.5).slice(0, count);
 
-                for (const col of cols) {
-                    // Sort outward-most first to avoid conflicts during sequential remove+respawn
-                    const colBlocks = allBlocks
-                        .filter(b => b.x === col)
-                        .sort((a, b) => dir === 'N' ? a.y - b.y : b.y - a.y);
-
-                    for (const block of colBlocks) {
-                        const newY = block.y + delta;
-                        if (newY < -(halfH + 1) || newY > halfH + 1) continue;
-                        const bx = block.x, by = block.y, bw = block.w, bh = block.h, bl = block.layer;
-                        this.actionBuffer.push({ layer: bl, fn: () => {
-                            this._removeBlock(bx, by, bw, bh, bl, false);
-                            this._spawnBlock(bx, newY, 1, 1, bl, false, 0, true, true, true, false, true);
-                        }});
-                    }
-
-                    // Backfill the trailing vacancy (innermost position left empty after the shift)
-                    if (colBlocks.length > 0) {
-                        const last = colBlocks[colBlocks.length - 1];
-                        const fillX = last.x, fillY = last.y;
-                        this.actionBuffer.push({ layer: 1, fn: () => {
-                            this._spawnBlock(fillX, fillY, 1, 1, 1, false, 0, true, true, true, false, true);
-                        }});
+                for (const dir of chosen) {
+                    const isEW = dir === 'E' || dir === 'W';
+                    if (isEW) {
+                        const perpMid = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
+                        s.shoveStrips.push({ dir, perpStart: perpMid - 1, perpEnd: perpMid + 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                    } else {
+                        const width     = 1 + Math.floor(Math.random() * 3);
+                        const perpMid   = s.scx + Math.round((Math.random() * 2 - 1) * proxW);
+                        const perpStart = perpMid - Math.floor((width - 1) / 2);
+                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     }
                 }
-            } else {
-                const delta = dir === 'E' ? 1 : -1;
-                const occupiedRows = [...new Set(allBlocks.map(b => b.y))];
-                if (occupiedRows.length === 0) return;
-                const rows = occupiedRows.sort(() => Math.random() - 0.5).slice(0, laneCount);
+            }
 
-                for (const row of rows) {
-                    // Sort outward-most first to avoid conflicts during sequential remove+respawn
-                    const rowBlocks = allBlocks
-                        .filter(b => b.y === row)
-                        .sort((a, b) => dir === 'E' ? b.x - a.x : a.x - b.x);
+            for (const strip of s.shoveStrips) {
+                if (!strip.active) continue;
+                if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
-                    for (const block of rowBlocks) {
-                        const newX = block.x + delta;
-                        if (newX < -(halfW + 1) || newX > halfW + 1) continue;
-                        const bx = block.x, by = block.y, bw = block.w, bh = block.h, bl = block.layer;
-                        this.actionBuffer.push({ layer: bl, fn: () => {
-                            this._removeBlock(bx, by, bw, bh, bl, false);
-                            this._spawnBlock(newX, by, 1, 1, bl, false, 0, true, true, true, false, true);
-                        }});
+                const isEW = strip.dir === 'E' || strip.dir === 'W';
+                const lp   = strip.leadPos;
+
+                if (isEW ? (strip.dir === 'E' ? lp > halfW : lp < -halfW)
+                         : (strip.dir === 'S' ? lp > halfH : lp < -halfH)) {
+                    strip.active = false; continue;
+                }
+
+                const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
+                const bp   = lp - step;
+
+                if (isEW) {
+                    for (let py = strip.perpStart; py <= strip.perpEnd; py++) {
+                        if (!this._isOccupied(lp, py, 1))
+                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(lp, py, 1, 1, 1, true) });
+                        if (!this._isOccupied(bp, py, 1))
+                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(bp, py, 1, 1, 1, true) });
                     }
-
-                    // Backfill the trailing vacancy (innermost position left empty after the shift)
-                    if (rowBlocks.length > 0) {
-                        const last = rowBlocks[rowBlocks.length - 1];
-                        const fillX = last.x, fillY = last.y;
-                        this.actionBuffer.push({ layer: 1, fn: () => {
-                            this._spawnBlock(fillX, fillY, 1, 1, 1, false, 0, true, true, true, false, true);
-                        }});
+                } else {
+                    for (let px = strip.perpStart; px <= strip.perpEnd; px++) {
+                        if (!this._isOccupied(px, lp, 1))
+                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(px, lp, 1, 1, 1, true) });
+                        if (!this._isOccupied(px, bp, 1))
+                            this.actionBuffer.push({ layer: 1, fn: () => this._spawnBlock(px, bp, 1, 1, 1, true) });
                     }
                 }
+
+                strip.leadPos += step;
             }
         }, { enabled: this.c.get('quantizedGenerateV2ShoveFillEnabled') ?? false, label: 'Shove Fill' });
     }
@@ -5195,7 +5228,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         let { bw, bh } = (strip.growCount === 0) ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
         
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
-        if (this.checkScreenEdge(newHeadX, newHeadY)) { this._deactivateStrip(strip); return; }
+        const edges = this.checkScreenEdge(newHeadX, newHeadY);
+        if (edges) {
+            if (s.hitEdge) {
+                if (edges.top) s.hitEdge.N = true;
+                if (edges.bottom) s.hitEdge.S = true;
+                if (edges.left) s.hitEdge.W = true;
+                if (edges.right) s.hitEdge.E = true;
+            }
+            this._deactivateStrip(strip);
+            return;
+        }
         const spawnX = dx > 0 ? strip.headX + 1 : (dx < 0 ? newHeadX : strip.headX);
         const spawnY = dy > 0 ? strip.headY + 1 : (dy < 0 ? newHeadY : strip.headY);
 
@@ -5424,7 +5467,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._seedStrips(s);
         this._tickStrips(s);
         this._expandInsideOut(s);
-        for (const behavior of this.growthPool.values()) if (behavior.fn && behavior.enabled) behavior.fn.call(this, s);
+
+        const quota = this.getConfig('SimultaneousSpawns') || 1;
+        const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
+        if (enabledBehaviors.length > 0) {
+            for (let q = 0; q < quota; q++) {
+                const b = enabledBehaviors[Math.floor(Math.random() * enabledBehaviors.length)];
+                b.fn.call(this, s);
+            }
+        }
+
         this._processIntents();
         s.step++;
         this._updateRenderGridLogic();

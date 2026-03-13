@@ -164,7 +164,7 @@ class QuantizedSequenceCache {
             if (!this._activeGenerator || this._activeGenerator.configKey !== configKey) {
                 this._activeGenerator = {
                     configKey: configKey,
-                    gen: new QuantizedSequenceGeneratorV2(this.cols, this.rows, this.config.state),
+                    gen: new QuantizedSequenceGeneratorV2(this.cols, this.rows, this.config.state, prefix),
                     sequence: [],
                     startTime: performance.now()
                 };
@@ -226,11 +226,13 @@ class QuantizedSequenceCache {
         
         const keys = [
             'LayerCount', 'QuadrantCount', 'GenerativeScaling', 'RandomStart', 'SpineBoost',
-            'SimultaneousSpawns', 'AllowAsymmetry',
-            'EnableNudge', 'NudgeChance', 'MaxNudgeStrips', 'NudgeSpacing', 'NudgeAxisBias', 'NudgeStartDelay',
+            'SimultaneousSpawns', 'AllowAsymmetry', 'LayerPromotionEnabled',
+            'NudgeEnabled', 'NudgeChance', 'NudgeStartDelay',
+            'BlockSpawnerEnabled', 'BlockSpawnerStartDelay', 'BlockSpawnerRate', 'BlockSpawnerCount',
+            'SpreadingNudgeEnabled', 'SpreadingNudgeStartDelay', 'SpreadingNudgeSpawnSpeed', 'SpreadingNudgeRange', 'SpreadingNudgeChance', 'SpreadingNudgeMaxInstances', 'SpreadingNudgeSymmetry',
+            'ShoveFillEnabled', 'ShoveFillStartDelay', 'ShoveFillRate',
             'FillThreshold', 'MaxBlockScale',
-            'InsideOutEnabled', 'InsideOutDelay', 'InsideOutPeriod', 'IntersectionPause',
-            'IntersectionPauseChance', 'CleanInnerDistance',
+            'InsideOutEnabled', 'InsideOutDelay', 'InsideOutPeriod',
             'Speed', 'BlockWidthCells', 'BlockHeightCells', 'OverrideDefaults'
         ];
 

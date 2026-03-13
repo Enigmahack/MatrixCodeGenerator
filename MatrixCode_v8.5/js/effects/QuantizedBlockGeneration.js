@@ -9,12 +9,24 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         // super.trigger() already calls _resetV2Engine() for a clean slate
         if (!super.trigger(force)) return false;
         
-        // Block Generator stays in GENERATING state immediately (after warmup)
+        // Default behavior (no sequence found)
         this.state = 'GENERATING';
         this.alpha = 1.0; // Ensure visibility
         this.timer = 0;
         this.expansionPhase = 0;
         this.sequence = [];
+
+        // Bug Fix 2: Animation Cache integration
+        // When RandomStart = false, the cached sequences are valid and should be loaded.
+        if (!this.getConfig('RandomStart') && window.sequenceCache) {
+            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
+            const cached = window.sequenceCache.get(configKey, true);
+            if (cached && cached.length > 0) {
+                this.sequence = cached;
+                this.state = 'PLAYBACK';
+                this._log(`[QuantizedBlockGenerator] Loaded sequence from cache (${this.sequence.length} steps).`);
+            }
+        }
 
         // Set spawn center BEFORE _initProceduralState so the seed block lands at the right position.
         if (this.getConfig('RandomStart')) {
@@ -29,8 +41,16 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         // Procedural initialization — uses behaviorState.scx/scy set above.
+        // If we loaded a sequence, _initProceduralState(true) would normally seed the grid,
+        // but since we are in PLAYBACK, the grid will be seeded by the first step of the sequence.
+        // However, we still need to init the shadow world if required.
         this._initShadowWorld();
-        this._initProceduralState(true);
+        if (this.state === 'GENERATING') {
+            this._initProceduralState(true);
+        } else {
+            this._initProceduralState(false);
+        }
+        
         // _initBehaviors is already called inside _resetV2Engine via super.trigger
 
         // Passively ensure the next sequence is ready in the background

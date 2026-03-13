@@ -3,14 +3,27 @@
  * Headless generator for Quantized Block Generator (v2) sequences.
  */
 class QuantizedSequenceGeneratorV2 {
-    constructor(cols, rows, configState) {
+    constructor(cols, rows, configState, configPrefix = 'quantizedGenerateV2') {
         this.cols = cols;
         this.rows = rows;
         this.config = configState;
+        this.configPrefix = configPrefix;
 
         this.logicScale = 3.0;
-        this.logicGridW = Math.ceil(cols * this.logicScale);
-        this.logicGridH = Math.ceil(rows * this.logicScale);
+        
+        const bs = this._getBlockSize();
+        const cellPitchX = Math.max(1, bs.w);
+        const cellPitchY = Math.max(1, bs.h);
+
+        let blocksX = Math.ceil((cols * this.logicScale) / cellPitchX);
+        let blocksY = Math.ceil((rows * this.logicScale) / cellPitchY);
+
+        // Ensure integer cell offsets by making (blocks * pitch - screenCells) even
+        if ((blocksX * cellPitchX - cols) % 2 !== 0) blocksX++;
+        if ((blocksY * cellPitchY - rows) % 2 !== 0) blocksY++;
+
+        this.logicGridW = blocksX;
+        this.logicGridH = blocksY;
         this.gridCX = Math.floor(this.logicGridW / 2);
         this.gridCY = Math.floor(this.logicGridH / 2);
 
@@ -33,7 +46,7 @@ class QuantizedSequenceGeneratorV2 {
             growTimer: 0,
             scx: 0,
             scy: 0,
-            hitEdge: false,
+            hitEdge: { N: false, S: false, E: false, W: false },
             lastActionTime: 0,
             fillRatio: 0,
             insideOutWave: 1,
@@ -65,7 +78,7 @@ class QuantizedSequenceGeneratorV2 {
     _error(...args) { if (this.config && this.config.logErrors) console.error(...args); }
 
     _getConfig(keySuffix) {
-        const prefix = 'quantizedGenerateV2';
+        const prefix = this.configPrefix;
         const overrideDefaults = this.config[prefix + 'OverrideDefaults'];
         
         // Settings that all Quantized effects share and can inherit from Quantized Defaults.
@@ -76,7 +89,8 @@ class QuantizedSequenceGeneratorV2 {
             'GlassRefractionCompression', 'GlassRefractionOffset', 'GlassRefractionGlow',
             'LineGfxTintOffset', 'LineGfxSaturation', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
-            'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells'
+            'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
+            'PerimeterEchoEnabled'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -156,7 +170,7 @@ class QuantizedSequenceGeneratorV2 {
 
             // Execute the stateful 3-step cycle logic
             gen._attemptNudgeGrowthWithParams(1, 1, 1, s.scx, s.scy);
-        });
+        }, { enabled: gen._getConfig('NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
 
         this.registerBehavior('block_spawner', function(s) {
             if (!gen._getConfig('BlockSpawnerEnabled')) return;
@@ -400,8 +414,18 @@ class QuantizedSequenceGeneratorV2 {
     _getBiasedDirections() {
         const ratio = (this.cols / this.rows) || 1.0;
         const faces = ['N', 'S', 'E', 'W'];
-        const horizWeight = Math.max(1.0, ratio);
-        const vertWeight = Math.max(1.0, 1.0 / ratio);
+        let horizWeight = Math.max(1.0, ratio);
+        let vertWeight = Math.max(1.0, 1.0 / ratio);
+
+        // Axis-Hit Bias: If N/S hit edges, boost E/W weights (and vice-versa)
+        const s = this.behaviorState;
+        if (s && s.hitEdge) {
+            const hitNS = s.hitEdge.N || s.hitEdge.S;
+            const hitEW = s.hitEdge.E || s.hitEdge.W;
+            if (hitNS && !hitEW) horizWeight *= 1.5;
+            if (hitEW && !hitNS) vertWeight *= 1.5;
+        }
+
         const weightedPool = [
             { id: 'N', w: vertWeight },
             { id: 'S', w: vertWeight },
@@ -473,15 +497,51 @@ class QuantizedSequenceGeneratorV2 {
             }
 
             if (firstEmpty) {
-                const isTemp = Math.random() < (randomness * 0.8);
-                const success = this._nudge(firstEmpty.x, firstEmpty.y, bw, bh, dir, layer, false);
-                if (success) {
-                    if (isTemp) {
-                        const cycle = this.behaviorState.cycle || (this.behaviorState.cycle = { step: 0, lastTempBlock: null });
-                        cycle.lastTempBlock = { x: firstEmpty.x, y: firstEmpty.y, w: bw, h: bh };
+                // Growth Variance: Up to 20% chance of consecutive steps (streak)
+                let bonusSteps = (Math.random() < 0.2) ? 1 + Math.floor(Math.random() * 2) : 0;
+                let totalSteps = 1 + bonusSteps;
+                let currentPos = { x: firstEmpty.x, y: firstEmpty.y };
+                let lastSuccess = false;
+
+                for (let sIdx = 0; sIdx < totalSteps; sIdx++) {
+                    const isTemp = (sIdx === totalSteps - 1) && Math.random() < (randomness * 0.8);
+                    
+                    // Principle: Don't spawn on top of existing Layer 1 blocks (prevents hole-making on retraction)
+                    if (this._isOccupied(currentPos.x, currentPos.y, layer)) break;
+
+                    const success = this._nudge(currentPos.x, currentPos.y, bw, bh, dir, layer, false);
+                    
+                    if (success) {
+                        lastSuccess = true;
+                        if (isTemp) {
+                            const cycle = this.behaviorState.cycle || (this.behaviorState.cycle = { step: 0, lastTempBlock: null });
+                            cycle.lastTempBlock = { x: currentPos.x, y: currentPos.y, w: bw, h: bh };
+                        }
+
+                        // If we have more steps, find the next empty in the same lane
+                        if (sIdx < totalSteps - 1) {
+                            let nextEmpty = null;
+                            const curGX = this.gridCX + currentPos.x, curGY = this.gridCY + currentPos.y;
+                            for (let gy = curGY + stepDir, gx = curGX + stepDir; (dir === 'N' ? gy >= 0 : dir === 'S' ? gy < h : dir === 'W' ? gx >= 0 : gx < w); (dir === 'N' || dir === 'S' ? gy += stepDir : gx += stepDir)) {
+                                const targetX = (dir === 'N' || dir === 'S') ? curGX : gx;
+                                const targetY = (dir === 'N' || dir === 'S') ? gy : curGY;
+                                if (grid[targetY * w + targetX] === -1) {
+                                    nextEmpty = { x: targetX - this.gridCX, y: targetY - this.gridCY };
+                                    break;
+                                }
+                            }
+                            if (nextEmpty) {
+                                currentPos = nextEmpty;
+                            } else {
+                                break;
+                            }
+                        }
+                    } else {
+                        break;
                     }
-                    return true;
                 }
+                
+                if (lastSuccess) return true;
             }
         }
         return false;
@@ -677,7 +737,18 @@ class QuantizedSequenceGeneratorV2 {
         let { bw, bh } = (strip.growCount === 0) ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
 
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
-        if (this.checkScreenEdge(newHeadX, newHeadY)) { strip.active = false; this.strips.delete(strip.id); return; }
+        const edges = this.checkScreenEdge(newHeadX, newHeadY);
+        if (edges) {
+            if (s.hitEdge) {
+                if (edges.top) s.hitEdge.N = true;
+                if (edges.bottom) s.hitEdge.S = true;
+                if (edges.left) s.hitEdge.W = true;
+                if (edges.right) s.hitEdge.E = true;
+            }
+            strip.active = false;
+            this.strips.delete(strip.id);
+            return;
+        }
         
         const spawnX = dx > 0 ? strip.headX + 1 : (dx < 0 ? newHeadX : strip.headX);
         const spawnY = dy > 0 ? strip.headY + 1 : (dy < 0 ? newHeadY : strip.headY);
@@ -784,6 +855,7 @@ class QuantizedSequenceGeneratorV2 {
         const rx = x - this.behaviorState.scx, ry = y - this.behaviorState.scy;
         if (ry < 0) md.N = Math.max(md.N, -ry); else if (ry > 0) md.S = Math.max(md.S, ry + h - 1);
         if (rx > 0) md.E = Math.max(md.E, rx + w - 1); else if (rx < 0) md.W = Math.max(md.W, -rx);
+
         return id;
     }
 
@@ -961,7 +1033,16 @@ class QuantizedSequenceGeneratorV2 {
                 this._seedStrips(s);
                 this._tickStrips(s);
                 this._expandInsideOut(s);
-                for (const b of this.growthPool.values()) if (b.fn && b.enabled) b.fn.call(this, s);
+                
+                const quota = this._getConfig('SimultaneousSpawns') || 1;
+                const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
+                if (enabledBehaviors.length > 0) {
+                    for (let q = 0; q < quota; q++) {
+                        const b = enabledBehaviors[Math.floor(Math.random() * enabledBehaviors.length)];
+                        b.fn.call(this, s);
+                    }
+                }
+
                 this._processIntents();
                 
                 s.step++;
