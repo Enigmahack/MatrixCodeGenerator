@@ -561,7 +561,7 @@ class WebGLRenderer {
                         float isVisible = step(0.001, blockMask);
 
                         vec3 resultColor = base.rgb;
-                        if (isVisible > 0.5) {
+                        if (isVisible > 0.5 && base.a > 0.01) {
                             // Non-burn-in brightness boost: 
                             // 1. Scales existing brightness linearly (Interior Brightness)
                             // 2. Uses a soft-addition to prevent clipping/flattening highlights

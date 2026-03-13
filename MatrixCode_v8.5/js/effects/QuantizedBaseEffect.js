@@ -49,7 +49,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridCacheDirty = true;
         
         // Logic Grid Scaling
-        this.logicScale = 1.0;
+        this.logicScale = 3.0;
         
         // Shadow World Swap State
         this.hasSwapped = false;
@@ -556,6 +556,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.step = 0;
         this.lastCapturedStep = -1;
         this.perimeterHistory = [];
+        this.echoEdgeMap = null;
+        this.echoLastEdgeStep = -1;
         this.alpha = 0.0;
 
         if (this.debugMode) {
@@ -872,7 +874,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
                 
                 // Allow immediate transition to procedural growth if state is already GENERATING (e.g. BlockGenerator)
-                if (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode')) {
+                if ((this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode')) && this.state !== 'PLAYBACK') {
                     this._promoteLayer1Blocks();
                 }
 
@@ -922,7 +924,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this.alpha = 1.0;
                 }
             }
-        } else if (this.state === 'SUSTAIN' || this.state === 'GENERATING') {
+        } else if (this.state === 'SUSTAIN' || this.state === 'GENERATING' || this.state === 'PLAYBACK') {
             this.timer++;
             const isFinished = (this.timer >= durationFrames);
             const procFinished = (this.getConfig('EnableAnimationCache') || this.state === 'GENERATING') && this._isProceduralFinished();
@@ -1593,14 +1595,28 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const col = Utils.hexToRgb(this.getLineGfxValue('Color') || "#ffffff");
 
-        // Glass Bloom / Reveal logic
+        // Glass Bloom / Reveal logic: Calculate fill ratio ONLY for the visible screen area
+        // to ensure "Scale to Effect Size" reaches 1.0 when the visible screen is full.
         const fillRatio = (() => {
             if (!this.renderGrid || gw * gh === 0) return 0;
+            
+            const visibleW = Math.ceil(this.g.cols / cellPitchX);
+            const visibleH = Math.ceil(this.g.rows / cellPitchY);
+            const startX = Math.max(0, Math.floor(offX));
+            const endX = Math.min(gw, startX + visibleW);
+            const startY = Math.max(0, Math.floor(offY));
+            const endY = Math.min(gh, startY + visibleH);
+            
             let occupied = 0;
-            for (let i = 0; i < this.renderGrid.length; i++) {
-                if (this.renderGrid[i] !== -1) occupied++;
+            let totalVisible = 0;
+            for (let gy = startY; gy < endY; gy++) {
+                const rowOff = gy * gw;
+                for (let gx = startX; gx < endX; gx++) {
+                    if (this.renderGrid[rowOff + gx] !== -1) occupied++;
+                    totalVisible++;
+                }
             }
-            return occupied / (gw * gh);
+            return totalVisible > 0 ? occupied / totalVisible : 0;
         })();
 
         const rawGlassBloom = this.getConfig('GlassBloom') ?? 1.2;

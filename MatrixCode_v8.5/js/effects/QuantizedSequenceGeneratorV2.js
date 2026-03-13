@@ -28,10 +28,11 @@ class QuantizedSequenceGeneratorV2 {
         this.gridCY = Math.floor(this.logicGridH / 2);
 
         this.layerGrids = [];
-        const layerCount = (this._getConfig('LayerCount') ?? 2) + 2;
-        for (let l = 0; l < layerCount; l++) {
+        for (let l = 0; l < 4; l++) {
             this.layerGrids[l] = new Int32Array(this.logicGridW * this.logicGridH).fill(-1);
         }
+
+        this.promotionGrid = new Uint8Array(this.logicGridW * this.logicGridH).fill(0);
 
         this.strips = new Map();
         this._stripNextId = 0;
@@ -40,6 +41,7 @@ class QuantizedSequenceGeneratorV2 {
         this.actionBuffer = [];
         this.actionQueues = new Map();
         this.growthPool = new Map();
+        this._currentStepActions = [];
 
         this.behaviorState = {
             step: 0,
@@ -967,6 +969,13 @@ class QuantizedSequenceGeneratorV2 {
     _dirDelta(dir) { return dir === 'N' ? [0,-1] : (dir === 'S' ? [0,1] : (dir === 'E' ? [1,0] : (dir === 'W' ? [-1,0] : [0,0]))); }
 
     _spawnBlock(x, y, w, h, layer, bypassOccupancy = false, source = null) {
+        // Principle #4: Disable spawning on Layer 0 if promotion is enabled
+        // EXCEPT if it's a promotion/forced spawn (indicated by bypassOccupancy)
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+        if (!bypassOccupancy && layer === 0 && usePromotion) {
+             return -1;
+        }
+
         const x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
         const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
         if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return -1;
@@ -979,7 +988,10 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
         const id = this.activeBlocks.length;
-        this.activeBlocks.push({ x, y, w, h, layer, id, source: source });
+        const b = { x, y, w, h, layer, id, source: source };
+        this.activeBlocks.push(b);
+        this._currentStepActions.push(b);
+
         for (let gy = gy1; gy <= gy2; gy++) {
             for (let gx = gx1; gx <= gx2; gx++) grid[gy * this.logicGridW + gx] = id;
         }
@@ -1089,6 +1101,80 @@ class QuantizedSequenceGeneratorV2 {
         s.insideOutWave++;
     }
 
+    _promoteLayer1Blocks() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return;
+        
+        const cx = this.gridCX, cy = this.gridCY;
+        const l1 = this.layerGrids[1], l0 = this.layerGrids[0];
+        if (!l1 || !l0) return;
+
+        const maxLayer = this._getMaxLayer();
+
+        for (let gy = 0; gy < h; gy++) {
+            const rowOff = gy * w;
+            for (let gx = 0; gx < w; gx++) {
+                const idx = rowOff + gx;
+                const isL1 = l1[idx] !== -1;
+                const isL0 = l0[idx] !== -1;
+
+                if (isL1 && !isL0) {
+                    this.promotionGrid[idx]++;
+                    if (this.promotionGrid[idx] >= 3) {
+                        const bx = gx - cx, by = gy - cy;
+                        
+                        // Promotion Event: Spawn L0 (1x1)
+                        const id = this._spawnBlock(bx, by, 1, 1, 0, true, 'promotion');
+                        if (id !== -1) {
+                            this.promotionGrid[idx] = 0; 
+                        }
+                    }
+                } else {
+                    this.promotionGrid[idx] = 0;
+                }
+            }
+        }
+    }
+
+    _syncSubLayers() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h || !this.layerGrids[0]) return;
+        const l0 = this.layerGrids[0];
+        
+        // Target Layer 1 as discovery layer — it must reflect ALL of Layer 0
+        const discoveryLayer = this.layerGrids[1];
+        if (!discoveryLayer) return;
+
+        for (let i = 0; i < w * h; i++) {
+            if (l0[i] !== -1 && discoveryLayer[i] === -1) {
+                discoveryLayer[i] = l0[i];
+            }
+        }
+    }
+
+    _updateLayerMaxDist(s) {
+        if (!s.layerMaxDist) s.layerMaxDist = { 0: { N: 0, S: 0, E: 0, W: 0 }, 1: { N: 0, S: 0, E: 0, W: 0 } };
+        const scx = s.scx || 0, scy = s.scy || 0;
+
+        // Reset for 0 and 1 only
+        s.layerMaxDist[0] = { N: 0, S: 0, E: 0, W: 0 };
+        s.layerMaxDist[1] = { N: 0, S: 0, E: 0, W: 0 };
+
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            const l = b.layer;
+            if (l > 1) continue;
+
+            const md = s.layerMaxDist[l];
+            const rx = b.x - scx, ry = b.y - scy;
+
+            if (ry < 0) md.N = Math.max(md.N, -ry);
+            if (ry + b.h - 1 > 0) md.S = Math.max(md.S, ry + b.h - 1);
+            if (rx < 0) md.W = Math.max(md.W, -rx);
+            if (rx + b.w - 1 > 0) md.E = Math.max(md.E, rx + b.w - 1);
+        }
+    }
+
     _processIntents() {
         for (const intent of this.actionBuffer) { if (!this.actionQueues.has(intent.layer)) this.actionQueues.set(intent.layer, []); this.actionQueues.get(intent.layer).push(intent); }
         this.actionBuffer = [];
@@ -1152,6 +1238,20 @@ class QuantizedSequenceGeneratorV2 {
         // Loop until we perform one logical step or reach a max iterations per call (safety)
         for (let i = 0; i < 50; i++) {
             if (s.growTimer % delay === 0) {
+                this._currentStepActions = [];
+                
+                // Track max expansion distances (matches live path)
+                this._updateLayerMaxDist(s);
+
+                // Ensure discovery layer reflects foundation (matches live path)
+                this._syncSubLayers();
+
+                // Promotion check (matches live path)
+                const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+                if (usePromotion) {
+                    this._promoteLayer1Blocks();
+                }
+
                 // Process deferred removals from layer_collision_interference (mirrors _attemptGrowth top-of-step drain)
                 if (s.pendingDeletions && s.pendingDeletions.length > 0) {
                     for (const d of s.pendingDeletions) {
@@ -1195,9 +1295,11 @@ class QuantizedSequenceGeneratorV2 {
     seedOriginStep() {
         this.currentStepOps = [];
         const s = this.behaviorState;
-        const maxLayer = this._getConfig('LayerCount') ?? 0;
+        const maxLayer = this._getMaxLayer();
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
         for (let l = 0; l <= maxLayer; l++) {
-            this._spawnBlock(s.scx, s.scy, 1, 1, l);
+            if (usePromotion && l !== 1) continue;
+            this._spawnBlock(s.scx, s.scy, 1, 1, l, true);
         }
         return this.currentStepOps;
     }
