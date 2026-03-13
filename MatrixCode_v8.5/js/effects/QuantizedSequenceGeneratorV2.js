@@ -58,6 +58,8 @@ class QuantizedSequenceGeneratorV2 {
             ribOrigins: new Set(),
             pendingDeletions: [],
             pendingExpansions: [],
+            dirPools: { 0: [], 1: [] },
+            lastLayerDirs: { 0: null, 1: null },
             nudgeState: {
                 cycle: { step: 0, lastTempBlock: null }
             },
@@ -163,24 +165,13 @@ class QuantizedSequenceGeneratorV2 {
 
     _initBehaviors() {
         const gen = this;
-        // Ported behaviors from QuantizedBlockGeneration.js
-        this.registerBehavior('main_nudge_growth', function(s) {
-            const startDelay = gen._getConfig('NudgeStartDelay') ?? 2;
-            if (s.step < startDelay) return;
-            const spawnChance = gen._getConfig('NudgeChance') ?? 0.8;
-            if (Math.random() > spawnChance) return;
-
-            // NEW: Use _calcBlockSize to determine if we should scale up the nudge
-            const { bw, bh } = gen._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-
-            // Execute the stateful 3-step cycle logic
-            gen._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
-        }, { enabled: gen._getConfig('NudgeEnabled') ?? true, label: 'Main Nudge Growth' });
-
+        // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s) {
             const startDelay = gen._getConfig('BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, gen._getConfig('BlockSpawnerRate') ?? 4);
             const layer = 1;
+
+            const allowed = gen._getAllowedDirs(layer);
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
@@ -189,10 +180,10 @@ class QuantizedSequenceGeneratorV2 {
                 const perimeterBlocks = gen.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
                     const neighbors = [
-                        {x: b.x, y: b.y - 1}, {x: b.x, y: b.y + b.h}, // N, S
-                        {x: b.x - 1, y: b.y}, {x: b.x + b.w, y: b.y}  // W, E
+                        {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
+                        {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, dir: 'E'}  // W, E
                     ];
-                    return neighbors.some(n => !gen._isOccupied(n.x, n.y, layer));
+                    return neighbors.some(n => (!allowed || allowed.has(n.dir)) && !gen._isOccupied(n.x, n.y, layer));
                 });
 
                 if (perimeterBlocks.length > 0) {
@@ -206,7 +197,9 @@ class QuantizedSequenceGeneratorV2 {
                         const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
                         const size = sizes[Math.floor(Math.random() * sizes.length)];
                         
-                        const side = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                        const availSides = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
+                        if (availSides.length === 0) continue;
+                        const side = availSides[Math.floor(Math.random() * availSides.length)];
                         let nx, ny;
 
                         if (side === 'N') {
@@ -302,6 +295,9 @@ class QuantizedSequenceGeneratorV2 {
             const startDelay = gen._getConfig('SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
 
+            const targetLayer = 1;
+            const allowed = gen._getAllowedDirs(targetLayer);
+
             // State Initialization
             if (!s.spreadingNudgeNextDist) {
                 s.spreadingNudgeNextDist = { 'V1': 1, 'V-1': 1, 'H1': 1, 'H-1': 1 };
@@ -313,13 +309,12 @@ class QuantizedSequenceGeneratorV2 {
             const growthChance  = gen._getConfig('SpreadingNudgeChance') ?? 0.8;
             const maxInstances  = gen._getConfig('SpreadingNudgeMaxInstances') ?? 20;
             const preferSymmetry = gen._getConfig('SpreadingNudgeSymmetry') ?? true;
-            const targetLayer = 1;
 
             const arms = [
-                { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'] }, // South Axis -> Spawns E/W
-                { key: 'V-1', vert: true,  side: -1, perp: ['E', 'W'] }, // North Axis -> Spawns E/W
-                { key: 'H1',  vert: false, side: 1,  perp: ['N', 'S'] }, // East Axis -> Spawns N/S
-                { key: 'H-1', vert: false, side: -1, perp: ['N', 'S'] }  // West Axis -> Spawns N/S
+                { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'], dir: 'S' }, // South Axis -> Spawns E/W
+                { key: 'V-1', vert: true,  side: -1, perp: ['E', 'W'], dir: 'N' }, // North Axis -> Spawns E/W
+                { key: 'H1',  vert: false, side: 1,  perp: ['N', 'S'], dir: 'E' }, // East Axis -> Spawns N/S
+                { key: 'H-1', vert: false, side: -1, perp: ['N', 'S'], dir: 'W' }  // West Axis -> Spawns N/S
             ];
 
             // 1. Process Symmetry Queue
@@ -327,10 +322,12 @@ class QuantizedSequenceGeneratorV2 {
                 const pending = [];
                 for (const item of s.spreadingNudgeSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
-                        const strip = gen._createStrip(item.layer, item.dir, item.x, item.y);
-                        strip.isNudge = item.isNudge || false;
-                        strip.bypassOccupancy = item.bypassOccupancy || false;
-                        strip.stepPhase = Math.floor(Math.random() * 6);
+                        if (!allowed || allowed.has(item.dir)) {
+                            const strip = gen._createStrip(item.layer, item.dir, item.x, item.y);
+                            strip.isNudge = item.isNudge || false;
+                            strip.bypassOccupancy = item.bypassOccupancy || false;
+                            strip.stepPhase = Math.floor(Math.random() * 6);
+                        }
                     } else {
                         pending.push(item);
                     }
@@ -351,6 +348,9 @@ class QuantizedSequenceGeneratorV2 {
             arms.sort(() => Math.random() - 0.5);
 
             for (const arm of arms) {
+                // QUADRANT CHECK
+                if (allowed && !allowed.has(arm.dir)) continue;
+
                 if (s.step >= (s.spreadingNudgeNextSpawnStep[arm.key] || 0)) {
                     let d = s.spreadingNudgeNextDist[arm.key];
                     const ax = arm.vert ? s.scx : s.scx + d * arm.side;
@@ -401,6 +401,8 @@ class QuantizedSequenceGeneratorV2 {
             const fillRate   = Math.max(1, gen._getConfig('ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
 
+            const targetLayer = 1;
+            const allowed = gen._getAllowedDirs(targetLayer);
             const allowAsymmetry = !!gen._getConfig('AllowAsymmetry');
             const bs    = gen._getBlockSize();
             const halfW = Math.floor(gen.cols / bs.w / 2);
@@ -413,7 +415,6 @@ class QuantizedSequenceGeneratorV2 {
 
             if (s.shoveStrips.length === 0) {
                 const qCount    = Math.min(4, parseInt(gen._getConfig('QuadrantCount') ?? 4));
-                const allowed   = gen._getAllowedDirs(1);
                 const availDirs = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
                 if (availDirs.length === 0) return;
                 const count = Math.min(qCount, availDirs.length);
@@ -436,6 +437,7 @@ class QuantizedSequenceGeneratorV2 {
 
             for (const strip of s.shoveStrips) {
                 if (!strip.active) continue;
+                if (allowed && !allowed.has(strip.dir)) continue; // QUADRANT CHECK
                 if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
@@ -452,12 +454,12 @@ class QuantizedSequenceGeneratorV2 {
 
                 if (isEW) {
                     // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
-                    gen.actionBuffer.push({ layer: 1, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, 1, true) });
-                    gen.actionBuffer.push({ layer: 1, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, 1, true) });
+                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, true) });
+                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, true) });
                 } else {
                     // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
-                    gen.actionBuffer.push({ layer: 1, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, 1, true) });
-                    gen.actionBuffer.push({ layer: 1, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, 1, true) });
+                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, true) });
+                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, true) });
                 }
 
                 strip.leadPos += step;
@@ -470,6 +472,7 @@ class QuantizedSequenceGeneratorV2 {
             if (s.step % fillRate !== 0) return;
 
             const layer = 1;
+            const allowed = gen._getAllowedDirs(layer);
             const w = gen.logicGridW, h = gen.logicGridH;
             const grid = gen.layerGrids[layer];
             if (!grid) return;
@@ -482,8 +485,11 @@ class QuantizedSequenceGeneratorV2 {
             const q = s.holeQIdx;
             s.holeQIdx = (s.holeQIdx + 1) % 4;
 
-            let minX = (q === 0 || q === 2) ? -xVis : 0;
-            let maxX = (q === 0 || q === 2) ? 0 : xVis;
+            const qDirs = ['N', 'E', 'S', 'W'];
+            if (allowed && !allowed.has(qDirs[q])) return; // QUADRANT CHECK
+
+            let minX = (q === 0 || q === 3) ? -xVis : 0;
+            let maxX = (q === 0 || q === 3) ? 0 : xVis;
             let minY = (q === 0 || q === 1) ? -yVis : 0;
             let maxY = (q === 0 || q === 1) ? 0 : yVis;
 
@@ -582,7 +588,10 @@ class QuantizedSequenceGeneratorV2 {
         const grid = this.layerGrids[layer];
         if (!grid) return false;
 
-        const faces = this._getBiasedDirections();
+        const allowed = this._getAllowedDirs(layer);
+        const faces = this._getBiasedDirections().filter(f => !allowed || allowed.has(f));
+        if (faces.length === 0) return false;
+
         for (const dir of faces) {
             const stepDir = (dir === 'N' || dir === 'W') ? -1 : 1;
             let spokeBlocks = 0;
@@ -771,19 +780,82 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _tickLayerDirs(s) {
-        const quadrantCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
-        if (quadrantCount >= 4) {
-            for (const layer in s.layerDirs) s.layerDirs[layer] = null;
-            return;
+        const genScaling = !!this._getConfig('GenerativeScaling');
+        let userMax = parseInt(this._getConfig('QuadrantCount') ?? 4);
+        
+        // 1. Determine Min/Max Counts based on Fill Ratio (0-15%, 15-30%, >30%)
+        let minCount = 1, maxCount = userMax;
+        if (genScaling) {
+            if (s.fillRatio < 0.15) { maxCount = Math.min(userMax, 2); minCount = 1; }
+            else if (s.fillRatio < 0.30) { maxCount = Math.min(userMax, 3); minCount = 2; }
+            else { maxCount = userMax; minCount = userMax; }
+        } else {
+            minCount = userMax; maxCount = userMax;
         }
-        for (const layer in s.layerDirs) {
-            if (parseInt(layer) >= 2) continue;
-            s.layerDirLife[layer]--;
-            if (s.layerDirLife[layer] <= 0) {
-                const l = parseInt(layer);
-                this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = this._pickLayerDirs(quadrantCount); } });
-                s.layerDirLife[layer] = 4 + Math.floor(Math.random() * 4);
+
+        const all = ['N', 'S', 'E', 'W'];
+        if (!s.dirPools) s.dirPools = { 0: [], 1: [] };
+        if (!s.lastLayerDirs) s.lastLayerDirs = { 0: null, 1: null };
+
+        for (let l = 0; l <= 1; l++) {
+            // Pick a random count for this step within the allowed range
+            let count = (minCount === maxCount) ? minCount : Math.floor(Math.random() * (maxCount - minCount + 1)) + minCount;
+            
+            // If 4 directions are allowed, we set to null (all active)
+            if (count >= 4) {
+                if (s.layerDirs[l] !== null) {
+                    this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = null; } });
+                    s.lastLayerDirs[l] = null;
+                }
+                continue;
             }
+
+            let pool = s.dirPools[l];
+            let selected = new Set();
+            
+            // Fairness and Variation Logic: "Different than previous step" + "Each gets a turn"
+            for (let attempt = 0; attempt < 5; attempt++) {
+                selected.clear();
+                // Refill pool if it doesn't have enough directions
+                if (pool.length < count) {
+                    const fresh = [...all];
+                    // Simple Fisher-Yates shuffle
+                    for (let i = fresh.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [fresh[i], fresh[j]] = [fresh[j], fresh[i]];
+                    }
+                    s.dirPools[l] = pool = [...pool, ...fresh];
+                }
+                
+                // Peek at the first 'count' directions
+                const candidates = pool.slice(0, count);
+                for (const d of candidates) selected.add(d);
+
+                // Verify "Different than previous step"
+                const last = s.lastLayerDirs[l];
+                let isSame = false;
+                if (last && last.size === selected.size) {
+                    isSame = true;
+                    for (const d of selected) {
+                        if (!last.has(d)) { isSame = false; break; }
+                    }
+                }
+
+                // Commit choice if unique or max attempts reached
+                if (!isSame || attempt === 4) {
+                    pool.splice(0, count);
+                    break;
+                } else {
+                    // Reshuffle pool to try for a different combination
+                    for (let i = pool.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [pool[i], pool[j]] = [pool[j], pool[i]];
+                    }
+                }
+            }
+
+            this.actionBuffer.push({ layer: l, fn: () => { s.layerDirs[l] = selected; } });
+            s.lastLayerDirs[l] = selected;
         }
     }
 
@@ -829,6 +901,9 @@ class QuantizedSequenceGeneratorV2 {
         }
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
+
+            const allowed = this._getAllowedDirs(strip.layer);
+            if (allowed && !allowed.has(strip.direction)) continue; // QUADRANT RESTRICTION
 
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
 
@@ -1289,6 +1364,19 @@ class QuantizedSequenceGeneratorV2 {
                 this._tickLayerDirs(s);
                 this._updateFillRatio(s);
                 this._seedStrips(s);
+
+                // PERMANENT CORE BEHAVIOR: Main Nudge Growth
+                if (this._getConfig('NudgeEnabled') !== false) {
+                    const nudgeStartDelay = this._getConfig('NudgeStartDelay') ?? 2;
+                    if (s.step >= nudgeStartDelay) {
+                        const nudgeChance = this._getConfig('NudgeChance') ?? 0.8;
+                        if (Math.random() <= nudgeChance) {
+                            const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+                            this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+                        }
+                    }
+                }
+
                 this._tickStrips(s);
                 this._expandInsideOut(s);
 

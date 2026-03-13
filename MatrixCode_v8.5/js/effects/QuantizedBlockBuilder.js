@@ -59,6 +59,9 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
     }
 
     _growLayerWest(layer, constraintLayer) {
+        const allowed = this._getAllowedDirs(layer);
+        if (allowed && !allowed.has('W')) return false;
+
         const xAxisBlocks = this.activeBlocks.filter(b => b.layer === layer && b.y === 0);
         if (xAxisBlocks.length === 0) return false;
 
@@ -78,6 +81,9 @@ class QuantizedBlockBuilder extends QuantizedBlockGeneration {
     }
 
     _growLayerNorth(layer, constraintLayer) {
+        const allowed = this._getAllowedDirs(layer);
+        if (allowed && !allowed.has('N')) return false;
+
         const xCoords = [...new Set(this.activeBlocks.filter(b => b.layer === layer && b.y === 0).map(b => b.x))];
         if (xCoords.length === 0) return false;
 
