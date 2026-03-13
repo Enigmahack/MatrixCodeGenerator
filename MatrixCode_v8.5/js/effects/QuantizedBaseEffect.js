@@ -4844,25 +4844,20 @@ class QuantizedBaseEffect extends AbstractEffect {
                         let nx, ny;
 
                         if (side === 'N') {
-                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                            ny = parent.y - size.h + 1;
+                            nx = parent.x + Math.floor(Math.random() * (parent.w + size.w - 1)) - (size.w - 1);
+                            ny = parent.y - size.h;
                         } else if (side === 'S') {
-                            nx = parent.x + Math.floor(Math.random() * parent.w) - Math.floor(size.w / 2);
-                            ny = parent.y + parent.h - 1;
+                            nx = parent.x + Math.floor(Math.random() * (parent.w + size.w - 1)) - (size.w - 1);
+                            ny = parent.y + parent.h;
                         } else if (side === 'W') {
-                            nx = parent.x - size.w + 1;
-                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                            nx = parent.x - size.w;
+                            ny = parent.y + Math.floor(Math.random() * (parent.h + size.h - 1)) - (size.h - 1);
                         } else { // E
-                            nx = parent.x + parent.w - 1;
-                            ny = parent.y + Math.floor(Math.random() * parent.h) - Math.floor(size.h / 2);
+                            nx = parent.x + parent.w;
+                            ny = parent.y + Math.floor(Math.random() * (parent.h + size.h - 1)) - (size.h - 1);
                         }
 
                         if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
-
-                        // NEW: Spine Check (Never spawn on X or Y axis)
-                        const overlapsYSpine = (nx <= s.scx && nx + size.w - 1 >= s.scx);
-                        const overlapsXSpine = (ny <= s.scy && ny + size.h - 1 >= s.scy);
-                        if (overlapsXSpine || overlapsYSpine) continue;
 
                         // NEW: Occupancy Check (Only spawn in unoccupied blocks)
                         let isAreaFree = true;
@@ -4891,8 +4886,37 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
                 const despawnCount = this.c.get('quantizedGenerateV2BlockSpawnerDespawnCount') ?? 2;
                 
-                // Select 1x1 blocks that were spawned by THIS behavior (source: 'block_spawner')
-                const candidates = this.activeBlocks.filter(b => b.source === 'block_spawner' && b.w === 1 && b.h === 1);
+                // Select blocks that are connected by 2 or less edges (directions)
+                // RULE: Do not remove if two opposite edges are connected (e.g. N and S).
+                // NEW: Do not remove if block overlaps the spine (X or Y axis) or age > 3 steps.
+                const candidates = this.activeBlocks.filter(b => {
+                    if (b.layer !== layer) return false;
+                    
+                    // --- PROTECTED BLOCKS ---
+                    const overlapsYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
+                    const overlapsXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
+                    if (overlapsXSpine || overlapsYSpine) return false;
+
+                    if (b.stepAge > 3) return false;
+
+                    // --- CONNECTIVITY RULES ---
+                    let north = false, south = false, west = false, east = false;
+                    // North Edge
+                    for (let x = b.x; x < b.x + b.w; x++) { if (this._isOccupied(x, b.y - 1, layer)) { north = true; break; } }
+                    // South Edge
+                    for (let x = b.x; x < b.x + b.w; x++) { if (this._isOccupied(x, b.y + b.h, layer)) { south = true; break; } }
+                    // West Edge
+                    for (let y = b.y; y < b.y + b.h; y++) { if (this._isOccupied(b.x - 1, y, layer)) { west = true; break; } }
+                    // East Edge
+                    for (let y = b.y; y < b.y + b.h; y++) { if (this._isOccupied(b.x + b.w, y, layer)) { east = true; break; } }
+                    
+                    const count = (north?1:0) + (south?1:0) + (west?1:0) + (east?1:0);
+                    if (count > 2) return false;
+                    if (count === 2) {
+                        if ((north && south) || (west && east)) return false; // Opposite edges (bridge/line)
+                    }
+                    return true;
+                });
                 
                 if (candidates.length > 0) {
                     Utils.shuffle(candidates);
@@ -5618,6 +5642,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._seedStrips(s);
         this._tickStrips(s);
         this._expandInsideOut(s);
+
+        // INCREMENT AGE OF ALL ACTIVE BLOCKS
+        for (const b of this.activeBlocks) b.stepAge = (b.stepAge || 0) + 1;
 
         const quota = this.getConfig('SimultaneousSpawns') || 1;
         const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
