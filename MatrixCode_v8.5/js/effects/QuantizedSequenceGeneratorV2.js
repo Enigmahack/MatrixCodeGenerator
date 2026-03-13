@@ -343,12 +343,12 @@ class QuantizedSequenceGeneratorV2 {
                     const isEW = dir === 'E' || dir === 'W';
                     if (isEW) {
                         const perpMid = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
-                        s.shoveStrips.push({ dir, perpStart: perpMid - 1, perpEnd: perpMid + 1, leadPos: s.scx + (dir === 'E' ? 1 : -1), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStrips.push({ dir, perpStart: perpMid - 1, perpEnd: perpMid + 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     } else {
                         const width     = 1 + Math.floor(Math.random() * 3);
                         const perpMid   = s.scx + Math.round((Math.random() * 2 - 1) * proxW);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 1 : -1), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     }
                 }
             }
