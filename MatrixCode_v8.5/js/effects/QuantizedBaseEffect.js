@@ -513,6 +513,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._lastProcessedOpIndex = 0;
         this._lastRendererOpIndex = 0;
         this.animFrame = 0;
+        this.state = 'FADE_IN';
+        this.timer = 0;
         this._maskDirty = true;
         this._gridsDirty = true;
         this._outsideMapDirty = true;
@@ -1102,9 +1104,10 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateGridCache(w, h, s, d) {
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return; 
+        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
         this.lastGridSeed = timeSeed;
         this._gridCacheDirty = false;
+
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
 
@@ -1714,7 +1717,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const showLines = (this.c.state.layerEnableQuantizedLines !== false);
         const showEcho = (s.layerEnablePerimeterEcho !== false);
         const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
-        
+
         const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
         const alphaMult = lineGlow / 4.0;
 
@@ -1732,7 +1735,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);
 
         if (showSource) {
-            this._updateGridCache(width, height, s, d);
             ctx.save();
             ctx.globalAlpha = 0.3;
             ctx.globalCompositeOperation = 'source-over';
@@ -1823,8 +1825,6 @@ class QuantizedBaseEffect extends AbstractEffect {
              this._maskDirty = false;
         }
         
-        this._updateGridCache(width, height, s, derived);
-
         const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
         const alphaMult = Math.min(1.0, lineGlow / 4.0);
 
@@ -1832,6 +1832,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Echo handled by GPU pass in _renderQuantizedLineGfx
             return;
         }
+
+        this._updateGridCache(width, height, s, derived);
 
         const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
         const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);

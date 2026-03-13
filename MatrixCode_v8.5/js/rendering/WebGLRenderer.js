@@ -411,7 +411,7 @@ class WebGLRenderer {
                 uniform sampler2D u_shadowMask;
                 uniform sampler2D u_sourceGrid;
                 uniform sampler2D u_logicGrid;
-                uniform vec2 u_logicGridSize; 
+                uniform vec2 u_logicGridSize;
                 uniform vec2 u_screenOrigin;
                 uniform vec2 u_screenStep;
                 uniform vec2 u_cellPitch;
@@ -423,7 +423,7 @@ class WebGLRenderer {
                 uniform vec2 u_sampleOffset;
                 uniform int u_mode; // 0 = Generate, 1 = Composite, 2 = Pure Blit
                 uniform ivec4 u_layerOrder; 
-                
+
                 uniform float u_thickness;
                 uniform vec3 u_color;
                 uniform float u_intensity;
@@ -437,7 +437,7 @@ class WebGLRenderer {
                 uniform float u_roundness;
                 uniform float u_maskSoftness;
                 uniform bool u_showInterior;
-                
+
                 uniform float u_glassBloom;
                 uniform float u_compressionThreshold;
 
@@ -517,7 +517,7 @@ class WebGLRenderer {
                         vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
                         vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                         vec2 blockCoord = floor(logicPos);
-                        
+
                         vec4 occ = getOccupancy(blockCoord);
                         float maskSum = getLayerVal(occ, u_layerOrder.x) + getLayerVal(occ, u_layerOrder.y) + getLayerVal(occ, u_layerOrder.z) + getLayerVal(occ, u_layerOrder.w);
                         fragColor = vec4(maskSum, 0.0, 0.0, maskSum);
@@ -538,7 +538,7 @@ class WebGLRenderer {
                         float totalLine = clamp(normalLine + fadeLine, 0.0, 1.0);
 
                         vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-                        
+
                         // Sample Shadow World Character (Stencil)
                         float shadowLuma = 0.0;
                         if (u_maskSoftness > 0.0) {
@@ -552,14 +552,14 @@ class WebGLRenderer {
                         } else {
                             shadowLuma = texture(u_sourceGrid, sourceUV).r;
                         }
-                        
+
                         // Apply Line Roundness as "Edge Softness" for the mask
                         float edgeSoft = max(0.001, u_roundness * 0.5);
                         float maskedLuma = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, shadowLuma);
-                        
+
                         float blockMask = texture(u_shadowMask, v_uv).r;
                         float isVisible = step(0.001, blockMask);
-                        
+
                         vec3 resultColor = base.rgb;
                         if (isVisible > 0.5) {
                             // Non-burn-in brightness boost: 
@@ -570,11 +570,6 @@ class WebGLRenderer {
                         }
 
                         // Natural Refraction: curved glass edge effect.
-                        // Each layer has its own independent perimeter — NOT a merged union.
-                        //   Accumulator A: layer 0 perimeter + layer 2/3 overlap perimeter (full brightness)
-                        //   Accumulator B: layer 1 perimeter (brightness -0.3 when layer 0 co-occupies that block)
-                        // Each half-edge SDF is computed once and tested against all three layer conditions.
-                        // Bell-modulated barrel warp toward cell boundaries simulates diffuse curved glass.
                         if (u_refractionEnabled) {
                             vec2 nearestI = floor(logicPos + 0.5);
                             vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
@@ -616,7 +611,7 @@ class WebGLRenderer {
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
                                     bestEdgeIA = nearestI + vec2(0.0, -1.0); bestTypeA = 1.0;
                                 }
-                                
+
                                 float o123NW = max(o1NW, o23NW), o123NE = max(o1NE, o23NE);
                                 if (abs(o123NW - o123NE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o123NE > o123NW) ? 1.0 : -1.0;
@@ -634,7 +629,7 @@ class WebGLRenderer {
                                     reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
                                     bestEdgeIA = nearestI; bestTypeA = 1.0;
                                 }
-                                
+
                                 float o123SW = max(o1SW, o23SW), o123SE = max(o1SE, o23SE);
                                 if (abs(o123SW - o123SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o123SE > o123SW) ? 1.0 : -1.0;
@@ -652,7 +647,7 @@ class WebGLRenderer {
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
                                     bestEdgeIA = nearestI + vec2(-1.0, 0.0); bestTypeA = 0.0;
                                 }
-                                
+
                                 float o123NW = max(o1NW, o23NW), o123SW = max(o1SW, o23SW);
                                 if (abs(o123NW - o123SW) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o123SW > o123NW) ? 1.0 : -1.0;
@@ -670,7 +665,7 @@ class WebGLRenderer {
                                     reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
                                     bestEdgeIA = nearestI; bestTypeA = 0.0;
                                 }
-                                
+
                                 float o123NE = max(o1NE, o23NE), o123SE = max(o1SE, o23SE);
                                 if (abs(o123NE - o123SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o123SE > o123NE) ? 1.0 : -1.0;
@@ -686,7 +681,6 @@ class WebGLRenderer {
                             float refrOffPx = u_refractionOffset * cellSize;
                             vec3 tintedColor = applyHueShift(u_color, u_tintOffset);
 
-                            // Shared helper: barrel-warp reflP, sample u_sourceGrid, blend into resultColor
                             #define APPLY_REFR(minD, reflP_, edgeA_, brightness_) \
                             { \
                                 float refrBell_ = max(1.0 - smoothstep(0.0, max(refrWidth,0.0001), abs(minD - refrOffPx)), 0.0) * edgeA_; \
@@ -728,14 +722,11 @@ class WebGLRenderer {
                             vec3 lineBaseColor = u_color;
                             lineBaseColor = applyHueShift(lineBaseColor, u_tintOffset);
                             lineBaseColor = boostSaturation(mix(lineBaseColor, vec3(1.0), pow(totalLine, 8.0) * 0.5), u_saturation) * u_brightness;
-                            
-                            // Apply "Edge Softness" to the lines themselves as well
+
                             float softLine = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, totalLine);
                             float lineIntensity = softLine * u_intensity * u_additiveStrength * maskedLuma;
-                            
+
                             lineAlpha = lineIntensity;
-                            // Compression threshold: suppress lines whose color falls below minimum brightness.
-                            // Tested against lineBaseColor so the background falling code is never affected.
                             if (u_compressionThreshold > 0.0) {
                                 float lineLuma = dot(lineBaseColor, vec3(0.299, 0.587, 0.114));
                                 lineAlpha *= step(u_compressionThreshold, lineLuma);
@@ -753,15 +744,12 @@ class WebGLRenderer {
                     vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                     vec2 nearestI = floor(logicPos + 0.5);
                     vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
-                    
+
                     float normalMax = 0.0;
                     float fadeMax = 0.0;
-                    // Per-axis half-thickness so lines stay proportional on non-square cells.
                     float halfThickX = (u_screenStep.x * 0.1 * u_thickness) * 0.5;
                     float halfThickY = (u_screenStep.y * 0.1 * u_thickness) * 0.5;
 
-                    // Link u_roundness to sharpness for generation phase.
-                    // Clamp per-axis so genSharp never makes edge0 > edge1 in smoothstep.
                     float genSharp = u_sharpness + (u_roundness * 0.2);
                     float sX = min(genSharp, halfThickX);
                     float sY = min(genSharp, halfThickY);
@@ -773,7 +761,7 @@ class WebGLRenderer {
 
                     int L0 = u_layerOrder.x; int L1 = u_layerOrder.y;
                     int L2 = u_layerOrder.z; int L3 = u_layerOrder.w;
-                    
+
                     float a0NW = getLayerVal(occNW, L0); float a0NE = getLayerVal(occNE, L0);
                     float a0SW = getLayerVal(occSW, L0); float a0SE = getLayerVal(occSE, L0);
                     float a1NW = getLayerVal(occNW, L1); float a1NE = getLayerVal(occNE, L1);
@@ -783,7 +771,6 @@ class WebGLRenderer {
                     float a3NW = getLayerVal(occNW, L3); float a3NE = getLayerVal(occNE, L3);
                     float a3SW = getLayerVal(occSW, L3); float a3SE = getLayerVal(occSE, L3);
 
-                    // Combined substance: Layer 1 OR (Layer 2 AND Layer 3)
                     float s123NW = max(a1NW, a2NW * a3NW);
                     float s123NE = max(a1NE, a2NE * a3NE);
                     float s123SW = max(a1SW, a2SW * a3SW);
@@ -792,7 +779,7 @@ class WebGLRenderer {
                     for(int i=0; i<2; i++) {
                         float aNW, aNE, aSW, aSE;
                         bool isS123 = (i == 1);
-                        
+
                         if (i == 0) {
                             aNW = a0NW; aNE = a0NE; aSW = a0SW; aSE = a0SE;
                         } else {
@@ -804,7 +791,7 @@ class WebGLRenderer {
 
                         if (abs(oNW - oNE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
-                            float var = getVariance(nearestI + vec2(0.0, -1.0), 1.0); // Type 1 = Horizontal
+                            float var = getVariance(nearestI + vec2(0.0, -1.0), 1.0); 
                             float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE) * var;
                             if (isS123 && a0NW > 0.01 && a0NE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -814,7 +801,7 @@ class WebGLRenderer {
                         }
                         if (abs(oSW - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
-                            float var = getVariance(nearestI, 1.0); // Type 1 = Horizontal
+                            float var = getVariance(nearestI, 1.0); 
                             float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE) * var;
                             if (isS123 && a0SW > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -824,7 +811,7 @@ class WebGLRenderer {
                         }
                         if (abs(oNW - oSW) > 0.5) {
                             float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
-                            float var = getVariance(nearestI + vec2(-1.0, 0.0), 0.0); // Type 0 = Vertical
+                            float var = getVariance(nearestI + vec2(-1.0, 0.0), 0.0); 
                             float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW) * var;
                             if (isS123 && a0NW > 0.01 && a0SW > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -834,7 +821,7 @@ class WebGLRenderer {
                         }
                         if (abs(oNE - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
-                            float var = getVariance(nearestI, 0.0); // Type 0 = Vertical
+                            float var = getVariance(nearestI, 0.0); 
                             float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE) * var;
                             if (isS123 && a0NE > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
@@ -844,8 +831,7 @@ class WebGLRenderer {
                         }
                     }
                     fragColor = vec4(normalMax, fadeMax, 0.0, 1.0);
-                }
-            `;
+                }`;
 
             this.lineProgram = this._createProgram(lineVS, lineFS);
 
