@@ -1042,8 +1042,10 @@ class WebGLRenderer {
                     float finalAlpha = tex1;
                     
                     // --- OPTIMIZED GLIMMER LOGIC ---
+                    // In dual-world mode (useMix >= 5.0), v_glimmerAlpha is repurposed as the
+                    // shadow world glow channel. Skip the shape computation in that mode.
                     float glimmer = 0.0;
-                    if (v_glimmerAlpha > 0.0) {
+                    if (v_glimmerAlpha > 0.0 && useMix < 5.0) {
                         float rawTex = texture(u_texture, v_uv).a;
                         if (rawTex > 0.3) {
                             vec2 center = vec2(0.5);
@@ -1143,9 +1145,16 @@ class WebGLRenderer {
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger).
-                    // Guard against useMix >= 5.0: in dual-world mode v_glow is repurposed
-                    // as the new-world alpha (nwA) and must NOT also drive emissive brightness.
-                    if (useMix < 5.0 && v_glow > 0.0) {
+                    if (useMix >= 5.0) {
+                        // Dual-world mode: v_glow is nwA, but v_glimmerAlpha carries shadow world glow.
+                        if (v_glimmerAlpha > 0.0) {
+                            float swGlowFactor = v_glimmerAlpha;
+                            if (glassMask <= 0.001) {
+                                swGlowFactor *= (1.0 - shadow);
+                            }
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                        }
+                    } else if (v_glow > 0.0) {
                         float glowFactor = v_glow;
                         if (!isHighPriority && glassMask <= 0.001) {
                              glowFactor *= (1.0 - shadow);
@@ -2272,11 +2281,24 @@ class WebGLRenderer {
                 // If the cell is using a high-level visual override (Mode 1 or 4),
                 // we must suppress simulation-driven parameters like Dissolve and Flicker.
                 const isOverridden = effActive && (effActive[i] === 1 || effActive[i] === 4);
-                
-                mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
-                mU8[u8Off + 21]   = isOverridden ? 0 : gParams[gIdx + 1];   // ShapeID
-                mF32[baseOff + 7] = isOverridden ? 0 : gParams[gIdx + 2];   // GlimmerAlpha
-                mF32[baseOff + 8] = isOverridden ? 0 : gParams[gIdx + 3];   // Dissolve
+
+                // In dual-world shadow mode (ov=5), repurpose GlimmerAlpha to carry the
+                // shadow grid's glow so the shader can apply it as a tracer brightness boost.
+                const isShadowWorld = ovActive && ovActive[i] === 5;
+                if (isShadowWorld) {
+                    const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+                    // sFade = sg.alphas[i] * shadowFade (already stored in ovGlows[i])
+                    const sFade = ovGlows[i];
+                    mF32[baseOff + 6] = 1.0;                                           // GlimmerFlicker (unused in sw path)
+                    mU8[u8Off + 21]   = 0;                                             // ShapeID
+                    mF32[baseOff + 7] = sGrid ? sGrid.glows[i] * sFade : 0;           // Shadow world glow (faded)
+                    mF32[baseOff + 8] = 0;                                             // Dissolve
+                } else {
+                    mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
+                    mU8[u8Off + 21]   = isOverridden ? 0 : gParams[gIdx + 1];   // ShapeID
+                    mF32[baseOff + 7] = isOverridden ? 0 : gParams[gIdx + 2];   // GlimmerAlpha
+                    mF32[baseOff + 8] = isOverridden ? 0 : gParams[gIdx + 3];   // Dissolve
+                }
             }
         }
 
