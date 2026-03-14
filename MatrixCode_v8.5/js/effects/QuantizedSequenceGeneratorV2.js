@@ -1178,7 +1178,7 @@ class QuantizedSequenceGeneratorV2 {
         }
 
         for (const m of shiftedBlocks) {
-            this.currentStepOps.push(['addBlock', m.b.x, m.b.y, m.b.x + m.b.w - 1, m.b.y + m.b.h - 1, m.layer, 0, true]);
+            this.currentStepOps.push(['addRect', m.b.x, m.b.y, m.b.x + m.b.w - 1, m.b.y + m.b.h - 1, m.layer, 0, true]);
             if (!this._isOccupied(m.oldX, m.oldY, m.layer)) {
                 this._spawnBlock(m.oldX, m.oldY, m.oldW, m.oldH, m.layer, true);
             }
@@ -1232,7 +1232,7 @@ class QuantizedSequenceGeneratorV2 {
                 if (layer === 0 && this.promotionGrid) this.promotionGrid[idx] = 0;
             }
         }
-        this.currentStepOps.push(['addBlock', x1, y1, x2, y2, layer, 0, true]);
+        this.currentStepOps.push(['addRect', x1, y1, x2, y2, layer, 0, true]);
         const md = this.behaviorState.layerMaxDist[layer] || (this.behaviorState.layerMaxDist[layer] = { N: 0, S: 0, E: 0, W: 0 });
         const rx = x - this.behaviorState.scx, ry = y - this.behaviorState.scy;
         if (ry < 0) md.N = Math.max(md.N, -ry); else if (ry > 0) md.S = Math.max(md.S, ry + h - 1);

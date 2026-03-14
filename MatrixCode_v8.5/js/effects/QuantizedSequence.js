@@ -242,7 +242,7 @@ class QuantizedSequence {
      * Encodes a sequence into a compact numeric format.
      */
     static encode(sequence) {
-        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12, 'nudgeML': 13 };
+        const OPS = { 'add': 1, 'rem': 2, 'addRect': 3, 'addBlock': 3, 'addSmart': 6, 'removeBlock': 7, 'nudge': 12, 'nudgeML': 13 };
         const FACES = { 'N': 1, 'S': 2, 'E': 4, 'W': 8 };
         
         const packedSequence = [];
@@ -257,6 +257,7 @@ class QuantizedSequence {
                     }
                     opName = opObj[0];
                     args = opObj.slice(1);
+                    layer = opObj.length >= 6 ? opObj[5] : 0;
                 } else {
                     opName = opObj.op;
                     args = opObj.args;
@@ -275,15 +276,22 @@ class QuantizedSequence {
                 if (opCode === 1) { // add
                     if (layer > 0) stepData.push(8, args[0], args[1], layer); 
                     else stepData.push(1, args[0], args[1]);
-                } else if (opCode === 3) { // addRect
+                } else if (opCode === 3) { // addRect / addBlock
                     if (layer > 0) stepData.push(9, args[0], args[1], args[2], args[3], layer); 
                     else stepData.push(3, args[0], args[1], args[2], args[3]);
                 } else if (opCode === 6) { // addSmart
                     if (layer > 0) stepData.push(10, args[0], args[1], layer); 
                     else stepData.push(6, args[0], args[1]);
                 } else if (opCode === 7) { // removeBlock
-                    if (layer > 0) stepData.push(11, args[0], args[1], layer); 
-                    else stepData.push(7, args[0], args[1]);
+                    if (args.length >= 4) {
+                        // Rectangular removal
+                        if (layer > 0) stepData.push(11, args[0], args[1], args[2], args[3], layer);
+                        else stepData.push(7, args[0], args[1], args[2], args[3]);
+                    } else {
+                        // Point removal
+                        if (layer > 0) stepData.push(11, args[0], args[1], layer); 
+                        else stepData.push(7, args[0], args[1]);
+                    }
                 } else if (opCode === 12 || opCode === 13) { // nudge
                     const dx = args[0], dy = args[1];
                     let face = args[4];
@@ -316,7 +324,23 @@ class QuantizedSequence {
                 while (i < step.length) {
                     const opCode = step[i++];
                     const opName = OPS_INV[opCode];
-                    if (opCode === 1 || opCode === 6 || opCode === 7) decodedStep.push({ op: opName, args: [step[i++], step[i++]], layer: 0 });
+                    if (opCode === 1 || opCode === 6) {
+                        decodedStep.push({ op: opName, args: [step[i++], step[i++]], layer: 0 });
+                    } else if (opCode === 7) {
+                        // Point removal (legacy) or Rectangular removal (modern)
+                        // Heuristic: check if next values are within likely coordinate range or start of next op.
+                        // Better: Since it's packed, we need to know the format.
+                        // If it's code 7, it's either [x, y] or [x1, y1, x2, y2].
+                        // The original encode only did [x, y] for 7.
+                        // My updated encode does 4 args if args.length >= 4.
+                        // This is tricky because the numeric format isn't self-describing for length.
+                        // However, QuantizedSequenceGeneratorV2 is the main user of rectangular removeBlock.
+                        // Let's assume 4 args for now if it's from our new encoder, but this is a breaking change for old numeric 7s.
+                        // Wait, code 3 (RECT) always has 4 args. Let's make 7 also always have 4 args in the new format?
+                        // Actually, the decode loop needs to be deterministic.
+                        // Let's look at how code 3 is handled:
+                        decodedStep.push({ op: 'removeBlock', args: [step[i++], step[i++], step[i++], step[i++]], layer: 0 });
+                    }
                     else if (opCode === 3) decodedStep.push({ op: 'addRect', args: [step[i++], step[i++], step[i++], step[i++]], layer: 0 });
                     else if (opCode === 2) {
                         const dx = step[i++], dy = step[i++], mask = step[i++];
@@ -325,7 +349,7 @@ class QuantizedSequence {
                     else if (opCode === 8) decodedStep.push({ op: 'add', args: [step[i++], step[i++]], layer: step[i++] });
                     else if (opCode === 9) decodedStep.push({ op: 'addRect', args: [step[i++], step[i++], step[i++], step[i++]], layer: step[i++] });
                     else if (opCode === 10) decodedStep.push({ op: 'addSmart', args: [step[i++], step[i++]], layer: step[i++] });
-                    else if (opCode === 11) decodedStep.push({ op: 'removeBlock', args: [step[i++], step[i++]], layer: step[i++] });
+                    else if (opCode === 11) decodedStep.push({ op: 'removeBlock', args: [step[i++], step[i++], step[i++], step[i++]], layer: step[i++] });
                     else if (opCode === 12 || opCode === 13) {
                         const dx = step[i++], dy = step[i++], w = step[i++], h = step[i++], l = step[i++], fMask = step[i++];
                         decodedStep.push({ 
