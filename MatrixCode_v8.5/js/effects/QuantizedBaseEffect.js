@@ -1123,7 +1123,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
 
-        const charColor = '#FFFFFF';
         const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
         const style = s.italicEnabled ? 'italic ' : '';
         const weight = s.fontWeight;
@@ -1131,7 +1130,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.font = `${style}${weight} ${visualFontSize}px ${family}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = charColor;
+        ctx.fillStyle = '#FFFFFF';
+
         const grid = this.g;
         const shadowGrid = this.shadowGrid;
         const distW = this.renderer._distMapWidth;
@@ -1144,86 +1144,82 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
-        const drawChar = (x, y) => {
-            let charCode = 32;
-            let i = -1;
-            
-            // Only use shadow world for characters within the actual grid
-            const isInsideGrid = (x >= 0 && x < cols && y >= 0 && y < rows);
-            
-            if (isInsideGrid) {
-                i = (y * cols) + x;
-                
-                // Tag cell for high-quality Shadow World rendering in the main pass
-                const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
-                const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
-                let isInsideBlock = false;
-                if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
-                    const bIdx = by * distW + bx;
-                    // REVEAL MODE: Use the consolidated shadowRevealGrid (Layers 0 & 1 Perimeter)
-                    if (this.shadowRevealGrid && this.shadowRevealGrid[bIdx] === 1) {
-                        isInsideBlock = true;
-                    }
-                }
-                
-                // Shadow reveal is handled by updateShadowSim via overrideActive=5 (PRIORITY 2),
-                // which provides a gradual sFade/oFade crossfade and disables the glow boost.
-                // Setting effectActive=3 here (PRIORITY 1) would bypass that fade entirely,
-                // showing raw sg.alphas with glow boost enabled â†’ brightness flash on start.
-                if (!isInsideBlock && grid.effectActive[i] === 3) {
-                    grid.effectActive[i] = 0;
-                }
+        
+        // Fast String Cache
+        if (!this._charStrCache) this._charStrCache = new Array(65536);
+        const sc = this._charStrCache;
+        
+        const activeFonts = d.activeFonts;
+        const fontData = activeFonts[0] || { chars: "01" };
+        const charSet = fontData.chars;
+        const charSetLen = charSet.length;
+        
+        // Batch Transform
+        ctx.save();
+        ctx.translate(screenOriginX, screenOriginY);
+        if (s.stretchX !== 1 || s.stretchY !== 1) {
+            ctx.scale(s.stretchX, s.stretchY);
+        }
 
-                if (shadowGrid && shadowGrid.chars) {
-                    charCode = shadowGrid.chars[i];
-                    
-                    // If the simulation cell is empty, provide a random character for the line mask
-                    if (charCode <= 32) {
-                        const charSet = d.activeFonts[0].chars;
-                        const hash = Math.abs(Math.sin(i * 12.9898 + this.lastGridSeed * 78.233) * 43758.5453) % 1;
-                        charCode = charSet.charCodeAt(Math.floor(hash * charSet.length));
-                    }
-                    
-                    // The source grid is used as a mask for lines; it must be full intensity
-                    ctx.globalAlpha = 1.0; 
-                } else if (grid.overrideActive && grid.overrideActive[i] > 0) {
-                    charCode = grid.overrideChars[i];
-                    ctx.globalAlpha = 1.0;
-                } else {
-                    charCode = chars[i];
-                    ctx.globalAlpha = 1.0;
-                }
-            } else {
-                i = (y * 10000) + x; 
-                charCode = 0; 
-                ctx.globalAlpha = 0.0;
-            }
-            if (charCode <= 32) {
-                const activeFonts = d.activeFonts;
-                const fontData = activeFonts[0] || { chars: "01" };
-                const charSet = fontData.chars;
-                const seed = i * 12.9898 + timeSeed * 78.233;
-                const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
-                const char = charSet[Math.floor(hash * charSet.length)];
-                charCode = (char) ? char.charCodeAt(0) : 32;
-            }
-            const cx = screenOriginX + ((x + 0.5) * screenStepX);
-            const cy = screenOriginY + ((y + 0.5) * screenStepY);
-            if (s.stretchX !== 1 || s.stretchY !== 1) {
-                ctx.setTransform(s.stretchX, 0, 0, s.stretchY, cx, cy);
-                ctx.fillText(String.fromCharCode(charCode), 0, 0);
-            } else {
-                ctx.setTransform(1, 0, 0, 1, 0, 0);
-                ctx.fillText(String.fromCharCode(charCode), cx, cy);
-            }
-        };
         const padding = 5;
         for (let y = -padding; y < rows + padding; y++) {
+            const cy = (y + 0.5) * d.cellHeight;
+            const isInsideY = (y >= 0 && y < rows);
+            
             for (let x = -padding; x < cols + padding; x++) {
-                drawChar(x, y);
+                let charCode = 32;
+                let i = -1;
+                
+                const isInsideGrid = isInsideY && (x >= 0 && x < cols);
+                
+                if (isInsideGrid) {
+                    i = (y * cols) + x;
+                    const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
+                    const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
+                    let isInsideBlock = false;
+                    
+                    if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
+                        const bIdx = by * distW + bx;
+                        if (this.shadowRevealGrid && this.shadowRevealGrid[bIdx] === 1) {
+                            isInsideBlock = true;
+                        }
+                    }
+                    
+                    if (!isInsideBlock && grid.effectActive[i] === 3) {
+                        grid.effectActive[i] = 0;
+                    }
+
+                    if (shadowGrid && shadowGrid.chars) {
+                        charCode = shadowGrid.chars[i];
+                        if (charCode <= 32) {
+                            const hash = Math.abs(Math.sin(i * 12.9898 + timeSeed * 78.233) * 43758.5453) % 1;
+                            charCode = charSet.charCodeAt(Math.floor(hash * charSetLen));
+                        }
+                    } else if (grid.overrideActive && grid.overrideActive[i] > 0) {
+                        charCode = grid.overrideChars[i];
+                    } else {
+                        charCode = chars[i];
+                    }
+                } else {
+                    i = (y * 10000) + x; 
+                    charCode = 0; 
+                }
+                
+                if (charCode <= 32) {
+                    const seed = i * 12.9898 + timeSeed * 78.233;
+                    const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
+                    charCode = charSet.charCodeAt(Math.floor(hash * charSetLen));
+                }
+                
+                const cx = (x + 0.5) * d.cellWidth;
+                
+                // Get cached string
+                const charStr = sc[charCode] || (sc[charCode] = String.fromCharCode(charCode));
+                ctx.fillText(charStr, cx, cy);
             }
         }
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        
+        ctx.restore();
     }
 
     _updateRenderGridLogic() {

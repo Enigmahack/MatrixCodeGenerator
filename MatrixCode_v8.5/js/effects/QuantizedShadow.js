@@ -90,6 +90,14 @@ class QuantizedShadow {
         }
         this._targetActive.fill(0);
 
+        // Ensure fade arrays are initialized (prevents TypeError: reading '0' of null)
+        if (!this.shadowFade || this.shadowFade.length !== totalCells) {
+            this.shadowFade = new Float32Array(totalCells);
+            this.oldWorldFade = new Float32Array(totalCells);
+            this.shadowFade.fill(0);
+            this.oldWorldFade.fill(1.0);
+        }
+
         // Determine active areas based on shadowRevealGrid (consolidated logic)
         if (fx.c.state.layerEnableShadowWorld !== false) {
             for (let by = 0; by < blocksY; by++) {

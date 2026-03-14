@@ -149,7 +149,7 @@ class MatrixKernel {
         
         // World 1 (Default Secondary/Shadow)
         const grid1 = new CellGrid(this.config);
-        const sim1 = new SimulationSystem(grid1, this.config, false); // No worker for shadow to save resources
+        const sim1 = new SimulationSystem(grid1, this.config, true); // Enable worker for shadow too
         
         this.worlds = [
             { grid: grid0, sim: sim0 },

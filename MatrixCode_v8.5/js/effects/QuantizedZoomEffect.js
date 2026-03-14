@@ -161,14 +161,16 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         }
         
         // Run Warmup
-        const warmupFrames = 120;
+        // Optimization: Reduced frames from 120 to 30. 
+        // 120 frames at 3x resolution was causing a >1.5s freeze.
+        const warmupFrames = 30; 
         for (let i = 0; i < warmupFrames; i++) {
             // Force fade logic to run by updating simulation fully
             tempSim.update(i);
             
             // Inject CONTINUOUS streams during warmup to maintain density
-            if (i % 2 === 0) {
-                 const refillCount = Math.floor(tempGrid.cols * 0.1); // Refill 10% every other frame
+            if (i % 3 === 0) {
+                 const refillCount = Math.floor(tempGrid.cols * 0.05); // Refill 5% every 3 frames
                  for(let r=0; r<refillCount; r++) {
                      const col = Math.floor(Math.random() * tempGrid.cols);
                      const stream = sm._initializeStream(col, Math.random() < 0.15, s);

@@ -55,29 +55,29 @@ class StreamManager {
         if (!other || other.grid.cols !== this.grid.cols) return;
 
         // Clone active streams list (deep clone each stream object)
+        const streamMap = new Map();
         this.activeStreams = other.activeStreams.map(s => {
             const clone = { ...s };
             // Set is a special object that needs its own cloning
             if (s.holes instanceof Set) {
                 clone.holes = new Set(s.holes);
             }
+            streamMap.set(s, clone);
             return clone;
         });
 
-        // Clone column tracking arrays
-        this.lastStreamInColumn = other.lastStreamInColumn.map(s => {
-            if (!s) return null;
-            // Find the corresponding cloned stream in our new list
-            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isEraser === s.isEraser) || null;
-        });
-        this.lastEraserInColumn = other.lastEraserInColumn.map(s => {
-            if (!s) return null;
-            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isEraser === s.isEraser) || null;
-        });
-        this.lastUpwardTracerInColumn = other.lastUpwardTracerInColumn.map(s => {
-            if (!s) return null;
-            return this.activeStreams.find(ns => ns.x === s.x && ns.y === s.y && ns.isUpward === s.isUpward) || null;
-        });
+        // Clone column tracking arrays - OPTIMIZED: Use Map for O(1) lookup
+        this.lastStreamInColumn = other.lastStreamInColumn.map(s => streamMap.get(s) || null);
+        this.lastEraserInColumn = other.lastEraserInColumn.map(s => streamMap.get(s) || null);
+        this.lastUpwardTracerInColumn = other.lastUpwardTracerInColumn.map(s => streamMap.get(s) || null);
+
+        // Ensure dimension parity for speed/count arrays (avoids RangeError if inactive world hasn't updated/resized yet)
+        if (this.columnSpeeds.length !== other.columnSpeeds.length) {
+            this.columnSpeeds = new Float32Array(other.columnSpeeds.length);
+        }
+        if (this.streamsPerColumn.length !== other.streamsPerColumn.length) {
+            this.streamsPerColumn = new Int16Array(other.streamsPerColumn.length);
+        }
 
         if (this.columnSpeeds && other.columnSpeeds) this.columnSpeeds.set(other.columnSpeeds);
         if (this.streamsPerColumn && other.streamsPerColumn) this.streamsPerColumn.set(other.streamsPerColumn);
