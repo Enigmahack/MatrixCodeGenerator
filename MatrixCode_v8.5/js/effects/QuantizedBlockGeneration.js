@@ -29,16 +29,30 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
 
         // Set spawn center BEFORE _initProceduralState so the seed block lands at the right position.
+        const bs = this.getBlockSize();
+        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
+        
+        let scx = 0, scy = 0;
         if (this.getConfig('RandomStart')) {
-            const bs = this.getBlockSize();
-            const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
-            const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
-            this.behaviorState.scx = Math.floor((Math.random() - 0.5) * (visW - 10));
-            this.behaviorState.scy = Math.floor((Math.random() - 0.5) * (visH - 10));
-        } else {
-            this.behaviorState.scx = 0;
-            this.behaviorState.scy = 0;
+            scx = Math.floor((Math.random() - 0.5) * (visW - 10));
+            scy = Math.floor((Math.random() - 0.5) * (visH - 10));
         }
+
+        // Adjust center point based on the first block of the sequence (if it exists)
+        // so that the animation's "seed" lands at our chosen scx/scy.
+        const seq = this.sequence && this.sequence.length > 0 ? this.sequence : (window.matrixPatterns && window.matrixPatterns[this.name]);
+        if (seq && seq.length > 0) {
+            const firstBlock = QuantizedSequence.findFirstBlock(seq);
+            if (firstBlock) {
+                scx -= firstBlock.x;
+                scy -= firstBlock.y;
+            }
+        }
+
+        this.behaviorState.scx = scx;
+        this.behaviorState.scy = scy;
+
 
         // Procedural initialization — uses behaviorState.scx/scy set above.
         // If we loaded a sequence, _initProceduralState(true) would normally seed the grid,

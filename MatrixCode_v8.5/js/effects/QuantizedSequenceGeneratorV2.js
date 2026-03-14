@@ -118,6 +118,13 @@ class QuantizedSequenceGeneratorV2 {
         // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
         if (val !== undefined && val !== null && val !== "") return val;
 
+        // 3. Fallback to quantizedGenerateV2 for generative settings (if not already the prefix)
+        if (prefix !== 'quantizedGenerateV2') {
+            const genKey = 'quantizedGenerateV2' + keySuffix;
+            const genVal = this.config[genKey];
+            if (genVal !== undefined && genVal !== null && genVal !== "") return genVal;
+        }
+
         // Final fallback for non-inheritable but common settings
         if (keySuffix === 'BlockWidthCells') return this.config['quantizedDefaultBlockWidthCells'] ?? 4;
         if (keySuffix === 'BlockHeightCells') return this.config['quantizedDefaultBlockHeightCells'] ?? 4;
@@ -1507,7 +1514,7 @@ class QuantizedSequenceGeneratorV2 {
         const pref = this.configPrefix;
         const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         
-        if (!this.config[pref + 'EnableSyncSubLayers'] && !this.config.quantizedGenerateV2EnableSyncSubLayers && !usePromotion) return;
+        if (!this._getConfig('EnableSyncSubLayers') && !usePromotion) return;
         
         // Use growTimer as frame equivalent and activeBlocks.length + id for change tracking
         if (this._syncFrame === this.behaviorState.growTimer) return;

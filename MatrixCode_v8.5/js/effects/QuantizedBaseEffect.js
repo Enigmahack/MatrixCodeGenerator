@@ -264,6 +264,20 @@ class QuantizedBaseEffect extends AbstractEffect {
     _warn(...args) { if (this.c.state.logErrors) console.warn(...args); }
     _error(...args) { if (this.c.state.logErrors) console.error(...args); }
 
+
+    _getGenConfig(keySuffix) {
+        const val = this.getConfig(keySuffix);
+        if (val !== null && val !== undefined && val !== "") return val;
+        
+        if (this.configPrefix !== 'quantizedGenerateV2') {
+            const genKey = 'quantizedGenerateV2' + keySuffix;
+            const genVal = this.c.state[genKey];
+            if (genVal !== undefined && genVal !== null && genVal !== "") return genVal;
+        }
+        
+        return null;
+    }
+
     getConfig(keySuffix) {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
         const isInheritable = QuantizedInheritableSettings.some(s => s.id === keySuffix);
@@ -2305,7 +2319,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const getGenConfig = (key) => {
             const val = this.getConfig(key);
             if (val !== undefined) return val;
-            return s['quantizedGenerateV2' + key];
+            return this._getGenConfig(key);
         };
 
         const mode = getGenConfig('Mode') || 'default';
@@ -2586,7 +2600,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // "Randomness" controls probability:
         // 0.05 (Min) -> 5% chance of temp blocks / 5% chance of retraction
         // 1.0 (Max) -> 100% chance of temp blocks / 100% chance of retraction
-        const randomness = chance ?? (this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8);
+        const randomness = chance ?? (this._getGenConfig('NudgeChance') ?? 0.8);
 
         if (cycle.step === 0) {
             // STEP 0: EXPANSION
@@ -2777,7 +2791,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (targetLayer === 0) return false; // Sub-layers only
 
         const s = this.c.state;
-        const freq = s.quantizedGenerateV2ShiftFrequency || 5;
+        const freq = this._getGenConfig('ShiftFrequency') || 5;
         if (Math.random() * 10 > freq) return false;
 
         const w = this.logicGridW;
@@ -2816,7 +2830,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     maxThickness = Math.max(maxThickness, thick);
                 }
             }
-            if (maxThickness >= (s.quantizedGenerateV2ShiftMaxThickness || 5)) continue;
+            if (maxThickness >= (this._getGenConfig('ShiftMaxThickness') || 5)) continue;
 
             // 3. Find a Group (3x3, 3x2, etc.)
             const sizes = [{w:3, h:3}, {w:3, h:2}, {w:2, h:3}, {w:4, h:3}, {w:3, h:4}];
@@ -3095,7 +3109,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const pref = this.configPrefix;
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
         
-        if (!s[pref + 'EnableSyncSubLayers'] && !s.quantizedGenerateV2EnableSyncSubLayers && !usePromotion) return;
+        if (!this._getGenConfig('EnableSyncSubLayers') && !usePromotion) return;
         if (this._syncFrame === this.animFrame) return;
         if (this._lastSyncOpCount === this.maskOps.length) return;
         this._lastSyncOpCount = this.maskOps.length;
@@ -4831,15 +4845,15 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s) {
-            const startDelay = this.c.get('quantizedGenerateV2BlockSpawnerStartDelay') ?? 10;
-            const spawnRate  = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerRate') ?? 4);
+            const startDelay = this._getGenConfig('BlockSpawnerStartDelay') ?? 10;
+            const spawnRate  = Math.max(1, this._getGenConfig('BlockSpawnerRate') ?? 4);
             const layer = 1;
 
             const allowed = this._getAllowedDirs(layer);
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
-                const maxSpawn = this.c.get('quantizedGenerateV2BlockSpawnerCount') ?? 5;
+                const maxSpawn = this._getGenConfig('BlockSpawnerCount') ?? 5;
 
                 // Collect perimeter blocks
                 const perimeterBlocks = this.activeBlocks.filter(b => {
@@ -4934,9 +4948,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
 
             // 2. Despawning Logic
-            const despawnRate = Math.max(1, this.c.get('quantizedGenerateV2BlockSpawnerDespawnRate') ?? 8);
+            const despawnRate = Math.max(1, this._getGenConfig('BlockSpawnerDespawnRate') ?? 8);
             if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
-                const despawnCount = this.c.get('quantizedGenerateV2BlockSpawnerDespawnCount') ?? 2;
+                const despawnCount = this._getGenConfig('BlockSpawnerDespawnCount') ?? 2;
                 
                 // Select blocks that are connected by 2 or less edges (directions)
                 // RULE: Do not remove if two opposite edges are connected (e.g. N and S).
@@ -4980,10 +4994,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
             }
-        }, { enabled: this.c.get('quantizedGenerateV2BlockSpawnerEnabled') ?? false, label: 'Block Spawner/Despawner' });
+        }, { enabled: this._getGenConfig('BlockSpawnerEnabled') ?? false, label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s) {
-            const startDelay = this.c.get(this.configPrefix + 'SpreadingNudgeStartDelay') ?? 20;
+            const startDelay = this._getGenConfig('SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
 
             const targetLayer = 1;
@@ -4995,11 +5009,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 s.spreadingNudgeNextSpawnStep = s.spreadingNudgeNextSpawnStep || { 'V1': 0, 'V-1': 0, 'H1': 0, 'H-1': 0 };
             }
 
-            const spawnSpeed   = this.c.get(this.configPrefix + 'SpreadingNudgeSpawnSpeed') ?? 1;
-            const spreadDensity = this.c.get(this.configPrefix + 'SpreadingNudgeRange') ?? 0.5;
-            const growthChance  = this.c.get(this.configPrefix + 'SpreadingNudgeChance') ?? 0.8;
-            const maxInstances  = this.c.get(this.configPrefix + 'SpreadingNudgeMaxInstances') ?? 20;
-            const preferSymmetry = this.c.get(this.configPrefix + 'SpreadingNudgeSymmetry') ?? true;
+            const spawnSpeed   = this._getGenConfig('SpreadingNudgeSpawnSpeed') ?? 1;
+            const spreadDensity = this._getGenConfig('SpreadingNudgeRange') ?? 0.5;
+            const growthChance  = this._getGenConfig('SpreadingNudgeChance') ?? 0.8;
+            const maxInstances  = this._getGenConfig('SpreadingNudgeMaxInstances') ?? 20;
+            const preferSymmetry = this._getGenConfig('SpreadingNudgeSymmetry') ?? true;
 
             const arms = [
                 { key: 'V1',  vert: true,  side: 1,  perp: ['E', 'W'], dir: 'S' }, // South Axis -> Spawns E/W
@@ -5103,18 +5117,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                     s.spreadingNudgeNextSpawnStep[arm.key] = s.step + delay;
                 }
             }
-        }, { enabled: this.c.get(this.configPrefix + 'SpreadingNudgeEnabled') ?? false, label: 'Spreading Nudge' });
+        }, { enabled: this._getGenConfig('SpreadingNudgeEnabled') ?? false, label: 'Spreading Nudge' });
 
         // ── Shove Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s) {
-            if (!this.c.get('quantizedGenerateV2ShoveFillEnabled')) return;
-            const startDelay = this.c.get('quantizedGenerateV2ShoveFillStartDelay') ?? 20;
-            const fillRate   = Math.max(1, this.c.get('quantizedGenerateV2ShoveFillRate') ?? 4);
+            if (!this._getGenConfig('ShoveFillEnabled')) return;
+            const startDelay = this._getGenConfig('ShoveFillStartDelay') ?? 20;
+            const fillRate   = Math.max(1, this._getGenConfig('ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
 
             const targetLayer = 1;
             const allowed = this._getAllowedDirs(targetLayer);
-            const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
+            const allowAsymmetry = !!this._getGenConfig('AllowAsymmetry');
             const bs    = this.getBlockSize();
             const halfW = Math.floor(this.g.cols / bs.w / 2);
             const halfH = Math.floor(this.g.rows / bs.h / 2);
@@ -5125,7 +5139,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             s.shoveStrips = s.shoveStrips.filter(st => st.active);
 
             if (s.shoveStrips.length === 0) {
-                const qCount    = Math.min(4, parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4));
+                const qCount    = Math.min(4, parseInt(this._getGenConfig('QuadrantCount') ?? 4));
                 const availDirs = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
                 if (availDirs.length === 0) return;
                 const count = Math.min(qCount, availDirs.length);
@@ -5175,11 +5189,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 strip.leadPos += step;
             }
-        }, { enabled: this.c.get('quantizedGenerateV2ShoveFillEnabled') ?? false, label: 'Shove Fill' });
+        }, { enabled: this._getGenConfig('ShoveFillEnabled') ?? false, label: 'Shove Fill' });
 
         this.registerBehavior('hole_filler', function(s) {
-            if (!this.c.get('quantizedGenerateV2HoleFillerEnabled')) return;
-            const fillRate = Math.max(1, this.c.get('quantizedGenerateV2HoleFillerRate') ?? 1);
+            if (!this._getGenConfig('HoleFillerEnabled')) return;
+            const fillRate = Math.max(1, this._getGenConfig('HoleFillerRate') ?? 1);
             if (s.step % fillRate !== 0) return;
 
             const layer = 1;
@@ -5274,8 +5288,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _tickLayerDirs(s) {
-        const genScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
-        let userMax = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+        const genScaling = !!this._getGenConfig('GenerativeScaling');
+        let userMax = parseInt(this._getGenConfig('QuadrantCount') ?? 4);
         
         // 1. Determine Min/Max Counts based on Fill Ratio (as per instructions)
         let minCount = 1, maxCount = userMax;
@@ -5391,7 +5405,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const minL = usePromotion ? 1 : 0;
 
         // Compute per-direction boost based on canvas aspect ratio
-        const baseBoost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
+        const baseBoost = this._getGenConfig('SpineBoost') ?? 4;
         const bs = this.getBlockSize();
         const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
         const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
@@ -5420,7 +5434,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _seedStrips(s) {
         const scheduled = s.seedSchedule ? s.seedSchedule[s.step] : null;
         if (!scheduled) return;
-        const globalBoost = this.c.get('quantizedGenerateV2SpineBoost') ?? 4;
+        const globalBoost = this._getGenConfig('SpineBoost') ?? 4;
         for (const { layer, dir, originX, originY, boost } of scheduled) {
             this.actionBuffer.push({ layer, fn: () => {
                 const strip = this._createStrip(layer, dir, originX, originY);
@@ -5447,8 +5461,8 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _tickStrips(s) {
-        const allowAsymmetry = !!this.c.get('quantizedGenerateV2AllowAsymmetry');
-        const useGenerativeScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+        const allowAsymmetry = !!this._getGenConfig('AllowAsymmetry');
+        const useGenerativeScaling = !!this._getGenConfig('GenerativeScaling');
 
         if (allowAsymmetry) {
             if (!s.deferredCols) s.deferredCols = new Map();
@@ -5474,7 +5488,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        s.allowNudges = !!this.c.get('quantizedGenerateV2L3AllowNudges');
+        s.allowNudges = !!this._getGenConfig('L3AllowNudges');
 
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
@@ -5568,7 +5582,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
         const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
 
-        if (this.c.get('quantizedGenerateV2GenerativeScaling')) {
+        if (this._getGenConfig('GenerativeScaling')) {
             if (strip.isExpansion || strip.isSpine) {
                 const ratio = visW / visH;
                 // Double-growth based on aspect ratio to ensure expansion reaches all edges roughly together.
@@ -5589,9 +5603,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             return { bw: 1, bh: 1 };
         }
 
-        const fillThreshold = this.c.get('quantizedGenerateV2FillThreshold') ?? 0.33;
+        const fillThreshold = this._getGenConfig('FillThreshold') ?? 0.33;
         if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
-        const maxScale = this.c.get('quantizedGenerateV2MaxBlockScale') ?? 3;
+        const maxScale = this._getGenConfig('MaxBlockScale') ?? 3;
         const halfW = Math.floor(visW / 2);
         const halfH = Math.floor(visH / 2);
         const ox = strip.originX, oy = strip.originY, dir = strip.direction;
@@ -5672,11 +5686,11 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _expandInsideOut(s) {
-        if (!this.c.get('quantizedGenerateV2InsideOutEnabled')) return;
-        const delay = this.c.get('quantizedGenerateV2InsideOutDelay') ?? 6;
-        let bucketPeriod = Math.max(1, this.c.get('quantizedGenerateV2InsideOutStepsBetweenBuckets') ?? 3);
+        if (!this._getGenConfig('InsideOutEnabled')) return;
+        const delay = this._getGenConfig('InsideOutDelay') ?? 6;
+        let bucketPeriod = Math.max(1, this._getGenConfig('InsideOutStepsBetweenBuckets') ?? 3);
 
-        const genScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+        const genScaling = !!this._getGenConfig('GenerativeScaling');
         if (genScaling) {
             // Adjust density by reducing steps between buckets instead of increasing block size.
             // Reduce period by 1-2 steps based on current fill ratio to increase density.
@@ -5686,7 +5700,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
 
-        const bucketSize = Math.max(1, this.c.get('quantizedGenerateV2InsideOutBucketSize') ?? 3);
+        const bucketSize = Math.max(1, this._getGenConfig('InsideOutBucketSize') ?? 3);
         const bs = this.getBlockSize();
         const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
         const edgeBuf = 2;
@@ -5870,7 +5884,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             s.pattern = this._generateRandomPattern();
             s.pausePattern = this._generateDistinctPattern(s.pattern);
             if (!s.layerDirs) {
-                const qCount = parseInt(this.c.get('quantizedGenerateV2QuadrantCount') ?? 4);
+                const qCount = parseInt(this._getGenConfig('QuadrantCount') ?? 4);
                 const qMaxLayer = this._getMaxLayer();
                 const qBaseLife = 4 + Math.floor(Math.random() * 3);
                 const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
@@ -5902,10 +5916,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._seedStrips(s);
 
         // PERMANENT CORE BEHAVIOR: Main Nudge Growth
-        if (this.c.get('quantizedGenerateV2NudgeEnabled') !== false) {
-            const nudgeStartDelay = this.c.get('quantizedGenerateV2NudgeStartDelay') ?? 2;
+        if (this._getGenConfig('NudgeEnabled') !== false) {
+            const nudgeStartDelay = this._getGenConfig('NudgeStartDelay') ?? 2;
             if (s.step >= nudgeStartDelay) {
-                const nudgeChance = this.c.get('quantizedGenerateV2NudgeChance') ?? 0.8;
+                const nudgeChance = this._getGenConfig('NudgeChance') ?? 0.8;
                 if (Math.random() <= nudgeChance) {
                     const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
                     this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);

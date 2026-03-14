@@ -26,8 +26,8 @@ class QuantizedSequence {
     executeStepOps(fx, step, startFrameOverride) {
         if (!step || !fx.logicGridW) return;
 
-        const cx = Math.floor(fx.logicGridW / 2);
-        const cy = Math.floor(fx.logicGridH / 2);
+        const cx = Math.floor(fx.logicGridW / 2) + (fx.behaviorState?.scx || 0);
+        const cy = Math.floor(fx.logicGridH / 2) + (fx.behaviorState?.scy || 0);
         const now = startFrameOverride !== undefined ? startFrameOverride : fx.animFrame;
         
         const ctx = {
@@ -85,6 +85,10 @@ class QuantizedSequence {
         let i = 0;
         while (i < ops.length) {
             const opData = ops[i];
+            if (opData === null || opData === undefined) {
+                i++;
+                continue;
+            }
             if (typeof opData === 'number') {
                 i = this._decodeNumericOp(fx, ops, i, ctx);
             } else {
@@ -96,6 +100,7 @@ class QuantizedSequence {
 
     _decodeNumericOp(fx, step, i, ctx) {
         const opCode = step[i++];
+        if (opCode === null || opCode === undefined) return i;
         const { now } = ctx;
 
         switch (opCode) {
@@ -137,6 +142,7 @@ class QuantizedSequence {
     }
 
     _executeSingleOp(fx, opData, ctx) {
+        if (!opData) return;
         if (opData.op === 'group' && opData.ops) {
             this._executeOps(fx, opData.ops, ctx);
             return;
@@ -236,6 +242,45 @@ class QuantizedSequence {
             fx._nudge(dx, dy, w, h, face, layer, multiLayer);
         }
         fx.animFrame = oldFrame;
+    }
+
+    /**
+     * Finds the first block coordinates in the first step of the sequence.
+     */
+    static findFirstBlock(sequence) {
+        if (!sequence || sequence.length === 0) return null;
+        const firstStep = sequence[0];
+        if (!firstStep || firstStep.length === 0) return null;
+
+        if (typeof firstStep[0] === 'number') {
+            // Numeric format: scan for first add-type op
+            let i = 0;
+            while (i < firstStep.length) {
+                const op = firstStep[i++];
+                if (op === 1 || op === 6 || op === 8 || op === 10) { // ADD, SMART, ADD_L, SMART_L
+                    return { x: firstStep[i], y: firstStep[i+1] };
+                } else if (op === 3 || op === 9) { // RECT, RECT_L
+                    return { x: firstStep[i], y: firstStep[i+1] };
+                } else if (op === 2) { // REM (mask)
+                    i += 3;
+                } else if (op === 7 || op === 11) { // REM_BLOCK, REM_L
+                    if (op === 11) i += 5; // x1, y1, x2, y2, l
+                    else i += 4; // x1, y1, x2, y2
+                } else if (op === 12 || op === 13) { // NUDGE
+                    i += 6;
+                }
+            }
+        } else {
+            // Object format
+            for (const op of firstStep) {
+                if (!op) continue;
+                if (op.op === 'add' || op.op === 'addRect' || op.op === 'addBlock' || op.op === 'addSmart') {
+                    const args = op.args || (Array.isArray(op) ? op.slice(1) : []);
+                    return { x: args[0], y: args[1] };
+                }
+            }
+        }
+        return null;
     }
 
     /**
