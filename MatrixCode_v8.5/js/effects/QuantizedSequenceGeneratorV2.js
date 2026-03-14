@@ -35,6 +35,7 @@ class QuantizedSequenceGeneratorV2 {
         this.promotionGrid = new Uint8Array(this.logicGridW * this.logicGridH).fill(0);
 
         this.strips = new Map();
+        this.finishedBranches = new Set();
         this._stripNextId = 0;
         this._blockNextId = 0;
         this.activeBlocks = [];
@@ -1415,30 +1416,37 @@ class QuantizedSequenceGeneratorV2 {
         }
     }
     _promoteLayer1Blocks() {
-        const w = this.logicGridW;
-        if (!w || !this.layerGrids[0] || !this.layerGrids[1]) return;
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h || !this.layerGrids[0] || !this.layerGrids[1]) return;
         
         const l0 = this.layerGrids[0];
+        const l1 = this.layerGrids[1];
         const cx = this.gridCX, cy = this.gridCY;
+
+        let promotedCount = 0;
 
         // Optimized: Iterate over active L1 blocks instead of the whole grid
         for (let i = 0; i < this.activeBlocks.length; i++) {
             const b = this.activeBlocks[i];
             if (b.layer !== 1) continue;
             
-            const gx1 = cx + b.x, gy1 = cy + b.y;
-            const gx2 = gx1 + b.w - 1, gy2 = gy1 + b.h - 1;
+            const x1 = cx + b.x, y1 = cy + b.y;
+            const x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
+            const gx1 = Math.max(0, x1), gy1 = Math.max(0, y1);
+            const gx2 = Math.min(w - 1, x2), gy2 = Math.min(h - 1, y2);
 
             for (let gy = gy1; gy <= gy2; gy++) {
                 const rowOff = gy * w;
                 for (let gx = gx1; gx <= gx2; gx++) {
                     const idx = rowOff + gx;
                     // Only increment if L0 is not already occupied
-                    if (l0[idx] === -1) {
+                    if (l0[idx] === -1 && l1[idx] !== -1) {
                         this.promotionGrid[idx]++;
                         if (this.promotionGrid[idx] >= 3) {
-                            this._spawnBlock(gx - cx, gy - cy, 1, 1, 0, true, 'promotion');
-                            this.promotionGrid[idx] = 0; 
+                            if (this._spawnBlock(gx - cx, gy - cy, 1, 1, 0, true, 'promotion') !== -1) {
+                                this.promotionGrid[idx] = 0;
+                                promotedCount++;
+                            }
                         }
                     } else {
                         this.promotionGrid[idx] = 0;
@@ -1446,6 +1454,53 @@ class QuantizedSequenceGeneratorV2 {
                 }
             }
         }
+
+        if (promotedCount > 0) {
+            // Prune Layer 1 activeBlocks that are fully promoted (matching live path)
+            this.activeBlocks = this.activeBlocks.filter(b => {
+                if (b.layer !== 1) return true;
+                for (let iy = 0; iy < b.h; iy++) {
+                    for (let ix = 0; ix < b.w; ix++) {
+                        const gx = cx + b.x + ix, gy = cy + b.y + iy;
+                        if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
+                            if (l1[gy * w + gx] !== -1 && l0[gy * w + gx] === -1) return true;
+                        }
+                    }
+                }
+                return false; 
+            });
+        }
+    }
+
+    _isProceduralFinished() {
+        // 1. Check axis points (fast)
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = this.gridCX, cy = this.gridCY;
+
+        const check = (bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return true;
+            for (let l = 0; l < 4; l++) {
+                if (this.layerGrids[l][gy * w + gx] !== -1) return true;
+            }
+            return false;
+        };
+
+        const bs = this._getBlockSize();
+        const halfVisibleW = Math.floor(this.cols / bs.w / 2);
+        const halfVisibleH = Math.floor(this.rows / bs.h / 2);
+
+        const hitN = check(0, -halfVisibleH);
+        const hitS = check(0, halfVisibleH);
+        const hitW = check(-halfVisibleW, 0);
+        const hitE = check(halfVisibleW, 0);
+
+        // 2. If axes reached, perform full visible coverage check
+        if (hitN && hitS && hitW && hitE) {
+            return this._isCanvasFullyCovered();
+        }
+
+        return false;
     }
 
     _syncSubLayers() {
@@ -1602,6 +1657,8 @@ class QuantizedSequenceGeneratorV2 {
      * @returns {boolean} True if generation is complete.
      */
     generateStep() {
+        if (this._isProceduralFinished()) return true;
+
         const s = this.behaviorState;
         this.currentStepOps = [];
         
@@ -1649,8 +1706,8 @@ class QuantizedSequenceGeneratorV2 {
             }
             s.growTimer++;
             
-            // Heuristic for completion
-            if (s.fillRatio > 0.98 && this.strips.size === 0) return true;
+            // Completion check (matching live path)
+            if (this._isProceduralFinished() && this.strips.size === 0) return true;
             
             if (logicalStepPerformed) break;
         }
@@ -1663,12 +1720,22 @@ class QuantizedSequenceGeneratorV2 {
         const visW = Math.max(1, Math.floor(this.cols / bs.w));
         const visH = Math.max(1, Math.floor(this.rows / bs.h));
         const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
-        const l0 = this.layerGrids[0];
+        const w = this.logicGridW, h = this.logicGridH;
         const cx = this.gridCX, cy = this.gridCY;
+
         for (let gy = -halfH; gy <= halfH; gy++) {
             for (let gx = -halfW; gx <= halfW; gx++) {
-                const idx = (cy + gy) * this.logicGridW + (cx + gx);
-                if (idx >= 0 && idx < l0.length && l0[idx] === -1) return false;
+                const idx = (cy + gy) * w + (cx + gx);
+                if (idx < 0 || idx >= w * h) continue;
+                
+                let occupied = false;
+                for (let l = 0; l < 4; l++) {
+                    if (this.layerGrids[l][idx] !== -1) {
+                        occupied = true;
+                        break;
+                    }
+                }
+                if (!occupied) return false;
             }
         }
         return true;
@@ -1900,6 +1967,16 @@ class QuantizedSequenceGeneratorV2 {
             s.seedSchedule = this._generateSeedSchedule(s.scx ?? 0, s.scy ?? 0);
             s.insideOutWave = 1;
             if (this.growthPool.size === 0) this._initBehaviors();
+        }
+
+        if (this.activeBlocks.length === 0) {
+            const ox = s.scx ?? 0, oy = s.scy ?? 0;
+            const maxLayer = this._getMaxLayer();
+            const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+            for (let l = 0; l <= maxLayer; l++) {
+                if (usePromotion && l !== 1) continue;
+                this._spawnBlock(ox, oy, 1, 1, l, false, 'reseed');
+            }
         }
 
         this._tickLayerDirs(s);
