@@ -43,6 +43,7 @@ class QuantizedSequenceGeneratorV2 {
         this.actionQueues = new Map();
         this.growthPool = new Map();
         this._currentStepActions = [];
+        this._bufferPool = {};
 
         this.behaviorState = {
             step: 0,
@@ -121,6 +122,13 @@ class QuantizedSequenceGeneratorV2 {
         if (keySuffix === 'BlockHeightCells') return this.config['quantizedBlockHeightCells'] ?? 4;
 
         return null;
+    }
+
+    _getBuffer(key, length, type = Uint8Array) {
+        if (!this._bufferPool[key] || this._bufferPool[key].length !== length) {
+            this._bufferPool[key] = new type(length);
+        }
+        return this._bufferPool[key];
     }
 
     _init() {
@@ -580,7 +588,7 @@ class QuantizedSequenceGeneratorV2 {
     _getMaxLayer() {
         let maxLayer = this._getConfig('LayerCount');
         if (maxLayer === undefined || maxLayer === null) maxLayer = 0;
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (usePromotion && (maxLayer === undefined || maxLayer === null || maxLayer < 1)) return 1;
         return maxLayer;
     }
@@ -822,7 +830,7 @@ class QuantizedSequenceGeneratorV2 {
             schedule[step].push({ layer, dir, originX: scx, originY: scy, boost: dirBoost[dir] });
         };
 
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode'));
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         const minL = usePromotion ? 1 : 0;
         const endL = Math.min(1, maxLayer);
 
@@ -1191,7 +1199,7 @@ class QuantizedSequenceGeneratorV2 {
     _spawnBlock(x, y, w, h, layer, bypassOccupancy = false, source = null) {
         // Principle #4: Disable spawning on Layer 0 if promotion is enabled
         // EXCEPT if it's a promotion/forced spawn (indicated by bypassOccupancy)
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (!bypassOccupancy && layer === 0 && usePromotion) {
              return -1;
         }
@@ -1220,14 +1228,8 @@ class QuantizedSequenceGeneratorV2 {
                 const idx = rowOff + gx;
                 grid[idx] = id;
                 
-                // Optimized Sync: If spawning on L0, reflect in L1 if it's empty
-                if (layer === 0) {
-                    const l1 = this.layerGrids[1];
-                    if (l1 && l1[idx] === -1) l1[idx] = id;
-                    
-                    // Optimized Promotion: Spawn on L0 resets promotion counter
-                    if (this.promotionGrid) this.promotionGrid[idx] = 0;
-                }
+                // Optimized Promotion: Spawn on L0 resets promotion counter
+                if (layer === 0 && this.promotionGrid) this.promotionGrid[idx] = 0;
             }
         }
         this.currentStepOps.push(['addBlock', x1, y1, x2, y2, layer, 0, true]);
@@ -1257,12 +1259,6 @@ class QuantizedSequenceGeneratorV2 {
                 const idx = rowOff + gx;
                 grid[idx] = -1;
 
-                // Optimized Sync: If removing from L0, clear from L1 ONLY if it was synced from this block
-                if (layer === 0) {
-                    const l1 = this.layerGrids[1];
-                    if (l1 && l1[idx] === bid) l1[idx] = -1;
-                }
-                
                 // Optimized Promotion: If removing from L1, reset promotion counter
                 if (layer === 1 && this.promotionGrid) {
                     this.promotionGrid[idx] = 0;
@@ -1453,8 +1449,67 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _syncSubLayers() {
-        // Optimized: Synchronization now happens inside _spawnBlock and _removeBlock
-        // to avoid expensive O(W*H) full-grid scans every step.
+        const pref = this.configPrefix;
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        
+        if (!this.config[pref + 'EnableSyncSubLayers'] && !this.config.quantizedGenerateV2EnableSyncSubLayers && !usePromotion) return;
+        
+        // Use growTimer as frame equivalent and activeBlocks.length + id for change tracking
+        if (this._syncFrame === this.behaviorState.growTimer) return;
+        const stateKey = this.activeBlocks.length + '_' + this._blockNextId;
+        if (this._lastSyncState === stateKey) return;
+        
+        this._lastSyncState = stateKey;
+        this._syncFrame = this.behaviorState.growTimer;
+
+        const maxLayer = this._getMaxLayer();
+        if (maxLayer < 1) return;
+
+        const w = this.logicGridW, h = this.logicGridH, l0Grid = this.layerGrids[0];
+        if (!l0Grid) return;
+
+        const cx = this.gridCX, cy = this.gridCY;
+        const syncGrid = this._getBuffer('syncGrid', w * h, Uint8Array);
+        syncGrid.fill(0);
+
+        for (let i = 0; i < l0Grid.length; i++) if (l0Grid[i] !== -1) syncGrid[i] = 1;
+
+        const rects = [];
+        for (let gy = 0; gy < h; gy++) {
+            const rowOffBase = gy * w;
+            for (let gx = 0; gx < w; gx++) {
+                if (syncGrid[rowOffBase + gx] === 1) {
+                    let rw = 0; while (gx + rw < w && syncGrid[rowOffBase + gx + rw] === 1) rw++;
+                    let rh = 1;
+                    while (gy + rh < h) {
+                        let lineFull = true;
+                        const targetRowOff = (gy + rh) * w;
+                        for (let ix = 0; ix < rw; ix++) if (syncGrid[targetRowOff + gx + ix] !== 1) { lineFull = false; break; }
+                        if (!lineFull) break;
+                        rh++;
+                    }
+                    rects.push({ x: gx - cx, y: gy - cy, w: rw, h: rh });
+                    for (let iy = 0; iy < rh; iy++) {
+                        const markRowOff = (gy + iy) * w;
+                        for (let ix = 0; ix < rw; ix++) syncGrid[markRowOff + gx + ix] = 0;
+                    }
+                }
+            }
+        }
+
+        for (const r of rects) {
+            const rx = cx + r.x, ry = cy + r.y;
+            for (let l = 1; l <= maxLayer; l++) {
+                const targetGrid = this.layerGrids[l];
+                let fullyCovered = true;
+                for (let iy = 0; iy < r.h; iy++) {
+                    const rowOff = (ry + iy) * w;
+                    for (let ix = 0; ix < r.w; ix++) if (targetGrid[rowOff + rx + ix] === -1) { fullyCovered = false; break; }
+                    if (!fullyCovered) break;
+                }
+                if (!fullyCovered) this._spawnBlock(r.x, r.y, r.w, r.h, l, true, 'sync');
+            }
+        }
     }
 
     _updateAxisMaxDist(s) {
@@ -1568,7 +1623,7 @@ class QuantizedSequenceGeneratorV2 {
                 this._syncSubLayers();
 
                 // Promotion check (matches live path)
-                const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+                const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
                 if (usePromotion) {
                     this._promoteLayer1Blocks();
                 }
@@ -1632,7 +1687,7 @@ class QuantizedSequenceGeneratorV2 {
         this.currentStepOps = [];
         const s = this.behaviorState;
         const maxLayer = this._getMaxLayer();
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || true);
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         for (let l = 0; l <= maxLayer; l++) {
             if (usePromotion && l !== 1) continue;
             this._spawnBlock(s.scx, s.scy, 1, 1, l, true);
