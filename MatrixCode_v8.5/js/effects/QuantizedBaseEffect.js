@@ -97,7 +97,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             fillRatio: 0,
             scx: 0,
             scy: 0,
-            hitEdge: false,
+            hitEdge: { N: false, S: false, E: false, W: false },
             insideOutWave: 1,
             deferredRows: new Map(),
             spreadingNudgeSymmetryQueue: []
@@ -2247,37 +2247,42 @@ class QuantizedBaseEffect extends AbstractEffect {
         let promotedCount = 0;
         let candidatesCount = 0;
 
-        for (let gy = 0; gy < h; gy++) {
-            const rowOff = gy * w;
-            for (let gx = 0; gx < w; gx++) {
-                const idx = rowOff + gx;
-                const isL1 = l1[idx] !== -1;
-                const isL0 = l0[idx] !== -1;
+        // Optimized: Iterate over active L1 blocks instead of the whole grid
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            if (b.layer !== 1) continue;
+            
+            const gx1 = Math.max(0, cx + b.x), gy1 = Math.max(0, cy + b.y);
+            const gx2 = Math.min(w - 1, gx1 + b.w - 1), gy2 = Math.min(h - 1, gy1 + b.h - 1);
 
-                if (isL1 && !isL0) {
-                    candidatesCount++;
-                    this.promotionGrid[idx]++;
-                    if (this.promotionGrid[idx] >= 3) {
-                        const bx = gx - cx, by = gy - cy;
-                        
-                        // Promotion Event: Spawn L0 (1x1)
-                        // bypassOccupancy=true is CRITICAL here to bypass the Layer 0 spawning guard
-                        const id = this._spawnBlock(bx, by, 1, 1, 0, false, 0, true, true, true, false, true);
-                        if (id !== -1) {
-                            // Layer 1 is preserved (discovery layer stays intact)
-                            this.promotionGrid[idx] = 0; 
-                            this._gridsDirty = true;
-                            promotedCount++;
+            for (let gy = gy1; gy <= gy2; gy++) {
+                const rowOff = gy * w;
+                for (let gx = gx1; gx <= gx2; gx++) {
+                    const idx = rowOff + gx;
+                    const isL1 = l1[idx] !== -1;
+                    const isL0 = l0[idx] !== -1;
+
+                    if (isL1 && !isL0) {
+                        candidatesCount++;
+                        this.promotionGrid[idx]++;
+                        if (this.promotionGrid[idx] >= 3) {
+                            // Promotion Event: Spawn L0 (1x1)
+                            const id = this._spawnBlock(gx - cx, gy - cy, 1, 1, 0, false, 0, true, true, true, false, true);
+                            if (id !== -1) {
+                                this.promotionGrid[idx] = 0; 
+                                this._gridsDirty = true;
+                                promotedCount++;
+                            }
                         }
+                    } else {
+                        this.promotionGrid[idx] = 0;
                     }
-                } else {
-                    this.promotionGrid[idx] = 0;
                 }
             }
         }
         
         if (this.c.state.logErrors && this.animFrame % 60 === 0) {
-            this._log(`[Promotion] Loop: candidates=${candidatesCount}, promotedInStep=${promotedCount}, logicW=${w}, logicH=${h}`);
+            this._log(`[Promotion] Optimized: candidates=${candidatesCount}, promotedInStep=${promotedCount}, logicW=${w}, logicH=${h}`);
         }
 
         if (promotedCount > 0) {
@@ -3360,7 +3365,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         for (let gy = minY; gy <= maxY; gy++) {
             const rowOff = gy * blocksX;
             for (let bx = minX; bx <= maxX; bx++) {
-                targetGrid[rowOff + bx] = value;
+                const idx = rowOff + bx;
+                targetGrid[idx] = value;
+                
+                // Optimized Promotion: Cleanup promotion counters
+                if (this.promotionGrid) {
+                    if (layer === 1 && value === -1) {
+                        this.promotionGrid[idx] = 0;
+                    } else if (layer === 0 && value !== -1) {
+                        this.promotionGrid[idx] = 0;
+                    }
+                }
             }
         }
         
@@ -4835,14 +4850,29 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Collect perimeter blocks
                 const perimeterBlocks = this.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
+
+                    // NEW: Ensure seed parents are connected to the spines (X or Y axis)
+                    const onYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
+                    const onXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
+                    if (!onXSpine && !onYSpine) return false;
+
                     const neighbors = [
                         {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
                         {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, y: b.y, dir: 'E'}  // W, E
                     ];
-                    return neighbors.some(n => (!allowed || allowed.has(n.dir)) && !this._isOccupied(n.x, n.y, layer));
+                    // RELAXATION: A block is a candidate if it has ANY free neighbor, 
+                    // and we'll filter the spawn side later based on quadrants.
+                    return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
                 });
 
                 if (perimeterBlocks.length > 0) {
+                    // NEW: Strict restriction - Prefer empty blocks closer to the initial spawn block first
+                    perimeterBlocks.sort((a, b) => {
+                        const distA = Math.abs(a.x + a.w/2 - s.scx) + Math.abs(a.y + a.h/2 - s.scy);
+                        const distB = Math.abs(b.x + b.w/2 - s.scx) + Math.abs(b.y + b.h/2 - s.scy);
+                        return distA - distB;
+                    });
+
                     const sizes = [
                         {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
                         {w: 1, h: 3}, {w: 3, h: 1}
@@ -4850,10 +4880,23 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     let spawnedCount = 0;
                     for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
-                        const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
+                        // Strict preference: Iterate through sorted parents. Try up to 2 attempts per parent before moving on.
+                        const parent = perimeterBlocks[Math.floor(i / 2) % perimeterBlocks.length];
+                        
+                        // Determine parent's quadrant relative to spawn center
+                        const pdx = parent.x - s.scx, pdy = parent.y - s.scy;
+                        const parentQuad = Math.abs(pdx) > Math.abs(pdy) ? (pdx > 0 ? 'E' : 'W') : (pdy > 0 ? 'S' : 'N');
+
                         const size = sizes[Math.floor(Math.random() * sizes.length)];
                         
-                        const availSides = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
+                        // RELAXATION: Allow any side if it's allowed OR if the parent is in an allowed quadrant (branching)
+                        const availSides = ['N', 'S', 'E', 'W'].filter(d => {
+                            if (!allowed) return true;
+                            if (allowed.has(d)) return true;
+                            if (allowed.has(parentQuad)) return true; // Branching within allowed quadrant
+                            return false;
+                        });
+
                         if (availSides.length === 0) continue;
                         const side = availSides[Math.floor(Math.random() * availSides.length)];
                         let nx, ny;
@@ -4874,9 +4917,9 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                         if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
 
-                        // NEW: Occupancy Check (Only spawn in unoccupied blocks)
+                        // NEW: Occupancy Check (Only check layers 0 and 1 to prevent decorative layers from blocking discovery)
                         let isAreaFree = true;
-                        for (let ly = 0; ly < this.layerGrids.length; ly++) {
+                        for (let ly = 0; ly <= 1; ly++) {
                             for (let gy = ny; gy < ny + size.h; gy++) {
                                 for (let gx = nx; gx < nx + size.w; gx++) {
                                     if (this._isOccupied(gx, gy, ly)) { isAreaFree = false; break; }
@@ -4976,10 +5019,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const pending = [];
                 for (const item of s.spreadingNudgeSymmetryQueue) {
                     if (s.step >= item.stepToSpawn) {
-                        if (!allowed || allowed.has(item.dir)) {
+                        if (!allowed || allowed.has(item.dir) || (item.arm && allowed.has(item.arm))) {
                             const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
                             strip.isNudge = item.isNudge || false;
                             strip.bypassOccupancy = item.bypassOccupancy || false;
+                            strip.arm = item.arm;
                             strip.stepPhase = Math.floor(Math.random() * 6);
                         }
                     } else {
@@ -5024,14 +5068,26 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: 'N' }, s.fillRatio);
                     this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.scx, ay - s.scy, cycle, growthChance);
 
+                    if (preferSymmetry) {
+                        const mirAx = arm.vert ? ax : s.scx - (ax - s.scx);
+                        const mirAy = arm.vert ? s.scy - (ay - s.scy) : ay;
+                        const mirCycle = s.spreadingNudgeCycles[arm.key + '_mir'] || { step: 0, lastTempBlock: null };
+                        s.spreadingNudgeCycles[arm.key + '_mir'] = mirCycle;
+                        this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, mirAx - s.scx, mirAy - s.scy, mirCycle, growthChance);
+                    }
+
                     // Spawn perpendicular "solid" strips to fill the area
                     if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
                         for (const dir of arm.perp) {
                             if (activePerpStrips >= maxInstances) break;
+                            // RELAXATION: Allow spawning perp strips if the parent arm is allowed
+                            if (allowed && !allowed.has(dir) && !allowed.has(arm.dir)) continue;
+
                             const strip = this._createStrip(targetLayer, dir, ax, ay);
                             strip.isNudge = false; // Solid growth
                             strip.bypassOccupancy = true; // No holes, uninterrupted
                             strip.growCount = 0;
+                            strip.arm = arm.dir; // Mark as branch of this arm
                             activePerpStrips++;
 
                             if (preferSymmetry) {
@@ -5040,7 +5096,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                                 const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
                                 s.spreadingNudgeSymmetryQueue.push({
                                     x: mirX, y: mirY, layer: targetLayer, dir: mirDir,
-                                    isNudge: false, bypassOccupancy: true,
+                                    isNudge: false, bypassOccupancy: true, arm: arm.dir,
                                     stepToSpawn: s.step + 1 + Math.floor(Math.random() * 3)
                                 });
                             }
@@ -5133,9 +5189,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.step % fillRate !== 0) return;
 
             const layer = 1;
-            const allowed = this._getAllowedDirs(layer);
             const w = this.logicGridW, h = this.logicGridH;
-            const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
             const grid = this.layerGrids[layer];
             if (!grid) return;
 
@@ -5147,19 +5201,23 @@ class QuantizedBaseEffect extends AbstractEffect {
             const q = s.holeQIdx;
             s.holeQIdx = (s.holeQIdx + 1) % 4;
 
-            const qDirs = ['N', 'E', 'S', 'W'];
-            if (allowed && !allowed.has(qDirs[q])) return; // QUADRANT CHECK
-
             let minX = (q === 0 || q === 3) ? -xVis : 0;
             let maxX = (q === 0 || q === 3) ? 0 : xVis;
             let minY = (q === 0 || q === 1) ? -yVis : 0;
             let maxY = (q === 0 || q === 1) ? 0 : yVis;
-            // ... (rest of hole_filler logic remains same)
+
             const scanMinX = -xVis, scanMaxX = xVis;
             const scanMinY = -yVis, scanMaxY = yVis;
             const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
             const outsideMap = new Uint8Array(scanW * scanH);
             const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
+
+            const isOccupiedAny = (bx, by) => {
+                for (let l = 0; l < this.layerGrids.length; l++) {
+                    if (this._isOccupied(bx, by, l)) return true;
+                }
+                return false;
+            };
 
             const queue = new Int32Array(scanW * scanH);
             let head = 0, tail = 0;
@@ -5167,7 +5225,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const add = (bx, by) => {
                 if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
                 const idx = getIdx(bx, by);
-                if (outsideMap[idx] === 0 && !this._isOccupied(bx, by, layer)) {
+                if (outsideMap[idx] === 0 && !isOccupiedAny(bx, by)) {
                     outsideMap[idx] = 1;
                     queue[tail++] = idx;
                 }
@@ -5185,10 +5243,22 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
-                    if (!this._isOccupied(bx, by, layer) && outsideMap[getIdx(bx, by)] === 0) {
-                        this.actionBuffer.push({ layer, fn: () => {
-                            this._spawnBlock(bx, by, 1, 1, layer, false, 0, true, true, true, false, true);
-                        }});
+                    if (!this._isOccupied(bx, by, layer)) {
+                        const isEnclosed = outsideMap[getIdx(bx, by)] === 0;
+                        
+                        // Also check for "Small Gaps" (3 or 4 cardinal neighbors are full on any layer)
+                        let neighborCount = 0;
+                        if (isOccupiedAny(bx - 1, by)) neighborCount++;
+                        if (isOccupiedAny(bx + 1, by)) neighborCount++;
+                        if (isOccupiedAny(bx, by - 1)) neighborCount++;
+                        if (isOccupiedAny(bx, by + 1)) neighborCount++;
+                        const isSmallGap = (neighborCount >= 3);
+
+                        if (isEnclosed || isSmallGap) {
+                            this.actionBuffer.push({ layer, fn: () => {
+                                this._spawnBlock(bx, by, 1, 1, layer, false, 0, true, true, true, false, true);
+                            }});
+                        }
                     }
                 }
             }
@@ -5283,6 +5353,25 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
     }
 
+    _generateInsideOutPattern() {
+        const p = [true, true, true];
+        const p1 = Math.floor(Math.random() * 3);
+        p[p1] = false;
+        // 50% chance for a second pause in the 3-step segment
+        if (Math.random() < 0.5) {
+            let p2;
+            do { p2 = Math.floor(Math.random() * 3); } while (p2 === p1);
+            p[p2] = false;
+        }
+        return p;
+    }
+
+    _generateInsideOutDistinctPattern(existing) {
+        let attempt;
+        do { attempt = this._generateInsideOutPattern(); } while (attempt.join() === existing.join());
+        return attempt;
+    }
+
     _generateRandomPattern() {
         const arr = [true, true, true, false, false, false];
         for (let i = 5; i > 0; i--) {
@@ -5324,11 +5413,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
 
         const maxLayer = this._getMaxLayer();
-        if (maxLayer >= 1) {
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d, [0, 1, 2]));
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(minL, d, [3, 4, 5]));
-        } else {
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(minL, d, [0, 1, 2, 3, 4, 5]));
+        // Seed all layers in the schedule to ensure they start connected to the spines
+        for (let l = minL; l <= maxLayer; l++) {
+            const stepOffset = (l === minL || l === 1) ? 0 : (l * 2);
+            [...dirs].sort(() => Math.random() - 0.5).forEach(d => {
+                addToSchedule(l, d, [stepOffset, stepOffset + 1, stepOffset + 2]);
+            });
         }
         return schedule;
     }
@@ -5342,6 +5432,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const strip = this._createStrip(layer, dir, originX, originY);
                 strip.isSpine = true;
                 strip.boostSteps = boost ?? globalBoost;
+                strip.pattern = this._generateInsideOutPattern();
+                strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
             }});
         }
     }
@@ -5353,7 +5445,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const strip = {
             id, layer, direction: dir, originX, originY, headX: originX, headY: originY,
             pattern: this._getStepPattern(), pausePattern: this._getPausePattern(),
-            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: []
+            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: [],
+            startDelay: 0
         };
         this.strips.set(id, strip);
         return strip;
@@ -5388,11 +5481,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
         
         s.allowNudges = !!this.c.get('quantizedGenerateV2L3AllowNudges');
+
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
-            
+
+            if (strip.startDelay > 0) {
+                strip.startDelay--;
+                continue;
+            }
+
             const allowed = this._getAllowedDirs(strip.layer);
-            if (allowed && !allowed.has(strip.direction)) continue; // QUADRANT RESTRICTION
+            // RELAXATION: Allow growth if the direction IS allowed OR if the strip belongs to an allowed ARM (quadrant branch).
+            const isBranchOfAllowedArm = strip.arm && allowed && allowed.has(strip.arm);
+            if (allowed && !allowed.has(strip.direction) && !isBranchOfAllowedArm) continue; // QUADRANT RESTRICTION
 
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
 
@@ -5401,17 +5502,23 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
             
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
-                strip.pattern = this._generateRandomPattern();
-                strip.pausePattern = this._generateDistinctPattern(strip.pattern);
+                if (strip.isExpansion || strip.isSpine) {
+                    strip.pattern = this._generateInsideOutPattern();
+                    strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
+                } else {
+                    strip.pattern = this._generateRandomPattern();
+                    strip.pausePattern = this._generateDistinctPattern(strip.pattern);
+                }
             }
 
             let shouldGrow = false;
             // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
-            if (strip.boostSteps > 0 && !useGenerativeScaling) { 
+            // If it's a spine, we now force it to follow the rhythmic behavior.
+            if (strip.boostSteps > 0 && !useGenerativeScaling && !strip.isSpine) { 
                 shouldGrow = true; 
                 strip.boostSteps--; 
             } else {
-                if (useGenerativeScaling && strip.growCount < 7) {
+                if (useGenerativeScaling && strip.growCount < 7 && !strip.isExpansion && !strip.isSpine) {
                     // Stage 1-2: 1 block taking 3 steps (gc 0,1)
                     // Stage 3-4: 1-2 blocks taking 2 steps (gc 2,3)
                     // Stage 5+: 1 block per step (gc 4+)
@@ -5422,7 +5529,28 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 } else {
                     const pattern = strip.paused ? strip.pausePattern : strip.pattern;
-                    shouldGrow = pattern[strip.stepPhase];
+                    const phase = (strip.isExpansion || strip.isSpine) ? (strip.stepPhase % 3) : (strip.stepPhase % pattern.length);
+                    shouldGrow = pattern[phase];
+                    if (shouldGrow && strip.isSpine && strip.boostSteps > 0) strip.boostSteps--;
+                }
+            }
+
+            if (shouldGrow && strip.isExpansion) {
+                const [dx, dy] = this._dirDelta(strip.direction);
+                const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
+                const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
+                const scx = s.scx || 0, scy = s.scy || 0;
+                const limitN = s.axisMaxDist.N - 2, limitS = s.axisMaxDist.S - 2;
+                const limitE = s.axisMaxDist.E - 2, limitW = s.axisMaxDist.W - 2;
+
+                if (!s.hitEdge?.N && dy < 0 && (scy - nextY) > limitN) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.S && dy > 0 && (nextY - scy) > limitS) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.E && dx > 0 && (nextX - scx) > limitE) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.W && dx < 0 && (scx - nextX) > limitW) {
+                    shouldGrow = false;
                 }
             }
 
@@ -5442,23 +5570,34 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _calcBlockSize(strip, fillRatio) {
-        const useGenerativeScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
-        if (useGenerativeScaling && strip.growCount < 7) {
-            // Stage 1-2: 1 block (size 1) (gc 0,1)
-            // Stage 3-4: 1-2 blocks (size 1-2) (gc 2,3)
-            // Stage 5: 1 block (size 1) (gc 4)
-            // Stage 6-7: 1-2 blocks (size 1-2) (gc 5,6)
-            const gc = strip.growCount;
-            const size = (gc < 2 || gc === 4) ? 1 : 2;
-            return (strip.direction === 'N' || strip.direction === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        const bs = this.getBlockSize();
+        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
+
+        if (this.c.get('quantizedGenerateV2GenerativeScaling')) {
+            if (strip.isExpansion || strip.isSpine) {
+                const ratio = visW / visH;
+                // Double-growth based on aspect ratio to ensure expansion reaches all edges roughly together.
+                if (ratio > 1.05 && (strip.direction === 'E' || strip.direction === 'W')) {
+                    const baseSize = Math.floor(ratio);
+                    const chance = ratio - baseSize;
+                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
+                    return { bw: size, bh: 1 };
+                }
+                if (ratio < 0.95 && (strip.direction === 'N' || strip.direction === 'S')) {
+                    const invRatio = 1.0 / ratio;
+                    const baseSize = Math.floor(invRatio);
+                    const chance = invRatio - baseSize;
+                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
+                    return { bw: 1, bh: size };
+                }
+            }
+            return { bw: 1, bh: 1 };
         }
 
         const fillThreshold = this.c.get('quantizedGenerateV2FillThreshold') ?? 0.33;
         if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
         const maxScale = this.c.get('quantizedGenerateV2MaxBlockScale') ?? 3;
-        const bs = this.getBlockSize();
-        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
-        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
         const halfW = Math.floor(visW / 2);
         const halfH = Math.floor(visH / 2);
         const ox = strip.originX, oy = strip.originY, dir = strip.direction;
@@ -5540,10 +5679,20 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _expandInsideOut(s) {
         if (!this.c.get('quantizedGenerateV2InsideOutEnabled')) return;
-        const delay = this.c.get('quantizedGenerateV2InsideOutDelay') ?? 6, period = Math.max(1, this.c.get('quantizedGenerateV2InsideOutPeriod') ?? 3);
-        if (s.step < delay || (s.step - delay) % period !== 0) return;
+        const delay = this.c.get('quantizedGenerateV2InsideOutDelay') ?? 6;
+        let bucketPeriod = Math.max(1, this.c.get('quantizedGenerateV2InsideOutStepsBetweenBuckets') ?? 3);
 
         const genScaling = !!this.c.get('quantizedGenerateV2GenerativeScaling');
+        if (genScaling) {
+            // Adjust density by reducing steps between buckets instead of increasing block size.
+            // Reduce period by 1-2 steps based on current fill ratio to increase density.
+            const reduction = s.fillRatio < 0.4 ? 2 : (s.fillRatio < 0.7 ? 1 : 0);
+            bucketPeriod = Math.max(1, bucketPeriod - reduction);
+        }
+
+        if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
+
+        const bucketSize = Math.max(1, this.c.get('quantizedGenerateV2InsideOutBucketSize') ?? 3);
         const bs = this.getBlockSize();
         const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
         const edgeBuf = 2;
@@ -5552,72 +5701,94 @@ class QuantizedBaseEffect extends AbstractEffect {
         const minL = usePromotion ? 1 : 0;
         const endL = Math.min(1, maxLayer);
 
-        // Per-arm wave counters — ignore asymmetry, all arms start at Wave 1
-        if (!s.insideOutArmWaves) {
-            s.insideOutArmWaves = { 'N': 1, 'S': 1, 'E': 1, 'W': 1 };
-        }
+        if (!s.insideOutProgression) s.insideOutProgression = {};
 
-        const maxWave = Math.max(s.insideOutArmWaves['N'], s.insideOutArmWaves['S'], s.insideOutArmWaves['E'], s.insideOutArmWaves['W']);
-        if (maxWave > halfW + edgeBuf && maxWave > halfH + edgeBuf) return;
-
-        // Helper: Check if previous wave on this arm has placed at least one block
-        const prevWaveStarted = (arm, wave) => {
-            if (wave <= 1) return true;
+        // Helper: Check if the dependency wave (last wave of previous bucket) has started growing
+        const prevBucketStarted = (arm, baseWave) => {
+            if (baseWave <= 1) return true;
+            const depWave = baseWave - 1;
+            let foundAny = false;
             for (const strip of this.strips.values()) {
-                if (strip.isExpansion && strip.arm === arm && strip.wave === wave - 1) {
+                if (strip.isExpansion && strip.arm === arm && strip.wave === depWave) {
+                    foundAny = true;
                     if (strip.growCount > 0) return true;
                 }
             }
-            return false;
+            return !foundAny;
         };
 
-        const armsToIncrement = new Set();
-        for (let l = minL; l <= endL; l++) {
-            const allowed = this._getAllowedDirs(l);
+        for (const arm of ['N', 'S', 'E', 'W']) {
+            if (!s.insideOutProgression[arm]) {
+                s.insideOutProgression[arm] = { nextWave: 1 };
+            }
+            const prog = s.insideOutProgression[arm];
+            const baseWave = prog.nextWave;
 
-            for (const arm of ['N', 'S', 'E', 'W']) {
-                const wave = s.insideOutArmWaves[arm];
-                const [dx, dy] = this._dirDelta(arm);
-                const ox = s.scx + dx * wave, oy = s.scy + dy * wave;
+            // 1. Boundary Check for the base wave
+            const [dx, dy] = this._dirDelta(arm);
+            const bx = s.scx + dx * baseWave, by = s.scy + dy * baseWave;
+            if (Math.abs(bx - s.scx) > halfW + edgeBuf || Math.abs(by - s.scy) > halfH + edgeBuf) continue;
 
-                // 1. Quadrant Restriction: Only X quadrants updated at a time.
-                // If count < 4, only allow arms currently in the rotation.
+            // 2. Progression Check: Wait for previous bucket to establish
+            if (!prevBucketStarted(arm, baseWave)) continue;
+
+            // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
+            if (!this._isOccupied(bx, by, 0) && !this._isOccupied(bx, by, 1)) continue;
+
+            // Prepare waves for this bucket
+            const waves = [];
+            for (let i = 0; i < bucketSize; i++) waves.push(baseWave + i);
+            
+            // Shuffled variance within the bucket (if > 1, and not the first wave)
+            if (bucketSize > 1 && baseWave > 1) {
+                Utils.shuffle(waves);
+            }
+
+            let spawnedAnyInBucket = false;
+            for (let l = minL; l <= endL; l++) {
+                const allowed = this._getAllowedDirs(l);
                 if (allowed && !allowed.has(arm)) continue;
 
-                // 2. Progression Check: Don't spawn wave N until wave N-1 has actually started growing
-                if (!prevWaveStarted(arm, wave)) continue;
+                for (const wave of waves) {
+                    const ox = s.scx + dx * wave, oy = s.scy + dy * wave;
 
-                // INDEPENDENCE FIX: Removed Spine Gating.
-                // Expansion should proceed based on wave progression even if the 'axis' block 
-                // was removed or shifted by another behavior.
+                    // Wave-specific boundary check
+                    if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
 
-                // 4. Boundary Check
-                if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
+                    // Generative Scaling
+                    if (genScaling) {
+                        let activeExp = 0;
+                        for (const st of this.strips.values()) if (st.isExpansion && st.active) activeExp++;
+                        if (activeExp > (8 * (l + 1))) continue; 
+                    }
 
-                // 5. Generative Scaling: Limit density by capping active expansion strips
-                if (genScaling) {
-                    let activeExp = 0;
-                    for (const st of this.strips.values()) if (st.isExpansion && st.active) activeExp++;
-                    if (activeExp > (8 * (l + 1))) continue; 
+                    const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
+                    const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';
+
+                    const startDelay = Math.floor(Math.random() * bucketSize);
+                    const ioPattern = this._generateInsideOutPattern();
+                    const ioPausePattern = this._generateInsideOutDistinctPattern(ioPattern);
+                    this.actionBuffer.push({ layer: l, fn: () => {
+                        const s1 = this._createStrip(l, perp1, ox, oy);
+                        s1.isExpansion = true; s1.arm = arm; s1.wave = wave;
+                        s1.startDelay = startDelay;
+                        s1.pattern = ioPattern;
+                        s1.pausePattern = ioPausePattern;
+                        const s2 = this._createStrip(l, perp2, ox, oy);
+                        s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
+                        s2.startDelay = startDelay;
+                        s2.pattern = ioPattern;
+                        s2.pausePattern = ioPausePattern;
+                    }});
+                    spawnedAnyInBucket = true;
                 }
+            }
 
-                // If all checks pass, spawn the perpendicular strips
-                const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
-                const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';
-
-                this.actionBuffer.push({ layer: l, fn: () => {
-                    const s1 = this._createStrip(l, perp1, ox, oy);
-                    s1.isExpansion = true; s1.arm = arm; s1.wave = wave;
-                    const s2 = this._createStrip(l, perp2, ox, oy);
-                    s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
-                }});
-
-                armsToIncrement.add(arm);
+            // Only advance to the next bucket if we successfully attempted to spawn this one
+            if (spawnedAnyInBucket) {
+                prog.nextWave += bucketSize;
             }
         }
-
-        for (const arm of armsToIncrement) s.insideOutArmWaves[arm]++;
-        s.insideOutWave++;
     }
 
     _processIntents() {
@@ -5647,6 +5818,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
 
         return (edges.left || edges.right || edges.top || edges.bottom) ? edges : false;
+    }
+
+    _updateAxisMaxDist(s) {
+        if (!s.axisMaxDist) s.axisMaxDist = { N: 0, S: 0, E: 0, W: 0 };
+        else { s.axisMaxDist.N = 0; s.axisMaxDist.S = 0; s.axisMaxDist.E = 0; s.axisMaxDist.W = 0; }
+        
+        const scx = s.scx || 0, scy = s.scy || 0;
+        for (const strip of this.strips.values()) {
+            if (!strip.isSpine || !strip.active) continue;
+            const dx = strip.headX - scx, dy = strip.headY - scy;
+            if (strip.direction === 'N') s.axisMaxDist.N = Math.max(s.axisMaxDist.N, -dy);
+            else if (strip.direction === 'S') s.axisMaxDist.S = Math.max(s.axisMaxDist.S, dy);
+            else if (strip.direction === 'E') s.axisMaxDist.E = Math.max(s.axisMaxDist.E, dx);
+            else if (strip.direction === 'W') s.axisMaxDist.W = Math.max(s.axisMaxDist.W, -dx);
+        }
     }
 
     _updateLayerMaxDist(s) {
@@ -5679,6 +5865,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._syncSubLayers();
         
         const s = this.behaviorState;
+        this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
 
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {

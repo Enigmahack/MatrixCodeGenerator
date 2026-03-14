@@ -36,6 +36,7 @@ class QuantizedSequenceGeneratorV2 {
 
         this.strips = new Map();
         this._stripNextId = 0;
+        this._blockNextId = 0;
         this.activeBlocks = [];
         this.maskOps = [];
         this.actionBuffer = [];
@@ -179,14 +180,28 @@ class QuantizedSequenceGeneratorV2 {
 
                 const perimeterBlocks = gen.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
+
+                    // NEW: Ensure seed parents are connected to the spines (X or Y axis)
+                    const onYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
+                    const onXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
+                    if (!onXSpine && !onYSpine) return false;
+
                     const neighbors = [
                         {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
                         {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, dir: 'E'}  // W, E
                     ];
-                    return neighbors.some(n => (!allowed || allowed.has(n.dir)) && !gen._isOccupied(n.x, n.y, layer));
+                    // RELAXATION: A block is a candidate if it has ANY free neighbor
+                    return neighbors.some(n => !gen._isOccupied(n.x, n.y, layer));
                 });
 
                 if (perimeterBlocks.length > 0) {
+                    // NEW: Strict restriction - Prefer empty blocks closer to the initial spawn block first
+                    perimeterBlocks.sort((a, b) => {
+                        const distA = Math.abs(a.x + a.w/2 - s.scx) + Math.abs(a.y + a.h/2 - s.scy);
+                        const distB = Math.abs(b.x + b.w/2 - s.scx) + Math.abs(b.y + b.h/2 - s.scy);
+                        return distA - distB;
+                    });
+
                     const sizes = [
                         {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
                         {w: 1, h: 3}, {w: 3, h: 1}
@@ -194,10 +209,23 @@ class QuantizedSequenceGeneratorV2 {
 
                     let spawnedCount = 0;
                     for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
-                        const parent = perimeterBlocks[Math.floor(Math.random() * perimeterBlocks.length)];
+                        // Strict preference: Iterate through sorted parents. Try up to 2 attempts per parent before moving on.
+                        const parent = perimeterBlocks[Math.floor(i / 2) % perimeterBlocks.length];
+                        
+                        // Determine parent's quadrant relative to spawn center
+                        const pdx = parent.x - s.scx, pdy = parent.y - s.scy;
+                        const parentQuad = Math.abs(pdx) > Math.abs(pdy) ? (pdx > 0 ? 'E' : 'W') : (pdy > 0 ? 'S' : 'N');
+
                         const size = sizes[Math.floor(Math.random() * sizes.length)];
                         
-                        const availSides = ['N', 'S', 'E', 'W'].filter(d => !allowed || allowed.has(d));
+                        // RELAXATION: Allow any side if it's allowed OR if the parent is in an allowed quadrant (branching)
+                        const availSides = ['N', 'S', 'E', 'W'].filter(d => {
+                            if (!allowed) return true;
+                            if (allowed.has(d)) return true;
+                            if (allowed.has(parentQuad)) return true; // Branching within allowed quadrant
+                            return false;
+                        });
+
                         if (availSides.length === 0) continue;
                         const side = availSides[Math.floor(Math.random() * availSides.length)];
                         let nx, ny;
@@ -218,9 +246,9 @@ class QuantizedSequenceGeneratorV2 {
 
                         if (gen.checkScreenEdge(nx, ny) || gen.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
 
-                        // NEW: Occupancy Check (Only spawn in unoccupied blocks)
+                        // NEW: Occupancy Check (Only check layers 0 and 1 to prevent decorative layers from blocking discovery)
                         let isAreaFree = true;
-                        for (let ly = 0; ly < gen.layerGrids.length; ly++) {
+                        for (let ly = 0; ly <= 1; ly++) {
                             for (let gy = ny; gy < ny + size.h; gy++) {
                                 for (let gx = nx; gx < nx + size.w; gx++) {
                                     if (gen._isOccupied(gx, gy, ly)) { isAreaFree = false; break; }
@@ -472,7 +500,6 @@ class QuantizedSequenceGeneratorV2 {
             if (s.step % fillRate !== 0) return;
 
             const layer = 1;
-            const allowed = gen._getAllowedDirs(layer);
             const w = gen.logicGridW, h = gen.logicGridH;
             const grid = gen.layerGrids[layer];
             if (!grid) return;
@@ -485,9 +512,6 @@ class QuantizedSequenceGeneratorV2 {
             const q = s.holeQIdx;
             s.holeQIdx = (s.holeQIdx + 1) % 4;
 
-            const qDirs = ['N', 'E', 'S', 'W'];
-            if (allowed && !allowed.has(qDirs[q])) return; // QUADRANT CHECK
-
             let minX = (q === 0 || q === 3) ? -xVis : 0;
             let maxX = (q === 0 || q === 3) ? 0 : xVis;
             let minY = (q === 0 || q === 1) ? -yVis : 0;
@@ -499,13 +523,21 @@ class QuantizedSequenceGeneratorV2 {
             const outsideMap = new Uint8Array(scanW * scanH);
             const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
 
+            const isOccupiedAny = (bx, by) => {
+                const maxL = gen._getMaxLayer();
+                for (let l = 0; l <= maxL; l++) {
+                    if (gen._isOccupied(bx, by, l)) return true;
+                }
+                return false;
+            };
+
             const queue = new Int32Array(scanW * scanH);
             let head = 0, tail = 0;
 
             const add = (bx, by) => {
                 if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
                 const idx = getIdx(bx, by);
-                if (outsideMap[idx] === 0 && !gen._isOccupied(bx, by, layer)) {
+                if (outsideMap[idx] === 0 && !isOccupiedAny(bx, by)) {
                     outsideMap[idx] = 1;
                     queue[tail++] = idx;
                 }
@@ -523,10 +555,22 @@ class QuantizedSequenceGeneratorV2 {
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
-                    if (!gen._isOccupied(bx, by, layer) && outsideMap[getIdx(bx, by)] === 0) {
-                        gen.actionBuffer.push({ layer, fn: () => {
-                            gen._spawnBlock(bx, by, 1, 1, layer, false, null);
-                        }});
+                    if (!gen._isOccupied(bx, by, layer)) {
+                        const isEnclosed = (outsideMap[getIdx(bx, by)] === 0);
+                        
+                        // Also check for "Small Gaps" (3 or 4 cardinal neighbors are full on any layer)
+                        let neighborCount = 0;
+                        if (isOccupiedAny(bx - 1, by)) neighborCount++;
+                        if (isOccupiedAny(bx + 1, by)) neighborCount++;
+                        if (isOccupiedAny(bx, by - 1)) neighborCount++;
+                        if (isOccupiedAny(bx, by + 1)) neighborCount++;
+                        const isSmallGap = (neighborCount >= 3);
+
+                        if (isEnclosed || isSmallGap) {
+                            gen.actionBuffer.push({ layer, fn: () => {
+                                gen._spawnBlock(bx, by, 1, 1, layer, false, null);
+                            }});
+                        }
                     }
                 }
             }
@@ -721,6 +765,25 @@ class QuantizedSequenceGeneratorV2 {
         });
     }
 
+    _generateInsideOutPattern() {
+        const p = [true, true, true];
+        const p1 = Math.floor(Math.random() * 3);
+        p[p1] = false;
+        // 50% chance for a second pause in the 3-step segment
+        if (Math.random() < 0.5) {
+            let p2;
+            do { p2 = Math.floor(Math.random() * 3); } while (p2 === p1);
+            p[p2] = false;
+        }
+        return p;
+    }
+
+    _generateInsideOutDistinctPattern(existing) {
+        let attempt;
+        do { attempt = this._generateInsideOutPattern(); } while (attempt.join() === existing.join());
+        return attempt;
+    }
+
     _generateRandomPattern() {
         const arr = [true, true, true, false, false, false];
         for (let i = 5; i > 0; i--) {
@@ -758,11 +821,17 @@ class QuantizedSequenceGeneratorV2 {
             if (!schedule[step]) schedule[step] = [];
             schedule[step].push({ layer, dir, originX: scx, originY: scy, boost: dirBoost[dir] });
         };
-        if (maxLayer >= 1) {
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(1, d, [0, 1, 2]));
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d, [3, 4, 5]));
-        } else {
-            [...dirs].sort(() => Math.random() - 0.5).forEach(d => addToSchedule(0, d, [0, 1, 2, 3, 4, 5]));
+
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode'));
+        const minL = usePromotion ? 1 : 0;
+        const endL = Math.min(1, maxLayer);
+
+        // Seed all layers in the schedule to ensure they start connected to the spines
+        for (let l = minL; l <= endL; l++) {
+            const stepOffset = (l === minL || l === 1) ? 0 : (l * 2);
+            [...dirs].sort(() => Math.random() - 0.5).forEach(d => {
+                addToSchedule(l, d, [stepOffset, stepOffset + 1, stepOffset + 2]);
+            });
         }
         return schedule;
     }
@@ -868,6 +937,8 @@ class QuantizedSequenceGeneratorV2 {
                 const strip = this._createStrip(layer, dir, originX, originY);
                 strip.isSpine = true;
                 strip.boostSteps = boost ?? globalBoost;
+                strip.pattern = this._generateInsideOutPattern();
+                strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
             }});
         }
     }
@@ -876,7 +947,8 @@ class QuantizedSequenceGeneratorV2 {
         const id = `strip_${this._stripNextId++}`;
         const strip = { id, layer, direction: dir, originX, originY, headX: originX, headY: originY,
             pattern: this.behaviorState.pattern, pausePattern: this.behaviorState.pausePattern,
-            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: [] };
+            stepPhase: 0, growCount: 0, stepsSinceLastGrowth: 0, paused: false, active: true, blockIds: [],
+            startDelay: 0 };
         this.strips.set(id, strip);
         return strip;
     }
@@ -902,6 +974,11 @@ class QuantizedSequenceGeneratorV2 {
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
+            if (strip.startDelay > 0) {
+                strip.startDelay--;
+                continue;
+            }
+
             const allowed = this._getAllowedDirs(strip.layer);
             if (allowed && !allowed.has(strip.direction)) continue; // QUADRANT RESTRICTION
 
@@ -910,23 +987,52 @@ class QuantizedSequenceGeneratorV2 {
             if (allowAsymmetry && strip.layer < 2 && (s.deferredCols.has(strip.headX) || s.deferredRows.has(strip.headY))) continue;
             
             if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
-                strip.pattern = this._generateRandomPattern();
-                strip.pausePattern = this._generateDistinctPattern(strip.pattern);
+                if (strip.isExpansion || strip.isSpine) {
+                    strip.pattern = this._generateInsideOutPattern();
+                    strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
+                } else {
+                    strip.pattern = this._generateRandomPattern();
+                    strip.pausePattern = this._generateDistinctPattern(strip.pattern);
+                }
             }
 
             let shouldGrow = false;
-            if (strip.boostSteps > 0 && !useGenerativeScaling) {
+            // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
+            // If it's a spine, we now force it to follow the rhythmic behavior.
+            if (strip.boostSteps > 0 && !useGenerativeScaling && !strip.isSpine) {
                 shouldGrow = true;
                 strip.boostSteps--;
             } else {
-                if (useGenerativeScaling && strip.growCount < 7) {
+                if (useGenerativeScaling && strip.growCount < 7 && !strip.isExpansion && !strip.isSpine) {
                     const gc = strip.growCount;
                     const requiredSteps = (gc < 2) ? 3 : (gc < 4) ? 2 : 1;
                     if (strip.stepsSinceLastGrowth >= requiredSteps) {
                         shouldGrow = true;
                     }
                 } else {
-                    shouldGrow = (strip.paused ? strip.pausePattern : strip.pattern)[strip.stepPhase];
+                    const pattern = strip.paused ? strip.pausePattern : strip.pattern;
+                    const phase = (strip.isExpansion || strip.isSpine) ? (strip.stepPhase % 3) : (strip.stepPhase % pattern.length);
+                    shouldGrow = pattern[phase];
+                    if (shouldGrow && strip.isSpine && strip.boostSteps > 0) strip.boostSteps--;
+                }
+            }
+
+            if (shouldGrow && strip.isExpansion) {
+                const [dx, dy] = this._dirDelta(strip.direction);
+                const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
+                const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
+                const scx = s.scx || 0, scy = s.scy || 0;
+                const limitN = s.axisMaxDist.N - 2, limitS = s.axisMaxDist.S - 2;
+                const limitE = s.axisMaxDist.E - 2, limitW = s.axisMaxDist.W - 2;
+
+                if (!s.hitEdge?.N && dy < 0 && (scy - nextY) > limitN) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.S && dy > 0 && (nextY - scy) > limitS) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.E && dx > 0 && (nextX - scx) > limitE) {
+                    shouldGrow = false;
+                } else if (!s.hitEdge?.W && dx < 0 && (scx - nextX) > limitW) {
+                    shouldGrow = false;
                 }
             }
 
@@ -936,19 +1042,33 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _calcBlockSize(strip, fillRatio) {
-        const useGenerativeScaling = !!this._getConfig('GenerativeScaling');
-        if (useGenerativeScaling && strip.growCount < 7) {
-            const gc = strip.growCount;
-            const size = (gc < 2 || gc === 4) ? 1 : 2;
-            return (strip.direction === 'N' || strip.direction === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        const bs = this._getBlockSize();
+        const visW = Math.max(1, Math.floor(this.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.rows / bs.h));
+
+        if (this._getConfig('GenerativeScaling')) {
+            if (strip.isExpansion || strip.isSpine) {
+                const ratio = visW / visH;
+                if (ratio > 1.05 && (strip.direction === 'E' || strip.direction === 'W')) {
+                    const baseSize = Math.floor(ratio);
+                    const chance = ratio - baseSize;
+                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
+                    return { bw: size, bh: 1 };
+                }
+                if (ratio < 0.95 && (strip.direction === 'N' || strip.direction === 'S')) {
+                    const invRatio = 1.0 / ratio;
+                    const baseSize = Math.floor(invRatio);
+                    const chance = invRatio - baseSize;
+                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
+                    return { bw: 1, bh: size };
+                }
+            }
+            return { bw: 1, bh: 1 };
         }
 
         const fillThreshold = this._getConfig('FillThreshold') ?? 0.33;
         if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
         const maxScale = this._getConfig('MaxBlockScale') ?? 3;
-        const bs = this._getBlockSize();
-        const visW = Math.max(1, Math.floor(this.cols / bs.w));
-        const visH = Math.max(1, Math.floor(this.rows / bs.h));
         const halfW = Math.floor(visW / 2);
         const halfH = Math.floor(visH / 2);
         const ox = strip.originX, oy = strip.originY, dir = strip.direction;
@@ -1087,13 +1207,28 @@ class QuantizedSequenceGeneratorV2 {
                 }
             }
         }
-        const id = this.activeBlocks.length;
+        
+        // BUG FIX: Monotonically increasing ID
+        const id = this._blockNextId++;
         const b = { x, y, w, h, layer, id, source: source };
         this.activeBlocks.push(b);
         this._currentStepActions.push(b);
 
         for (let gy = gy1; gy <= gy2; gy++) {
-            for (let gx = gx1; gx <= gx2; gx++) grid[gy * this.logicGridW + gx] = id;
+            const rowOff = gy * this.logicGridW;
+            for (let gx = gx1; gx <= gx2; gx++) {
+                const idx = rowOff + gx;
+                grid[idx] = id;
+                
+                // Optimized Sync: If spawning on L0, reflect in L1 if it's empty
+                if (layer === 0) {
+                    const l1 = this.layerGrids[1];
+                    if (l1 && l1[idx] === -1) l1[idx] = id;
+                    
+                    // Optimized Promotion: Spawn on L0 resets promotion counter
+                    if (this.promotionGrid) this.promotionGrid[idx] = 0;
+                }
+            }
         }
         this.currentStepOps.push(['addBlock', x1, y1, x2, y2, layer, 0, true]);
         const md = this.behaviorState.layerMaxDist[layer] || (this.behaviorState.layerMaxDist[layer] = { N: 0, S: 0, E: 0, W: 0 });
@@ -1105,150 +1240,235 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _removeBlock(x, y, w, h, layer) {
+        // Find block for ID reference (needed for sub-layer sync)
+        const block = this.activeBlocks.find(b => b.layer === layer && b.x === x && b.y === y && b.w === w && b.h === h);
+        if (!block) return;
+        const bid = block.id;
+
         this.currentStepOps.push(['removeBlock', x, y, x + w - 1, y + h - 1, layer, 0, true]);
-        this.activeBlocks = this.activeBlocks.filter(b => !(b.layer === layer && b.x === x && b.y === y && b.w === w && b.h === h));
+        this.activeBlocks = this.activeBlocks.filter(b => b !== block);
+        
         const gx1 = this.gridCX + x, gy1 = this.gridCY + y, gx2 = this.gridCX + x + w - 1, gy2 = this.gridCY + y + h - 1;
         const grid = this.layerGrids[layer];
-        for (let gy = gy1; gy <= gy2; gy++) for (let gx = gx1; gx <= gx2; gx++) grid[gy * this.logicGridW + gx] = -1;
-    }
 
-    _updateFillRatio(s) {
-        const bs = this._getBlockSize(), visW = Math.max(1, Math.floor(this.cols / bs.w)), visH = Math.max(1, Math.floor(this.rows / bs.h));
-        const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
-        let filled = 0;
-        for (const b of this.activeBlocks) {
-            const bx1 = Math.max(-halfW, b.x), bx2 = Math.min(halfW - 1, b.x + b.w - 1), by1 = Math.max(-halfH, b.y), by2 = Math.min(halfH - 1, b.y + b.h - 1);
-            if (bx2 >= bx1 && by2 >= by1) filled += (bx2 - bx1 + 1) * (by2 - by1 + 1);
-        }
-        s.fillRatio = Math.min(1, filled / (visW * visH));
-    }
-
-    _expandInsideOut(s) {
-        if (!this._getConfig('InsideOutEnabled')) return;
-        const delay = this._getConfig('InsideOutDelay') ?? 6, period = Math.max(1, this._getConfig('InsideOutPeriod') ?? 3);
-        if (s.step < delay || (s.step - delay) % period !== 0) return;
-
-        const genScaling = !!this._getConfig('GenerativeScaling');
-        const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
-        const edgeBuf = 2;
-        const maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
-
-        // Per-arm wave counters — ignore asymmetry, all arms start at Wave 1
-        if (!s.insideOutArmWaves) {
-            s.insideOutArmWaves = { 'N': 1, 'S': 1, 'E': 1, 'W': 1 };
-        }
-
-        const maxWave = Math.max(s.insideOutArmWaves['N'], s.insideOutArmWaves['S'], s.insideOutArmWaves['E'], s.insideOutArmWaves['W']);
-        if (maxWave > halfW + edgeBuf && maxWave > halfH + edgeBuf) return;
-
-        // Helper: Check if previous wave on this arm has placed at least one block
-        const prevWaveStarted = (arm, wave) => {
-            if (wave <= 1) return true;
-            for (const strip of this.strips.values()) {
-                if (strip.isExpansion && strip.arm === arm && strip.wave === wave - 1) {
-                    if (strip.growCount > 0) return true;
-                }
-            }
-            return false;
-        };
-
-        const armsToIncrement = new Set();
-        for (let l = 0; l <= maxLayer; l++) {
-            const allowed = this._getAllowedDirs(l);
-
-            for (const arm of ['N', 'S', 'E', 'W']) {
-                const wave = s.insideOutArmWaves[arm];
-                const [dx, dy] = this._dirDelta(arm);
-                const ox = s.scx + dx * wave, oy = s.scy + dy * wave;
-
-                // 1. Quadrant Restriction: Only X quadrants updated at a time.
-                // If count < 4, only allow arms currently in the rotation.
-                if (allowed && !allowed.has(arm)) continue;
-
-                // 2. Progression Check: Don't spawn wave N until wave N-1 has actually started growing
-                if (!prevWaveStarted(arm, wave)) continue;
-
-                // INDEPENDENCE FIX: Removed Spine Gating.
-                // Expansion should proceed based on wave progression even if the 'axis' block 
-                // was removed or shifted by another behavior.
-                
-                // 4. Boundary Check
-                if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
-
-                // 5. Generative Scaling: Limit density by capping active expansion strips
-                if (genScaling) {
-                    let activeExp = 0;
-                    for (const st of this.strips.values()) if (st.isExpansion && st.active) activeExp++;
-                    if (activeExp > (8 * (l + 1))) continue; 
-                }
-
-                // If all checks pass, spawn the perpendicular strips
-                const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
-                const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';
-
-                this.actionBuffer.push({ layer: l, fn: () => {
-                    const s1 = this._createStrip(l, perp1, ox, oy);
-                    s1.isExpansion = true; s1.arm = arm; s1.wave = wave;
-                    const s2 = this._createStrip(l, perp2, ox, oy);
-                    s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
-                }});
-
-                armsToIncrement.add(arm);
-            }
-        }
-
-        for (const arm of armsToIncrement) s.insideOutArmWaves[arm]++;
-        s.insideOutWave++;
-    }
-
-    _promoteLayer1Blocks() {
-        const w = this.logicGridW, h = this.logicGridH;
-        if (!w || !h) return;
-        
-        const cx = this.gridCX, cy = this.gridCY;
-        const l1 = this.layerGrids[1], l0 = this.layerGrids[0];
-        if (!l1 || !l0) return;
-
-        const maxLayer = this._getMaxLayer();
-
-        for (let gy = 0; gy < h; gy++) {
-            const rowOff = gy * w;
-            for (let gx = 0; gx < w; gx++) {
+        for (let gy = gy1; gy <= gy2; gy++) {
+            const rowOff = gy * this.logicGridW;
+            for (let gx = gx1; gx <= gx2; gx++) {
                 const idx = rowOff + gx;
-                const isL1 = l1[idx] !== -1;
-                const isL0 = l0[idx] !== -1;
+                grid[idx] = -1;
 
-                if (isL1 && !isL0) {
-                    this.promotionGrid[idx]++;
-                    if (this.promotionGrid[idx] >= 3) {
-                        const bx = gx - cx, by = gy - cy;
-                        
-                        // Promotion Event: Spawn L0 (1x1)
-                        const id = this._spawnBlock(bx, by, 1, 1, 0, true, 'promotion');
-                        if (id !== -1) {
-                            this.promotionGrid[idx] = 0; 
-                        }
-                    }
-                } else {
+                // Optimized Sync: If removing from L0, clear from L1 ONLY if it was synced from this block
+                if (layer === 0) {
+                    const l1 = this.layerGrids[1];
+                    if (l1 && l1[idx] === bid) l1[idx] = -1;
+                }
+                
+                // Optimized Promotion: If removing from L1, reset promotion counter
+                if (layer === 1 && this.promotionGrid) {
                     this.promotionGrid[idx] = 0;
                 }
             }
         }
     }
 
-    _syncSubLayers() {
-        const w = this.logicGridW, h = this.logicGridH;
-        if (!w || !h || !this.layerGrids[0]) return;
-        const l0 = this.layerGrids[0];
-        
-        // Target Layer 1 as discovery layer — it must reflect ALL of Layer 0
-        const discoveryLayer = this.layerGrids[1];
-        if (!discoveryLayer) return;
+    _updateFillRatio(s) {
+        const bs = this._getBlockSize();
+        const visW = Math.max(1, Math.floor(this.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.rows / bs.h));
+        const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
 
-        for (let i = 0; i < w * h; i++) {
-            if (l0[i] !== -1 && discoveryLayer[i] === -1) {
-                discoveryLayer[i] = l0[i];
+        // Optimization: Use a smaller visibility bitmask to count unique cells
+        if (!this._visCountBuffer || this._visCountBuffer.length !== visW * visH) {
+            this._visCountBuffer = new Uint8Array(visW * visH);
+        } else {
+            this._visCountBuffer.fill(0);
+        }
+
+        let uniqueCount = 0;
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            const bx1 = Math.max(-halfW, b.x), bx2 = Math.min(halfW - 1, b.x + b.w - 1);
+            const by1 = Math.max(-halfH, b.y), by2 = Math.min(halfH - 1, b.y + b.h - 1);
+            
+            if (bx2 >= bx1 && by2 >= by1) {
+                for (let gy = by1; gy <= by2; gy++) {
+                    const rowOff = (gy + halfH) * visW;
+                    for (let gx = bx1; gx <= bx2; gx++) {
+                        const idx = rowOff + (gx + halfW);
+                        if (this._visCountBuffer[idx] === 0) {
+                            this._visCountBuffer[idx] = 1;
+                            uniqueCount++;
+                        }
+                    }
+                }
             }
+        }
+        s.fillRatio = Math.min(1, uniqueCount / (visW * visH));
+    }
+
+    _expandInsideOut(s) {
+        if (!this._getConfig('InsideOutEnabled')) return;
+        const delay = this._getConfig('InsideOutDelay') ?? 6;
+        let bucketPeriod = Math.max(1, this._getConfig('InsideOutStepsBetweenBuckets') ?? 3);
+
+        const genScaling = !!this._getConfig('GenerativeScaling');
+        if (genScaling) {
+            // Adjust density by reducing steps between buckets instead of increasing block size.
+            // Reduce period by 1-2 steps based on current fill ratio to increase density.
+            const reduction = s.fillRatio < 0.4 ? 2 : (s.fillRatio < 0.7 ? 1 : 0);
+            bucketPeriod = Math.max(1, bucketPeriod - reduction);
+        }
+
+        if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
+
+        const bucketSize = Math.max(1, this._getConfig('InsideOutBucketSize') ?? 3);
+        const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
+        const edgeBuf = 2;
+        const maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
+
+        if (!s.insideOutProgression) s.insideOutProgression = {};
+
+        // Helper: Check if the dependency wave (last wave of previous bucket) has started growing
+        const prevBucketStarted = (arm, baseWave) => {
+            if (baseWave <= 1) return true;
+            const depWave = baseWave - 1;
+            let foundAny = false;
+            for (const strip of this.strips.values()) {
+                if (strip.isExpansion && strip.arm === arm && strip.wave === depWave) {
+                    foundAny = true;
+                    if (strip.growCount > 0) return true;
+                }
+            }
+            return !foundAny;
+        };
+
+        for (const arm of ['N', 'S', 'E', 'W']) {
+            if (!s.insideOutProgression[arm]) {
+                s.insideOutProgression[arm] = { nextWave: 1 };
+            }
+            const prog = s.insideOutProgression[arm];
+            const baseWave = prog.nextWave;
+
+            // 1. Boundary Check for the base wave (if base is out, arm is likely done)
+            const [dx, dy] = this._dirDelta(arm);
+            const bx = s.scx + dx * baseWave, by = s.scy + dy * baseWave;
+            if (Math.abs(bx - s.scx) > halfW + edgeBuf || Math.abs(by - s.scy) > halfH + edgeBuf) continue;
+
+            // 2. Progression Check: Wait for previous bucket to establish
+            if (!prevBucketStarted(arm, baseWave)) continue;
+
+            // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
+            if (!this._isOccupied(bx, by, 0) && !this._isOccupied(bx, by, 1)) continue;
+
+            // Prepare waves for this bucket
+            const waves = [];
+            for (let i = 0; i < bucketSize; i++) waves.push(baseWave + i);
+            
+            // Shuffled variance within the bucket (if > 1, and not the first wave)
+            if (bucketSize > 1 && baseWave > 1) {
+                for (let i = waves.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [waves[i], waves[j]] = [waves[j], waves[i]];
+                }
+            }
+
+            let spawnedAnyInBucket = false;
+            for (let l = 0; l <= maxLayer; l++) {
+                const allowed = this._getAllowedDirs(l);
+                if (allowed && !allowed.has(arm)) continue;
+
+                for (const wave of waves) {
+                    const ox = s.scx + dx * wave, oy = s.scy + dy * wave;
+
+                    // Wave-specific boundary check
+                    if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
+
+                    // Generative Scaling
+                    if (genScaling) {
+                        let activeExp = 0;
+                        for (const st of this.strips.values()) if (st.isExpansion && st.active) activeExp++;
+                        if (activeExp > (8 * (l + 1))) continue; 
+                    }
+
+                    const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
+                    const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';
+
+                    const startDelay = Math.floor(Math.random() * bucketSize);
+                    const ioPattern = this._generateInsideOutPattern();
+                    const ioPausePattern = this._generateInsideOutDistinctPattern(ioPattern);
+                    this.actionBuffer.push({ layer: l, fn: () => {
+                        const s1 = this._createStrip(l, perp1, ox, oy);
+                        s1.isExpansion = true; s1.arm = arm; s1.wave = wave;
+                        s1.startDelay = startDelay;
+                        s1.pattern = ioPattern;
+                        s1.pausePattern = ioPausePattern;
+                        const s2 = this._createStrip(l, perp2, ox, oy);
+                        s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
+                        s2.startDelay = startDelay;
+                        s2.pattern = ioPattern;
+                        s2.pausePattern = ioPausePattern;
+                    }});
+                    spawnedAnyInBucket = true;
+                }
+            }
+
+            // Only advance to the next bucket if we successfully attempted to spawn this one
+            if (spawnedAnyInBucket) {
+                prog.nextWave += bucketSize;
+            }
+        }
+    }
+    _promoteLayer1Blocks() {
+        const w = this.logicGridW;
+        if (!w || !this.layerGrids[0] || !this.layerGrids[1]) return;
+        
+        const l0 = this.layerGrids[0];
+        const cx = this.gridCX, cy = this.gridCY;
+
+        // Optimized: Iterate over active L1 blocks instead of the whole grid
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            if (b.layer !== 1) continue;
+            
+            const gx1 = cx + b.x, gy1 = cy + b.y;
+            const gx2 = gx1 + b.w - 1, gy2 = gy1 + b.h - 1;
+
+            for (let gy = gy1; gy <= gy2; gy++) {
+                const rowOff = gy * w;
+                for (let gx = gx1; gx <= gx2; gx++) {
+                    const idx = rowOff + gx;
+                    // Only increment if L0 is not already occupied
+                    if (l0[idx] === -1) {
+                        this.promotionGrid[idx]++;
+                        if (this.promotionGrid[idx] >= 3) {
+                            this._spawnBlock(gx - cx, gy - cy, 1, 1, 0, true, 'promotion');
+                            this.promotionGrid[idx] = 0; 
+                        }
+                    } else {
+                        this.promotionGrid[idx] = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    _syncSubLayers() {
+        // Optimized: Synchronization now happens inside _spawnBlock and _removeBlock
+        // to avoid expensive O(W*H) full-grid scans every step.
+    }
+
+    _updateAxisMaxDist(s) {
+        if (!s.axisMaxDist) s.axisMaxDist = { N: 0, S: 0, E: 0, W: 0 };
+        else { s.axisMaxDist.N = 0; s.axisMaxDist.S = 0; s.axisMaxDist.E = 0; s.axisMaxDist.W = 0; }
+        
+        const scx = s.scx || 0, scy = s.scy || 0;
+        for (const strip of this.strips.values()) {
+            if (!strip.isSpine || !strip.active) continue;
+            const dx = strip.headX - scx, dy = strip.headY - scy;
+            if (strip.direction === 'N') s.axisMaxDist.N = Math.max(s.axisMaxDist.N, -dy);
+            else if (strip.direction === 'S') s.axisMaxDist.S = Math.max(s.axisMaxDist.S, dy);
+            else if (strip.direction === 'E') s.axisMaxDist.E = Math.max(s.axisMaxDist.E, dx);
+            else if (strip.direction === 'W') s.axisMaxDist.W = Math.max(s.axisMaxDist.W, -dx);
         }
     }
 
@@ -1341,6 +1561,7 @@ class QuantizedSequenceGeneratorV2 {
                 this._currentStepActions = [];
                 
                 // Track max expansion distances (matches live path)
+                this._updateAxisMaxDist(s);
                 this._updateLayerMaxDist(s);
 
                 // Ensure discovery layer reflects foundation (matches live path)

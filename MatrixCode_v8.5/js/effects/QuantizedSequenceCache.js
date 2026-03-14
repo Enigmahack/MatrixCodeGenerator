@@ -232,7 +232,7 @@ class QuantizedSequenceCache {
             'SpreadingNudgeEnabled', 'SpreadingNudgeStartDelay', 'SpreadingNudgeSpawnSpeed', 'SpreadingNudgeRange', 'SpreadingNudgeChance', 'SpreadingNudgeMaxInstances', 'SpreadingNudgeSymmetry',
             'ShoveFillEnabled', 'ShoveFillStartDelay', 'ShoveFillRate',
             'FillThreshold', 'MaxBlockScale',
-            'InsideOutEnabled', 'InsideOutDelay', 'InsideOutPeriod',
+            'InsideOutEnabled', 'InsideOutDelay', 'InsideOutBucketSize', 'InsideOutStepsBetweenBuckets',
             'Speed', 'BlockWidthCells', 'BlockHeightCells', 'OverrideDefaults'
         ];
 
