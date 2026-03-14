@@ -3321,13 +3321,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps.push(op);
         this._gridsDirty = true;
 
-        // Record to sequence for Editor/Step support
-        if (this.manualStep && this.sequence && !this.isReconstructing) {
-            const targetIdx = Math.max(0, this.expansionPhase - 1);
+        // Record to sequence for Editor/Step support AND Animation Cache parity
+        const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
+        if (isRecording) {
+            const targetIdx = Math.max(0, this.expansionPhase);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             const seqOp = {
                 op: (w === 1 && h === 1) ? 'addSmart' : 'addRect',
-                args: (w === 1 && h === 1) ? [x, y] : [x, y, x + w - 1, y + h - 1],
+                args: (w === 1 && h === 1) ? [x, y, x, y, layer, 0, !op.fade] : [x, y, x + w - 1, y + h - 1, layer, 0, !op.fade],
                 layer: layer,
                 invisible: invisible // Record in sequence too
             };
@@ -5966,6 +5967,19 @@ class QuantizedBaseEffect extends AbstractEffect {
     _removeBlock(x, y, w, h, layer, fade = true) {
         const x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
         this.maskOps.push({ type: 'removeBlock', x1, y1, x2, y2, layer: layer, startFrame: this.animFrame, fade: fade });
+        
+        // Record to sequence for Editor/Step support AND Animation Cache parity
+        const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
+        if (isRecording) {
+            const targetIdx = Math.max(0, this.expansionPhase);
+            if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
+            this.sequence[targetIdx].push({
+                op: 'removeBlock',
+                args: [x1, y1, x2, y2, layer, 0, !fade],
+                layer: layer
+            });
+        }
+
         this.activeBlocks = this.activeBlocks.filter(b => !(b.layer === layer && b.x === x && b.y === y && b.w === w && b.h === h));
         this._writeToGrid(x, y, w, h, -1, layer);
         this._gridsDirty = true; this._maskDirty = true;
@@ -5973,6 +5987,10 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     onExpansionComplete() {
         this._log(`[${this.name}] Expansion complete: canvas covered.`);
+        if (this.state === 'GENERATING' && this.getConfig('EnableAnimationCache') && window.sequenceCache && this.sequence && this.sequence.length > 0) {
+            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
+            window.sequenceCache.push(configKey, this.sequence);
+        }
     }
 
     stop() {

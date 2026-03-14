@@ -89,6 +89,19 @@ class QuantizedSequenceCache {
         return null;
     }
 
+    push(configKey, sequence) {
+        if (!this.config.state[configKey.split('|')[0] + 'EnableAnimationCache']) return;
+        if (!sequence || sequence.length < 5) return; // Ignore very short/failed runs
+        
+        if (!this.cache.has(configKey)) this.cache.set(configKey, []);
+        const sequences = this.cache.get(configKey);
+        
+        if (sequences.length < this.maxCacheSize) {
+            sequences.push(sequence);
+            this._log(`[QuantizedSequenceCache] Passively cached live sequence. Pool: ${sequences.length}/${this.maxCacheSize}`);
+        }
+    }
+
     isFull(configKey) {
         const sequences = this.cache.get(configKey);
         return sequences && sequences.length >= this.maxCacheSize;
