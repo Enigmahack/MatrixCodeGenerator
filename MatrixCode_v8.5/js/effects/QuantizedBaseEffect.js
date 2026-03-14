@@ -568,10 +568,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _processAnimationStep() {
-        if (this.expansionPhase < this.sequence.length) {
-            const step = this.sequence[this.expansionPhase];
+        if (this.cyclesCompleted < this.sequence.length) {
+            const step = this.sequence[this.cyclesCompleted];
             if (step) this._executeStepOps(step);
-            this.expansionPhase++;
             this._maskDirty = true;
         }
     }
@@ -880,8 +879,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 if (this.state === 'GENERATING') {
                     this._attemptGrowth();
-                    this.expansionPhase++;
-                } else if (this.expansionPhase < this.sequence.length) {
+                } else if (this.cyclesCompleted < this.sequence.length) {
                     this._processAnimationStep();
                 } else if (this.getConfig('EnableAnimationCache') || this.getConfig('GeneratorTakeover')) {
                     if (this.getConfig('GeneratorTakeover')) {
@@ -889,7 +887,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                         this._initProceduralState(true);
                     }
                     this._attemptGrowth();
-                    this.expansionPhase++;
                 }
 
                 // Perform Auto Actions (Filling holes, etc.) every logic step if enabled
@@ -3324,7 +3321,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Record to sequence for Editor/Step support AND Animation Cache parity
         const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
         if (isRecording) {
-            const targetIdx = Math.max(0, this.expansionPhase);
+            const targetIdx = Math.max(0, this.cyclesCompleted);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             const seqOp = {
                 op: (w === 1 && h === 1) ? 'addSmart' : 'addRect',
@@ -5971,7 +5968,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Record to sequence for Editor/Step support AND Animation Cache parity
         const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
         if (isRecording) {
-            const targetIdx = Math.max(0, this.expansionPhase);
+            const targetIdx = Math.max(0, this.cyclesCompleted);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             this.sequence[targetIdx].push({
                 op: 'removeBlock',
