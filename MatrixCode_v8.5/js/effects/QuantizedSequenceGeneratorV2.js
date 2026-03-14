@@ -96,7 +96,7 @@ class QuantizedSequenceGeneratorV2 {
             'LineGfxTintOffset', 'LineGfxSaturation', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
-            'PerimeterEchoEnabled'
+            'PerimeterEchoEnabled', 'LayerPromotionEnabled', 'SingleLayerMode'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -110,16 +110,16 @@ class QuantizedSequenceGeneratorV2 {
             if (defaultVal !== undefined && defaultVal !== null) return defaultVal;
 
             // Manual fallbacks for Width/Height if even the default is missing
-            if (keySuffix === 'BlockWidthCells') return this.config['quantizedBlockWidthCells'] ?? 4;
-            if (keySuffix === 'BlockHeightCells') return this.config['quantizedBlockHeightCells'] ?? 4;
+            if (keySuffix === 'BlockWidthCells') return this.config['quantizedDefaultBlockWidthCells'] ?? 4;
+            if (keySuffix === 'BlockHeightCells') return this.config['quantizedDefaultBlockHeightCells'] ?? 4;
         }
 
         // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
         if (val !== undefined && val !== null && val !== "") return val;
 
         // Final fallback for non-inheritable but common settings
-        if (keySuffix === 'BlockWidthCells') return this.config['quantizedBlockWidthCells'] ?? 4;
-        if (keySuffix === 'BlockHeightCells') return this.config['quantizedBlockHeightCells'] ?? 4;
+        if (keySuffix === 'BlockWidthCells') return this.config['quantizedDefaultBlockWidthCells'] ?? 4;
+        if (keySuffix === 'BlockHeightCells') return this.config['quantizedDefaultBlockHeightCells'] ?? 4;
 
         return null;
     }
@@ -1637,35 +1637,10 @@ class QuantizedSequenceGeneratorV2 {
                 }
 
                 this.actionBuffer = [];
-                this._tickLayerDirs(s);
-                this._updateFillRatio(s);
-                this._seedStrips(s);
-
-                // PERMANENT CORE BEHAVIOR: Main Nudge Growth
-                if (this._getConfig('NudgeEnabled') !== false) {
-                    const nudgeStartDelay = this._getConfig('NudgeStartDelay') ?? 2;
-                    if (s.step >= nudgeStartDelay) {
-                        const nudgeChance = this._getConfig('NudgeChance') ?? 0.8;
-                        if (Math.random() <= nudgeChance) {
-                            const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-                            this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
-                        }
-                    }
-                }
-
-                this._tickStrips(s);
-                this._expandInsideOut(s);
-
+                this._attemptGrowth();
+                
                 // INCREMENT AGE OF ALL ACTIVE BLOCKS
                 for (const b of this.activeBlocks) b.stepAge = (b.stepAge || 0) + 1;
-
-                const quota = this._getConfig('SimultaneousSpawns') || 1;                const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
-                if (enabledBehaviors.length > 0) {
-                    for (let q = 0; q < quota; q++) {
-                        const b = enabledBehaviors[Math.floor(Math.random() * enabledBehaviors.length)];
-                        b.fn.call(this, s);
-                    }
-                }
 
                 this._processIntents();
                 
@@ -1681,6 +1656,279 @@ class QuantizedSequenceGeneratorV2 {
         }
 
         return false;
+    }
+
+    _isCanvasFullyCovered() {
+        const bs = this._getBlockSize();
+        const visW = Math.max(1, Math.floor(this.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.rows / bs.h));
+        const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
+        const l0 = this.layerGrids[0];
+        const cx = this.gridCX, cy = this.gridCY;
+        for (let gy = -halfH; gy <= halfH; gy++) {
+            for (let gx = -halfW; gx <= halfW; gx++) {
+                const idx = (cy + gy) * this.logicGridW + (cx + gx);
+                if (idx >= 0 && idx < l0.length && l0[idx] === -1) return false;
+            }
+        }
+        return true;
+    }
+
+    _attemptGrowth() {
+        if (this._isCanvasFullyCovered()) return;
+
+        const mode = this._getConfig('Mode') || 'default';
+        if (mode === 'v2' || this.configPrefix === 'quantizedGenerateV2') {
+            return this._attemptV2Growth();
+        }
+
+        if (mode === 'advanced') {
+            return this._attemptAdvancedGrowth();
+        }
+
+        // Default behavior pool
+        const useNudge = (this._getConfig('EnableNudge') !== false);
+        const quota = this._getConfig('SimultaneousSpawns') || 1;
+        const maxLayer = this._getMaxLayer();
+        const targetLayer = this.behaviorState.proceduralLayerIndex || 0;
+        
+        let actionsPerformed = 0;
+        const maxAttempts = quota * 3;
+        let attempts = 0;
+
+        const pool = [];
+        if (useNudge) {
+            pool.push({ name: 'Nudge', fn: () => {
+                const sw = this._getConfig('MinBlockWidth') || 1;
+                const mw = (this._getConfig('MaxBlockWidth') || 2) * 1.5;
+                const sh = this._getConfig('MinBlockHeight') || 1;
+                const mh = (this._getConfig('MaxBlockHeight') || 2) * 1.5;
+                const bw = Math.floor(Math.random() * (mw - sw + 1)) + sw;
+                const bh = Math.floor(Math.random() * (mh - sh + 1)) + sh;
+                return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
+            }});
+        }
+
+        while (actionsPerformed < quota && attempts < maxAttempts) {
+            attempts++;
+            let success = false;
+            if (pool.length > 0) {
+                const behavior = pool[Math.floor(Math.random() * pool.length)];
+                if (behavior.fn()) success = true;
+            }
+            if (success) actionsPerformed++;
+        }
+
+        if (actionsPerformed === 0 && attempts >= maxAttempts) {
+            return this._attemptAdvancedGrowth();
+        }
+
+        this.behaviorState.proceduralLayerIndex = (targetLayer + 1) % (maxLayer + 1);
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        if (this.behaviorState.proceduralLayerIndex === 0 && usePromotion && maxLayer >= 1) {
+            this.behaviorState.proceduralLayerIndex = 1;
+        }
+    }
+
+    _attemptAdvancedGrowth() {
+        const w = this.logicGridW, h = this.logicGridH;
+        const cx = this.gridCX, cy = this.gridCY;
+        const chance = 0.66;
+        const maxLayer = this._getMaxLayer();
+
+        const bs = this._getBlockSize();
+        const xVisible = Math.ceil(this.cols / bs.w / 2), yVisible = Math.ceil(this.rows / bs.h / 2);
+        const xGrowthLimit = xVisible + 3, yGrowthLimit = yVisible + 3;
+        const xFinishLimit = xVisible + 1, yFinishLimit = yVisible + 1;
+
+        const ratio = this.cols / this.rows;
+        const xBias = Math.max(1.0, ratio), yBias = Math.max(1.0, 1.0 / ratio);
+        const getBurst = (bias) => {
+            let b = 1; if (bias > 1.2) { if (Math.random() < (bias - 1.0) * 0.8) b = 2; if (b === 2 && Math.random() < (bias - 2.0) * 0.5) b = 3; }
+            return b;
+        };
+        const xBurst = getBurst(xBias), yBurst = getBurst(yBias);
+
+        const getGridVal = (layer, bx, by) => {
+            const gx = cx + bx, gy = cy + by;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return -2;
+            return this.layerGrids[layer][gy * w + gx];
+        };
+
+        const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
+        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+
+        for (const spine of xSpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeX = spine.dx;
+                    while (true) {
+                        const val = getGridVal(l, freeX, 0);
+                        if (val === -2 || Math.abs(freeX) >= xFinishLimit) { if (l === maxLayer) finished = true; break; }
+                        if (val === -1) break;
+                        freeX += spine.dx;
+                    }
+                    if (Math.abs(freeX) < xFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = freeX + (b * spine.dx);
+                            if (getGridVal(l, tx, 0) === -1 && Math.abs(tx) <= xGrowthLimit) {
+                                this._spawnBlock(tx, 0, 1, 1, l, false, 'advanced');
+                            } else break;
+                        }
+                    }
+                }
+                if (finished) this.finishedBranches.add(spine.id);
+            }
+        }
+        
+        const ySpines = [{id: 'spine_north', dy: -1}, {id: 'spine_south', dy: 1}];
+        for (const spine of ySpines) {
+            let finished = this.finishedBranches.has(spine.id);
+            if (!finished) {
+                for (let l = 1; l <= maxLayer; l++) {
+                    let freeY = spine.dy;
+                    while (true) {
+                        const val = getGridVal(l, 0, freeY);
+                        if (val === -2 || Math.abs(freeY) >= yFinishLimit) { if (l === 1) finished = true; break; }
+                        if (val === -1) break;
+                        freeY += spine.dy;
+                    }
+                    if (Math.abs(freeY) < yFinishLimit && Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = freeY + (b * spine.dy);
+                            if (getGridVal(l, 0, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
+                                this._spawnBlock(0, ty, 1, 1, l, false, 'advanced');
+                            } else break;
+                        }
+                    }
+                }
+                if (finished) this.finishedBranches.add(spine.id);
+            }
+        }
+
+        // --- Core Spines Logic ---
+        for (const spine of xSpines) {
+            for (let x = spine.dx; Math.abs(x) <= xGrowthLimit; x += spine.dx) {
+                let anyLeading = false;
+                for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, 0) !== -1) anyLeading = true;
+                
+                const targetL = usePromotion ? 1 : 0;
+                if (getGridVal(targetL, x, 0) === -1 && anyLeading) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < xBurst; b++) {
+                            const tx = x + (b * spine.dx);
+                            if (getGridVal(targetL, tx, 0) === -1) { 
+                                this._spawnBlock(tx, 0, 1, 1, targetL, false, 'advanced');
+                            } else break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        let minX = 0, maxX = 0;
+        for (let x = -1; ; x--) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { minX = x + 1; break; } }
+        for (let x = 1; ; x++) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { maxX = x - 1; break; } }
+
+        for (let x = minX; x <= maxX; x++) {
+            const directions = [{ id: 'n', dy: -1 }, { id: 's', dy: 1 }];
+            for (const d of directions) {
+                const branchId = `wing_${d.id}_${x}`;
+                let wingFinished = this.finishedBranches.has(branchId), wingFreeY = d.dy;
+                if (!wingFinished) {
+                    while (true) {
+                        const val = getGridVal(maxLayer, x, wingFreeY);
+                        if (val === -2 || Math.abs(wingFreeY) >= yFinishLimit) { wingFinished = true; this.finishedBranches.add(branchId); break; }
+                        if (val === -1) break; wingFreeY += d.dy;
+                    }
+                }
+                if (!wingFinished) {
+                    if (Math.random() < chance) {
+                        for (let b = 0; b < yBurst; b++) {
+                            const ty = wingFreeY + (b * d.dy);
+                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) { this._spawnBlock(x, ty, 1, 1, maxLayer, false, 'advanced'); } else break;
+                        }
+                    }
+                }
+                const searchLimitY = wingFinished ? yGrowthLimit : Math.abs(wingFreeY);
+                for (let y = d.dy; Math.abs(y) <= searchLimitY; y += d.dy) {
+                    const targetL = usePromotion ? 1 : 0;
+                    if (getGridVal(targetL, x, y) === -1 && getGridVal(maxLayer, x, y) !== -1) {
+                        if (Math.random() < chance) {
+                            for (let b = 0; b < yBurst; b++) {
+                                const ty = y + (b * d.dy);
+                                if (getGridVal(targetL, x, ty) === -1 && getGridVal(maxLayer, x, ty) !== -1) { 
+                                    this._spawnBlock(x, ty, 1, 1, targetL, false, 'advanced');
+                                } else break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    _attemptV2Growth() {
+        const s = this.behaviorState;
+        this._updateAxisMaxDist(s);
+        this._updateLayerMaxDist(s);
+
+        if (s.pendingDeletions && s.pendingDeletions.length > 0) {
+            for (const d of s.pendingDeletions) this._removeBlock(d.x, d.y, d.w, d.h, d.layer);
+            s.pendingDeletions = [];
+        }
+
+        if (!s.seedSchedule) {
+            s.pattern = this._generateRandomPattern();
+            s.pausePattern = this._generateDistinctPattern(s.pattern);
+            
+            const qCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
+            const qMaxLayer = this._getMaxLayer();
+            const qBaseLife = 4 + Math.floor(Math.random() * 3);
+            const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+            const minL = usePromotion ? 1 : 0;
+
+            s.layerDirs = {}; s.layerDirLife = {};
+            for (let l = minL; l <= qMaxLayer + 1; l++) { 
+                s.layerDirs[l] = this._pickLayerDirs(qCount); 
+                s.layerDirLife[l] = qBaseLife + l; 
+            }
+            
+            s.seedSchedule = this._generateSeedSchedule(s.scx ?? 0, s.scy ?? 0);
+            s.insideOutWave = 1;
+            if (this.growthPool.size === 0) this._initBehaviors();
+        }
+
+        this._tickLayerDirs(s);
+        this._updateFillRatio(s);
+        this._seedStrips(s);
+
+        // PERMANENT CORE BEHAVIOR: Main Nudge Growth
+        if (this._getConfig('NudgeEnabled') !== false) {
+            const nudgeStartDelay = this._getConfig('NudgeStartDelay') ?? 2;
+            if (s.step >= nudgeStartDelay) {
+                const nudgeChance = this._getConfig('NudgeChance') ?? 0.8;
+                if (Math.random() <= nudgeChance) {
+                    const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+                    this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+                }
+            }
+        }
+
+        this._tickStrips(s);
+        this._expandInsideOut(s);
+
+        const quota = this._getConfig('SimultaneousSpawns') || 1;
+        const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
+        if (enabledBehaviors.length > 0) {
+            for (let q = 0; q < quota; q++) {
+                const b = enabledBehaviors[Math.floor(Math.random() * enabledBehaviors.length)];
+                b.fn.call(this, s);
+            }
+        }
     }
 
     seedOriginStep() {
