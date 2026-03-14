@@ -2030,10 +2030,9 @@ class QuantizedSequenceGeneratorV2 {
     /**
      * Runs the generator until completion or maxSteps.
      * @param {number} maxSteps
-     * @param {Object} [cache] - Optional cache instance to check for activity aborts
      * @returns {Array} The generated sequence of operation steps.
      */
-    generate(maxSteps = 300, cache = null) {
+    generate(maxSteps = 300) {
         const sequence = [];
         const s = this.behaviorState;
 
@@ -2041,19 +2040,14 @@ class QuantizedSequenceGeneratorV2 {
         sequence.push(this.seedOriginStep());
 
         while (s.step < maxSteps) {
-            // Check if we should abort because an effect started during background generation
-            if (cache && cache.isAnyEffectActive()) {
-                this._log("[QuantizedSequenceGeneratorV2] Aborting background generation: Effect detected.");
-                return null; 
-            }
-
             const done = this.generateStep();
             sequence.push(this.currentStepOps); // always push, even if empty, to preserve timing parity with live path
-            
+
             if (done) break;
         }
         return sequence;
     }
+
 }
 
 if (typeof window !== 'undefined') window.QuantizedSequenceGeneratorV2 = QuantizedSequenceGeneratorV2;

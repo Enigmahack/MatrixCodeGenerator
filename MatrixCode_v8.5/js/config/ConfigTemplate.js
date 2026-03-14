@@ -109,7 +109,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
     const settings = [
         { cat: 'Effects', type: 'accordion_subheader', label: 'Options', dep: effectDep },
         { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled', dep: effectDep, tier: 'basic', tags: ['auto', 'on'] },
-        { cat: 'Effects', id: prefix + "EnableAnimationCache", type: 'checkbox', label: 'Enable Animation Cache', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "Passively pre-render the animation to be played back instead of generating live. Good for performance. Changes to generation settings flushes the cache, and will be generated live until pre-render is complete.", tags: ['perf', 'cache', 'smooth'] },
         ...(prefix !== 'quantizedGenerateV2' ? [{ cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] }] : []),
         
         { cat: 'Effects', type: 'sub_accordion', label: 'Look Settings', dep: [effectDep, prefix + "Enabled"] },

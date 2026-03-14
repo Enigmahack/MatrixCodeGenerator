@@ -44,9 +44,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         if (!super.trigger(force)) return false;
 
-        // Start in WAITING state to allow screenshot capture to stabilize
-        this.state = 'WAITING';
-        this.timer = 60; // 1 Second Delay
+        this.state = 'FADE_IN';
+        this.timer = 0;
         this.alpha = 0.0;
         this.hasCaptured = false;
         this.zoomScale = 1.0;

@@ -117,16 +117,16 @@ class QuantizedSequence {
                 return this._handleOp(fx, 'addRect', [step[i++], step[i++], step[i++], step[i++]], 0, now, i, ctx);
             case 6: // SMART (x, y)
                 return this._handleOp(fx, 'addSmart', [step[i++], step[i++]], 0, now, i, ctx);
-            case 7: // REM_BLOCK (x, y)
-                return this._handleOp(fx, 'removeBlock', [step[i++], step[i++]], undefined, now, i, ctx);
+            case 7: // REM_BLOCK (x1, y1, x2, y2)
+                return this._handleOp(fx, 'removeBlock', [step[i++], step[i++], step[i++], step[i++]], undefined, now, i, ctx);
             case 8: // ADD_L (x, y, l)
                 return this._handleOp(fx, 'add', [step[i++], step[i++]], step[i++], now, i, ctx);
             case 9: // RECT_L (x1, y1, x2, y2, l)
                 return this._handleOp(fx, 'addRect', [step[i++], step[i++], step[i++], step[i++]], step[i++], now, i, ctx);
             case 10: // SMART_L
                 return this._handleOp(fx, 'addSmart', [step[i++], step[i++]], step[i++], now, i, ctx);
-            case 11: // REM_L
-                return this._handleOp(fx, 'removeBlock', [step[i++], step[i++]], step[i++], now, i, ctx);
+            case 11: // REM_L (x1, y1, x2, y2, l)
+                return this._handleOp(fx, 'removeBlock', [step[i++], step[i++], step[i++], step[i++]], step[i++], now, i, ctx);
             case 12: // NUDGE
             case 13: { // NUDGE_ML
                 const args = [step[i++], step[i++], step[i++], step[i++]]; // dx, dy, w, h
@@ -328,15 +328,11 @@ class QuantizedSequence {
                     if (layer > 0) stepData.push(10, args[0], args[1], layer); 
                     else stepData.push(6, args[0], args[1]);
                 } else if (opCode === 7) { // removeBlock
-                    if (args.length >= 4) {
-                        // Rectangular removal
-                        if (layer > 0) stepData.push(11, args[0], args[1], args[2], args[3], layer);
-                        else stepData.push(7, args[0], args[1], args[2], args[3]);
-                    } else {
-                        // Point removal
-                        if (layer > 0) stepData.push(11, args[0], args[1], layer); 
-                        else stepData.push(7, args[0], args[1]);
-                    }
+                    const x1 = args[0], y1 = args[1];
+                    const x2 = (args.length >= 4) ? args[2] : x1;
+                    const y2 = (args.length >= 4) ? args[3] : y1;
+                    if (layer > 0) stepData.push(11, x1, y1, x2, y2, layer);
+                    else stepData.push(7, x1, y1, x2, y2);
                 } else if (opCode === 12 || opCode === 13) { // nudge
                     const dx = args[0], dy = args[1];
                     let face = args[4];

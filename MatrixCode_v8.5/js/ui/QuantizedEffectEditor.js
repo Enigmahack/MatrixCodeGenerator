@@ -1610,12 +1610,6 @@ class QuantizedEffectEditor {
 
         this._log(`[Editor] ChangeStep: ${oldStep} -> ${newStep} (Delta: ${delta}, Len: ${this.effect.sequence.length})`);
 
-        // Force deterministic reconstruction by invalidating cache from this point forward
-        // This ensures that "Step 5, 10..." issues caused by stale snapshots are eliminated.
-        if (this.effect.invalidateCache) {
-            this.effect.invalidateCache(Math.min(oldStep, newStep));
-        }
-
         this.effect.isReconstructing = true;
         this.effect.jumpToStep(newStep);
         this.effect.isReconstructing = false;
@@ -1641,7 +1635,6 @@ class QuantizedEffectEditor {
         this._log(`[Editor] Inserting new empty step at index ${insertIdx} (Current Phase: ${this.effect.expansionPhase})`);
         
         this.effect.sequence.splice(insertIdx, 0, []); 
-        this.effect.invalidateCache(insertIdx);
         
         // If adding to a brand new effect, ensure procedural state is seeded
         if (this.effect.sequence.length <= 2 && this.effect.activeBlocks && this.effect.activeBlocks.length === 0) {
@@ -1673,7 +1666,6 @@ class QuantizedEffectEditor {
         this._log(`[Editor] Deleting step at index ${targetIdx} (Phase was ${this.effect.expansionPhase})`);
         
         this.effect.sequence.splice(targetIdx, 1);
-        this.effect.invalidateCache(targetIdx);
         
         // Step back so we are looking at the previous valid state
         this._changeStep(-1);
@@ -1690,8 +1682,6 @@ class QuantizedEffectEditor {
         this.redoStack = [];
         this.effect.sequence = [[]]; // Reset to single empty step
         this.effect.expansionPhase = 1; // Default to Step 1
-        
-        if (this.effect.stateCache) this.effect.stateCache.clear();
         
         // Clear transient mask operations
         if (this.effect.maskOps) this.effect.maskOps = [];

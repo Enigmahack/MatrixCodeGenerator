@@ -10,7 +10,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.sequenceManager = new QuantizedSequence();
         this.shadowController = new QuantizedShadow();
         this.renderer = new QuantizedRenderer();
-        this.stateCache = new QuantizedStateCache();
 
         // Sequence State
         this.sequence = [[]];
@@ -563,7 +562,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._currentStepActions = [];
         
         this._initLogicGrid();
-        this.stateCache.clear();
 
         this.state = 'FADE_IN';
         this.timer = 0;
@@ -582,8 +580,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _processAnimationStep() {
-        if (this.cyclesCompleted < this.sequence.length) {
-            const step = this.sequence[this.cyclesCompleted];
+        const stepIdx = this.cyclesCompleted - 1;
+        if (stepIdx >= 0 && stepIdx < this.sequence.length) {
+            const step = this.sequence[stepIdx];
             if (step) this._executeStepOps(step);
             this._maskDirty = true;
         }
@@ -620,35 +619,19 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const framesPerStep = 60;
         
-        // --- 1. Fast State Restore from Cache ---
-        const snapshot = this.stateCache.getNearest(targetStepsCompleted);
-        let startStep = 0;
-
-        if (snapshot && (targetStepsCompleted < this.expansionPhase || snapshot.stepIndex > this.expansionPhase)) {
-            // If jumping backwards OR jumping forward past a snapshot, restore it
-            this.isReconstructing = true;
-            this.stateCache.restore(this, snapshot);
-            startStep = snapshot.stepIndex;
-            this.isReconstructing = false;
-        } else if (targetStepsCompleted >= this.expansionPhase && !this.isReconstructing && this.logicGrid) {
-            // Standard Incremental Forward Jump
-            startStep = this.expansionPhase;
-        } else {
-            // Full Reconstruction from Step 0 (No snapshot found)
-            this.isReconstructing = true;
-            this.maskOps = [];
-            this.activeBlocks = []; 
-            this.nextBlockId = 0;
-            this.proceduralInitiated = false;
-            this._initProceduralState(false); 
-            this._initLogicGrid();
-            this._lastProcessedOpIndex = 0;
-            startStep = 0;
-            this.isReconstructing = false;
-        }
+        // --- 1. Reconstruction from Step 0 ---
+        this.isReconstructing = true;
+        this.maskOps = [];
+        this.activeBlocks = []; 
+        this.nextBlockId = 0;
+        this.proceduralInitiated = false;
+        this._initProceduralState(false); 
+        this._initLogicGrid();
+        this._lastProcessedOpIndex = 0;
+        this.isReconstructing = false;
 
         // --- 2. Process Remaining Steps ---
-        for (let i = startStep; i < targetStepsCompleted; i++) {
+        for (let i = 0; i < targetStepsCompleted; i++) {
             const isLastStep = (i === targetStepsCompleted - 1);
             const simFrame = isLastStep ? (targetStepsCompleted * framesPerStep) : (i * framesPerStep);
             
@@ -660,15 +643,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this._updateRenderGridLogic();
                 this._executeStepOps(step, simFrame); 
             }
-
-            // Capture snapshots periodically (e.g. every 5 steps)
-            if (this.debugMode) {
-                this.stateCache.capture(this, i + 1);
-            }
         }
         
         this.expansionPhase = targetStepsCompleted;
         this.step = targetStepsCompleted;
+        this.cyclesCompleted = targetStepsCompleted;
         this.animFrame = targetStepsCompleted * framesPerStep;
         this.isReconstructing = false; // Reconstruction complete
 
@@ -689,15 +668,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     refreshStep() {
         // Force full reconstruction for refresh to ensure sequence parity
-        this.invalidateCache(this.expansionPhase);
         this.isReconstructing = true;
         this.jumpToStep(this.expansionPhase);
-    }
-
-    invalidateCache(fromStep = 0) {
-        if (this.stateCache) {
-            this.stateCache.invalidate(fromStep);
-        }
     }
     
     // Proxy for SequenceManager
@@ -874,6 +846,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this.cycleTimer = 0;
                 this.cyclesCompleted++;
                 this.step++;
+                this.expansionPhase = this.cyclesCompleted;
 
                 // Clear step-local state
                 this._currentStepActions = [];
@@ -893,13 +866,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                 if (this.state === 'GENERATING') {
                     this._attemptGrowth();
-                } else if (this.cyclesCompleted < this.sequence.length) {
+                } else if (this.cyclesCompleted <= this.sequence.length) {
                     this._processAnimationStep();
-                } else if (this.getConfig('EnableAnimationCache') || this.getConfig('GeneratorTakeover')) {
-                    if (this.getConfig('GeneratorTakeover')) {
-                        this.state = 'GENERATING';
-                        this._initProceduralState(true);
-                    }
+                } else if (this.getConfig('GeneratorTakeover')) {
+                    this.state = 'GENERATING';
+                    this._initProceduralState(true);
                     this._attemptGrowth();
                 }
 
@@ -942,7 +913,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         } else if (this.state === 'SUSTAIN' || this.state === 'GENERATING' || this.state === 'PLAYBACK') {
             this.timer++;
             const isFinished = (this.timer >= durationFrames);
-            const procFinished = (this.getConfig('EnableAnimationCache') || this.state === 'GENERATING') && this._isProceduralFinished();
+            const procFinished = (this.state === 'GENERATING') && this._isProceduralFinished();
 
             if (!this.debugMode && (isFinished || procFinished)) {
                 this.state = 'FADE_OUT';
@@ -3328,10 +3299,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.maskOps.push(op);
         this._gridsDirty = true;
 
-        // Record to sequence for Editor/Step support AND Animation Cache parity
-        const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
+        // Record to sequence for Editor/Step support
+        const isRecording = (this.manualStep) && this.sequence && !this.isReconstructing;
         if (isRecording) {
-            const targetIdx = Math.max(0, this.cyclesCompleted);
+            const targetIdx = Math.max(0, this.expansionPhase - 1);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             const seqOp = {
                 op: (w === 1 && h === 1) ? 'addSmart' : 'addRect',
@@ -5975,10 +5946,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         const x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
         this.maskOps.push({ type: 'removeBlock', x1, y1, x2, y2, layer: layer, startFrame: this.animFrame, fade: fade });
         
-        // Record to sequence for Editor/Step support AND Animation Cache parity
-        const isRecording = (this.manualStep || this.getConfig('EnableAnimationCache')) && this.sequence && !this.isReconstructing;
+        // Record to sequence for Editor/Step support
+        const isRecording = (this.manualStep) && this.sequence && !this.isReconstructing;
         if (isRecording) {
-            const targetIdx = Math.max(0, this.cyclesCompleted);
+            const targetIdx = Math.max(0, this.expansionPhase - 1);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             this.sequence[targetIdx].push({
                 op: 'removeBlock',
@@ -5994,10 +5965,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     onExpansionComplete() {
         this._log(`[${this.name}] Expansion complete: canvas covered.`);
-        if (this.state === 'GENERATING' && this.getConfig('EnableAnimationCache') && window.sequenceCache && this.sequence && this.sequence.length > 0) {
-            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
-            window.sequenceCache.push(configKey, this.sequence);
-        }
     }
 
     stop() {

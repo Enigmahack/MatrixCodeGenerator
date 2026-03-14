@@ -66,13 +66,11 @@ function encodeSequence(sequence) {
                 if (layer > 0) stepData.push(10, args[0], args[1], layer);
                 else stepData.push(6, args[0], args[1]);
             } else if (opCode === 7) { // removeBlock
-                if (args.length >= 4) {
-                    if (layer > 0) stepData.push(11, args[0], args[1], args[2], args[3], layer);
-                    else stepData.push(7, args[0], args[1], args[2], args[3]);
-                } else {
-                    if (layer > 0) stepData.push(11, args[0], args[1], layer);
-                    else stepData.push(7, args[0], args[1]);
-                }
+                const x1 = args[0], y1 = args[1];
+                const x2 = (args.length >= 4) ? args[2] : x1;
+                const y2 = (args.length >= 4) ? args[3] : y1;
+                if (layer > 0) stepData.push(11, x1, y1, x2, y2, layer);
+                else stepData.push(7, x1, y1, x2, y2);
             } else if (opCode === 2) { // rem
                 stepData.push(2, args[0], args[1]);
                 let mask = (layer << 4);

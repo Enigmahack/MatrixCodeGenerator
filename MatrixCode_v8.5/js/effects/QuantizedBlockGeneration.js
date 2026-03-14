@@ -16,18 +16,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.expansionPhase = 0;
         this.sequence = [];
 
-        // Bug Fix 2: Animation Cache integration
-        // When RandomStart = false, the cached sequences are valid and should be loaded.
-        if (!this.getConfig('RandomStart') && window.sequenceCache) {
-            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
-            const cached = window.sequenceCache.get(configKey, true);
-            if (cached && cached.length > 0) {
-                this.sequence = cached;
-                this.state = 'PLAYBACK';
-                this._log(`[QuantizedBlockGenerator] Loaded sequence from cache (${this.sequence.length} steps).`);
-            }
-        }
-
         // Set spawn center BEFORE _initProceduralState so the seed block lands at the right position.
         const bs = this.getBlockSize();
         const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
@@ -66,14 +54,6 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         }
         
         // _initBehaviors is already called inside _resetV2Engine via super.trigger
-
-        // Passively ensure the next sequence is ready in the background
-        if (window.sequenceCache) {
-            const configKey = window.sequenceCache.generateConfigKey(this.configPrefix);
-            setTimeout(() => {
-                window.sequenceCache.ensureReady(configKey);
-            }, 1500); // 1.5s delay to "settle"
-        }
 
         return true;
     }
