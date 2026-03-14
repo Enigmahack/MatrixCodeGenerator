@@ -72,15 +72,17 @@ class QuantizedAnimationOptimizer {
 
             const args = opObj.args || (Array.isArray(opObj) ? opObj.slice(1) : []);
             let coords = [];
-            if (opName === 'add' || opName === 'removeBlock' || opName === 'addSmart' || opName === 'rem') {
+            if (opName === 'add' || opName === 'addSmart' || (opName === 'removeBlock' && args.length < 4)) {
                 coords.push({ x: args[0], y: args[1] });
-            } else if (opName === 'addRect') {
+            } else if (opName === 'addRect' || opName === 'addBlock' || (opName === 'removeBlock' && args.length >= 4)) {
                 const [x1, y1, x2, y2] = args;
                 for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
                     for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
                         coords.push({ x, y });
                     }
                 }
+            } else if (opName === 'rem') {
+                coords.push({ x: args[0], y: args[1] });
             }
 
             if (coords.length === 0) continue;
@@ -153,19 +155,20 @@ class QuantizedAnimationOptimizer {
             const opName = opObj.op || opObj[0];
             const layer = opObj.layer !== undefined ? opObj.layer : 0;
             const args = opObj.args || (Array.isArray(opObj) ? opObj.slice(1) : []);
-            
+
             let coords = [];
-             if (opName === 'add' || opName === 'removeBlock' || opName === 'addSmart' || opName === 'rem') {
+            if (opName === 'add' || opName === 'addSmart' || (opName === 'removeBlock' && args.length < 4)) {
                 coords.push({ x: args[0], y: args[1] });
-            } else if (opName === 'addRect') {
+            } else if (opName === 'addRect' || opName === 'addBlock' || (opName === 'removeBlock' && args.length >= 4)) {
                 const [x1, y1, x2, y2] = args;
                 for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
                     for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
                         coords.push({ x, y });
                     }
                 }
+            } else if (opName === 'rem') {
+                coords.push({ x: args[0], y: args[1] });
             }
-
             for (const { x, y } of coords) {
                 this._setOccupied(x, y, layer, opName.startsWith('add'));
             }

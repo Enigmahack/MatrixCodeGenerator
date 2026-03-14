@@ -11,6 +11,7 @@ const OPS = {
     'add': 1,
     'rem': 2,
     'addRect': 3,
+    'addBlock': 3,
     'addSmart': 6,
     'removeBlock': 7,
     'nudge': 12,
@@ -37,13 +38,15 @@ function encodeSequence(sequence) {
         const stepData = [];
         
         for (const opObj of step) {
-            let opName, args;
+            let opName, args, layer = 0;
             if (Array.isArray(opObj)) {
                 opName = opObj[0];
                 args = opObj.slice(1);
+                layer = opObj.length >= 6 ? opObj[5] : 0;
             } else {
                 opName = opObj.op;
                 args = opObj.args;
+                layer = opObj.layer || 0;
             }
 
             const opCode = OPS[opName];
@@ -52,29 +55,34 @@ function encodeSequence(sequence) {
                 continue;
             }
 
-            stepData.push(opCode);
-
             // Args Packing
-            if (opCode === 1 || opCode === 6 || opCode === 7) {
-                // 2 Args: x, y
-                stepData.push(args[0], args[1]);
-            } else if (opCode === 3) {
-                // 4 Args: x1, y1, x2, y2
-                stepData.push(args[0], args[1], args[2], args[3]);
-            } else if (opCode === 2) {
-                // 3 Args: x, y, face(string)
-                stepData.push(args[0], args[1]);
-                let mask = 0;
+            if (opCode === 1) { // add
+                if (layer > 0) stepData.push(8, args[0], args[1], layer);
+                else stepData.push(1, args[0], args[1]);
+            } else if (opCode === 3) { // addRect / addBlock
+                if (layer > 0) stepData.push(9, args[0], args[1], args[2], args[3], layer);
+                else stepData.push(3, args[0], args[1], args[2], args[3]);
+            } else if (opCode === 6) { // addSmart
+                if (layer > 0) stepData.push(10, args[0], args[1], layer);
+                else stepData.push(6, args[0], args[1]);
+            } else if (opCode === 7) { // removeBlock
+                if (args.length >= 4) {
+                    if (layer > 0) stepData.push(11, args[0], args[1], args[2], args[3], layer);
+                    else stepData.push(7, args[0], args[1], args[2], args[3]);
+                } else {
+                    if (layer > 0) stepData.push(11, args[0], args[1], layer);
+                    else stepData.push(7, args[0], args[1]);
+                }
+            } else if (opCode === 2) { // rem
+                stepData.push(2, args[0], args[1]);
+                let mask = (layer << 4);
                 if (args.length > 2 && typeof args[2] === 'string') {
-                    mask = FACES[args[2].toUpperCase()] || 0;
+                    mask |= (FACES[args[2].toUpperCase()] || 0);
                 }
                 stepData.push(mask);
             } else if (opCode === 12 || opCode === 13) {
                 // nudge: x, y, w, h, layer, faceMask
-                // args: [x, y, w, h, face]
-                stepData.push(args[0], args[1], args[2], args[3]);
-                const layer = opObj.layer || 0;
-                stepData.push(layer);
+                stepData.push(opCode, args[0], args[1], args[2], args[3], layer);
                 let faceMask = 0;
                 if (args.length > 4 && typeof args[4] === 'string') {
                     faceMask = FACES[args[4].toUpperCase()] || 0;

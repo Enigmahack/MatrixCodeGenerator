@@ -164,8 +164,8 @@ class QuantizedSequence {
             if (fx.activeBlocks) fx.activeBlocks.push({ x: dx, y: dy, w: 1, h: 1, layer, startFrame: now, id: fx.nextBlockId++, dist: Math.abs(dx) + Math.abs(dy), invisible, stepAge: 0 });
         } else if (op === 'addRect' || op === 'addBlock') {
             const [dx1, dy1, dx2, dy2] = args;
-            const targetLayer = (op === 'addBlock' && args.length >= 5) ? args[4] : layer;
-            const suppressFades = (op === 'addBlock' && args.length >= 7) ? args[6] : !!args.suppressFades;
+            const targetLayer = (args.length >= 5) ? args[4] : layer;
+            const suppressFades = (args.length >= 7) ? args[6] : !!args.suppressFades;
 
             const x = Math.min(dx1, dx2), y = Math.min(dy1, dy2);
             const w = Math.abs(dx2 - dx1) + 1, h = Math.abs(dy2 - dy1) + 1;
