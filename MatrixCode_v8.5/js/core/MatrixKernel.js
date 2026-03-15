@@ -263,22 +263,11 @@ class MatrixKernel {
                         // Wait longer between retries
                         await new Promise(resolve => setTimeout(resolve, 500 * retries));
                     } else {
-                        // FALLBACK TO 2D
-                        if (typeof CanvasRenderer !== 'undefined') {
-                            if (this.config.state.logErrors) console.warn("[MatrixKernel] All WebGL attempts failed. Falling back to Canvas 2D.");
-                            this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
-                            if (this.effectRegistry) {
-                                this.effectRegistry.setRenderer(this.renderer);
-                            }
-                            if (this.notifications) {
-                                this.notifications.show("WebGL failed to start. Using 2D fallback mode.", "warning");
-                            }
-                        } else {
-                            if (this.notifications) {
-                                this.notifications.show("Critical Error: No compatible renderer found.", "error");
-                            }
-                            this.renderer = null;
+                        if (this.config.state.logErrors) console.error("[MatrixKernel] All WebGL initialization attempts failed.");
+                        if (this.notifications) {
+                            this.notifications.show("Critical Error: WebGL failed to initialize. Your browser may not support the required features.", "error");
                         }
+                        this.renderer = null;
                     }
                 }
             }
