@@ -102,12 +102,27 @@ class WebGLRenderer {
     constructor(canvasId, grid, config, effects) {
         this.cvs = document.getElementById(canvasId);
         
-        // Enforce WebGL2
-        this.gl = this.cvs.getContext('webgl2', { alpha: true, preserveDrawingBuffer: false });
+        // Enforce WebGL2 with conservative options for Safari stability
+        const ctxOptions = { 
+            alpha: false, 
+            antialias: false,
+            depth: false,
+            stencil: false,
+            preserveDrawingBuffer: false,
+            powerPreference: 'high-performance'
+        };
+        
+        this.gl = this.cvs.getContext('webgl2', ctxOptions);
         
         if (!this.gl) {
             console.error("WebGLRenderer: WebGL 2 hardware acceleration not supported.");
             throw new Error("WebGL 2 not supported");
+        }
+
+        // Detect immediate context loss
+        if (this.gl.isContextLost()) {
+            console.error("WebGLRenderer: WebGL context was lost immediately upon acquisition.");
+            throw new Error("WebGL context lost on init");
         }
         
         // Check for Float Texture Support (for HDR Bloom)
@@ -205,6 +220,10 @@ class WebGLRenderer {
             if (this.bloomProgram) this.gl.deleteProgram(this.bloomProgram);
             if (this.colorProgram) this.gl.deleteProgram(this.colorProgram);
             this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+            // Forcefully lose context to help Safari release resources
+            const ext = this.gl.getExtension('WEBGL_lose_context');
+            if (ext) ext.loseContext();
         }
     }
 
@@ -280,7 +299,12 @@ class WebGLRenderer {
         this.glimmerTexture = this.gl.createTexture();
         if (this.glimmerTexture) {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.LUMINANCE, w, h, 0, this.gl.LUMINANCE, this.gl.UNSIGNED_BYTE, data);
+            
+            // WebGL2 optimized formats (Red-only 8-bit)
+            const internalFormat = this.gl.R8;
+            const format = this.gl.RED;
+            
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, this.gl.UNSIGNED_BYTE, data);
             
             // Use NEAREST to preserve "Blocky/Digital" look
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);

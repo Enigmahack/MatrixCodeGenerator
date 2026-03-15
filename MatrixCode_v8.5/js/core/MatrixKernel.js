@@ -85,7 +85,16 @@ class MatrixKernel {
 
         // Standard Application initialization
         // Delay initialization slightly to ensure the DOM and WebGL context are ready (Safari fix)
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Increased delay to 500ms for Safari stability
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Ensure canvas has dimensions before context acquisition
+        const mainCanvas = document.getElementById('matrixCanvas');
+        if (mainCanvas) {
+            mainCanvas.width = window.innerWidth;
+            mainCanvas.height = window.innerHeight;
+        }
+
         await this._initializeRendererAndUI();
 
         // Perform the initial resize setup and start the loop
@@ -98,8 +107,15 @@ class MatrixKernel {
         if (this.effectRegistry) {
             setTimeout(() => {
                 this.effectRegistry.preallocateAll();
-            }, 1000);
+            }, 1500); // Slightly longer delay
         }
+
+        // Cleanup WebGL on unload to help Safari free up context slots
+        window.addEventListener('beforeunload', () => {
+            if (this.renderer && typeof this.renderer.dispose === 'function') {
+                this.renderer.dispose();
+            }
+        });
 
         // Handle Page Visibility to prevent catch-up delays when returning from background
         document.addEventListener('visibilitychange', () => {
