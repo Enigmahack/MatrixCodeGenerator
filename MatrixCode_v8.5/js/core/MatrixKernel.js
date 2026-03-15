@@ -552,9 +552,21 @@ class MatrixKernel {
         }
 
         this.accumulator += delta;
-        while (this.accumulator >= this.timestep) {
+        
+        // LIMIT CATCH-UP to prevent thread-blocking cascades
+        // Even if we are behind, we only run a maximum of 3 frames per loop.
+        // This ensures the browser has a chance to render and process input.
+        let framesToRun = Math.floor(this.accumulator / this.timestep);
+        if (framesToRun > 3) framesToRun = 3; 
+
+        for (let i = 0; i < framesToRun; i++) {
             this._updateFrame();
             this.accumulator -= this.timestep;
+        }
+        
+        // If we are still very far behind, cap the accumulator to avoid future stalls
+        if (this.accumulator > this.timestep * 10) {
+            this.accumulator = this.timestep;
         }
 
         if (this.renderer) {

@@ -122,6 +122,11 @@ class QuantizedRenderer {
         fx.lastMaskUpdateFrame = fx.animFrame;
     }
 
+    rebuildEdgeCache(fx, blocksX, blocksY) {
+        this._edgeCacheDirty = true;
+        this._cachedEdgeMaps = []; 
+    }
+
     renderEdges(fx, ctx, colorCtx, now, blocksX, blocksY, offX, offY) {
         const l = fx.layout;
         const grid = fx.renderGrid;

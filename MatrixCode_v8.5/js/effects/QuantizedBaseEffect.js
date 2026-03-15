@@ -3,6 +3,17 @@
  */
 class QuantizedBaseEffect extends AbstractEffect {
     static sharedRenderer = null;
+    static sharedCharCache = new Map();
+    static lastGridSeed = -1;
+    static _preallocated = false;
+    static sharedCanvases = {
+        mask: null,
+        scratch: null,
+        gridCache: null,
+        perimeterMask: null,
+        lineMask: null,
+        echo: null
+    };
     static sharedBuffers = {
         renderGrid: null,
         logicGrid: null,
@@ -48,8 +59,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.scratchCtx = null;
         this.gridCacheCanvas = null;
         this.gridCacheCtx = null;
+        this.perimeterMaskCanvas = null;
+        this.perimeterMaskCtx = null;
+        this.lineMaskCanvas = null;
+        this.lineMaskCtx = null;
+        this.echoCanvas = null;
+        this.echoCtx = null;
         this._maskDirty = true;
-        this.lastGridSeed = -1;
         this.layout = null;
 
         this._outsideMap = null;
@@ -379,6 +395,35 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 2. Otherwise (Override is ON, or it's not inheritable), use the effect-specific key.
         return (val !== undefined && val !== null && val !== "") ? val : null;
     }
+
+    _getCharFromCache(charStr, s, d) {
+        const cache = QuantizedBaseEffect.sharedCharCache;
+        const style = s.italicEnabled ? 'italic ' : '';
+        const weight = s.fontWeight || 'normal';
+        const family = s.fontFamily || 'monospace';
+        const fontSize = s.fontSize + (s.tracerSizeIncrease || 0);
+        
+        const key = `${charStr}|${family}|${fontSize}|${weight}|${style}`;
+        if (cache.has(key)) return cache.get(key);
+        
+        const canvas = document.createElement('canvas');
+        const padding = 10;
+        canvas.width = Math.ceil(d.cellWidth + padding * 2);
+        canvas.height = Math.ceil(d.cellHeight + padding * 2);
+        const ctx = canvas.getContext('2d');
+        
+        ctx.font = `${style}${weight} ${fontSize}px ${family}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(charStr, canvas.width / 2, canvas.height / 2);
+        
+        cache.set(key, canvas);
+        return canvas;
+    }
+
+    get lastGridSeed() { return QuantizedBaseEffect.lastGridSeed; }
+    set lastGridSeed(val) { QuantizedBaseEffect.lastGridSeed = val; }
 
     getBlockSize() {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
@@ -1189,65 +1234,73 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _ensureCanvases(w, h) {
-        if (!this.maskCanvas) {
-            this.maskCanvas = document.createElement('canvas');
-            this.maskCtx = this.maskCanvas.getContext('2d');
-            this._maskDirty = true;
+        const sc = QuantizedBaseEffect.sharedCanvases;
+
+        if (!sc.mask) {
+            sc.mask = document.createElement('canvas');
+            sc.maskCtx = sc.mask.getContext('2d');
         }
-        if (!this.scratchCanvas) {
-            this.scratchCanvas = document.createElement('canvas');
-            this.scratchCtx = this.scratchCanvas.getContext('2d');
+        if (!sc.scratch) {
+            sc.scratch = document.createElement('canvas');
+            sc.scratchCtx = sc.scratch.getContext('2d');
         }
-        if (!this.gridCacheCanvas) {
-            this.gridCacheCanvas = document.createElement('canvas');
-            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
+        if (!sc.gridCache) {
+            sc.gridCache = document.createElement('canvas');
+            sc.gridCacheCtx = sc.gridCache.getContext('2d');
         }
-        if (!this.perimeterMaskCanvas) {
-            this.perimeterMaskCanvas = document.createElement('canvas');
-            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
+        if (!sc.perimeterMask) {
+            sc.perimeterMask = document.createElement('canvas');
+            sc.perimeterMaskCtx = sc.perimeterMask.getContext('2d');
         }
-        if (!this.lineMaskCanvas) {
-            this.lineMaskCanvas = document.createElement('canvas');
-            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
+        if (!sc.lineMask) {
+            sc.lineMask = document.createElement('canvas');
+            sc.lineMaskCtx = sc.lineMask.getContext('2d');
         }
-        if (!this.echoCanvas) {
-            this.echoCanvas = document.createElement('canvas');
-            this.echoCtx = this.echoCanvas.getContext('2d');
+        if (!sc.echo) {
+            sc.echo = document.createElement('canvas');
+            sc.echoCtx = sc.echo.getContext('2d');
         }
 
-        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
-            this.maskCanvas.width = w;
-            this.maskCanvas.height = h;
+        // Sync instance properties to shared canvases
+        this.maskCanvas = sc.mask;
+        this.maskCtx = sc.maskCtx;
+        this.scratchCanvas = sc.scratch;
+        this.scratchCtx = sc.scratchCtx;
+        this.gridCacheCanvas = sc.gridCache;
+        this.gridCacheCtx = sc.gridCacheCtx;
+        this.perimeterMaskCanvas = sc.perimeterMask;
+        this.perimeterMaskCtx = sc.perimeterMaskCtx;
+        this.lineMaskCanvas = sc.lineMask;
+        this.lineMaskCtx = sc.lineMaskCtx;
+        this.echoCanvas = sc.echo;
+        this.echoCtx = sc.echoCtx;
+
+        // Resize shared canvases if needed
+        if (sc.mask.width !== w || sc.mask.height !== h) {
+            sc.mask.width = w;
+            sc.mask.height = h;
             this._maskDirty = true;
         }
-        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
-            this.scratchCanvas.width = w;
-            this.scratchCanvas.height = h;
+        if (sc.scratch.width !== w || sc.scratch.height !== h) {
+            sc.scratch.width = w;
+            sc.scratch.height = h;
         }
-        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
-            this.gridCacheCanvas.width = w;
-            this.gridCacheCanvas.height = h;
+        if (sc.gridCache.width !== w || sc.gridCache.height !== h) {
+            sc.gridCache.width = w;
+            sc.gridCache.height = h;
             this.lastGridSeed = -1; 
         }
-        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
-            this.perimeterMaskCanvas.width = w;
-            this.perimeterMaskCanvas.height = h;
+        if (sc.perimeterMask.width !== w || sc.perimeterMask.height !== h) {
+            sc.perimeterMask.width = w;
+            sc.perimeterMask.height = h;
         }
-        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
-            this.lineMaskCanvas.width = w;
-            this.lineMaskCanvas.height = h;
+        if (sc.lineMask.width !== w || sc.lineMask.height !== h) {
+            sc.lineMask.width = w;
+            sc.lineMask.height = h;
         }
-        if (this.echoCanvas.width !== w || this.echoCanvas.height !== h) {
-            this.echoCanvas.width = w;
-            this.echoCanvas.height = h;
-        }
-        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
-            this.lineMaskCanvas.width = w;
-            this.lineMaskCanvas.height = h;
-        }
-        if (this.echoCanvas.width !== w || this.echoCanvas.height !== h) {
-            this.echoCanvas.width = w;
-            this.echoCanvas.height = h;
+        if (sc.echo.width !== w || sc.echo.height !== h) {
+            sc.echo.width = w;
+            sc.echo.height = h;
         }
         
         const blocksX = this.logicGridW;
@@ -1296,47 +1349,41 @@ class QuantizedBaseEffect extends AbstractEffect {
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
 
-        const visualFontSize = s.fontSize + (s.tracerSizeIncrease || 0);
-        const style = s.italicEnabled ? 'italic ' : '';
-        const weight = s.fontWeight;
-        const family = s.fontFamily;
-        ctx.font = `${style}${weight} ${visualFontSize}px ${family}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#FFFFFF';
+        // Ensure shared Atlas is ready and using current font settings
+        if (!QuantizedBaseEffect.sharedAtlas) {
+            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+        }
+        const atlas = QuantizedBaseEffect.sharedAtlas;
+        atlas.update();
 
         const grid = this.g;
         const shadowGrid = this.shadowGrid;
         const distW = this.renderer._distMapWidth;
         const distH = this.renderer._distMapHeight;
         const l = this.layout;
-        const screenStepX = d.cellWidth * s.stretchX;
-        const screenStepY = d.cellHeight * s.stretchY;
         const screenOriginX = ((0 - (grid.cols * d.cellWidth * 0.5)) * s.stretchX) + (w * 0.5);
         const screenOriginY = ((0 - (grid.rows * d.cellHeight * 0.5)) * s.stretchY) + (h * 0.5);
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
         
-        // Fast String Cache
-        if (!this._charStrCache) this._charStrCache = new Array(65536);
-        const sc = this._charStrCache;
-        
         const activeFonts = d.activeFonts;
         const fontData = activeFonts[0] || { chars: "01" };
         const charSet = fontData.chars;
         const charSetLen = charSet.length;
         
-        // Batch Transform
         ctx.save();
         ctx.translate(screenOriginX, screenOriginY);
         if (s.stretchX !== 1 || s.stretchY !== 1) {
             ctx.scale(s.stretchX, s.stretchY);
         }
 
+        const cellW = d.cellWidth;
+        const cellH = d.cellHeight;
         const padding = 5;
+
         for (let y = -padding; y < rows + padding; y++) {
-            const cy = (y + 0.5) * d.cellHeight;
+            const cy = (y + 0.5) * cellH;
             const isInsideY = (y >= 0 && y < rows);
             
             for (let x = -padding; x < cols + padding; x++) {
@@ -1384,11 +1431,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                     charCode = charSet.charCodeAt(Math.floor(hash * charSetLen));
                 }
                 
-                const cx = (x + 0.5) * d.cellWidth;
-                
-                // Get cached string
-                const charStr = sc[charCode] || (sc[charCode] = String.fromCharCode(charCode));
-                ctx.fillText(charStr, cx, cy);
+                const cx = (x + 0.5) * cellW;
+                const charStr = String.fromCharCode(charCode);
+                const rect = atlas.get(charStr);
+                if (rect) {
+                    // Draw from Atlas with middle/center alignment matching fillText
+                    ctx.drawImage(atlas.canvas, rect.x, rect.y, rect.w, rect.h, 
+                                  cx - rect.w * 0.5, cy - rect.h * 0.5, rect.w, rect.h);
+                }
             }
         }
         
