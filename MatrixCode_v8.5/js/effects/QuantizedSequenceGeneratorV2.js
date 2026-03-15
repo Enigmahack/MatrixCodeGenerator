@@ -181,6 +181,7 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _initBehaviors() {
+        this.growthPool.clear();
         const gen = this;
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s) {
@@ -453,6 +454,7 @@ class QuantizedSequenceGeneratorV2 {
             const halfH = Math.floor(gen.rows / bs.h / 2);
             const proxW = Math.max(2, Math.floor(halfW * 0.25));
             const proxH = Math.max(2, Math.floor(halfH * 0.25));
+            const shoveAmount = Math.max(1, gen._getConfig('ShoveFillAmount') ?? 1);
 
             if (!s.shoveStrips) s.shoveStrips = [];
             s.shoveStrips = s.shoveStrips.filter(st => st.active);
@@ -485,28 +487,32 @@ class QuantizedSequenceGeneratorV2 {
                 if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
-                const lp   = strip.leadPos;
-
-                if (isEW ? (strip.dir === 'E' ? lp > halfW : lp < -halfW)
-                         : (strip.dir === 'S' ? lp > halfH : lp < -halfH)) {
-                    strip.active = false; continue;
-                }
-
                 const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
-                const bp   = lp - step;
                 const rangeSize = strip.perpEnd - strip.perpStart + 1;
+                
+                const numSteps = 1 + Math.floor(Math.random() * shoveAmount);
 
-                if (isEW) {
-                    // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
-                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, true) });
-                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, true) });
-                } else {
-                    // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
-                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, true) });
-                    gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, true) });
+                for (let i = 0; i < numSteps; i++) {
+                    const lp = strip.leadPos;
+                    if (isEW ? (strip.dir === 'E' ? lp > halfW : lp < -halfW)
+                             : (strip.dir === 'S' ? lp > halfH : lp < -halfH)) {
+                        strip.active = false;
+                        break;
+                    }
+
+                    const bp = lp - step;
+                    if (isEW) {
+                        // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
+                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, true) });
+                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, true) });
+                    } else {
+                        // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
+                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, true) });
+                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, true) });
+                    }
+
+                    strip.leadPos += step;
                 }
-
-                strip.leadPos += step;
             }
         });
 
@@ -2017,6 +2023,9 @@ class QuantizedSequenceGeneratorV2 {
 
     seedOriginStep() {
         this.currentStepOps = [];
+        const isRandomStart = !!this._getConfig('RandomStart');
+        if (isRandomStart) return this.currentStepOps; // Don't seed Step 0 if random
+
         const s = this.behaviorState;
         const maxLayer = this._getMaxLayer();
         const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');

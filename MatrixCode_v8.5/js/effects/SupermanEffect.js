@@ -9,7 +9,7 @@ class SupermanEffect extends AbstractEffect {
                 this.spawnX = 0;
             }
 
-            trigger() { 
+            trigger(force = false) { 
                 if(this.active) return false; 
                 this.active = true; 
                 this.timer = this.c.state.supermanDurationSeconds * 60; 

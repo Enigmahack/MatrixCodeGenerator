@@ -30,7 +30,7 @@ class PulseEffect extends AbstractEffect {
         };
     }
     
-    trigger() {
+    trigger(force = false) {
         if(this.active) return false;
 
         const total = this.g.cols * this.g.rows;

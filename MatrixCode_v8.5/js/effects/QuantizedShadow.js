@@ -43,6 +43,18 @@ class QuantizedShadow {
 
         this.shadowSim.timeScale = 1.0;
         
+        // --- CLEAN SLATE FOR SHADOW WORLD ---
+        // Ensure the reused inactive grid is cleared of stale visual artifacts
+        if (this.shadowGrid) {
+            this.shadowGrid.clearAllOverrides();
+            this.shadowGrid.clearAllEffects();
+            if (this.shadowGrid.effectActive)  this.shadowGrid.effectActive.fill(0);
+            if (this.shadowGrid.effectAlphas)  this.shadowGrid.effectAlphas.fill(0);
+            if (this.shadowGrid.overrideMix)   this.shadowGrid.overrideMix.fill(0);
+            if (this.shadowGrid.secondaryActive) this.shadowGrid.secondaryActive.fill(0);
+            // DO NOT clear shadowGrid.mix here, as cloneState will soon overwrite it with a fresh world snapshot.
+        }
+
         fx.shadowGrid = this.shadowGrid;
         fx.shadowSim = this.shadowSim;
         fx.warmupRemaining = 0;

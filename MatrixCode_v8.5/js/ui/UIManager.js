@@ -1647,31 +1647,31 @@ class UIManager {
         if(action === 'importShader_GLO') { this._activeShaderConfigId = 'globalFX'; document.getElementById('importShaderFile').click(); }
 
         if(action === 'manageCharacters') this.charSelector.show();
-        if(action === 'boot') { if(this.effects.trigger('BootSequence')) this.notifications.show('Boot Sequence Initiated', 'success'); else this.notifications.show('Boot Sequence Active...', 'info'); }
-        if(action === 'crash') { if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger'); else this.notifications.show('Crash Sequence Active...', 'info'); }
+        if(action === 'boot') { if(this.effects.trigger('BootSequence', true)) this.notifications.show('Boot Sequence Initiated', 'success'); else this.notifications.show('Boot Sequence Active...', 'info'); }
+        if(action === 'crash') { if(this.effects.trigger('CrashSequence', true)) this.notifications.show('System Crash Initiated', 'danger'); else this.notifications.show('Crash Sequence Active...', 'info'); }
         if(action === 'boot_crash_sequence') {
-            if(this.effects.trigger('BootSequence')) {
+            if(this.effects.trigger('BootSequence', true)) {
                 this.notifications.show('Boot Sequence Initiated', 'success');
                 setTimeout(() => {
-                    if(this.effects.trigger('CrashSequence')) this.notifications.show('System Crash Initiated', 'danger');
+                    if(this.effects.trigger('CrashSequence', true)) this.notifications.show('System Crash Initiated', 'danger');
                 }, 4000);
             } else {
                 this.notifications.show('Sequence Active...', 'info');
             }
         }
-        if(action === 'pulse') { if(this.effects.trigger('Pulse')) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
-        if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse')) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
-        if(action === 'minipulse') { if(this.effects.trigger('MiniPulse')) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
-        if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse')) this.notifications.show('Quantized Pulse Triggered', 'success'); else this.notifications.show('Quantized Pulse active...', 'info'); }
-        if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd')) this.notifications.show('Quantized Add Triggered', 'success'); else this.notifications.show('Quantized Add active...', 'info'); }
-        if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract')) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
-        if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb')) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
-        if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom')) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
-        if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion')) this.notifications.show('Quantized Expansion Triggered', 'success'); else this.notifications.show('Quantized Expansion active...', 'info'); }
-        if(action === 'quantizedCrawler') { if(this.effects.trigger('QuantizedCrawler')) this.notifications.show('Quantized Crawler Triggered', 'success'); else this.notifications.show('Quantized Crawler active...', 'info'); }
-        if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator')) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
-        if(action === 'dejavu') { if(this.effects.trigger('DejaVu')) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
-        if(action === 'superman') { if(this.effects.trigger('Superman')) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
+        if(action === 'pulse') { if(this.effects.trigger('Pulse', true)) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
+        if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse', true)) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
+        if(action === 'minipulse') { if(this.effects.trigger('MiniPulse', true)) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
+        if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse', true)) this.notifications.show('Quantized Pulse Triggered', 'success'); else this.notifications.show('Quantized Pulse active...', 'info'); }
+        if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd', true)) this.notifications.show('Quantized Add Triggered', 'success'); else this.notifications.show('Quantized Add active...', 'info'); }
+        if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract', true)) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
+        if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb', true)) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
+        if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom', true)) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
+        if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion', true)) this.notifications.show('Quantized Expansion Triggered', 'success'); else this.notifications.show('Quantized Expansion active...', 'info'); }
+        if(action === 'quantizedCrawler') { if(this.effects.trigger('QuantizedCrawler', true)) this.notifications.show('Quantized Crawler Triggered', 'success'); else this.notifications.show('Quantized Crawler active...', 'info'); }
+        if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator', true)) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
+        if(action === 'dejavu') { if(this.effects.trigger('DejaVu', true)) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
+        if(action === 'superman') { if(this.effects.trigger('Superman', true)) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'unloadAllShaders') { this._unloadAllShaders(); }
     }
 

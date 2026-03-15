@@ -46,8 +46,8 @@ class CrashEffect extends AbstractEffect {
         this.sheetFadeVal = 1.0;
     }
 
-    trigger() {
-        if (this.active) return false;
+    trigger(force = false) {
+        if (this.active && !force) return false;
 
         // Snapshot for Deja Vu bars to respect spaces
         this.snap = {

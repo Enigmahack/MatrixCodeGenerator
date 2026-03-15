@@ -96,6 +96,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             fillRatio: 0,
             scx: 0,
             scy: 0,
+            genOriginX: 0,
+            genOriginY: 0,
             hitEdge: { N: false, S: false, E: false, W: false },
             insideOutWave: 1,
             deferredRows: new Map(),
@@ -478,6 +480,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._stripNextId = 0;
         this.actionBuffer = [];
         this.actionQueues.clear();
+        this.sequence = [[]];
         this.behaviorState = {
             step: 0,
             growTimer: 0,
@@ -486,6 +489,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             fillRatio: 0,
             scx: 0,
             scy: 0,
+            genOriginX: 0,
+            genOriginY: 0,
             hitEdge: { N: false, S: false, E: false, W: false },
             insideOutWave: 1,
             deferredCols: new Map(),
@@ -503,15 +508,53 @@ class QuantizedBaseEffect extends AbstractEffect {
     trigger(force = false) {
         if (this.active && !force) return false;
         
+        // Ensure the grid is cleared of any previous quantized overrides and effect artifacts
+        if (this.g) {
+            this.g.clearAllOverrides();
+            this.g.clearAllEffects();
+            
+            // Clear all auxiliary buffers that might hold stale visual data
+            if (this.g.effectActive)  this.g.effectActive.fill(0);
+            if (this.g.effectAlphas)  this.g.effectAlphas.fill(0);
+            if (this.g.effectChars)   this.g.effectChars.fill(0);
+            if (this.g.effectColors)  this.g.effectColors.fill(0);
+            if (this.g.effectGlows)   this.g.effectGlows.fill(0);
+            
+            if (this.g.overrideChars) this.g.overrideChars.fill(0);
+            if (this.g.overrideColors) this.g.overrideColors.fill(0);
+            if (this.g.overrideAlphas) this.g.overrideAlphas.fill(0);
+            if (this.g.overrideGlows) this.g.overrideGlows.fill(0);
+            if (this.g.overrideMix)   this.g.overrideMix.fill(0);
+            
+            if (this.g.secondaryActive) this.g.secondaryActive.fill(0);
+            if (this.g.secondaryChars)  this.g.secondaryChars.fill(0);
+            if (this.g.secondaryColors) this.g.secondaryColors.fill(0);
+            if (this.g.secondaryAlphas) this.g.secondaryAlphas.fill(0);
+            if (this.g.secondaryGlows)  this.g.secondaryGlows.fill(0);
+            
+            // Clear Reality Swap artifacts
+            if (this.g.mix) this.g.mix.fill(0);
+            
+            // Clear Glimmers and other complex state that might persist from a previous run
+            if (this.g.complexStyles) this.g.complexStyles.clear();
+        }
+
         // Reset V2 engine state for a clean slate
         this._resetV2Engine();
 
         const enabled = this.getConfig('Enabled');
         if (!enabled && !force) return false;
 
-        if (window.matrixPatterns && window.matrixPatterns[this.name]) {
+        // Load sequence from global patterns if not already set (e.g. by editor)
+        // CRITICAL: If we are a generator and being FORCED to re-trigger, we should NOT load the old sequence.
+        const isGenerator = (this.name === "QuantizedBlockGenerator");
+        const shouldLoadPattern = !isGenerator || !force;
+
+        if (shouldLoadPattern &&
+             (!this.sequence || this.sequence.length === 0 || (this.sequence.length === 1 && this.sequence[0].length === 0)) && 
+             window.matrixPatterns && window.matrixPatterns[this.name]) {
             this.sequence = window.matrixPatterns[this.name];
-            if (this.sequence.length > 1000) {
+            if (this.sequence && this.sequence.length > 1000) {
                 this.sequence = this.sequence.slice(0, 1000);
             }
         }
@@ -562,6 +605,40 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._currentStepActions = [];
         
         this._initLogicGrid();
+
+        // --- NEW ALIGNMENT LOGIC ---
+        // Set spawn center BEFORE _initProceduralState so the seed block lands at the right position.
+        const bs = this.getBlockSize();
+        const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
+        const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
+        
+        let scx = 0, scy = 0;
+        if (this.getConfig('RandomStart')) {
+            scx = Math.floor((Math.random() - 0.5) * (visW - 10));
+            scy = Math.floor((Math.random() - 0.5) * (visH - 10));
+        }
+
+        // Adjust center point based on the first block of the sequence (if it exists)
+        // so that the animation's "seed" lands at our chosen scx/scy.
+        let genOriginX = 0, genOriginY = 0;
+        if (this.sequence && this.sequence.length > 0) {
+            const firstBlock = QuantizedSequence.findFirstBlock(this.sequence);
+            if (firstBlock) {
+                // Alignment logic: only shift the coordinate system if RandomStart is enabled.
+                // If fixed (not random), we want the sequence's own (0,0) to be the screen center.
+                if (this.getConfig('RandomStart')) {
+                    scx -= firstBlock.x;
+                    scy -= firstBlock.y;
+                }
+                genOriginX = firstBlock.x;
+                genOriginY = firstBlock.y;
+            }
+        }
+        this.behaviorState.scx = scx;
+        this.behaviorState.scy = scy;
+        this.behaviorState.genOriginX = genOriginX;
+        this.behaviorState.genOriginY = genOriginY;
+        // ---------------------------
 
         this.state = 'FADE_IN';
         this.timer = 0;
@@ -868,7 +945,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     this._attemptGrowth();
                 } else if (this.cyclesCompleted <= this.sequence.length) {
                     this._processAnimationStep();
-                } else if (this.getConfig('GeneratorTakeover')) {
+                } else if (this.getConfig('GeneratorTakeover') || this.name === "QuantizedBlockGenerator") {
                     this.state = 'GENERATING';
                     this._initProceduralState(true);
                     this._attemptGrowth();
@@ -2174,20 +2251,26 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Ensure we have at least one anchor if starting fresh and requested
         if (forceSeed && (!this.activeBlocks || this.activeBlocks.length === 0)) {
-            if (!this.activeBlocks) this.activeBlocks = [];
-            // Principle #3: Adhere to LayerCount setting.
-            // Seed the center block on all active layers to ensure they have an initial anchor.
-            const maxLayer = this._getMaxLayer();
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
-            // Use the current spawn center so Random Start Location is respected.
-            const ox = this.behaviorState?.scx ?? 0;
-            const oy = this.behaviorState?.scy ?? 0;
+            const isRandomStart = !!this.getConfig('RandomStart');
+            if (!isRandomStart) {
+                if (!this.activeBlocks) this.activeBlocks = [];
+                // Principle #3: Adhere to LayerCount setting.
+                // Seed the center block on all active layers to ensure they have an initial anchor.
+                const maxLayer = this._getMaxLayer();
+                const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
+                // Use the current generator focal point so manual placement is respected.
+                const ox = this.behaviorState?.genOriginX ?? 0;
+                const oy = this.behaviorState?.genOriginY ?? 0;
 
-            for (let l = 0; l <= maxLayer; l++) {                // If promotion is active, only seed Layer 1 as the initial discovery anchor.
-                if (usePromotion && l !== 1) continue;
+                for (let l = 0; l <= maxLayer; l++) {
+                    // If promotion is active, only seed Layer 1 as the initial discovery anchor.
+                    if (usePromotion && l !== 1) continue;
 
-                // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
-                this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
+                    // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
+                    this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
+                }
+            } else {
+                this.proceduralInitiated = false; // Allow re-init once a seed is manually placed or scheduled
             }
         }
     }
@@ -3302,6 +3385,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Record to sequence for Editor/Step support
         const isRecording = (this.manualStep) && this.sequence && !this.isReconstructing;
         if (isRecording) {
+            // Update Generator Origin to follow manual placement for this effect type
+            if (this.name === "QuantizedBlockGenerator" || this.getConfig('GeneratorTakeover')) {
+                this.behaviorState.genOriginX = x;
+                this.behaviorState.genOriginY = y;
+                // Clear seed schedule to force re-alignment to new focal point
+                this.behaviorState.seedSchedule = null;
+            }
+
             const targetIdx = Math.max(0, this.expansionPhase - 1);
             if (!this.sequence[targetIdx]) this.sequence[targetIdx] = [];
             const seqOp = {
@@ -4468,8 +4559,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         if (frontier.length === 0) {
-            if (grid[cy * w + cx] === -1) {
-                this._spawnBlock(0, 0, 1, 1, targetLayer, false, 0, true, true, true);
+            const ox = this.behaviorState?.genOriginX ?? 0;
+            const oy = this.behaviorState?.genOriginY ?? 0;
+            const gx = cx + ox, gy = cy + oy;
+            if (gx >= 0 && gx < w && gy >= 0 && gy < h && grid[gy * w + gx] === -1) {
+                this._spawnBlock(ox, oy, 1, 1, targetLayer, false, 0, true, true, true);
                 return true;
             }
             return false;
@@ -4812,6 +4906,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _initBehaviors() {
+        this.growthPool.clear();
         const self = this;
 
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
@@ -4831,8 +4926,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (b.layer !== layer) return false;
 
                     // NEW: Ensure seed parents are connected to the spines (X or Y axis)
-                    const onYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
-                    const onXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
+                    const onYSpine = (b.x <= s.genOriginX && b.x + b.w - 1 >= s.genOriginX);
+                    const onXSpine = (b.y <= s.genOriginY && b.y + b.h - 1 >= s.genOriginY);
                     if (!onXSpine && !onYSpine) return false;
 
                     const neighbors = [
@@ -4847,8 +4942,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (perimeterBlocks.length > 0) {
                     // NEW: Strict restriction - Prefer empty blocks closer to the initial spawn block first
                     perimeterBlocks.sort((a, b) => {
-                        const distA = Math.abs(a.x + a.w/2 - s.scx) + Math.abs(a.y + a.h/2 - s.scy);
-                        const distB = Math.abs(b.x + b.w/2 - s.scx) + Math.abs(b.y + b.h/2 - s.scy);
+                        const distA = Math.abs(a.x + a.w/2 - s.genOriginX) + Math.abs(a.y + a.h/2 - s.genOriginY);
+                        const distB = Math.abs(b.x + b.w/2 - s.genOriginX) + Math.abs(b.y + b.h/2 - s.genOriginY);
                         return distA - distB;
                     });
 
@@ -4863,7 +4958,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const parent = perimeterBlocks[Math.floor(i / 2) % perimeterBlocks.length];
                         
                         // Determine parent's quadrant relative to spawn center
-                        const pdx = parent.x - s.scx, pdy = parent.y - s.scy;
+                        const pdx = parent.x - s.genOriginX, pdy = parent.y - s.genOriginY;
                         const parentQuad = Math.abs(pdx) > Math.abs(pdy) ? (pdx > 0 ? 'E' : 'W') : (pdy > 0 ? 'S' : 'N');
 
                         const size = sizes[Math.floor(Math.random() * sizes.length)];
@@ -4930,8 +5025,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (b.layer !== layer) return false;
                     
                     // --- PROTECTED BLOCKS ---
-                    const overlapsYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
-                    const overlapsXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
+                    const overlapsYSpine = (b.x <= s.genOriginX && b.x + b.w - 1 >= s.genOriginX);
+                    const overlapsXSpine = (b.y <= s.genOriginY && b.y + b.h - 1 >= s.genOriginY);
                     if (overlapsXSpine || overlapsYSpine) return false;
 
                     if (b.stepAge > 3) return false;
@@ -5032,11 +5127,11 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // Check if it's time for this arm to advance
                 if (s.step >= (s.spreadingNudgeNextSpawnStep[arm.key] || 0)) {
                     let d = s.spreadingNudgeNextDist[arm.key];
-                    const ax = arm.vert ? s.scx : s.scx + d * arm.side;
-                    const ay = arm.vert ? s.scy + d * arm.side : s.scy;
+                    const ax = arm.vert ? s.genOriginX : s.genOriginX + d * arm.side;
+                    const ay = arm.vert ? s.genOriginY + d * arm.side : s.genOriginY;
 
                     // Boundary check
-                    if (Math.abs(ax - s.scx) > halfW || Math.abs(ay - s.scy) > halfH) {
+                    if (Math.abs(ax - s.genOriginX) > halfW || Math.abs(ay - s.genOriginY) > halfH) {
                         // Reach edge, stop this arm
                         s.spreadingNudgeNextSpawnStep[arm.key] = Infinity;
                         continue;
@@ -5045,14 +5140,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                     // Axial point growth (Harden/Nudge logic at the spreader head)
                     const cycle = s.spreadingNudgeCycles[arm.key];
                     const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: 'N' }, s.fillRatio);
-                    this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.scx, ay - s.scy, cycle, growthChance);
+                    this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.genOriginX, ay - s.genOriginY, cycle, growthChance);
 
                     if (preferSymmetry) {
-                        const mirAx = arm.vert ? ax : s.scx - (ax - s.scx);
-                        const mirAy = arm.vert ? s.scy - (ay - s.scy) : ay;
+                        const mirAx = arm.vert ? ax : s.genOriginX - (ax - s.genOriginX);
+                        const mirAy = arm.vert ? s.genOriginY - (ay - s.genOriginY) : ay;
                         const mirCycle = s.spreadingNudgeCycles[arm.key + '_mir'] || { step: 0, lastTempBlock: null };
                         s.spreadingNudgeCycles[arm.key + '_mir'] = mirCycle;
-                        this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, mirAx - s.scx, mirAy - s.scy, mirCycle, growthChance);
+                        this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, mirAx - s.genOriginX, mirAy - s.genOriginY, mirCycle, growthChance);
                     }
 
                     // Spawn perpendicular "solid" strips to fill the area
@@ -5070,8 +5165,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                             activePerpStrips++;
 
                             if (preferSymmetry) {
-                                const mirX = arm.vert ? ax : s.scx - (ax - s.scx);
-                                const mirY = arm.vert ? s.scy - (ay - s.scy) : ay;
+                                const mirX = arm.vert ? ax : s.genOriginX - (ax - s.genOriginX);
+                                const mirY = arm.vert ? s.genOriginY - (ay - s.genOriginY) : ay;
                                 const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
                                 s.spreadingNudgeSymmetryQueue.push({
                                     x: mirX, y: mirY, layer: targetLayer, dir: mirDir,
@@ -5105,6 +5200,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const halfH = Math.floor(this.g.rows / bs.h / 2);
             const proxW = Math.max(2, Math.floor(halfW * 0.25));
             const proxH = Math.max(2, Math.floor(halfH * 0.25));
+            const shoveAmount = Math.max(1, this._getGenConfig('ShoveFillAmount') ?? 1);
 
             if (!s.shoveStrips) s.shoveStrips = [];
             s.shoveStrips = s.shoveStrips.filter(st => st.active);
@@ -5120,13 +5216,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const isEW = dir === 'E' || dir === 'W';
                     const width = 1 + Math.floor(Math.random() * 3);
                     if (isEW) {
-                        const perpMid   = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
+                        const perpMid   = s.genOriginY + Math.round((Math.random() * 2 - 1) * proxH);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginX + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     } else {
-                        const perpMid   = s.scx + Math.round((Math.random() * 2 - 1) * proxW);
+                        const perpMid   = s.genOriginX + Math.round((Math.random() * 2 - 1) * proxW);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStrips.push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginY + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
                     }
                 }
             }
@@ -5137,28 +5233,32 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
-                const lp   = strip.leadPos;
-
-                if (isEW ? (strip.dir === 'E' ? lp > halfW : lp < -halfW)
-                         : (strip.dir === 'S' ? lp > halfH : lp < -halfH)) {
-                    strip.active = false; continue;
-                }
-
                 const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
-                const bp   = lp - step;
                 const rangeSize = strip.perpEnd - strip.perpStart + 1;
 
-                if (isEW) {
-                    // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
-                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
-                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
-                } else {
-                    // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
-                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
-                    this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
-                }
+                const numSteps = 1 + Math.floor(Math.random() * shoveAmount);
 
-                strip.leadPos += step;
+                for (let i = 0; i < numSteps; i++) {
+                    const lp = strip.leadPos;
+                    if (isEW ? (strip.dir === 'E' ? lp > halfW : lp < -halfW)
+                             : (strip.dir === 'S' ? lp > halfH : lp < -halfH)) {
+                        strip.active = false;
+                        break;
+                    }
+
+                    const bp = lp - step;
+                    if (isEW) {
+                        // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
+                        this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
+                        this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, false, 0, true, true, true, false, true) });
+                    } else {
+                        // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
+                        this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
+                        this.actionBuffer.push({ layer: targetLayer, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, false, 0, true, true, true, false, true) });
+                    }
+
+                    strip.leadPos += step;
+                }
             }
         }, { enabled: this._getGenConfig('ShoveFillEnabled') ?? false, label: 'Shove Fill' });
 
@@ -5451,10 +5551,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const isCol = Math.random() < 0.5;
                 if (isCol) {
                     const colOffset = Math.floor((Math.random() * 2 - 1) * (halfW + 5));
-                    s.deferredCols.set(s.scx + colOffset, 1 + Math.floor(Math.random() * 2));
+                    s.deferredCols.set(s.genOriginX + colOffset, 1 + Math.floor(Math.random() * 2));
                 } else {
                     const rowOffset = Math.floor((Math.random() * 2 - 1) * (halfH + 5));
-                    s.deferredRows.set(s.scy + rowOffset, 1 + Math.floor(Math.random() * 2));
+                    s.deferredRows.set(s.genOriginY + rowOffset, 1 + Math.floor(Math.random() * 2));
                 }
             }
         }
@@ -5518,7 +5618,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const [dx, dy] = this._dirDelta(strip.direction);
                 const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
                 const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
-                const scx = s.scx || 0, scy = s.scy || 0;
+                const scx = s.genOriginX || 0, scy = s.genOriginY || 0;
                 const limitN = s.axisMaxDist.N - 2, limitS = s.axisMaxDist.S - 2;
                 const limitE = s.axisMaxDist.E - 2, limitW = s.axisMaxDist.W - 2;
 
@@ -5705,8 +5805,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
             // 1. Boundary Check for the base wave
             const [dx, dy] = this._dirDelta(arm);
-            const bx = s.scx + dx * baseWave, by = s.scy + dy * baseWave;
-            if (Math.abs(bx - s.scx) > halfW + edgeBuf || Math.abs(by - s.scy) > halfH + edgeBuf) continue;
+            const bx = s.genOriginX + dx * baseWave, by = s.genOriginY + dy * baseWave;
+            if (Math.abs(bx - s.genOriginX) > halfW + edgeBuf || Math.abs(by - s.genOriginY) > halfH + edgeBuf) continue;
 
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
@@ -5729,10 +5829,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 if (allowed && !allowed.has(arm)) continue;
 
                 for (const wave of waves) {
-                    const ox = s.scx + dx * wave, oy = s.scy + dy * wave;
+                    const ox = s.genOriginX + dx * wave, oy = s.genOriginY + dy * wave;
 
                     // Wave-specific boundary check
-                    if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
+                    if (Math.abs(ox - s.genOriginX) > halfW + edgeBuf || Math.abs(oy - s.genOriginY) > halfH + edgeBuf) continue;
 
                     // Generative Scaling
                     if (genScaling) {
@@ -5803,7 +5903,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!s.axisMaxDist) s.axisMaxDist = { N: 0, S: 0, E: 0, W: 0 };
         else { s.axisMaxDist.N = 0; s.axisMaxDist.S = 0; s.axisMaxDist.E = 0; s.axisMaxDist.W = 0; }
         
-        const scx = s.scx || 0, scy = s.scy || 0;
+        const scx = s.genOriginX || 0, scy = s.genOriginY || 0;
         for (const strip of this.strips.values()) {
             if (!strip.isSpine || !strip.active) continue;
             const dx = strip.headX - scx, dy = strip.headY - scy;
@@ -5816,7 +5916,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _updateLayerMaxDist(s) {
         if (!s.layerMaxDist) s.layerMaxDist = {};
-        const scx = s.scx || 0, scy = s.scy || 0;
+        const scx = s.genOriginX || 0, scy = s.genOriginY || 0;
 
         // Reset for 0 and 1 only
         s.layerMaxDist[0] = { N: 0, S: 0, E: 0, W: 0 };
@@ -5867,12 +5967,12 @@ class QuantizedBaseEffect extends AbstractEffect {
                     s.layerDirLife[l] = qBaseLife + l; 
                 }
             }
-            s.seedSchedule = this._generateSeedSchedule(s.scx ?? 0, s.scy ?? 0);
+            s.seedSchedule = this._generateSeedSchedule(s.genOriginX ?? 0, s.genOriginY ?? 0);
             s.insideOutWave = 1;
             if (this.growthPool.size === 0) this._initBehaviors();
         }
         if (this.activeBlocks.length === 0) {
-            const ox = s.scx ?? 0, oy = s.scy ?? 0;
+            const ox = s.genOriginX ?? 0, oy = s.genOriginY ?? 0;
             const maxLayer = this._getMaxLayer();
             const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
             for (let l = 0; l <= maxLayer; l++) {
@@ -5892,8 +5992,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.step >= nudgeStartDelay) {
                 const nudgeChance = this._getGenConfig('NudgeChance') ?? 0.8;
                 if (Math.random() <= nudgeChance) {
-                    const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-                    this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+                    const { bw, bh } = this._calcBlockSize({ originX: s.genOriginX, originY: s.genOriginY, direction: 'N' }, s.fillRatio);
+                    this._attemptNudgeGrowthWithParams(1, bw, bh, s.genOriginX, s.genOriginY);
                 }
             }
         }

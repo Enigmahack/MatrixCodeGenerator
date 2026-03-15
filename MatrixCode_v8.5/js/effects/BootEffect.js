@@ -7,8 +7,8 @@ class BootEffect extends AbstractEffect {
         this.durationSeconds = 3.5; 
     }
 
-    trigger() {
-        if (this.active) return false;
+    trigger(force = false) {
+        if (this.active && !force) return false;
 
         // Request slot from orchestrator
         this.shaderSlot = this.r.requestShaderSlot(this, this._getShaderSource(), 0.0);

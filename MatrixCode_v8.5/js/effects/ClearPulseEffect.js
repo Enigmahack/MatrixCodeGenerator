@@ -30,8 +30,8 @@ class ClearPulseEffect extends AbstractEffect {
         };
     }
 
-    trigger() {
-        if (this.active) return false;
+    trigger(force = false) {
+        if (this.active && !force) return false;
 
         const total = this.g.cols * this.g.rows;
         const d = this.c.derived;

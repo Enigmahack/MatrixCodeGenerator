@@ -34,6 +34,7 @@ generator_settings = """
     { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Shove Fill', id: 'ShoveFillEnabled', type: 'checkbox', label: 'Enable Shove Fill', tier: 'advanced', description: "Fills large blocks aggressively.", tags: ['fill', 'shove'] },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
 
     { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },

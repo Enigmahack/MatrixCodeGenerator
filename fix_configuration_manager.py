@@ -29,6 +29,7 @@ generator_properties = [
     ("ShoveFillEnabled", False),
     ("ShoveFillStartDelay", 20),
     ("ShoveFillRate", 4),
+    ("ShoveFillAmount", 1),
     ("InsideOutEnabled", True),
     ("InsideOutDelay", 6),
     ("InsideOutBucketSize", 3),

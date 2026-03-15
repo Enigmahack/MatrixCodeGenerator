@@ -193,7 +193,14 @@ class EffectRegistry {
         if (isQuantized) {
             const activeQuantized = this.effects.find(e => e.active && e.name.startsWith('Quantized'));
             if (activeQuantized && activeQuantized !== fx) {
-                return false;
+                // If a DIFFERENT quantized effect is running, stop it first to ensure a clean slate
+                if (typeof activeQuantized.stop === 'function') {
+                    activeQuantized.stop();
+                } else if (typeof activeQuantized._terminate === 'function') {
+                    activeQuantized._terminate();
+                } else {
+                    activeQuantized.active = false;
+                }
             }
         }
 
@@ -392,7 +399,7 @@ class AbstractEffect {
         this.frequencyKey = null; // Config key for "FrequencySeconds" range
         this.shaderSlot = null;   // Reference to the currently assigned shader slot
     }
-    trigger() { return false; }
+    trigger(force = false) { return false; }
     update() { }
     getActiveIndices() { return new Set(); }
 }

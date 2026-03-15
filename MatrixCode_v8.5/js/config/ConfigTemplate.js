@@ -87,6 +87,7 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Shove Fill', id: 'ShoveFillEnabled', type: 'checkbox', label: 'Enable Shove Fill', tier: 'advanced', description: "Fills large blocks aggressively.", tags: ['fill', 'shove'] },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
 
     { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
@@ -492,6 +493,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Shoots 1–3 cell wide strips outward from the spawn center in selected quadrant directions, backfilling behind each step. Stops at the canvas perimeter. Respects Quadrant Restriction and Allow Asymmetry.', tags: ['shove', 'push'] },
     { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps to wait before the first shove fires.', tags: ['timing', 'wait'] },
     { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps between each outward advance. Lower values move faster.', tags: ['speed', 'rate'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, unit: 'blocks', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Maximum blocks to shove per step.', tags: ['speed', 'shove'] },
 
     { cat: 'Effects', type: 'end_group' },
 

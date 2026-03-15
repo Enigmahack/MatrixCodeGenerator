@@ -20,7 +20,7 @@ class ReverseEffect extends AbstractEffect {
         this.rewindSpeed = -3.0;   // Rewind speed multiplier
     }
 
-    trigger() {
+    trigger(force = false) {
         return this.start();
     }
 
@@ -33,7 +33,7 @@ class ReverseEffect extends AbstractEffect {
     }
 
     start() {
-        if (this.active) return false;
+        if (this.active && !force) return false;
         this.active = true;
         this.phase = 1;
         this.timer = 0;

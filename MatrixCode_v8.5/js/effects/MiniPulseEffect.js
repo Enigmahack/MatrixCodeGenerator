@@ -8,8 +8,8 @@ class MiniPulseEffect extends AbstractEffect {
         this.renderPulses = [];
     }
 
-    trigger() {
-        if (this.active) return false;
+    trigger(force = false) {
+        if (this.active && !force) return false;
         this.active = true;
         this.sessionTimer = this.c.state.miniPulseDurationSeconds * 60;
         this.pulses = [];

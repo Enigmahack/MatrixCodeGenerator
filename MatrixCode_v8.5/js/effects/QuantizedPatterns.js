@@ -2630,12 +2630,14 @@ window.matrixPatterns = {
     "QuantizedClimb": [
         [
             10,
-            0,
-            10,
             1,
-            10,
-            0,
-            9,
+            6,
+            1,
+            11,
+            1,
+            -4,
+            1,
+            -4,
             1
         ]
     ],

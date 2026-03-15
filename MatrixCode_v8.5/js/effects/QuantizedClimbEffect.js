@@ -23,7 +23,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
 
     trigger(force = false) {
         // 1. Strict Active Check
-        if (this.active) return false;
+        if (this.active && !force) return false;
 
         // 2. Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
