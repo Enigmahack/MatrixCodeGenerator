@@ -99,21 +99,34 @@ class QuantizedEffectsPass extends RenderPass {
 
 
 class WebGLRenderer {
-    constructor(canvasId, grid, config, effects) {
+    constructor(canvasId, grid, config, effects, customOptions = null) {
         this.cvs = document.getElementById(canvasId);
         
-        // Enforce WebGL2 with conservative options for Safari stability
-        const ctxOptions = { 
-            alpha: false, 
+        // Default conservative options for Safari stability
+        const defaultOptions = { 
+            alpha: true, // Switched back to true as default for better Safari compatibility
             antialias: false,
             depth: false,
             stencil: false,
-            preserveDrawingBuffer: false,
-            powerPreference: 'high-performance'
+            preserveDrawingBuffer: false
         };
+        
+        const ctxOptions = customOptions || defaultOptions;
         
         this.gl = this.cvs.getContext('webgl2', ctxOptions);
         
+        // Register context lost handler early
+        this.cvs.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            console.warn("[WebGLRenderer] WebGL context lost!");
+            this.contextLost = true;
+        }, false);
+
+        this.cvs.addEventListener('webglcontextrestored', () => {
+            console.log("[WebGLRenderer] WebGL context restored. Reloading application...");
+            window.location.reload(); 
+        }, false);
+
         if (!this.gl) {
             console.error("WebGLRenderer: WebGL 2 hardware acceleration not supported.");
             throw new Error("WebGL 2 not supported");

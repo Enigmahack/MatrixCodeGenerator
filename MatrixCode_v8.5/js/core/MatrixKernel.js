@@ -231,16 +231,55 @@ class MatrixKernel {
      */
     async _initializeRendererAndUI() {
         if (typeof WebGLRenderer !== 'undefined') {
-            try {
-                this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
-                if (this.effectRegistry) {
-                    this.effectRegistry.setRenderer(this.renderer);
-                }
-            } catch (e) {
-                if (this.config.state.logErrors) console.error("[MatrixKernel] WebGLRenderer initialization failed:", e);
-                this.renderer = null;
-                if (this.notifications) {
-                    this.notifications.show("WebGL Initialization Failed. Please refresh or check browser settings.", "error");
+            let success = false;
+            let retries = 0;
+            const maxRetries = 3;
+            
+            while (retries < maxRetries && !success) {
+                try {
+                    // Vary options on retries
+                    const options = {
+                        alpha: (retries % 2 === 0), // Toggle alpha
+                        antialias: false,
+                        depth: false,
+                        stencil: false,
+                        preserveDrawingBuffer: false
+                    };
+                    
+                    if (this.config.state.logErrors) console.log(`[MatrixKernel] WebGL Initialization attempt ${retries + 1}/${maxRetries}...`);
+                    
+                    this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry, options);
+                    
+                    if (this.effectRegistry) {
+                        this.effectRegistry.setRenderer(this.renderer);
+                    }
+                    success = true;
+                    if (this.config.state.logErrors) console.log(`[MatrixKernel] WebGL Renderer initialized successfully on attempt ${retries + 1}.`);
+                } catch (e) {
+                    retries++;
+                    if (this.config.state.logErrors) console.error(`[MatrixKernel] WebGL attempt ${retries} failed:`, e.message);
+                    
+                    if (retries < maxRetries) {
+                        // Wait longer between retries
+                        await new Promise(resolve => setTimeout(resolve, 500 * retries));
+                    } else {
+                        // FALLBACK TO 2D
+                        if (typeof CanvasRenderer !== 'undefined') {
+                            if (this.config.state.logErrors) console.warn("[MatrixKernel] All WebGL attempts failed. Falling back to Canvas 2D.");
+                            this.renderer = new CanvasRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                            if (this.effectRegistry) {
+                                this.effectRegistry.setRenderer(this.renderer);
+                            }
+                            if (this.notifications) {
+                                this.notifications.show("WebGL failed to start. Using 2D fallback mode.", "warning");
+                            }
+                        } else {
+                            if (this.notifications) {
+                                this.notifications.show("Critical Error: No compatible renderer found.", "error");
+                            }
+                            this.renderer = null;
+                        }
+                    }
                 }
             }
         } else {
