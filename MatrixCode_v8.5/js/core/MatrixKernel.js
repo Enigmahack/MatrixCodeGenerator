@@ -84,18 +84,22 @@ class MatrixKernel {
         }
 
         // Standard Application initialization
+        // Delay initialization slightly to ensure the DOM and WebGL context are ready (Safari fix)
+        await new Promise(resolve => setTimeout(resolve, 200));
         await this._initializeRendererAndUI();
 
         // Perform the initial resize setup and start the loop
         this._resize();
         
-        // Pre-allocate resources for effects to prevent first-trigger stalls
-        if (this.effectRegistry) {
-            this.effectRegistry.preallocateAll();
-        }
-
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
+
+        // Pre-allocate resources for effects AFTER loop has started to prevent initialization hang
+        if (this.effectRegistry) {
+            setTimeout(() => {
+                this.effectRegistry.preallocateAll();
+            }, 1000);
+        }
 
         // Handle Page Visibility to prevent catch-up delays when returning from background
         document.addEventListener('visibilitychange', () => {
@@ -219,6 +223,9 @@ class MatrixKernel {
             } catch (e) {
                 if (this.config.state.logErrors) console.error("[MatrixKernel] WebGLRenderer initialization failed:", e);
                 this.renderer = null;
+                if (this.notifications) {
+                    this.notifications.show("WebGL Initialization Failed. Please refresh or check browser settings.", "error");
+                }
             }
         } else {
              if (this.config.state.logErrors) console.error("WebGLRenderer not found. Application cannot start.");

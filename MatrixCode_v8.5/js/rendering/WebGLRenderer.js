@@ -103,7 +103,7 @@ class WebGLRenderer {
         this.cvs = document.getElementById(canvasId);
         
         // Enforce WebGL2
-        this.gl = this.cvs.getContext('webgl2', { alpha: false, preserveDrawingBuffer: false });
+        this.gl = this.cvs.getContext('webgl2', { alpha: true, preserveDrawingBuffer: false });
         
         if (!this.gl) {
             console.error("WebGLRenderer: WebGL 2 hardware acceleration not supported.");
@@ -276,19 +276,27 @@ class WebGLRenderer {
             }
         }
         
+        if (!this.gl) return;
         this.glimmerTexture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.LUMINANCE, w, h, 0, this.gl.LUMINANCE, this.gl.UNSIGNED_BYTE, data);
-        
-        // Use NEAREST to preserve "Blocky/Digital" look
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
+        if (this.glimmerTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.LUMINANCE, w, h, 0, this.gl.LUMINANCE, this.gl.UNSIGNED_BYTE, data);
+            
+            // Use NEAREST to preserve "Blocky/Digital" look
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
+        }
     }
 
     _createShader(type, source) {
+        if (!this.gl) return null;
         const shader = this.gl.createShader(type);
+        if (!shader) {
+            console.error(`[WebGLRenderer] Failed to create shader of type ${type}. WebGL context may be lost.`);
+            return null;
+        }
         this.gl.shaderSource(shader, source.trim());
         this.gl.compileShader(shader);
         if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
@@ -308,15 +316,22 @@ class WebGLRenderer {
     }
 
     _createProgram(vsSource, fsSource) {
+        if (!this.gl) return null;
         const vs = this._createShader(this.gl.VERTEX_SHADER, vsSource);
         const fs = this._createShader(this.gl.FRAGMENT_SHADER, fsSource);
         
         if (!vs || !fs) {
-            if (this.config.state.logErrors) console.error('[WebGLRenderer] Failed to create program: Shader compilation failed.');
+            if (this.config && this.config.state && this.config.state.logErrors) {
+                console.error('[WebGLRenderer] Failed to create program: Shader compilation failed or context lost.');
+            }
             return null;
         }
 
         const prog = this.gl.createProgram();
+        if (!prog) {
+            console.error('[WebGLRenderer] Failed to create WebGL program. Context may be lost.');
+            return null;
+        }
         this.gl.attachShader(prog, vs);
         this.gl.attachShader(prog, fs);
         this.gl.linkProgram(prog);
@@ -1263,23 +1278,30 @@ class WebGLRenderer {
             this.colorProgram = this._createProgram(colorVS, colorFS);
         }
     _initBuffers() {
+        if (!this.gl) return;
         const quadVerts = new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]);
         const screenQuadVerts = new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]);
         
         this.quadBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, quadVerts, this.gl.STATIC_DRAW);
+        if (this.quadBuffer) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, quadVerts, this.gl.STATIC_DRAW);
+        }
         
         this.screenQuadBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, screenQuadVerts, this.gl.STATIC_DRAW);
+        if (this.screenQuadBuffer) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, screenQuadVerts, this.gl.STATIC_DRAW);
+        }
 
         // Shadow Instance Buffer (Dynamic)
         this.shadowInstanceBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
-        this.shadowInstanceCapacity = 1000;
-        // Initial capacity: 1000 sheets * 24 bytes (x,y,w,h,alpha,blur)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * 24, this.gl.DYNAMIC_DRAW);
+        if (this.shadowInstanceBuffer) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.shadowInstanceBuffer);
+            this.shadowInstanceCapacity = 1000;
+            // Initial capacity: 1000 sheets * 24 bytes (x,y,w,h,alpha,blur)
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, this.shadowInstanceCapacity * 24, this.gl.DYNAMIC_DRAW);
+        }
 
         // Instance buffers will be created in resize()
         this.posBuffer = null;
@@ -1287,6 +1309,7 @@ class WebGLRenderer {
     }
 
     _initBloomBuffers() {
+        if (!this.gl) return;
         this.fboA = this.gl.createFramebuffer(); this.texA = this.gl.createTexture();
         this.fboA2 = this.gl.createFramebuffer(); this.texA2 = this.gl.createTexture();
         this.fboCodeProcessed = this.gl.createFramebuffer(); this.texCodeProcessed = this.gl.createTexture();
@@ -1307,32 +1330,37 @@ class WebGLRenderer {
     }
 
     _initLineGfxBuffers() {
+        if (!this.gl) return;
         this.logicGridTexture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        if (this.logicGridTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
         this.lastLogicGridWidth = 0;
         this.lastLogicGridHeight = 0;
         this.occupancyBuffer = null;
 
         // Echo logic grid texture (delayed occupancy)
         this.echoLogicGridTexture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.echoLogicGridTexture);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        if (this.echoLogicGridTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.echoLogicGridTexture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
 
-        // 1x1 TRANSPARENT black texture — bound as u_characterBuffer in echo Mode 1.
-        // Alpha=0 causes Mode 1 to output premultiplied alpha: (lineAlpha*color, lineAlpha),
-        // so non-line areas are fully transparent and ONE/ONE_MINUS_SRC_ALPHA blend works correctly.
+        // 1x1 TRANSPARENT black texture
         this.blackTexture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, 1, 1, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        if (this.blackTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, 1, 1, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        }
 
         // Ring buffer of occupancy snapshots for GPU echo
         this.echoOccupancyHistory = [];
@@ -1342,20 +1370,24 @@ class WebGLRenderer {
         this.lastRenderedFx = null;
 
         this.sourceGridTexture = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        if (this.sourceGridTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
         this.lastSourceGridSeed = -1;
 
         // Initialize VAO for line/glass rendering (Mode 0, 1, 2)
         this.vaoLine = this.gl.createVertexArray();
-        this.gl.bindVertexArray(this.vaoLine);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-        this.gl.enableVertexAttribArray(0);
-        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-        this.gl.bindVertexArray(null);
+        if (this.vaoLine) {
+            this.gl.bindVertexArray(this.vaoLine);
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
+            this.gl.enableVertexAttribArray(0);
+            this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+            this.gl.bindVertexArray(null);
+        }
     }
 
     _configureFramebuffer(fbo, tex, width, height) {

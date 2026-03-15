@@ -344,22 +344,29 @@ class PostProcessor {
     }
 
     _setupSharedGL() {
+        if (!this.gl) return;
         const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
         this.positionBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        if (this.positionBuffer) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        }
         
         this.texture = this._createTexture();
         this.intermediateTex1 = this._createTexture();
         this.intermediateTex2 = this._createTexture();
         
         this.framebuffer1 = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        if (this.framebuffer1 && this.intermediateTex1) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        }
         
         this.framebuffer2 = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        if (this.framebuffer2 && this.intermediateTex2) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        }
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
@@ -373,20 +380,26 @@ class PostProcessor {
         
         const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
         this.positionBuffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        if (this.positionBuffer) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        }
         
         this.texture = this._createTexture();
         this.intermediateTex1 = this._createTexture();
         this.intermediateTex2 = this._createTexture();
         
         this.framebuffer1 = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        if (this.framebuffer1 && this.intermediateTex1) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex1, 0);
+        }
         
         this.framebuffer2 = this.gl.createFramebuffer();
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        if (this.framebuffer2 && this.intermediateTex2) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        }
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         
