@@ -14,6 +14,7 @@ class MatrixKernel {
         this.accumulator = 0;
         this.timestep = 1000 / 60;
         this._lastResetReason = "Startup"; // Track last reset
+        this._justResumed = false; // Flag to suppress catch-up warnings on first frame after resume
         
         // Idle Detection State
         this.isIdle = false;
@@ -101,7 +102,9 @@ class MatrixKernel {
             if (!document.hidden) {
                 // Reset timing to prevent "catch-up" hang
                 this.lastTime = performance.now();
+                this.lastFrameTime = performance.now();
                 this.accumulator = 0;
+                this._justResumed = true; // Flag to suppress warning on first frame back
                 if (this.config.state.logErrors) console.log("[MatrixKernel] Tab visible. Timing reset to prevent hang.");
             }
         });
@@ -467,31 +470,33 @@ class MatrixKernel {
      * @param {DOMHighResTimeStamp} time - The current time provided by requestAnimationFrame.
      */
     _loop(time) {
+        const loopStartTime = performance.now();
         // Handle optional pausing
         const shouldPause = (document.hidden && this.config.state.pauseWhenHidden) || 
                             (this.isIdle && this.config.state.pauseWhenIdle);
 
         if (shouldPause) {
+            this.lastTime = time;
+            this.lastFrameTime = performance.now();
             requestAnimationFrame((nextTime) => this._loop(nextTime));
             return;
         }
 
         // 1. Calculate Delta and FPS
-    const now = performance.now();
-    const deltaFPS = now - this.lastFrameTime;
-    this.lastFrameTime = now;
+        const now = performance.now();
+        const deltaFPS = now - this.lastFrameTime;
+        this.lastFrameTime = now;
 
-    if (deltaFPS > 0 && this.config.state.showFpsCounter) {
-        const fps = 1000 / deltaFPS;
-
-        // 30-frame circular buffer smoothing — O(1) vs the previous O(n) push/shift/reduce
-        const slot = this._fpsBufferIdx % 30;
-        this._fpsBufferSum -= this._fpsBuffer[slot];
-        this._fpsBuffer[slot] = fps;
-        this._fpsBufferSum += fps;
-        this._fpsBufferIdx++;
-        if (this._fpsBufferCount < 30) this._fpsBufferCount++;
-        const smoothedFps = this._fpsBufferSum / this._fpsBufferCount;
+        if (deltaFPS > 0 && this.config.state.showFpsCounter) {
+            const fps = 1000 / deltaFPS;
+            // ... (rest of FPS logic)
+            const slot = this._fpsBufferIdx % 30;
+            this._fpsBufferSum -= this._fpsBuffer[slot];
+            this._fpsBuffer[slot] = fps;
+            this._fpsBufferSum += fps;
+            this._fpsBufferIdx++;
+            if (this._fpsBufferCount < 30) this._fpsBufferCount++;
+            const smoothedFps = this._fpsBufferSum / this._fpsBufferCount;
 
             // 2. Update Display
             if (this.fpsDisplayElement) {
@@ -547,9 +552,13 @@ class MatrixKernel {
         // If the gap is more than 500ms, just reset to avoid a "fast-forward" effect and hang.
         const maxDelta = 500;
         if (delta > maxDelta) {
-            if (this.config.state.logErrors) console.warn(`[MatrixKernel] Large frame delta detected (${Math.round(delta)}ms). Capping to prevent hang.`);
+            // ONLY warn if NOT hidden and NOT just unhidden (Safari/Mobile backgrounding noise)
+            if (this.config.state.logErrors && !document.hidden && !this._justResumed) {
+                console.warn(`[MatrixKernel] Large frame delta detected (${Math.round(delta)}ms). Capping to prevent hang.`);
+            }
             delta = this.timestep; // Reset to a single frame's worth of time
         }
+        this._justResumed = false; // Reset flag after first check
 
         this.accumulator += delta;
         
@@ -579,6 +588,13 @@ class MatrixKernel {
             this.effectRegistry.render(this.overlayCtx, this.config.derived);
         }
 
+        if (this.config.state.logErrors) {
+            const loopTime = performance.now() - loopStartTime;
+            if (loopTime > 50) {
+                console.log(`[MatrixKernel] Slow frame detected: ${loopTime.toFixed(2)}ms`);
+            }
+        }
+        
         requestAnimationFrame((nextTime) => this._loop(nextTime));
     }
 
