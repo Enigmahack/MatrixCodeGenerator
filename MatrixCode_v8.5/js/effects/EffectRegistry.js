@@ -208,7 +208,16 @@ class EffectRegistry {
             }
         }
 
-        const result = fx.trigger(...args);
+        let result;
+        const logEnabled = this.config.get('logErrors');
+        if (logEnabled) {
+            const startTime = performance.now();
+            result = fx.trigger(...args);
+            const endTime = performance.now();
+            console.log(`[EffectRegistry] Triggered ${name} in ${(endTime - startTime).toFixed(2)}ms`);
+        } else {
+            result = fx.trigger(...args);
+        }
         if (result) {
             this.grid.overrideOwner = fx;
             // When triggered, we don't necessarily reset the auto-timer 

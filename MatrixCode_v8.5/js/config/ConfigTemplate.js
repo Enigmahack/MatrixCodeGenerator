@@ -126,7 +126,7 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
     // Add inheritable settings as overrides
     let currentSub = '';
     QuantizedInheritableSettings.forEach(s => {
-        if (prefix === 'quantizedGenerateV2' && s.sub.startsWith('V2 Generator')) return;
+        if (prefix !== 'quantizedGenerateV2' && s.sub.startsWith('V2 Generator')) return;
 
         if (s.sub !== currentSub) {
             if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });

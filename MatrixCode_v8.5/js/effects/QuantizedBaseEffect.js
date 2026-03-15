@@ -441,9 +441,15 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     preallocate() {
         if (!this.g || !this.g.cols) return;
+        let startTime = 0;
+        const logEnabled = this.c.state.logErrors;
+        if (logEnabled) startTime = performance.now();
         
         // Static lock: only preallocate the shared resources ONCE
-        if (QuantizedBaseEffect._preallocated) return;
+        if (QuantizedBaseEffect._preallocated) {
+            if (logEnabled) console.log(`[QuantizedBaseEffect] preallocate skipped (already done)`);
+            return;
+        }
         QuantizedBaseEffect._preallocated = true;
 
         const w = window.innerWidth;
@@ -476,6 +482,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 6. Warm up Renderer Buffers (GPU)
         if (this.r && this.r.r && typeof this.r.r.preallocate === 'function') {
             this.r.r.preallocate(this.logicGridW, this.logicGridH, (s.renderingEngine !== 'webgl' ? this.gridCacheCanvas : null));
+        }
+
+        if (logEnabled) {
+            const endTime = performance.now();
+            console.log(`[QuantizedBaseEffect] preallocate took ${(endTime - startTime).toFixed(2)}ms`);
         }
     }
 
@@ -630,7 +641,14 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     trigger(force = false) {
-        if (this.active && !force) return false;
+        let startTime = 0;
+        const logEnabled = this.c.state.logErrors;
+        if (logEnabled) startTime = performance.now();
+
+        if (this.active && !force) {
+            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
+            return false;
+        }
         
         // --- SPARSE CLEARING OPTIMIZATION ---
         // Instead of massive .fill(0) calls on 120 million memory elements,
@@ -807,6 +825,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         if (this.debugMode) {
             // Keydown handling for stepping is managed by the Editor when active
+        }
+
+        if (logEnabled) {
+            const endTime = performance.now();
+            console.log(`[QuantizedBaseEffect] trigger setup took ${(endTime - startTime).toFixed(2)}ms`);
         }
 
         return true;
@@ -1024,6 +1047,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     update() {
         if (!this.active) return;
+        let updateStart = 0;
+        if (this.c.state.logErrors) updateStart = performance.now();
 
         const s = this.c.state;
         const fps = 60;
@@ -1173,6 +1198,13 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // 4. Animation Transition Management (Dirtiness)
         this._checkDirtiness();
+
+        if (this.c.state.logErrors) {
+            const updateTime = performance.now() - updateStart;
+            if (updateTime > 10) {
+                console.log(`[QuantizedBaseEffect] update took ${updateTime.toFixed(2)}ms (animFrame: ${this.animFrame}, cyclesCompleted: ${this.cyclesCompleted})`);
+            }
+        }
     }
 
     _terminate() {

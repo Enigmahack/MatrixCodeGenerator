@@ -14,6 +14,10 @@ class QuantizedShadow {
     }
 
     initShadowWorldBase(fx) {
+        let startTime = 0;
+        const logEnabled = fx.c.state.logErrors;
+        if (logEnabled) startTime = performance.now();
+
         // --- PING-PONG REFACTOR ---
         // Instead of a dedicated GlobalShadowWorld, we use the kernel's inactive world.
         if (window.matrix && window.matrix.inactiveWorld) {
@@ -23,7 +27,7 @@ class QuantizedShadow {
             fx._warn("[QuantizedShadow] Matrix Kernel or Inactive World not found. Initializing locally as fallback.");
             this.shadowGrid = new CellGrid(fx.c);
             const d = fx.c.derived;
-            const w = fx.g.cols * d.cellWidth; 
+            const w = fx.g.cols * d.cellWidth;
             const h = fx.g.rows * d.cellHeight;
             this.shadowGrid.resize(w, h);
             this.shadowGrid.isShadow = true;
@@ -37,9 +41,9 @@ class QuantizedShadow {
             this._targetActive = new Uint8Array(totalCells);
         }
         this.shadowFade.fill(0);
-        this.oldWorldFade.fill(1.0); 
+        this.oldWorldFade.fill(1.0);
         this._targetActive.fill(0);
-        
+
         if (!this.activeIndices) {
             this.activeIndices = new Set();
         } else {
@@ -47,7 +51,7 @@ class QuantizedShadow {
         }
 
         this.shadowSim.timeScale = 1.0;
-        
+
         // --- CLEAN SLATE FOR SHADOW WORLD ---
         if (this.shadowGrid) {
             this.shadowGrid.clearAllOverrides();
@@ -63,9 +67,13 @@ class QuantizedShadow {
         fx.warmupRemaining = 0;
         fx.shadowSimFrame = 0;
 
+        if (logEnabled) {
+            const endTime = performance.now();
+            console.log(`[QuantizedShadow] initShadowWorldBase took ${(endTime - startTime).toFixed(2)}ms`);
+        }
+
         return this.shadowSim;
     }
-
     updateShadowSim(fx) {
         if (!this.shadowSim) return false;
         
