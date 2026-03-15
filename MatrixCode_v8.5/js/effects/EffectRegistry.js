@@ -70,6 +70,10 @@ class EffectRegistry {
         }
     }
 
+    setRenderer(r) {
+        this.r = r;
+    }
+
     setGrid(grid) {
         this.grid = grid;
         this.effects.forEach(e => { if (e.g !== undefined) e.g = grid; });
@@ -371,6 +375,14 @@ class EffectRegistry {
         }
     }
 
+    preallocateAll() {
+        this.effects.forEach(e => {
+            if (typeof e.preallocate === 'function') {
+                e.preallocate();
+            }
+        });
+    }
+
     render(ctx, derived) {
         const cw = derived.cellWidth;
         const ch = derived.cellHeight;
@@ -401,6 +413,7 @@ class AbstractEffect {
     }
     trigger(force = false) { return false; }
     update() { }
+    preallocate() { }
     getActiveIndices() { return new Set(); }
 }
 

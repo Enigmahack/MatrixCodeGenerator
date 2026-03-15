@@ -9,7 +9,7 @@ class QuantizedSequenceGeneratorV2 {
         this.config = configState;
         this.configPrefix = configPrefix;
 
-        this.logicScale = 3.0;
+        this.logicScale = 1.2;
         
         const bs = this._getBlockSize();
         const cellPitchX = Math.max(1, bs.w);

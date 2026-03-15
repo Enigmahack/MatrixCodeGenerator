@@ -1726,6 +1726,31 @@ class WebGLRenderer {
         this.gl.bindVertexArray(null);
     }
 
+    preallocate(gw, gh, sourceCanvas = null) {
+        if (!this.gl || gw <= 0 || gh <= 0) return;
+        
+        // Ensure logic texture and buffer are initialized
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+            this.lastLogicGridWidth = gw;
+            this.lastLogicGridHeight = gh;
+            this.occupancyBuffer = new Uint8Array(gw * gh * 4);
+            if (this.config && this.config.state.logErrors) {
+                console.log(`[WebGLRenderer] Pre-allocated occupancyBuffer: ${gw}x${gh} (${(gw*gh*4/1024).toFixed(1)} KB)`);
+            }
+        }
+
+        // Upload Source Grid Texture (Characters) - Pre-warm the upload path
+        if (sourceCanvas) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
+            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
+            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
+            this.lastSourceGridSeed = -1; // Force refresh on first real trigger
+        }
+    }
+
     _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
         let fx = null;
         if (this.effects && this.effects.effects) {

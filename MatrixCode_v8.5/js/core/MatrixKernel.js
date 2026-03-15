@@ -87,6 +87,12 @@ class MatrixKernel {
 
         // Perform the initial resize setup and start the loop
         this._resize();
+        
+        // Pre-allocate resources for effects to prevent first-trigger stalls
+        if (this.effectRegistry) {
+            this.effectRegistry.preallocateAll();
+        }
+
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
 
@@ -204,6 +210,9 @@ class MatrixKernel {
         if (typeof WebGLRenderer !== 'undefined') {
             try {
                 this.renderer = new WebGLRenderer('matrixCanvas', this.grid, this.config, this.effectRegistry);
+                if (this.effectRegistry) {
+                    this.effectRegistry.setRenderer(this.renderer);
+                }
             } catch (e) {
                 if (this.config.state.logErrors) console.error("[MatrixKernel] WebGLRenderer initialization failed:", e);
                 this.renderer = null;

@@ -22,7 +22,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.hasCaptured = false;
         
         // Logic Grid expansion for safety (like GenerateEffect)
-        this.logicScale = 3.0; 
+        this.logicScale = 1.2; 
         
         this.useShadowWorld = false;
     }
