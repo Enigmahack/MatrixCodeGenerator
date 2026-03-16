@@ -162,6 +162,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.finishedBranches = new Set();
         this.nudgeAxisBalance = 0;
         this.usedCardinalIndices = [];
+        this._syncFrame = -1;
+        this._lastSyncOpCount = -1;
+        this._currentStepActions = [];
         
         this.RULES = {
             bounds: (c) => {
@@ -484,20 +487,26 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.shadowController.initShadowWorldBase(this);
         }
 
-        // 4. Warm up CPU Render Paths (Masking)
+        // 4. Pre-warm GlyphAtlas (font texture)
+        if (typeof GlyphAtlas !== 'undefined') {
+            if (!QuantizedBaseEffect.sharedAtlas) {
+                QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+            }
+            QuantizedBaseEffect.sharedAtlas.update();
+        }
+
+        // 5. Warm up CPU Render Paths (Masking)
         // Bypass if WebGL is active to save startup time
         if (s.renderingEngine !== 'webgl') {
             this._updateMask(w, h, s, d);
         }
-        
-        // 5. Only warm up Grid Cache if NOT in WebGL mode (2D fallback)
-        if (s.renderingEngine !== 'webgl') {
-            this._updateGridCache(w, h, s, d);
-        }
-        
-        // 6. Warm up Renderer Buffers (GPU)
+
+        // 6. Warm up Grid Cache (needed in both modes — WebGL uploads it as a GPU texture)
+        this._updateGridCache(w, h, s, d);
+
+        // 7. Warm up Renderer Buffers (GPU)
         if (this.r && this.r.r && typeof this.r.r.preallocate === 'function') {
-            this.r.r.preallocate(this.logicGridW, this.logicGridH, (s.renderingEngine !== 'webgl' ? this.gridCacheCanvas : null));
+            this.r.r.preallocate(this.logicGridW, this.logicGridH, this.gridCacheCanvas);
         }
 
         if (logEnabled) {
@@ -811,6 +820,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         let startTime = 0;
         const logEnabled = this.c.state.logErrors;
         if (logEnabled) startTime = performance.now();
+
+        // Safety net: if chunked preallocation didn't complete (e.g. race condition),
+        // force it now synchronously so the first frame doesn't hang.
+        if (!QuantizedBaseEffect._preallocated && this.g && this.g.cols) {
+            if (logEnabled) console.warn('[QuantizedBaseEffect] Preallocation missed — running synchronously in trigger()');
+            this.preallocate();
+        }
 
         if (this.active && !force) {
             if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
@@ -2152,32 +2168,40 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
-        this._checkDirtiness();
-        this._updateRenderGridLogic();
         const s = this.c.state;
         const isWebGL = (s.renderingEngine === 'webgl');
+
+        // --- WebGL FAST PATH ---
+        // In WebGL mode, lines and echo are rendered by the GPU via
+        // _renderQuantizedLineGfx, but the shader still needs gridCacheCanvas
+        // as a source texture for the character-masked perimeter line reveal.
+        // We must keep _ensureCanvases + _updateGridCache alive, but skip
+        // _updateMask and _drawMaskedLines (2D-canvas-only composite pipeline).
+        if (isWebGL) {
+            this._checkDirtiness();
+            const width = ctx.canvas.width;
+            const height = ctx.canvas.height;
+            this._ensureCanvases(width, height);
+            if (this._maskDirty) {
+                this.renderer._computeLayoutOnly(this, width, height, s, d);
+                this._maskDirty = false;
+            }
+            this._updateGridCache(width, height, s, d);
+            return;
+        }
+
+        // --- 2D Canvas Path ---
+        this._checkDirtiness();
+        this._updateRenderGridLogic();
 
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height);
 
         // --- MASK UPDATE ---
-        // In WebGL mode the GPU shader does its own edge detection, so the
-        // CPU-side BFS (computeTrueOutside + computeDistanceField) and canvas
-        // mask drawing are entirely redundant.  Skipping them removes the two
-        // heaviest synchronous operations from the first-trigger render path.
-        if (!isWebGL) {
-            if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-                this._updateMask(width, height, s, d);
-                this._maskDirty = false;
-            }
-        } else {
-            // WebGL still needs layout computed for getWebGLRenderState() — run the
-            // lightweight layout portion only (no BFS, no canvas edge drawing).
-            if (this._maskDirty) {
-                this.renderer._computeLayoutOnly(this, width, height, s, d);
-                this._maskDirty = false;
-            }
+        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
+            this._updateMask(width, height, s, d);
+            this._maskDirty = false;
         }
 
         // --- GRID CACHE ---
@@ -2199,12 +2223,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
         const echoAlphaMult = echoGlow / 4.0;
-
-        // WebGL mode - lines and echo are both rendered via GPU in _renderQuantizedLineGfx.
-        // No canvas overlay needed.
-        if (isWebGL) {
-            return;
-        }
 
         // 2D canvas mode - both lines and echo use the same masking pipeline.
         const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);

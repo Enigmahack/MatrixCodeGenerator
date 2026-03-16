@@ -55,6 +55,10 @@ class MatrixKernel {
         this.isEditorWindow = params.get('mode') === 'editor';
         
         if (this.isEditorWindow) {
+            // Remove loading screen immediately in editor mode
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) loadingOverlay.remove();
+
             document.body.classList.add('editor-window-mode');
             // Hide simulation canvases
             const canvases = ['matrixCanvas', 'overlayCanvas'];
@@ -101,30 +105,32 @@ class MatrixKernel {
 
         // Perform the initial resize setup and start the loop
         this._resize();
-        
-        requestAnimationFrame((time) => this._loop(time));
+
+        // --- GPU SHADER WARM-UP (GUARANTEED) ---
+        // Force-compile all WebGL shader programs immediately after resize so
+        // FBOs are configured.  This eliminates 186-243ms per-program GPU stalls
+        // on the first draw call, regardless of whether chunked preallocation
+        // succeeds or fails.
+        if (this.renderer && typeof this.renderer.warmUpGPU === 'function') {
+            const gpuT0 = performance.now();
+            this.renderer.warmUpGPU();
+            console.log(`[MatrixKernel] GPU warm-up took ${(performance.now() - gpuT0).toFixed(1)}ms`);
+        } else {
+            console.warn('[MatrixKernel] No renderer.warmUpGPU available — GPU warm-up skipped');
+        }
+
         this.fpsDisplayElement = document.getElementById('fps-counter');
 
-        // Pre-allocate resources for effects using idle callbacks to avoid blocking the main thread.
-        // Uses requestIdleCallback where available (non-Safari) with setTimeout fallback.
-        // Retries if grid isn't ready yet to ensure buffers are allocated before first trigger.
-        if (this.effectRegistry) {
-            const schedulePrealloc = (attempt) => {
-                const doPrealloc = () => {
-                    this.effectRegistry.preallocateAll();
-                    // Retry if preallocate couldn't run (grid not ready) — up to 3 attempts
-                    if (!QuantizedBaseEffect._preallocated && attempt < 3) {
-                        setTimeout(() => schedulePrealloc(attempt + 1), 1000);
-                    }
-                };
-                if (typeof requestIdleCallback === 'function') {
-                    requestIdleCallback(doPrealloc, { timeout: 3000 });
-                } else {
-                    setTimeout(doPrealloc, 1500);
-                }
-            };
-            schedulePrealloc(0);
-        }
+        // --- DETERMINISTIC CHUNKED PREALLOCATION ---
+        // Instead of racing requestIdleCallback against the first trigger, we run
+        // preallocation in small chunks across multiple rAF frames BEFORE starting
+        // the simulation loop.  The loading screen stays visible until complete.
+        await this._chunkedPreallocate();
+
+        // Preallocation complete — transition loading screen and start loop
+        this._transitionLoadingScreen();
+
+        requestAnimationFrame((time) => this._loop(time));
 
         // Cleanup WebGL on unload to help Safari free up context slots
         window.addEventListener('beforeunload', () => {
@@ -531,6 +537,207 @@ class MatrixKernel {
     }
 
     /**
+     * Runs effect preallocation in chunked steps across rAF frames to avoid
+     * blocking the main thread.  Returns a Promise that resolves when all
+     * chunks are complete.  The loading overlay dot animation runs in parallel.
+     * @private
+     */
+    async _chunkedPreallocate() {
+        // Tint loading screen to match the user's configured stream color
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            const streamColor = this.config.state.streamColor || '#65d778';
+            overlay.style.color = streamColor;
+            overlay.style.textShadow = `0 0 8px ${streamColor}44, 0 0 20px ${streamColor}44`;
+        }
+
+        // Start the ellipsis animation on the loading overlay
+        this._startLoadingDots();
+
+        // Yield a frame so the loading screen paints before we start heavy work
+        await new Promise(r => requestAnimationFrame(r));
+
+        const log = this.config.state.logErrors;
+        const t0 = performance.now();
+
+        // Find the first QuantizedBaseEffect instance via duck-typing
+        let qfx = null;
+        if (this.effectRegistry && this.effectRegistry.effects) {
+            const effects = this.effectRegistry.effects;
+            for (let i = 0; i < effects.length; i++) {
+                if (typeof effects[i]._initLogicGrid === 'function') {
+                    qfx = effects[i];
+                    break;
+                }
+            }
+        }
+
+        if (log) console.log(`[MatrixKernel] Prealloc guard: qfx=${!!qfx}, grid.cols=${this.grid.cols}, effects.length=${this.effectRegistry ? this.effectRegistry.effects.length : 'N/A'}`);
+
+        if (!qfx) {
+            if (log) console.warn('[MatrixKernel] No QuantizedBaseEffect found, skipping chunked preallocation.');
+            return;
+        }
+        if (!this.grid.cols) {
+            if (log) console.warn('[MatrixKernel] Grid cols=0 after resize, skipping chunked preallocation.');
+            return;
+        }
+
+        // Helper: run a chunk and yield a frame for the loading animation to update
+        const chunk = async (label, fn) => {
+            try { fn(); }
+            catch (e) { if (log) console.warn(`[MatrixKernel] Prealloc ${label} error:`, e.message); }
+            if (log) console.log(`[MatrixKernel] Prealloc ${label} ${(performance.now() - t0).toFixed(1)}ms`);
+            await new Promise(r => requestAnimationFrame(r));
+        };
+
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const s = this.config.state;
+        const d = this.config.derived;
+
+        if (log) console.log(`[MatrixKernel] Prealloc starting: qfx.g.cols=${qfx.g ? qfx.g.cols : 'no grid'}, w=${w}, h=${h}`);
+
+        // Chunk 1: Logic grids + canvases
+        await chunk('grids+canvases', () => {
+            qfx._initLogicGrid();
+            if (typeof qfx._ensureCanvases === 'function') qfx._ensureCanvases(w, h);
+        });
+
+        // Chunk 2: Render grid logic (shared buffers)
+        await chunk('renderGridLogic', () => {
+            if (typeof qfx._updateRenderGridLogic === 'function') qfx._updateRenderGridLogic();
+        });
+
+        // Chunk 3: Shadow world buffers
+        await chunk('shadow', () => {
+            if (qfx.shadowController && typeof qfx.shadowController.initShadowWorldBase === 'function') {
+                qfx.shadowController.initShadowWorldBase(qfx);
+            }
+        });
+
+        // Chunk 4: GlyphAtlas pre-warm
+        await chunk('glyphAtlas', () => {
+            if (typeof GlyphAtlas !== 'undefined') {
+                if (!QuantizedBaseEffect.sharedAtlas) {
+                    QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.config);
+                }
+                QuantizedBaseEffect.sharedAtlas.update();
+            }
+        });
+
+        // Chunk 5: CPU mask + grid cache (2D path only)
+        if (s.renderingEngine !== 'webgl') {
+            await chunk('mask', () => qfx._updateMask(w, h, s, d));
+            await chunk('gridCache', () => qfx._updateGridCache(w, h, s, d));
+        }
+
+        // Chunk 6: WebGL renderer buffers + GPU shader warm-up
+        await chunk('webglBuffers', () => {
+            const renderer = this.renderer;
+            if (renderer && typeof renderer.preallocate === 'function') {
+                renderer.preallocate(
+                    qfx.logicGridW, qfx.logicGridH,
+                    s.renderingEngine !== 'webgl' ? qfx.gridCacheCanvas : null
+                );
+            }
+        });
+
+        // Mark preallocation complete so trigger() never re-runs it
+        QuantizedBaseEffect._preallocated = true;
+
+        // Chunk 7: Hidden render pass — exercises the FULL quantized GPU pipeline
+        // behind the loading screen.  This forces ALL first-time initialization:
+        // Metal PSO compilation, JIT compilation of render methods, texture format
+        // conversions, buffer layout validation, etc.  Without this, the first
+        // REAL trigger causes a 500-700ms stall because the GPU encounters these
+        // code paths for the first time.
+        await chunk('hiddenRender', () => {
+            const renderer = this.renderer;
+            if (!renderer || !renderer.gl || !renderer._renderQuantizedLineGfx) return;
+
+            const gl = renderer.gl;
+
+            // Temporarily mark the effect as active so the render path finds it
+            qfx.active = true;
+
+            // Run the quantized render pipeline once (draws to FBOs behind loading overlay)
+            renderer._renderQuantizedLineGfx(s, d, renderer.texA, renderer.fboA2);
+
+            // Force GPU to complete ALL queued work (PSO compilation, texture uploads, etc.)
+            gl.finish();
+
+            // Clean up: clear every FBO the quantized pipeline wrote to
+            gl.clearColor(0, 0, 0, 0);
+            const fbos = [renderer.fboLinePersist, renderer.fboEchoLinePersist,
+                          renderer.fboA2, renderer.fboCodeProcessed];
+            for (const fbo of fbos) {
+                if (!fbo) continue;
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+            // Reset renderer tracking so the first real render starts clean
+            renderer.lastRenderedFx = null;
+            renderer.lastLogicGridWidth = 0;
+            renderer.lastLogicGridHeight = 0;
+            renderer.lastEchoGridWidth = 0;
+            renderer.lastEchoGridHeight = 0;
+            renderer.lastEchoStepCaptured = -1;
+            renderer._quantizedRenderCalled = false; // Reset so profiling captures first REAL render
+            if (typeof renderer._clearEchoHistory === 'function') renderer._clearEchoHistory();
+
+            // Deactivate the effect
+            qfx.active = false;
+        });
+
+        if (log) console.log(`[MatrixKernel] Chunked preallocation complete in ${(performance.now() - t0).toFixed(1)}ms`);
+    }
+
+    /**
+     * Animates the loading overlay ellipsis (1 dot, 2 dots, 3 dots, repeat).
+     * @private
+     */
+    _startLoadingDots() {
+        const dotsEl = document.getElementById('loadingDots');
+        if (!dotsEl) return;
+        let count = 0;
+        this._dotsInterval = setInterval(() => {
+            count = (count % 3) + 1;
+            dotsEl.textContent = '.'.repeat(count);
+        }, 400);
+    }
+
+    /**
+     * Transitions the loading screen: swap text to "Knock Knock, Neo",
+     * then fade out the overlay while the first code starts falling.
+     * @private
+     */
+    _transitionLoadingScreen() {
+        const overlay = document.getElementById('loadingOverlay');
+        const textEl = document.getElementById('loadingText');
+        const dotsEl = document.getElementById('loadingDots');
+        if (!overlay) return;
+
+        // Stop dot animation
+        clearInterval(this._dotsInterval);
+        if (dotsEl) dotsEl.textContent = '';
+
+        // Swap to final message
+        if (textEl) textEl.textContent = 'Knock Knock, Neo';
+
+        // Hold the final message briefly, then fade out
+        setTimeout(() => {
+            overlay.classList.add('fade-out');
+            // Remove from DOM after transition completes
+            overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+            // Fallback removal if transitionend doesn't fire (e.g. reduced motion)
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 2000);
+        }, 900);
+    }
+
+    /**
      * The main animation loop, handling updates and rendering.
      * Uses a fixed timestep for consistent simulation speed.
      * @private
@@ -639,19 +846,23 @@ class MatrixKernel {
         let framesToRun = Math.floor(this.accumulator / this.timestep);
         if (framesToRun > 3) framesToRun = 3; 
 
+        const updateT0 = performance.now();
         for (let i = 0; i < framesToRun; i++) {
             this._updateFrame();
             this.accumulator -= this.timestep;
         }
-        
+        const updateTime = performance.now() - updateT0;
+
         // If we are still very far behind, cap the accumulator to avoid future stalls
         if (this.accumulator > this.timestep * 10) {
             this.accumulator = this.timestep;
         }
 
+        const renderT0 = performance.now();
         if (this.renderer) {
             this.renderer.render(this.frame);
         }
+        const renderTime = performance.now() - renderT0;
 
         // Render Overlay Effects
         if (this.overlayCtx) {
@@ -662,7 +873,7 @@ class MatrixKernel {
         if (this.config.state.logErrors) {
             const loopTime = performance.now() - loopStartTime;
             if (loopTime > 50) {
-                console.log(`[MatrixKernel] Slow frame detected: ${loopTime.toFixed(2)}ms`);
+                console.log(`[MatrixKernel] Slow frame: ${loopTime.toFixed(1)}ms (update: ${updateTime.toFixed(1)}ms, render: ${renderTime.toFixed(1)}ms)`);
             }
         }
         

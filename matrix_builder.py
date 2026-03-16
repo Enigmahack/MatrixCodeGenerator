@@ -14,6 +14,8 @@ CODE_MAP = {
     'Utils': 'js/core/Utils.js',
     'MatrixKernel': 'js/core/MatrixKernel.js',
     'ConfigurationManager': 'js/config/ConfigurationManager.js',
+    'ConfigTemplate': 'js/config/ConfigTemplate.js',
+    'QuantizedInheritableSettings': 'js/config/ConfigTemplate.js',
     'CellGrid': 'js/data/CellGrid.js',
     'DEFAULT_FONT_DATA': 'js/data/FontData.js',
     'StreamMode': 'js/simulation/StreamModes.js',
@@ -34,14 +36,27 @@ CODE_MAP = {
     'BootEffect': 'js/effects/BootEffect.js',
     'CrashEffect': 'js/effects/CrashEffect.js',
     'ReverseEffect': 'js/effects/ReverseEffect.js',
+    'QuantizedBaseEffect': 'js/effects/QuantizedBaseEffect.js',
     'QuantizedPulseEffect': 'js/effects/QuantizedPulseEffect.js',
     'QuantizedAddEffect': 'js/effects/QuantizedAddEffect.js',
     'QuantizedRetractEffect': 'js/effects/QuantizedRetractEffect.js',
-    'QuantizedExpansionEffect': 'js/effects/QuantizedExpansionEffect.js',
+    'QuantizedClimbEffect': 'js/effects/QuantizedClimbEffect.js',
+    'QuantizedZoomEffect': 'js/effects/QuantizedZoomEffect.js',
+    'QuantizedBlockBuilder': 'js/effects/QuantizedBlockBuilder.js',
+    'QuantizedBlockGeneration': 'js/effects/QuantizedBlockGeneration.js',
+    'QuantizedPatterns': 'js/effects/QuantizedPatterns.js',
+    'QuantizedRenderer': 'js/effects/QuantizedRenderer.js',
+    'QuantizedSequence': 'js/effects/QuantizedSequence.js',
+    'QuantizedSequenceGenerator': 'js/effects/QuantizedSequenceGenerator.js',
+    'QuantizedSequenceGeneratorV2': 'js/effects/QuantizedSequenceGeneratorV2.js',
+    'QuantizedShadow': 'js/effects/QuantizedShadow.js',
+    'QuantizedWorker': 'js/effects/QuantizedWorker.js',
+    'QuantizedBFSWorker': 'js/effects/QuantizedBFSWorker.js',
     'NotificationManager': 'js/ui/NotificationManager.js',
     'FontManager': 'js/ui/FontManager.js',
     'UIManager': 'js/ui/UIManager.js',
     'CharacterSelectorModal': 'js/ui/CharacterSelectorModal.js',
+    'QuantizedEffectEditor': 'js/ui/QuantizedEffectEditor.js',
     'WebGLRenderer': 'js/rendering/WebGLRenderer.js',
     'GlyphAtlas': 'js/rendering/GlyphAtlas.js',
     'PostProcessor': 'js/rendering/PostProcessor.js'
@@ -52,7 +67,9 @@ FORCED_FIRST = [
     'js/config/ConfigurationManager.js', 
     'js/data/FontData.js',
     'js/data/CellGrid.js',
-    'js/effects/EffectRegistry.js'
+    'js/effects/EffectRegistry.js',
+    'js/config/ConfigTemplate.js',
+    'js/effects/QuantizedBaseEffect.js'
 ]
 
 FORCED_LAST = [
@@ -81,8 +98,6 @@ def get_dependency_order(source_dir):
     all_files = []
     
     # Strictly target the 'js' subdirectory to avoid node_modules and other root files
-    search_root = os.path.join(source_root, 'js') if 'source_root' in globals() else source_dir
-    # Optimization: if the source_dir passed is the root, we look for 'js' inside it.
     actual_js_path = os.path.join(source_dir, 'js')
     if os.path.exists(actual_js_path):
         scan_dir = actual_js_path
@@ -101,7 +116,6 @@ def get_dependency_order(source_dir):
                 rel_path = os.path.relpath(full_path, source_dir).replace('\\', '/')
                 
                 # Safety Check: Skip main process files and tools. 
-                # UIManager is ALLOWED even if it has conditional require() for Electron support.
                 if rel_path in ['main.js', 'js/simulation/SimulationWorker.js', 'matrix_builder.py'] or rel_path.startswith('js/tools/'):
                     continue
 
@@ -166,12 +180,15 @@ def get_dependency_order(source_dir):
             
     final_list.extend(sorted_files)
     final_list.extend(last_list)
+    
     return final_list
 
 def identify_target_file(block_content, current_hint=None):
+    # Check for direct class or const matches in CODE_MAP
     for key, path in CODE_MAP.items():
-        if f"class {key}" in block_content or f"const {key}" in block_content:
+        if f"class {key}" in block_content or f"const {key} =" in block_content or f"const {key}=" in block_content:
             return path
+            
     class_match = re.search(r'class\s+(\w+)(?:\s+extends\s+(\w+))?', block_content)
     if class_match:
         cls_name = class_match.group(1)
@@ -180,6 +197,12 @@ def identify_target_file(block_content, current_hint=None):
         if cls_name.endswith('Mode'): return f"js/simulation/StreamModes.js"
         if 'Manager' in cls_name: return f"js/ui/{cls_name}.js"
         if parent_name and 'Effect' in parent_name: return f"js/effects/{cls_name}.js"
+        if cls_name.startswith('Quantized'): return f"js/effects/{cls_name}.js"
+        
+    # Heuristics for common snippets
+    if "ConfigurationManager" in block_content and "prototype._loadSlots" in block_content:
+        return "js/config/ConfigurationManager.js"
+        
     return current_hint or "js/core/Utils.js"
 
 def split_monolith(input_file, output_dir):
@@ -398,16 +421,26 @@ def combine_modular(source_dir, output_file):
     worker_path = os.path.join(source_dir, 'js/simulation/SimulationWorker.js')
     if os.path.exists(worker_path):
         print("  - Bundling SimulationWorker.js...")
-        worker_deps = ['js/core/Utils.js', 'js/data/CellGrid.js', 'js/simulation/StreamModes.js', 'js/simulation/StreamManager.js', 'js/effects/GlowSystem.js']
-        worker_code = ""
-        for dep in worker_deps:
-            d_path = os.path.join(source_dir, dep)
-            if os.path.exists(d_path):
-                with open(d_path, 'r', encoding='utf-8') as f:
-                    worker_code += f"\n// --- Worker Dep: {os.path.basename(dep)} ---\n{f.read()}\n"
+        
+        # Dynamically extract dependencies from importScripts
+        worker_code_raw = ""
         with open(worker_path, 'r', encoding='utf-8') as f:
-            worker_code += "\n// --- SimulationWorker.js ---\n" + re.sub(r'importScripts\(.*\);', '', f.read())
-        worker_code_esc = worker_code.replace('`', '\\`').replace('${', '\\${')
+            worker_code_raw = f.read()
+            
+        imports = re.findall(r"importScripts\(['\"](.*?)['\"]\);", worker_code_raw)
+        worker_code = ""
+        for imp in imports:
+            # Resolve relative path (worker is in js/simulation/)
+            # imp might be '../core/Utils.js'
+            norm_imp = os.path.normpath(os.path.join('js/simulation', imp)).replace('\\', '/')
+            imp_path = os.path.join(source_dir, norm_imp)
+            if os.path.exists(imp_path):
+                with open(imp_path, 'r', encoding='utf-8') as f:
+                    worker_code += f"\n// --- Worker Dep: {os.path.basename(norm_imp)} ---\n{f.read()}\n"
+            else:
+                print(f"  [Warning] Worker dependency not found: {norm_imp}")
+                
+        worker_code += "\n// --- SimulationWorker.js ---\n" + re.sub(r'importScripts\(.*\);', '', worker_code_raw)
         worker_block = f"""<script id="simulation-worker-source" type="javascript/worker">
 {worker_code}
 </script>"""

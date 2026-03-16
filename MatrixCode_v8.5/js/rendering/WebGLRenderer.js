@@ -1817,40 +1817,201 @@ class WebGLRenderer {
 
     preallocate(gw, gh, sourceCanvas = null) {
         if (!this.gl || gw <= 0 || gh <= 0) return;
-        
+        const gl = this.gl;
+        const log = this.config && this.config.state.logErrors;
+
         // Ensure logic texture and buffer are initialized
         if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+            gl.bindTexture(gl.TEXTURE_2D, this.logicGridTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
             this.occupancyBuffer = new Uint8Array(gw * gh * 4);
-            if (this.config && this.config.state.logErrors) {
+            if (log) {
                 console.log(`[WebGLRenderer] Pre-allocated occupancyBuffer: ${gw}x${gh} (${(gw*gh*4/1024).toFixed(1)} KB)`);
             }
         }
 
+        // Pre-allocate echo logic grid texture at matching dimensions
+        if (this.echoLogicGridTexture && (gw !== this.lastEchoGridWidth || gh !== this.lastEchoGridHeight)) {
+            gl.bindTexture(gl.TEXTURE_2D, this.echoLogicGridTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            this.lastEchoGridWidth = gw;
+            this.lastEchoGridHeight = gh;
+        }
+
         // Upload Source Grid Texture (Characters) - Pre-warm the upload path
         if (sourceCanvas) {
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, sourceCanvas);
-            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.bindTexture(gl.TEXTURE_2D, this.sourceGridTexture);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
             this.lastSourceGridSeed = -1; // Force refresh on first real trigger
         }
+
+        // GPU Shader Warm-Up — delegate to warmUpGPU() which exercises
+        // all unique pipeline states (program + VAO + blend mode combos)
+        this.warmUpGPU();
+    }
+
+    /**
+     * Standalone GPU shader warm-up — forces the driver to compile all Metal
+     * Pipeline State Objects (PSOs) by issuing draws that match the EXACT
+     * pipeline states used during normal rendering.
+     *
+     * On macOS, WebGL → ANGLE → Metal.  Metal PSOs are keyed on:
+     *   shader program + vertex layout (VAO) + blend state + color write mask +
+     *   pixel format of attachments + draw type (instanced vs. non-instanced)
+     *
+     * A draw with colorMask(false) compiles a DIFFERENT PSO than one with
+     * colorMask(true), so we must match real render state.  We use scissor to
+     * clip to a 1×1 pixel so the actual work is negligible, then clear the FBO.
+     */
+    warmUpGPU() {
+        const gl = this.gl;
+        if (!gl) return;
+        const log = this.config && this.config.state.logErrors;
+
+        const targetFbo = this.fboA;
+        if (!targetFbo) {
+            if (log) console.warn('[WebGLRenderer] warmUpGPU: fboA not ready, skipping');
+            return;
+        }
+
+        const t0 = performance.now();
+        let warmed = 0;
+
+        // Bind FBO and restrict to 1×1 pixel via scissor
+        gl.bindFramebuffer(gl.FRAMEBUFFER, targetFbo);
+        gl.viewport(0, 0, 1, 1);
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(0, 0, 1, 1);
+        gl.colorMask(true, true, true, true);
+
+        // Helper: draw with a specific program, VAO, blend state, and draw mode
+        const warm = (prog, vao, blendEnabled, blendSrc, blendDst, instanced) => {
+            if (!prog || !vao) return;
+            gl.useProgram(prog);
+            gl.bindVertexArray(vao);
+            if (blendEnabled) {
+                gl.enable(gl.BLEND);
+                gl.blendFunc(blendSrc, blendDst);
+                gl.blendEquation(gl.FUNC_ADD);
+            } else {
+                gl.disable(gl.BLEND);
+            }
+            if (instanced) {
+                gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, 1);
+            } else {
+                gl.drawArrays(gl.TRIANGLES, 0, 6);
+            }
+            gl.bindVertexArray(null);
+            warmed++;
+        };
+
+        // --- Warm up every unique pipeline state used during rendering ---
+        // On macOS ANGLE→Metal, each unique combo of (program, VAO layout,
+        // blendFunc, blendEquation, colorMask, FBO pixel format) creates a
+        // distinct Metal Pipeline State Object (PSO).  We must exercise the
+        // EXACT states used during real rendering or the first real draw will
+        // still trigger a GPU stall for PSO compilation.
+
+        // Helper for draws with custom blend equation
+        const warmEq = (prog, vao, src, dst, eq, instanced) => {
+            if (!prog || !vao) return;
+            gl.useProgram(prog);
+            gl.bindVertexArray(vao);
+            gl.enable(gl.BLEND);
+            gl.blendFunc(src, dst);
+            gl.blendEquation(eq);
+            if (instanced) {
+                gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, 1);
+            } else {
+                gl.drawArrays(gl.TRIANGLES, 0, 6);
+            }
+            gl.bindVertexArray(null);
+            gl.blendEquation(gl.FUNC_ADD); // reset
+            warmed++;
+        };
+
+        // 1. lineProgram + vaoLine — quantized line gfx passes
+        if (this.lineProgram && this.vaoLine) {
+            // Pass 2A: composite (no blend)
+            warm(this.lineProgram, this.vaoLine, false, 0, 0, false);
+            // Pass 1B: line generation (ONE, ONE, MAX equation)
+            warmEq(this.lineProgram, this.vaoLine, gl.ONE, gl.ONE, gl.MAX, false);
+            // Pass 2B: echo composite (ONE, ONE_MINUS_SRC_ALPHA, FUNC_ADD)
+            warm(this.lineProgram, this.vaoLine, true, gl.ONE, gl.ONE_MINUS_SRC_ALPHA, false);
+            // Alternate: SRC_ALPHA blend
+            warm(this.lineProgram, this.vaoLine, true, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, false);
+        }
+
+        // 2. colorProgram + vaoLine — decay & overlay passes
+        if (this.colorProgram && this.vaoLine) {
+            // Decay: FUNC_REVERSE_SUBTRACT with ONE, ONE
+            warmEq(this.colorProgram, this.vaoLine, gl.ONE, gl.ONE, gl.FUNC_REVERSE_SUBTRACT, false);
+            // SRC_ALPHA blend (trail fade, background)
+            warm(this.colorProgram, this.vaoLine, true, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, false);
+            // ZERO, ONE_MINUS_SRC_ALPHA (cutout)
+            warm(this.colorProgram, this.vaoLine, true, gl.ZERO, gl.ONE_MINUS_SRC_ALPHA, false);
+            // No blend
+            warm(this.colorProgram, this.vaoLine, false, 0, 0, false);
+        }
+
+        // 3. bloomProgram + vaoLine — additive bloom
+        if (this.bloomProgram && this.vaoLine) {
+            warm(this.bloomProgram, this.vaoLine, true, gl.ONE, gl.ONE, false);
+            warm(this.bloomProgram, this.vaoLine, true, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, false);
+        }
+
+        // 4. shadowProgram + vao — instanced shadow sheets
+        if (this.shadowProgram && this.vao) {
+            warm(this.shadowProgram, this.vao, true, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, true);
+        }
+
+        // 5. lineProgram + vaoLine + additive (shadow mask generation)
+        if (this.lineProgram && this.vaoLine) {
+            warm(this.lineProgram, this.vaoLine, true, gl.ONE, gl.ONE, false);
+        }
+
+        // 6. program2D + vao — main falling-code instanced draw (runs every frame,
+        //    so its PSO should already be compiled, but warm up just in case)
+        if (this.program2D && this.vao) {
+            warm(this.program2D, this.vao, true, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, true);
+            warm(this.program2D, this.vao, true, gl.ONE, gl.ONE_MINUS_SRC_ALPHA, true);
+        }
+
+        // Clear the 1×1 pixel we wrote to
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // Restore state
+        gl.disable(gl.SCISSOR_TEST);
+        gl.disable(gl.BLEND);
+        gl.viewport(0, 0, this.fboWidth, this.fboHeight);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        // Force the GPU to finish all compilation before returning
+        gl.finish();
+
+        if (log) console.log(`[WebGLRenderer] warmUpGPU: ${warmed} pipeline states compiled in ${(performance.now() - t0).toFixed(1)}ms`);
     }
 
     _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
         let fx = null;
         if (this.effects && this.effects.effects) {
-            const effectList = (Array.isArray(this.effects.effects)) 
-                ? this.effects.effects 
-                : (this.effects.effects instanceof Map) 
-                    ? Array.from(this.effects.effects.values()) 
+            const effectList = (Array.isArray(this.effects.effects))
+                ? this.effects.effects
+                : (this.effects.effects instanceof Map)
+                    ? Array.from(this.effects.effects.values())
                     : [];
             fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
         }
         if (!fx || !fx.renderGrid) return false;
+
+        // --- ONE-SHOT PROFILING: Time the first invocation breakdown ---
+        const isFirstCall = !this._quantizedRenderCalled;
+        const profT0 = isFirstCall ? performance.now() : 0;
 
         const fxState = fx.getWebGLRenderState(s, d);
         const [gw, gh] = fxState.logicGridSize;
@@ -2104,6 +2265,17 @@ class WebGLRenderer {
 
         // Final Cleanup
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+
+        // --- ONE-SHOT PROFILING: Log first invocation timing ---
+        if (isFirstCall) {
+            this._quantizedRenderCalled = true;
+            const jsTime = performance.now() - profT0;
+            // Force GPU to finish so we can measure total GPU+JS time
+            this.gl.finish();
+            const totalTime = performance.now() - profT0;
+            console.log(`[WebGLRenderer] First _renderQuantizedLineGfx: JS=${jsTime.toFixed(1)}ms, JS+GPU=${totalTime.toFixed(1)}ms`);
+        }
+
         return true;
     }
 

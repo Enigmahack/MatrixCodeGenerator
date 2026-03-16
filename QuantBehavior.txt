@@ -1,3 +1,0 @@
-Every 3 steps, the blocks that were in that step 'harden' and become the green layer. This appears to be consistent. 
-
-In the same 3 steps, the external perimeter should appear faded in the background (basically 3 steps behind, like a delay)

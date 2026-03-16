@@ -10,7 +10,12 @@
 </head>
 <body>
     <div id="fps-counter" style="display: none;">FPS: 60</div>
-    
+
+    <!-- Loading Screen -->
+    <div id="loadingOverlay">
+        <span id="loadingText">The Matrix Has You</span><span id="loadingDots"></span>
+    </div>
+
     <!-- Primary Canvas for Matrix Animation -->
     <canvas id="matrixCanvas" aria-label="Matrix Digital Rain Animation"></canvas>
 
@@ -55,6 +60,7 @@
     <script src="js/data/CellGrid.js"></script>
     <script src="js/effects/EffectRegistry.js"></script>
     <script src="js/config/ConfigTemplate.js"></script>
+    <script src="js/effects/QuantizedBaseEffect.js"></script>
     <script src="js/effects/BootEffect.js"></script>
     <script src="js/effects/ClearPulseEffect.js"></script>
     <script src="js/effects/CrashEffect.js"></script>
@@ -62,7 +68,7 @@
     <script src="js/effects/GlowSystem.js"></script>
     <script src="js/effects/MiniPulseEffect.js"></script>
     <script src="js/effects/PulseEffect.js"></script>
-    <script src="js/effects/QuantizedBaseEffect.js"></script>
+    <script src="js/effects/QuantizedBFSWorker.js"></script>
     <script src="js/effects/QuantizedAddEffect.js"></script>
     <script src="js/effects/QuantizedBlockGeneration.js"></script>
     <script src="js/effects/QuantizedBlockBuilder.js"></script>
@@ -75,6 +81,7 @@
     <script src="js/effects/QuantizedSequenceGenerator.js"></script>
     <script src="js/effects/QuantizedSequenceGeneratorV2.js"></script>
     <script src="js/effects/QuantizedShadow.js"></script>
+    <script src="js/effects/QuantizedWorker.js"></script>
     <script src="js/effects/QuantizedZoomEffect.js"></script>
     <script src="js/effects/ReverseEffect.js"></script>
     <script src="js/effects/SupermanEffect.js"></script>
@@ -90,6 +97,7 @@
     <script src="js/ui/QuantizedEffectEditor.js"></script>
     <script src="js/ui/UIManager.js"></script>
     <script src="js/core/MatrixKernel.js"></script>
+
 
 
 

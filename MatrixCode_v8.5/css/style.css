@@ -29,6 +29,32 @@
     user-select: none;
 }
 
+/* --- LOADING SCREEN --- */
+#loadingOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+    font-size: clamp(18px, 3vw, 32px);
+    color: var(--accent);
+    text-shadow: 0 0 8px var(--accent-glow), 0 0 20px var(--accent-glow);
+    user-select: none;
+    transition: opacity 1.2s ease-out;
+}
+#loadingOverlay.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+#loadingDots {
+    display: inline-block;
+    min-width: 1.8em;
+    text-align: left;
+}
+
         * {
     box-sizing: border-box;
     margin: 0;
