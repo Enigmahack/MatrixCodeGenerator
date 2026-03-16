@@ -34,6 +34,17 @@ class PostProcessor {
         this.positionBuffer = null;
         this.framebuffer1 = null; 
         this.framebuffer2 = null;
+
+        // --- High-Frequency Loop Optimization ---
+        this._activePasses = [
+            { id: 'effect1', prog: null, param: 0, enabled: false },
+            { id: 'effect2', prog: null, param: 0, enabled: false },
+            { id: 'totalFX1', prog: null, param: 0, enabled: false },
+            { id: 'totalFX2', prog: null, param: 0, enabled: false },
+            { id: 'globalBloom', prog: null, param: 0, enabled: false },
+            { id: 'globalFX', prog: null, param: 0, enabled: false },
+            { id: 'custom', prog: null, param: 0, enabled: false, customParams: null }
+        ];
         
         this.defaultFragmentShader = `
             precision mediump float;
@@ -501,7 +512,54 @@ class PostProcessor {
         });
     }
 
-    _applyChain(activePasses, currentInput, currentFlip, targetFBO, time, mouseX, mouseY, brightness) {
+    _applyChain(passes, currentInput, currentFlip, targetFBO, time, mouseX, mouseY, brightness) {
+        let activePasses = passes.filter(p => p.prog !== null && p.enabled);
+
+        // SYSTEM SEQUENCE BYPASS
+        const isSystemSequenceActive = activePasses.some(p => {
+            const name = this.config.get(p.id + 'Name');
+            return name && (
+                name.includes('BootSequence') || 
+                name.includes('CrashSequence') || 
+                name.includes('DejaVu')
+            );
+        });
+
+        if (isSystemSequenceActive) {
+            activePasses = activePasses.filter(p => 
+                p.id === 'effect1' || p.id === 'effect2' || p.id === 'totalFX1' || p.id === 'totalFX2'
+            );
+            const userBrightness = this.config.get('brightness') ?? 1.0;
+            brightness = Math.max(0.3, Math.min(1.0, userBrightness));
+        }
+        
+        if (activePasses.length === 0) {
+            this._renderBypass(currentInput, targetFBO, brightness);
+            return;
+        }
+
+        // Add Global Params to ALL passes for consistency
+        const commonParams = {
+            uBurnIn: this.config.get('clearAlpha') || 0.0,
+            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0,
+            uBloomIntensity: 0.0,
+            uBloomBrightness: 0.0
+        };
+
+        activePasses.forEach(p => {
+            p.customParams = { ...commonParams, ...(p.customParams || {}) };
+        });
+
+        if (this.config.get('globalBloomEnabled')) {
+            const pass = activePasses.find(p => p.id === 'globalBloom');
+            if (pass) {
+                pass.customParams.uBloomBrightness = this.config.get('globalBloomBrightness');
+                pass.customParams.uBloomIntensity = this.config.get('globalBloomIntensity');
+                pass.customParams.uBloomRadius = this.config.get('globalBloomWidth');
+                pass.customParams.uBloomThreshold = this.config.get('globalBloomThreshold');
+            }
+        }
+        
         let input = currentInput;
         let flip = currentFlip;
         let activeFBO = this.framebuffer1;
@@ -512,8 +570,6 @@ class PostProcessor {
         const bg = d && d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
         const bb = d && d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
 
-        // Ensure intermediate textures are clean before starting the chain
-        // This prevents "ghosting" or persistent brightness from previous passes
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer1);
         this.gl.clearColor(0, 0, 0, 0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
@@ -527,7 +583,6 @@ class PostProcessor {
             
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, isLast ? targetFBO : activeFBO);
             
-            // Explicitly set viewport for the target of THIS pass
             if (isFinalTarget) {
                 this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
                 this.gl.clearColor(br, bg, bb, 1.0);
@@ -535,19 +590,15 @@ class PostProcessor {
                 this.gl.blendEquation(this.gl.FUNC_ADD);
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
             } else {
-                // Use stored dimensions or fallback to context size
                 const vw = this.width || this.gl.drawingBufferWidth;
                 const vh = this.height || this.gl.drawingBufferHeight;
                 this.gl.viewport(0, 0, vw, vh);
                 this.gl.clearColor(0, 0, 0, 0);
-                // Intermediate passes should strictly overwrite to avoid alpha accumulation issues
                 this.gl.disable(this.gl.BLEND);
                 this.gl.blendEquation(this.gl.FUNC_ADD);
             }
             this.gl.clear(this.gl.COLOR_BUFFER_BIT);
             
-            // ARCHITECTURAL FIX: Only apply global brightness and burn-in to the FINAL pass.
-            // Intermediate passes use 1.0 for brightness and 0.0 for burn-in to prevent exponential accumulation.
             const passBrightness = isLast ? brightness : 1.0;
             const currentParams = { ...(activePasses[i].customParams || {}) };
             
@@ -627,102 +678,39 @@ class PostProcessor {
         const globalBloomType = this.config.get('globalBloomType');
         const globalBloomProg = this._getBloomProgram(globalBloomType);
 
-        // Define the pipeline chain
-        let activePasses = [
-            { id: 'effect1', prog: this.effect1Program, param: params.effect1 ?? 0.5, enabled: this.config.get('effectShader1Enabled') },
-            { id: 'effect2', prog: this.effect2Program, param: params.effect2 ?? 0.5, enabled: this.config.get('effectShader2Enabled') },
-            { id: 'totalFX1', prog: this.totalFX1Program, param: params.totalFX1 ?? 0.5, enabled: this.config.get('totalFX1Enabled') },
-            { id: 'totalFX2', prog: this.totalFX2Program, param: params.totalFX2 ?? 0.5, enabled: this.config.get('totalFX2Enabled') },
-            // NEW Global Bloom FX
-            {
-                id: 'globalBloom',
-                prog: globalBloomProg,
-                param: 0.5,
-                enabled: this.config.get('globalBloomEnabled')
-            },
-            // Global FX: Selected in Debug menu. Falls back to Bloom ONLY if enabled there.
-            { 
-                id: 'globalFX', 
-                prog: this.globalFXProgram || this.defaultProgram, 
-                param: params.globalFX ?? 0.5, 
-                enabled: this.config.get('globalFXEnabled') 
-            },
-            { id: 'custom', prog: this.customProgram || this.defaultProgram, param: params.custom ?? 0.5, enabled: this.config.get('shaderEnabled'), customParams: params.customParams }
-        ].filter(p => p.prog !== null && p.enabled);
+        // Update persistent passes to avoid allocations
+        const ap = this._activePasses;
         
-        // SYSTEM SEQUENCE BYPASS:
-        // If a core system sequence (Boot, Crash, DejaVu) is active, we bypass 
-        // subsequent user-defined effects like Global Bloom, Global FX, and Custom Shaders.
-        // This ensures the animation is consistent and not washed out by user settings.
-        const isSystemSequenceActive = activePasses.some(p => {
-            const name = this.config.get(p.id + 'Name');
-            return name && (
-                name.includes('BootSequence') || 
-                name.includes('CrashSequence') || 
-                name.includes('DejaVu')
-            );
-        });
-
-        if (isSystemSequenceActive) {
-            // Keep ONLY the primary sequence slots. Bypass Bloom, Global FX, and Custom Shaders.
-            activePasses = activePasses.filter(p => 
-                p.id === 'effect1' || p.id === 'effect2' || p.id === 'totalFX1' || p.id === 'totalFX2'
-            );
-            // Respect user brightness if lower than 1.0, with a floor for visibility.
-            const userBrightness = this.config.get('brightness') ?? 1.0;
-            brightness = Math.max(0.3, Math.min(1.0, userBrightness));
-        }
-
-
-        if (activePasses.length === 0) {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, targetFBO);
-            this.gl.viewport(0, 0, this.gl.drawingBufferWidth, this.gl.drawingBufferHeight);
-            
-            const d = this.config.derived;
-            const br = d && d.bgRgb ? d.bgRgb.r / 255.0 : 0.0;
-            const bg = d && d.bgRgb ? d.bgRgb.g / 255.0 : 0.0;
-            const bb = d && d.bgRgb ? d.bgRgb.b / 255.0 : 0.0;
-            
-            if (targetFBO === null) {
-                this.gl.clearColor(br, bg, bb, 1.0);
-            } else {
-                this.gl.clearColor(0, 0, 0, 0);
-            }
-            this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-
-            this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY, brightness);
-            return;
-        }
-
-        // Add Global Params to ALL passes for consistency
-        const commonParams = {
-            uBurnIn: this.config.get('clearAlpha') || 0.0,
-            uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0,
-            // ARCHITECTURAL FIX: Explicitly zero out bloom uniforms by default for ALL programs
-            // that might use them (shared programs). This prevents state bleed.
-            uBloomIntensity: 0.0,
-            uBloomBrightness: 0.0
-        };
-
-        // Apply common params to all passes.
-        // We do this BEFORE specific bloom params so they can be overridden.
-        activePasses.forEach(p => {
-            p.customParams = { ...commonParams, ...(p.customParams || {}) };
-        });
-
-        // Add Global Bloom Params
-        if (this.config.get('globalBloomEnabled')) {
-            const pass = activePasses.find(p => p.id === 'globalBloom');
-            if (pass) {
-                // Overwrite the zeroes from commonParams with actual values
-                pass.customParams.uBloomBrightness = this.config.get('globalBloomBrightness');
-                pass.customParams.uBloomIntensity = this.config.get('globalBloomIntensity');
-                pass.customParams.uBloomRadius = this.config.get('globalBloomWidth');
-                pass.customParams.uBloomThreshold = this.config.get('globalBloomThreshold');
-            }
-        }
-
-        this._applyChain(activePasses, inputTex, flipY, targetFBO, time, mouseX, mouseY, brightness);
+        ap[0].prog = this.effect1Program;
+        ap[0].param = params.effect1 ?? 0.5;
+        ap[0].enabled = this.config.get('effectShader1Enabled');
+        
+        ap[1].prog = this.effect2Program;
+        ap[1].param = params.effect2 ?? 0.5;
+        ap[1].enabled = this.config.get('effectShader2Enabled');
+        
+        ap[2].prog = this.totalFX1Program;
+        ap[2].param = params.totalFX1 ?? 0.5;
+        ap[2].enabled = this.config.get('totalFX1Enabled');
+        
+        ap[3].prog = this.totalFX2Program;
+        ap[3].param = params.totalFX2 ?? 0.5;
+        ap[3].enabled = this.config.get('totalFX2Enabled');
+        
+        ap[4].prog = globalBloomProg;
+        ap[4].param = 0.5;
+        ap[4].enabled = this.config.get('globalBloomEnabled');
+        
+        ap[5].prog = this.globalFXProgram || this.defaultProgram;
+        ap[5].param = params.globalFX ?? 0.5;
+        ap[5].enabled = this.config.get('globalFXEnabled');
+        
+        ap[6].prog = this.customProgram || this.defaultProgram;
+        ap[6].param = params.custom ?? 0.5;
+        ap[6].enabled = this.config.get('shaderEnabled');
+        ap[6].customParams = params.customParams;
+        
+        this._applyChain(ap, inputTex, flipY, targetFBO, time, mouseX, mouseY, brightness);
     }
 
     _renderBypass(source, targetFBO, brightness = 1.0) {

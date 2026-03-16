@@ -355,6 +355,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
              this._maskDirty = false;
         }
 
+        // WebGL mode - lines and echo are both rendered via GPU in _renderQuantizedLineGfx.
+        // We skip the expensive 2D canvas masking/compositing below.
+        if (s.renderingEngine === 'webgl') {
+            return;
+        }
+
         const scratchCtx = this.scratchCtx;
         
         // --- Layer 1: Interior (Zoom Window) ---

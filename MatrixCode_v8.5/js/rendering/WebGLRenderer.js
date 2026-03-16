@@ -214,6 +214,16 @@ class WebGLRenderer {
             new QuantizedEffectsPass('QuantizedLineGfx'),
             new PostProcessPass('PostProcessingPipeline')
         ];
+
+        // --- High-Frequency Loop Optimization Pools ---
+        this._masks = [];
+        this._maskObjectPool = [];
+        for (let i = 0; i < 200; i++) {
+            this._maskObjectPool.push({ x: 0, y: 0, w: 0, h: 0, alpha: 0, blur: 0 });
+        }
+        this._revealData = new Float32Array(65536); // 64k floats for vertex batching
+        this._lineGfxUniforms = {};
+        this._lineGfxTextures = {};
     }
 
     setGrid(grid) {
@@ -1401,6 +1411,7 @@ class WebGLRenderer {
 
         // Ring buffer of occupancy snapshots for GPU echo
         this.echoOccupancyHistory = [];
+        this._echoSnapPool = [];
         this.lastEchoStepCaptured = -1;
         this.lastEchoGridWidth = 0;
         this.lastEchoGridHeight = 0;
@@ -1425,6 +1436,15 @@ class WebGLRenderer {
             this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
             this.gl.bindVertexArray(null);
         }
+    }
+
+    _clearEchoHistory() {
+        if (this.echoOccupancyHistory && this._echoSnapPool) {
+            while (this.echoOccupancyHistory.length > 0) {
+                this._echoSnapPool.push(this.echoOccupancyHistory.pop());
+            }
+        }
+        this.echoOccupancyHistory = [];
     }
 
     _configureFramebuffer(fbo, tex, width, height) {
@@ -1491,7 +1511,7 @@ class WebGLRenderer {
                         this.gl.clearColor(0, 0, 0, 0);
                         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-                        this.echoOccupancyHistory = [];
+                        this._clearEchoHistory();
                         this.lastEchoStepCaptured = -1;
                         this._configureFramebuffer(this.fboB, this.texB, this.bloomWidth, this.bloomHeight);
                 this._configureFramebuffer(this.fboC, this.texC, this.bloomWidth, this.bloomHeight);
@@ -1840,7 +1860,7 @@ class WebGLRenderer {
         // run's tail doesn't bleed into the next run.
         if (fx !== this.lastRenderedFx || (this.lastEchoStepCaptured > 0 && fx.step === 0)) {
             this.lastRenderedFx = fx;
-            this.echoOccupancyHistory = [];
+            this._clearEchoHistory();
             this.lastEchoStepCaptured = -1;
             if (this.fboEchoLinePersist) {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
@@ -1866,26 +1886,16 @@ class WebGLRenderer {
 
         this.occupancyBuffer.fill(0);
         const occupancy = this.occupancyBuffer;
-        for (let gy = 0; gy < gh; gy++) {
-            const rowOff = gy * gw;
-            for (let gx = 0; gx < gw; gx++) {
-                const i = rowOff + gx;
-                const tidx = i * 4;
-                for (let L = 0; L < 4; L++) {
-                    const grid = fx.layerGrids[L];
-                    const rGrid = fx.removalGrids[L];
-                    let alpha = 0;
-
-                    if (grid && grid[i] !== -1) {
-                        alpha = 255; // Instant appearance
-                    } else if (rGrid && rGrid[i] !== -1) {
-                        // In WebGL, we rely on the hardware persistence buffer to fade lines over time.
-                        // Setting alpha to 0 instantly allows the persistence buffer to handle 100% of the fading natively.
-                        alpha = 0;
-                    }
-                    occupancy[tidx + L] = alpha;
-                }
-            }
+        const totalCells = gw * gh;
+        const grids = fx.layerGrids;
+        const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
+        
+        for (let i = 0; i < totalCells; i++) {
+            const tidx = i * 4;
+            if (g0 && g0[i] !== -1) occupancy[tidx + 0] = 255;
+            if (g1 && g1[i] !== -1) occupancy[tidx + 1] = 255;
+            if (g2 && g2[i] !== -1) occupancy[tidx + 2] = 255;
+            if (g3 && g3[i] !== -1) occupancy[tidx + 3] = 255;
         }
         
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
@@ -1917,45 +1927,43 @@ class WebGLRenderer {
         const screenOriginX = ((0 - (gridPixW * 0.5)) * s.stretchX) + (this.fboWidth * 0.5);
         const screenOriginY = ((0 - (gridPixH * 0.5)) * s.stretchY) + (this.fboHeight * 0.5);
 
-        const sharedUniforms = {
-            u_logicGridSize: fxState.logicGridSize,
-            u_screenOrigin: [screenOriginX, screenOriginY],
-            u_screenStep: [screenStepX, screenStepY],
-            u_cellPitch: fxState.cellPitch,
-            u_blockOffset: fxState.blockOffset,
-            u_userBlockOffset: fxState.userBlockOffset,
-            u_resolution: [this.fboWidth, this.fboHeight],
-            u_offset: [s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale],
-            u_layerOrder: fxState.layerOrder,
-            u_showInterior: fxState.showInterior,
-            u_glassEnabled: 1,
-            u_glassBevel: 0.5,
-            u_logicGrid: 1,
-            u_shadowMask: 3,
-            u_sourceGrid: 4,
-            u_intensity: fxState.intensity,
-            u_glow: fxState.glow,
-            u_thickness: fxState.thickness,
-            u_tintOffset: fxState.tintOffset,
-            u_sharpness: fxState.sharpness,
-            u_glowFalloff: fxState.glowFalloff,
-            u_roundness: fxState.roundness,
-            u_maskSoftness: fxState.maskSoftness,
-            u_brightness: fxState.brightness,
-            u_saturation: fxState.saturation,
-            u_additiveStrength: fxState.additiveStrength,
-            u_varianceEnabled: s.performanceMode ? 0.0 : fxState.varianceEnabled,
-            u_varianceAmount: fxState.varianceAmount,
-            u_varianceCoverage: fxState.varianceCoverage,
-            u_varianceDirection: fxState.varianceDirection,
-            u_color: fxState.color
-        };
+        const sharedUniforms = this._lineGfxUniforms;
+        sharedUniforms.u_logicGridSize = fxState.logicGridSize;
+        sharedUniforms.u_screenOrigin = [screenOriginX, screenOriginY];
+        sharedUniforms.u_screenStep = [screenStepX, screenStepY];
+        sharedUniforms.u_cellPitch = fxState.cellPitch;
+        sharedUniforms.u_blockOffset = fxState.blockOffset;
+        sharedUniforms.u_userBlockOffset = fxState.userBlockOffset;
+        sharedUniforms.u_resolution = [this.fboWidth, this.fboHeight];
+        sharedUniforms.u_offset = [s.quantizedLineGfxOffsetX * scale, s.quantizedLineGfxOffsetY * scale];
+        sharedUniforms.u_layerOrder = fxState.layerOrder;
+        sharedUniforms.u_showInterior = fxState.showInterior;
+        sharedUniforms.u_glassEnabled = 1;
+        sharedUniforms.u_glassBevel = 0.5;
+        sharedUniforms.u_logicGrid = 1;
+        sharedUniforms.u_shadowMask = 3;
+        sharedUniforms.u_sourceGrid = 4;
+        sharedUniforms.u_intensity = fxState.intensity;
+        sharedUniforms.u_glow = fxState.glow;
+        sharedUniforms.u_thickness = fxState.thickness;
+        sharedUniforms.u_tintOffset = fxState.tintOffset;
+        sharedUniforms.u_sharpness = fxState.sharpness;
+        sharedUniforms.u_glowFalloff = fxState.glowFalloff;
+        sharedUniforms.u_roundness = fxState.roundness;
+        sharedUniforms.u_maskSoftness = fxState.maskSoftness;
+        sharedUniforms.u_brightness = fxState.brightness;
+        sharedUniforms.u_saturation = fxState.saturation;
+        sharedUniforms.u_additiveStrength = fxState.additiveStrength;
+        sharedUniforms.u_varianceEnabled = s.performanceMode ? 0.0 : fxState.varianceEnabled;
+        sharedUniforms.u_varianceAmount = fxState.varianceAmount;
+        sharedUniforms.u_varianceCoverage = fxState.varianceCoverage;
+        sharedUniforms.u_varianceDirection = fxState.varianceDirection;
+        sharedUniforms.u_color = fxState.color;
 
-        const commonTextures = {
-            1: this.logicGridTexture,
-            3: this.shadowMaskTex,
-            4: this.sourceGridTexture
-        };
+        const commonTextures = this._lineGfxTextures;
+        commonTextures[1] = this.logicGridTexture;
+        commonTextures[3] = this.shadowMaskTex;
+        commonTextures[4] = this.sourceGridTexture;
 
         // --- ECHO STATE: Resolve snapshot ring buffer before any passes ---
         // This must happen early so echo pass decisions are made before GPU work begins.
@@ -1972,7 +1980,7 @@ class WebGLRenderer {
                 this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
                 this.lastEchoGridWidth = gw;
                 this.lastEchoGridHeight = gh;
-                this.echoOccupancyHistory = [];
+                this._clearEchoHistory();
                 this.lastEchoStepCaptured = -1;
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
                 this.gl.clearColor(0, 0, 0, 0);
@@ -1983,11 +1991,24 @@ class WebGLRenderer {
             // Capture one snapshot per logic step
             if (currentStep !== this.lastEchoStepCaptured) {
                 this.lastEchoStepCaptured = currentStep;
-                const snap = new Uint8Array(gw * gh * 4);
+                
+                let snap;
+                const neededSize = gw * gh * 4;
+                if (this._echoSnapPool.length > 0) {
+                    snap = this._echoSnapPool.pop();
+                    if (snap.length !== neededSize) {
+                        snap = new Uint8Array(neededSize);
+                    }
+                } else {
+                    snap = new Uint8Array(neededSize);
+                }
+
                 snap.set(occupancy);
                 this.echoOccupancyHistory.push(snap);
                 const maxHistory = echoDelay + 1;
-                while (this.echoOccupancyHistory.length > maxHistory) this.echoOccupancyHistory.shift();
+                while (this.echoOccupancyHistory.length > maxHistory) {
+                    this._echoSnapPool.push(this.echoOccupancyHistory.shift());
+                }
             }
 
             echoHasHistory = this.echoOccupancyHistory.length >= echoDelay + 1;
@@ -2450,20 +2471,20 @@ class WebGLRenderer {
             this.gl.clear(this.gl.COLOR_BUFFER_BIT);
             
             // Collect Masks from All Active Effects
-            let masks = [];
+            const masks = this._masks;
+            masks.length = 0;
+            let maskPoolIdx = 0;
+
             if (this.effects) {
                  // Support both Array and Map structures for EffectRegistry
                  const effectList = (Array.isArray(this.effects.effects)) 
                     ? this.effects.effects 
                     : (this.effects.effects instanceof Map) 
                         ? Array.from(this.effects.effects.values()) 
-                        : (typeof this.effects.get === 'function' && typeof this.effects.getAll === 'function') // Handle registry with getters
-                            ? this.effects.getAll() // Assuming a getAll exists, or fallback to iterating specific known effects if not
+                        : (typeof this.effects.get === 'function' && typeof this.effects.getAll === 'function') 
+                            ? this.effects.getAll() 
                             : []; 
 
-                 // If getAll doesn't exist, we might need to rely on the Map iterator if effects.effects is private.
-                 // However, let's assume standard iteration is possible.
-                 // Fallback: If effects.effects is a Map, use values().
                  const iterable = (this.effects.effects instanceof Map) ? this.effects.effects.values() : effectList;
 
                  for (const effect of iterable) {
@@ -2478,18 +2499,25 @@ class WebGLRenderer {
                          if (effect.name === 'CrashSequence' && effect.blackSheets) {
                              // Legacy/Specific Support for CrashEffect
                              for (const s of effect.blackSheets) {
-                                 masks.push({
-                                     x: s.posX, y: s.posY, w: s.w, h: s.h,
-                                     alpha: s.currentAlpha * s.maxAlpha,
-                                     blur: (s.blur !== undefined) ? s.blur : 0.0 // Default to 0 for Crash
-                                 });
+                                 const m = this._maskObjectPool[maskPoolIdx++] || (this._maskObjectPool[maskPoolIdx-1] = { x:0, y:0, w:0, h:0, alpha:0, blur:0 });
+                                 m.x = s.posX;
+                                 m.y = s.posY;
+                                 m.w = s.w;
+                                 m.h = s.h;
+                                 m.alpha = s.currentAlpha * s.maxAlpha;
+                                 m.blur = (s.blur !== undefined) ? s.blur : 0.0;
+                                 masks.push(m);
                              }
                          }
                          // Future Generic Interface: getMasks()
                          if (typeof effect.getMasks === 'function') {
                              const effectMasks = effect.getMasks();
                              if (Array.isArray(effectMasks)) {
-                                 masks.push(...effectMasks);
+                                 for (const em of effectMasks) {
+                                     const m = this._maskObjectPool[maskPoolIdx++] || (this._maskObjectPool[maskPoolIdx-1] = { x:0, y:0, w:0, h:0, alpha:0, blur:0 });
+                                     m.x = em.x; m.y = em.y; m.w = em.w; m.h = em.h; m.alpha = em.alpha; m.blur = em.blur;
+                                     masks.push(m);
+                                 }
                              }
                          }
                      }
@@ -2617,7 +2645,9 @@ class WebGLRenderer {
                             if (r.type === 'rects' && r.rects) {
                                 const count = r.rects.length;
                                 if (count > 0) {
-                                    const data = new Float32Array(count * 6 * 2);
+                                    const needed = count * 12;
+                                    if (this._revealData.length < needed) this._revealData = new Float32Array(needed * 2);
+                                    const data = this._revealData;
                                     let ptr = 0;
                                     for (const rect of r.rects) {
                                         const x1 = (rect.x / cols) * 2.0 - 1.0;
@@ -2635,7 +2665,7 @@ class WebGLRenderer {
                                         data[ptr++] = x2; data[ptr++] = y2;
                                         data[ptr++] = x1; data[ptr++] = y2;
                                     }
-                                    vertices = data;
+                                    vertices = data.subarray(0, ptr);
                                 }
                             }
                             else if (r.type === 'strip' && r.trunk && r.branch) {
@@ -2643,8 +2673,9 @@ class WebGLRenderer {
                                 const len = Math.min(r.trunk.length, r.branch.length);
                                 if (len < 2) continue;
                                 
-                                // 2 triangles per segment * (len-1) segments * 3 verts * 2 coords
-                                const data = new Float32Array((len - 1) * 6 * 2);
+                                const needed = (len - 1) * 12;
+                                if (this._revealData.length < needed) this._revealData = new Float32Array(needed * 2);
+                                const data = this._revealData;
                                 let ptr = 0;
                                 
                                 for (let i = 0; i < len - 1; i++) {
@@ -2654,9 +2685,6 @@ class WebGLRenderer {
                                     const b1 = r.branch[i];
                                     const b2 = r.branch[i+1];
                                     
-                                    // Convert to Clip Space
-                                    // X: 0..cols -> -1..1
-                                    // Y: 0..rows -> -1..1
                                     const ax = (t1.x / cols) * 2.0 - 1.0; const ay = (t1.y / rows) * 2.0 - 1.0;
                                     const bx = (t2.x / cols) * 2.0 - 1.0; const by = (t2.y / rows) * 2.0 - 1.0;
                                     const cx = (b1.x / cols) * 2.0 - 1.0; const cy = (b1.y / rows) * 2.0 - 1.0;
@@ -2672,14 +2700,16 @@ class WebGLRenderer {
                                     data[ptr++] = dx; data[ptr++] = dy;
                                     data[ptr++] = cx; data[ptr++] = cy;
                                 }
-                                vertices = data;
+                                vertices = data.subarray(0, ptr);
                             } 
-                            // Legacy/Fallback Triangle support (if needed, though we moved to strip)
+                            // Legacy/Fallback Triangle support
                             else if (r.p1 && r.p2 && r.p3) {
                                 const x1 = (r.p1.x / cols) * 2.0 - 1.0; const ay = (r.p1.y / rows) * 2.0 - 1.0;
                                 const x2 = (r.p2.x / cols) * 2.0 - 1.0; const by = (r.p2.y / rows) * 2.0 - 1.0;
                                 const x3 = (r.p3.x / cols) * 2.0 - 1.0; const cy = (r.p3.y / rows) * 2.0 - 1.0;
-                                vertices = new Float32Array([x1, ay, x2, by, x3, cy]);
+                                const data = this._revealData;
+                                data[0] = x1; data[1] = ay; data[2] = x2; data[3] = by; data[4] = x3; data[5] = cy;
+                                vertices = data.subarray(0, 6);
                             }
 
                             if (vertices) {

@@ -209,7 +209,7 @@ class EffectRegistry {
         }
 
         let result;
-        const logEnabled = this.config.get('logErrors');
+        const logEnabled = this.config.get('logEffects');
         if (logEnabled) {
             const startTime = performance.now();
             result = fx.trigger(...args);

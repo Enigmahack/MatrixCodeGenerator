@@ -17,10 +17,16 @@ class QuantizedBaseEffect extends AbstractEffect {
     static sharedBuffers = {
         renderGrid: null,
         logicGrid: null,
+        promotionGrid: null,
+        shadowRevealGrid: null,
         layerGrids: [],
         removalGrids: [],
         layerInvisibleGrids: [],
         establishedMasksPool: null,
+        tempInt32: null,
+        tempInt8: null,
+        tempRem: null,
+        dirtyRects: [],
         totalBlocks: 0
     };
 
@@ -92,6 +98,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Procedural Generation State
         this.blockMap = new Map();
         this.activeBlocks = [];
+        this.activeIndices = new Set();
         this.unfoldSequences = [[], [], [], []];
         this.visibleLayers = [true, true, true, true];
         this.layerOrder = [0, 1, 2, 3];
@@ -117,6 +124,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         Object.defineProperties(this, {
             renderGrid: { get: () => QuantizedBaseEffect.sharedBuffers.renderGrid, set: (v) => { QuantizedBaseEffect.sharedBuffers.renderGrid = v; } },
             logicGrid: { get: () => QuantizedBaseEffect.sharedBuffers.logicGrid, set: (v) => { QuantizedBaseEffect.sharedBuffers.logicGrid = v; } },
+            promotionGrid: { get: () => QuantizedBaseEffect.sharedBuffers.promotionGrid, set: (v) => { QuantizedBaseEffect.sharedBuffers.promotionGrid = v; } },
+            shadowRevealGrid: { get: () => QuantizedBaseEffect.sharedBuffers.shadowRevealGrid, set: (v) => { QuantizedBaseEffect.sharedBuffers.shadowRevealGrid = v; } },
             layerGrids: { get: () => QuantizedBaseEffect.sharedBuffers.layerGrids },
             removalGrids: { get: () => QuantizedBaseEffect.sharedBuffers.removalGrids },
             layerInvisibleGrids: { get: () => QuantizedBaseEffect.sharedBuffers.layerInvisibleGrids },
@@ -472,7 +481,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // 4. Warm up CPU Render Paths (Masking)
-        this._updateMask(w, h, s, d);
+        // Bypass if WebGL is active to save startup time
+        if (s.renderingEngine !== 'webgl') {
+            this._updateMask(w, h, s, d);
+        }
         
         // 5. Only warm up Grid Cache if NOT in WebGL mode (2D fallback)
         if (s.renderingEngine !== 'webgl') {
@@ -502,8 +514,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         if ((blocksX * cellPitchX - this.g.cols) % 2 !== 0) blocksX++;
         if ((blocksY * cellPitchY - this.g.rows) % 2 !== 0) blocksY++;
         
-        if (!this.logicGrid || this.logicGrid.length !== blocksX * blocksY) {
-            this.logicGrid = new Uint8Array(blocksX * blocksY);
+        const totalBlocks = blocksX * blocksY;
+        
+        if (!this.logicGrid || this.logicGrid.length !== totalBlocks) {
+            this.logicGrid = new Uint8Array(totalBlocks);
         } else {
             this.logicGrid.fill(0);
         }
@@ -511,38 +525,59 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.logicGridH = blocksY;
         this._gridsDirty = true;
 
-        if (!this.renderGrid || this.renderGrid.length !== blocksX * blocksY) {
-            this.renderGrid = new Int32Array(blocksX * blocksY);
+        if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
+            this.renderGrid = new Int32Array(totalBlocks);
         }
         this.renderGrid.fill(-1);
 
-        if (!this.promotionGrid || this.promotionGrid.length !== blocksX * blocksY) {
-            this.promotionGrid = new Uint8Array(blocksX * blocksY);
+        if (!this.promotionGrid || this.promotionGrid.length !== totalBlocks) {
+            this.promotionGrid = new Uint8Array(totalBlocks);
         }
         this.promotionGrid.fill(0);
 
-        if (!this.shadowRevealGrid || this.shadowRevealGrid.length !== blocksX * blocksY) {
-            this.shadowRevealGrid = new Uint8Array(blocksX * blocksY);
+        if (!this.shadowRevealGrid || this.shadowRevealGrid.length !== totalBlocks) {
+            this.shadowRevealGrid = new Uint8Array(totalBlocks);
         }
         this.shadowRevealGrid.fill(0);
         
         for (let i = 0; i < 4; i++) {
-            if (!this.layerGrids[i] || this.layerGrids[i].length !== blocksX * blocksY) {
-                this.layerGrids[i] = new Int32Array(blocksX * blocksY);
+            if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
+                this.layerGrids[i] = new Int32Array(totalBlocks);
                 this.layerGrids[i].fill(-1);
             } else {
                 this.layerGrids[i].fill(-1);
             }
-            if (!this.removalGrids[i] || this.removalGrids[i].length !== blocksX * blocksY) {
-                this.removalGrids[i] = new Int32Array(blocksX * blocksY);
+            if (!this.removalGrids[i] || this.removalGrids[i].length !== totalBlocks) {
+                this.removalGrids[i] = new Int32Array(totalBlocks);
+                this.removalGrids[i].fill(-1);
             } else {
                 this.removalGrids[i].fill(-1);
             }
         }
 
         // Initialize coverage counter
-        this._visibleEmptyCount = -1; // Force recalculation
-        this._lastCoverageRect = null;
+        // O(1) Optimization: Pre-calculate coverage based on dimensions instead of scanning
+        // millions of empty cells.
+        this._calculateInitialCoverage();
+    }
+
+    _calculateInitialCoverage() {
+        const w = this.logicGridW, h = this.logicGridH;
+        if (!w || !h) return;
+        const bs = this.getBlockSize();
+        const { offX, offY } = this._computeCenteredOffset(w, h, bs.w, bs.h);
+        const visibleW = Math.ceil(this.g.cols / bs.w);
+        const visibleH = Math.ceil(this.g.rows / bs.h);
+        const startX = Math.max(0, Math.floor(offX));
+        const endX = Math.min(w, startX + visibleW);
+        const startY = Math.max(0, Math.floor(offY));
+        const endY = Math.min(h, startY + visibleH);
+
+        // Since renderGrid was just filled with -1, all visible blocks are empty.
+        const totalVisible = (endX - startX) * (endY - startY);
+        this._visibleEmptyCount = totalVisible;
+        this._lastCoverageRect = { startX, endX, startY, endY };
+        this._visibleFillRatio = 0;
     }
 
     _updateVisibleEmptyCount() {
@@ -571,6 +606,22 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         this._visibleEmptyCount = count;
         this._lastCoverageRect = { startX, endX, startY, endY };
+        this._updateVisibleFillRatio();
+    }
+
+    _updateVisibleFillRatio() {
+        const r = this._lastCoverageRect;
+        if (!r || this._visibleEmptyCount === -1) {
+            this._visibleFillRatio = 0;
+            return;
+        }
+        const totalVisible = (r.endX - r.startX) * (r.endY - r.startY);
+        if (totalVisible <= 0) {
+            this._visibleFillRatio = 0;
+        } else {
+            const occupied = totalVisible - this._visibleEmptyCount;
+            this._visibleFillRatio = occupied / totalVisible;
+        }
     }
 
     _isCanvasFullyCovered() {
@@ -657,9 +708,33 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.g.clearAllOverrides();
             this.g.clearAllEffects();
             
-            // Use activeBlocks to surgically clear modified areas
-            if (this.activeBlocks && this.activeBlocks.length > 0) {
-                const g = this.g;
+            const g = this.g;
+            // Surgical clear using activeIndices (populated in QuantizedShadow or subclasses)
+            if (this.activeIndices && this.activeIndices.size > 0) {
+                for (const i of this.activeIndices) {
+                    if (g.effectActive) g.effectActive[i] = 0;
+                    if (g.effectAlphas) g.effectAlphas[i] = 0;
+                    if (g.effectChars) g.effectChars[i] = 0;
+                    if (g.effectColors) g.effectColors[i] = 0;
+                    if (g.effectGlows) g.effectGlows[i] = 0;
+                    
+                    if (g.overrideChars) g.overrideChars[i] = 0;
+                    if (g.overrideColors) g.overrideColors[i] = 0;
+                    if (g.overrideAlphas) g.overrideAlphas[i] = 0;
+                    if (g.overrideGlows) g.overrideGlows[i] = 0;
+                    if (g.overrideMix) g.overrideMix[i] = 0;
+                    
+                    if (g.secondaryActive) g.secondaryActive[i] = 0;
+                    if (g.secondaryChars) g.secondaryChars[i] = 0;
+                    if (g.secondaryColors) g.secondaryColors[i] = 0;
+                    if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
+                    if (g.secondaryGlows) g.secondaryGlows[i] = 0;
+                    
+                    if (g.mix) g.mix[i] = 0;
+                }
+                this.activeIndices.clear();
+            } else if (this.activeBlocks && this.activeBlocks.length > 0) {
+                // Fallback: Use activeBlocks if activeIndices wasn't used/populated
                 const bs = this.getBlockSize();
                 const cpX = bs.w;
                 const cpY = bs.h;
@@ -697,9 +772,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
             } else {
-                // Fallback for first run or if activeBlocks is missing (rare)
-                // We group these to allow the engine to potentially optimize the memory writes
-                const g = this.g;
+                // Fallback for first run
                 const buffers = [
                     g.effectActive, g.effectAlphas, g.effectChars, g.effectColors, g.effectGlows,
                     g.overrideChars, g.overrideColors, g.overrideAlphas, g.overrideGlows, g.overrideMix,
@@ -983,6 +1056,16 @@ class QuantizedBaseEffect extends AbstractEffect {
     _capturePerimeterEcho() {
         if (!this.getConfig('PerimeterEchoEnabled')) {
             this.perimeterHistory = [];
+            this.echoEdgeMap = null;
+            return;
+        }
+
+        // WebGL Echo Path Optimization: 
+        // When using WebGL, we implement history pooling directly on the GPU.
+        // We skip massive Int32Array allocations/snapshots on the CPU.
+        if (this.c.state.renderingEngine === 'webgl') {
+            if (this.perimeterHistory.length > 0) this.perimeterHistory = [];
+            this.echoHoldEntries = null;
             this.echoEdgeMap = null;
             return;
         }
@@ -1414,60 +1497,68 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cellH = d.cellHeight;
         const padding = 5;
 
+        // O(1) Performance Optimization: Move static calculations outside the hot loops.
+        // We also replace expensive Math.sin hashing with fast lookups into rotatorOffsets.
+        const rotatorOffsets = grid.rotatorOffsets;
+        const shadowChars = shadowGrid ? shadowGrid.chars : null;
+        const oActive = grid.overrideActive;
+        const oChars = grid.overrideChars;
+        const eActive = grid.effectActive;
+        const srGrid = this.shadowRevealGrid;
+
         for (let y = -padding; y < rows + padding; y++) {
             const cy = (y + 0.5) * cellH;
             const isInsideY = (y >= 0 && y < rows);
+            const rowOff = y * cols;
             
+            // Logic block Y mapping (O(1) outside X loop)
+            const by = isInsideY ? Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY) : -1;
+            const isByValid = (by >= 0 && by < distH);
+            const bRowOff = isByValid ? by * distW : -1;
+
             for (let x = -padding; x < cols + padding; x++) {
-                let charCode = 32;
+                let charCode = 0;
                 let i = -1;
                 
                 const isInsideGrid = isInsideY && (x >= 0 && x < cols);
                 
                 if (isInsideGrid) {
-                    i = (y * cols) + x;
-                    const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
-                    const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
-                    let isInsideBlock = false;
+                    i = rowOff + x;
                     
-                    if (bx >= 0 && bx < distW && by >= 0 && by < distH) {
-                        const bIdx = by * distW + bx;
-                        if (this.shadowRevealGrid && this.shadowRevealGrid[bIdx] === 1) {
-                            isInsideBlock = true;
+                    // Sparse logic-to-render check
+                    if (isByValid) {
+                        const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
+                        if (bx >= 0 && bx < distW) {
+                            if (srGrid && srGrid[bRowOff + bx] === 1) {
+                                // Inside Block: Shadow Logic
+                                if (shadowChars) charCode = shadowChars[i];
+                            } else {
+                                // Outside Block: Cleanup stale shadow status
+                                if (eActive[i] === 3) eActive[i] = 0;
+                            }
                         }
-                    }
-                    
-                    if (!isInsideBlock && grid.effectActive[i] === 3) {
-                        grid.effectActive[i] = 0;
                     }
 
-                    if (shadowGrid && shadowGrid.chars) {
-                        charCode = shadowGrid.chars[i];
-                        if (charCode <= 32) {
-                            const hash = Math.abs(Math.sin(i * 12.9898 + timeSeed * 78.233) * 43758.5453) % 1;
-                            charCode = charSet.charCodeAt(Math.floor(hash * charSetLen));
-                        }
-                    } else if (grid.overrideActive && grid.overrideActive[i] > 0) {
-                        charCode = grid.overrideChars[i];
-                    } else {
-                        charCode = chars[i];
+                    if (charCode <= 32) {
+                        if (oActive && oActive[i] > 0) charCode = oChars[i];
+                        else charCode = chars[i];
                     }
-                } else {
-                    i = (y * 10000) + x; 
-                    charCode = 0; 
                 }
                 
+                // --- FAST GHOST CHARACTER HASHING ---
+                // If cell is empty, generate a ghost character using pre-calculated offsets.
+                // This eliminates Math.sin calls which were previously locking the CPU.
                 if (charCode <= 32) {
-                    const seed = i * 12.9898 + timeSeed * 78.233;
-                    const hash = Math.abs(Math.sin(seed) * 43758.5453) % 1;
-                    charCode = charSet.charCodeAt(Math.floor(hash * charSetLen));
+                    const hashIdx = (i !== -1) ? (rotatorOffsets ? rotatorOffsets[i] : (i % 256)) : ((y * 13 + x * 7 + timeSeed) % 256);
+                    const hashNorm = hashIdx / 256;
+                    charCode = charSet.charCodeAt(Math.floor(hashNorm * charSetLen));
                 }
                 
                 const cx = (x + 0.5) * cellW;
                 const charStr = String.fromCharCode(charCode);
                 const rect = atlas.get(charStr);
                 if (rect) {
-                    // Draw from Atlas with middle/center alignment matching fillText
+                    // Draw from Atlas with middle/center alignment
                     ctx.drawImage(atlas.canvas, rect.x, rect.y, rect.w, rect.h, 
                                   cx - rect.w * 0.5, cy - rect.h * 0.5, rect.w, rect.h);
                 }
@@ -1550,7 +1641,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        const dirtyRects = [];
+        const dirtyRects = sb.dirtyRects;
+        dirtyRects.length = 0;
 
         for (; i < this.maskOps.length; i++) {
             const op = this.maskOps[i];
@@ -1608,10 +1700,15 @@ class QuantizedBaseEffect extends AbstractEffect {
                 const rem = this.removalGrids[layer];
                 if (!grid) continue;
 
-                // Shift logic: Create a temp grid for the quadrant
-                const tempGrid = new Int32Array(grid.length).fill(-1);
-                const tempInv = inv ? new Int8Array(inv.length).fill(0) : null;
-                const tempRem = rem ? new Int32Array(rem.length).fill(-1) : null;
+                // Shift logic: Use persistent shared buffers for temp grids
+                if (!sb.tempInt32 || sb.tempInt32.length !== grid.length) {
+                    sb.tempInt32 = new Int32Array(grid.length);
+                    sb.tempInt8 = new Int8Array(grid.length);
+                    sb.tempRem = new Int32Array(grid.length);
+                }
+                const tempGrid = sb.tempInt32.fill(-1);
+                const tempInv = inv ? sb.tempInt8.fill(0) : null;
+                const tempRem = rem ? sb.tempRem.fill(-1) : null;
 
                 for (let by = 0; by < this.logicGridH; by++) {
                     const gry = by - cy - scy;
@@ -1740,6 +1837,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
             this._visibleEmptyCount = emptyCount;
+            this._updateVisibleFillRatio();
             this._gridsDirty = false;
         } else if (dirtyRects.length > 0) {
             const r = this._lastCoverageRect;
@@ -1767,6 +1865,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     }
                 }
             }
+            this._updateVisibleFillRatio();
         }
 
         this.renderer._distMapDirty = true;
@@ -1862,29 +1961,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const col = Utils.hexToRgb(this.getLineGfxValue('Color') || "#ffffff");
 
-        // Glass Bloom / Reveal logic: Calculate fill ratio ONLY for the visible screen area
-        // to ensure "Scale to Effect Size" reaches 1.0 when the visible screen is full.
-        const fillRatio = (() => {
-            if (!this.renderGrid || gw * gh === 0) return 0;
-            
-            const visibleW = Math.ceil(this.g.cols / cellPitchX);
-            const visibleH = Math.ceil(this.g.rows / cellPitchY);
-            const startX = Math.max(0, Math.floor(offX));
-            const endX = Math.min(gw, startX + visibleW);
-            const startY = Math.max(0, Math.floor(offY));
-            const endY = Math.min(gh, startY + visibleH);
-            
-            let occupied = 0;
-            let totalVisible = 0;
-            for (let gy = startY; gy < endY; gy++) {
-                const rowOff = gy * gw;
-                for (let gx = startX; gx < endX; gx++) {
-                    if (this.renderGrid[rowOff + gx] !== -1) occupied++;
-                    totalVisible++;
-                }
-            }
-            return totalVisible > 0 ? occupied / totalVisible : 0;
-        })();
+        // Glass Bloom / Reveal logic: Use pre-calculated fill ratio for performance.
+        if (this._visibleEmptyCount === -1) {
+            this._updateVisibleEmptyCount();
+        }
+        const fillRatio = this._visibleFillRatio;
 
         const rawGlassBloom = this.getConfig('GlassBloom') ?? 1.2;
         const glassBloomScaleToSize = this.getConfig('GlassBloomScaleToSize') === true;
@@ -3588,7 +3669,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             source: source
         };
         this.maskOps.push(op);
-        this._gridsDirty = true;
 
         // Record to sequence for Editor/Step support
         const isRecording = (this.manualStep) && this.sequence && !this.isReconstructing;
@@ -3948,6 +4028,10 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         return count;
+    }
+
+    getActiveIndices() {
+        return this.activeIndices;
     }
 
     _isProceduralFinished() {

@@ -31,6 +31,8 @@ class MatrixKernel {
         this._fpsBufferSum = 0;
         this._fpsBufferCount = 0;
         this.fpsDisplayElement = null; // Holds reference to the HTML element
+        this._lastDebugUpdateTime = 0;
+        this._cachedDebugText = "";
 
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
@@ -551,41 +553,45 @@ class MatrixKernel {
 
             // 2. Update Display
             if (this.fpsDisplayElement) {
-                let text = `FPS: ${Math.round(smoothedFps)}`;
-                if (this.config.state.debugEnabled) {
-                     if (performance.memory) {
-                         const used = Math.round(performance.memory.usedJSHeapSize / 1048576);
-                         text += ` | Mem: ${used}MB`;
-                     }
-                     if (this.grid && this.grid.activeIndices) {
-                         const cellCount = this.grid.activeIndices.size;
-                         const sm = this.simulation.streamManager;
-                         // Safety check for streamManager
-                         const streams = sm ? sm.activeStreams : [];
-                         const tracers = streams.filter(s => !s.isEraser && !s.isUpward).length;
-                         const erasers = streams.filter(s => s.isEraser).length;
-                         
-                         let rotators = 0;
-                         for (const idx of this.grid.activeIndices) {
-                             if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.ROTATOR) rotators++;
-                         }
-                         const shimmers = this.grid.complexStyles.size;
+                // Throttled Debug Metrics: Only recalculate heavy metrics every 30 frames
+                // This eliminates per-frame iteration over activeIndices.
+                const shouldUpdateDebug = this.config.state.debugEnabled && (this.frame % 30 === 0 || !this._cachedDebugText);
+                
+                if (shouldUpdateDebug) {
+                    let debugText = "";
+                    if (performance.memory) {
+                        const used = Math.round(performance.memory.usedJSHeapSize / 1048576);
+                        debugText += ` | Mem: ${used}MB`;
+                    }
+                    if (this.grid && this.grid.activeIndices) {
+                        const cellCount = this.grid.activeIndices.size;
+                        const sm = this.simulation.streamManager;
+                        const streams = sm ? sm.activeStreams : [];
+                        const tracers = streams.filter(s => !s.isEraser && !s.isUpward).length;
+                        const erasers = streams.filter(s => s.isEraser).length;
+                        
+                        let rotators = 0;
+                        for (const idx of this.grid.activeIndices) {
+                            if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.ROTATOR) rotators++;
+                        }
+                        const shimmers = this.grid.complexStyles.size;
 
-                         text += ` | Cells: ${cellCount}`;
-                         text += ` | Tracers: ${tracers}`;
-                         text += ` | Erasers: ${erasers}`;
-                         text += ` | Rotators: ${rotators}`;
-                         text += ` | Shimmers: ${shimmers}`;
-                         
-                         // Debug: QuantizedBlockGenerator Internal Lines
-                         const qGenV2 = this.effectRegistry.get('QuantizedBlockGenerator');
-                         if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
-                             text += ` | IntLines: ${qGenV2.debugInternalCount}`;
-                         }
-                         text += ` | Reset: ${this._lastResetReason}`;
-                     }
+                        debugText += ` | Cells: ${cellCount}`;
+                        debugText += ` | Tracers: ${tracers}`;
+                        debugText += ` | Erasers: ${erasers}`;
+                        debugText += ` | Rotators: ${rotators}`;
+                        debugText += ` | Shimmers: ${shimmers}`;
+                        
+                        const qGenV2 = this.effectRegistry.get('QuantizedBlockGenerator');
+                        if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
+                            debugText += ` | IntLines: ${qGenV2.debugInternalCount}`;
+                        }
+                        debugText += ` | Reset: ${this._lastResetReason}`;
+                    }
+                    this._cachedDebugText = debugText;
                 }
-                this.fpsDisplayElement.textContent = text;
+
+                this.fpsDisplayElement.textContent = `FPS: ${Math.round(smoothedFps)}${this.config.state.debugEnabled ? this._cachedDebugText : ""}`;
                 this.fpsDisplayElement.style.display = 'block';
             }
         } else if (this.fpsDisplayElement) {

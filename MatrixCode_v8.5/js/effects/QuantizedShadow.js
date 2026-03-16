@@ -127,7 +127,10 @@ class QuantizedShadow {
                     for (let cy = startCellY; cy < endCellY; cy++) {
                         const rowOff = cy * g.cols;
                         for (let cx = startCellX; cx < endCellX; cx++) {
-                            this._targetActive[rowOff + cx] = 1;
+                            const cellIdx = rowOff + cx;
+                            this._targetActive[cellIdx] = 1;
+                            this.activeIndices.add(cellIdx); // Track for sparse update
+                            if (fx.activeIndices) fx.activeIndices.add(cellIdx);
                         }
                     }
                     hasActiveTarget = true;
@@ -138,8 +141,8 @@ class QuantizedShadow {
         let fadeSpeedSec = fx.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); 
 
-        // 2. Optimized O(N) Processing (TypedArray scan is much faster than Set overhead)
-        for (let i = 0; i < totalCells; i++) {
+        // 2. Sparse Processing using activeIndices
+        for (const i of this.activeIndices) {
             const target = this._targetActive[i];
             let sFade = this.shadowFade[i];
             let oFade = this.oldWorldFade[i];
@@ -147,7 +150,6 @@ class QuantizedShadow {
             if (target === 1) {
                 if (sFade >= 1.0 && oFade <= 0.0) {
                     // Optimization: Already fully revealed, skip heavy overrides
-                    // But we still need to set overrideActive to 5 if not already
                     if (g.overrideActive[i] !== 5) {
                         this._setOverride(g, sg, i, 1.0, 0.0);
                     }
@@ -158,6 +160,7 @@ class QuantizedShadow {
             } else {
                 if (sFade <= 0.0) {
                     if (g.overrideActive[i] !== 0) g.overrideActive[i] = 0;
+                    this.activeIndices.delete(i); // No longer active or fading
                     continue;
                 }
                 sFade = Math.max(0.0, sFade - fadeDelta);
@@ -170,6 +173,7 @@ class QuantizedShadow {
                 this._setOverride(g, sg, i, sFade, oFade);
             } else {
                 if (g.overrideActive[i] !== 0) g.overrideActive[i] = 0;
+                this.activeIndices.delete(i);
             }
         }
         

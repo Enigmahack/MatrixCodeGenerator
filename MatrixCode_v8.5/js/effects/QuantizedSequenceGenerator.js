@@ -887,7 +887,6 @@ class QuantizedSequenceGenerator {
     _attemptExpansion(s, stepOps, weights, innerDuration, stepOccupancy, crossComplete) {
         const frontier = this._getFrontier();
         if (frontier.length === 0) return 0;
-        let bestIdx = -1;
         
         // Calculate current extents for balancing during Phase 1
         let extN = 0, extS = 0, extW = 0, extE = 0;
@@ -904,66 +903,62 @@ class QuantizedSequenceGenerator {
             }
         }
 
-        const frontierWeights = new Float32Array(frontier.length);
-        let totalWeight = 0;
-        
-        for (let i = 0; i < frontier.length; i++) {
-            const pt = frontier[i];
+        const getWeight = (pt) => {
             const rx = pt.x - this.cx;
             const ry = pt.y - this.cy;
             const arx = Math.abs(rx);
             const ary = Math.abs(ry);
             
-            // 1. Determine Axis Bias (Aspect Ratio) - This is the "Meta" consideration
-            // Use arx and ary to determine which arm this block belongs to
+            // 1. Determine Axis Bias (Aspect Ratio)
             const isVertical = (ary > arx);
             const axisBias = isVertical ? this.height : this.width;
             
-            // 2. Base Weighting Logic (Density vs Distance)
+            // 2. Base Weighting Logic
             let baseWeight;
             if (crossComplete) {
-                // Phase 2: Expansive bias
                 baseWeight = Math.pow(Math.sqrt(arx*arx + ary*ary) + 1, 1.5);
             } else {
-                // Phase 1: Density bias
                 baseWeight = Math.pow(100 / (Math.min(arx, ary) + 1), 3);
             }
             
-            // 3. Opposite-Arm Balancing (Isolated Pair Synchronization)
+            // 3. Opposite-Arm Balancing
             let balanceWeight = 1.0;
             if (!crossComplete) {
-                // Only throttle if one arm is leading its OPPOSITE by more than 3 blocks
                 if (isVertical) {
-                    // North/South Pair
                     if (ry < 0 && extN > extS + 3) balanceWeight = 0.3;
                     else if (ry > 0 && extS > extN + 3) balanceWeight = 0.3;
                 } else if (arx > ary) {
-                    // East/West Pair
                     if (rx < 0 && extW > extE + 3) balanceWeight = 0.3;
                     else if (rx > 0 && extE > extW + 3) balanceWeight = 0.3;
                 }
             }
             
-            // 4. Phase 0: Cardinal Constraint (Steps 1-6)
-            // Restrict expansion strictly to the central cross axes.
-            // We use a tolerance of 1 to allow for even-width center lines (2px wide).
+            // 4. Phase 0: Cardinal Constraint
             if (s <= 6) {
                 if (Math.abs(rx) > 1 && Math.abs(ry) > 1) {
-                    balanceWeight = 0; // Disable diagonal growth
+                    balanceWeight = 0;
                 }
             }
-            
-            const weight = baseWeight * axisBias * balanceWeight;
-            
-            frontierWeights[i] = weight;
-            totalWeight += weight;
+            return baseWeight * axisBias * balanceWeight;
+        };
+
+        // --- TOURNAMENT SELECTION (k=4) ---
+        // Instead of calculating weights for ALL frontier cells (O(N)), 
+        // we pick 4 random candidates and choose the best.
+        let bestIdx = -1;
+        let maxWeight = -1;
+        const k = Math.min(4, frontier.length);
+        
+        for (let i = 0; i < k; i++) {
+            const idx = Math.floor(Math.random() * frontier.length);
+            const weight = getWeight(frontier[idx]);
+            if (weight > maxWeight) {
+                maxWeight = weight;
+                bestIdx = idx;
+            }
         }
-        let r = Math.random() * totalWeight;
-        for (let i = 0; i < frontier.length; i++) {
-            r -= frontierWeights[i];
-            if (r <= 0) { bestIdx = i; break; }
-        }
-        if (bestIdx === -1) bestIdx = frontier.length - 1;
+        
+        if (bestIdx === -1) bestIdx = 0;
         const origin = frontier[bestIdx];
         const shapeKeys = Object.keys(weights);
         let wSum = 0;

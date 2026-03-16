@@ -10,9 +10,17 @@ class QuantizedRenderer {
         this._distMapHeight = 0;
         this._distMapDirty = true;
         this._edgeBatches = new Map();
+        this._echoBatches = new Map();
         this._edgeMaskBatches = new Map();
         this._cachedEdgeMaps = [];
         this._edgeCacheDirty = true;
+        
+        // Pooled coordinate arrays to replace Path2D
+        this._coordPool = [];
+        for (let i = 0; i < 20; i++) {
+            this._coordPool.push(new Float32Array(65536)); // Pool of arrays for different styles
+        }
+        this._batchMeta = new Map(); // Store [array, count] per batch key
 
         QuantizedRenderer.instance = this;
     }
@@ -144,21 +152,49 @@ class QuantizedRenderer {
             this._renderEchoEdges(fx, fx.echoCtx, currentStep, delay, blocksX, blocksY, perimeterColor);
         }
 
-        // 2. Build Path Batches for current frame
-        this._edgeBatches.clear();
-        this._edgeMaskBatches.clear();
+        // 2. Build Coordinate Batches for current frame
+        this._batchMeta.clear();
+        let poolIdx = 0;
 
-        const getBatch = (map, color, opacity) => {
-            const key = `${color}|${opacity.toFixed(3)}`;
-            if (!map.has(key)) map.set(key, new Path2D());
-            return map.get(key);
+        const getBatch = (key) => {
+            if (!this._batchMeta.has(key)) {
+                let arr = this._coordPool[poolIdx++];
+                if (!arr) {
+                    arr = new Float32Array(65536);
+                    this._coordPool.push(arr);
+                }
+                this._batchMeta.set(key, { arr, count: 0 });
+            }
+            return this._batchMeta.get(key);
+        };
+
+        const addEdge = (key, x1, y1, x2, y2) => {
+            const batch = getBatch(key);
+            if (batch.count + 4 > batch.arr.length) {
+                const newArr = new Float32Array(batch.arr.length * 2);
+                newArr.set(batch.arr);
+                batch.arr = newArr;
+                // Update pool if it was a pooled array
+                const pIdx = this._coordPool.indexOf(batch.arr);
+                if (pIdx !== -1) this._coordPool[pIdx] = newArr;
+            }
+            const a = batch.arr;
+            const c = batch.count;
+            a[c] = x1; a[c+1] = y1; a[c+2] = x2; a[c+3] = y2;
+            batch.count += 4;
         };
 
         const outside = this.computeTrueOutside(fx, blocksX, blocksY);
         
         // --- EDGE SCAN ---
         for (let y = 0; y <= blocksY; y++) {
+            const py = l.screenOriginY + (y * l.screenStepY);
+            const pyNext = py + l.screenStepY;
+            
             for (let x = 0; x <= blocksX; x++) {
+                const px = l.screenOriginX + (x * l.screenStepX);
+                const pxNext = px + l.screenStepX;
+
                 // Vertical edge (West face of block x,y)
                 if (x > 0 && x < blocksX && y < blocksY) {
                     const idxA = y * blocksX + (x - 1);
@@ -172,7 +208,8 @@ class QuantizedRenderer {
                         const opacity = this._getEdgeOpacity(fx, age, isExterior);
                         if (opacity > 0.001) {
                             const color = isExterior ? perimeterColor : innerColor;
-                            this._addFaceToPath(getBatch(this._edgeBatches, color, opacity), fx, x, y, 'W');
+                            const key = `${color}|${opacity.toFixed(3)}`;
+                            addEdge(key, px, py, px, pyNext);
                         }
                     }
                 }
@@ -189,7 +226,8 @@ class QuantizedRenderer {
                         const opacity = this._getEdgeOpacity(fx, age, isExterior);
                         if (opacity > 0.001) {
                             const color = isExterior ? perimeterColor : innerColor;
-                            this._addFaceToPath(getBatch(this._edgeBatches, color, opacity), fx, x, y, 'N');
+                            const key = `${color}|${opacity.toFixed(3)}`;
+                            addEdge(key, px, py, pxNext, py);
                         }
                     }
                 }
@@ -199,13 +237,19 @@ class QuantizedRenderer {
         // --- DRAW BATCHES ---
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        ctx.lineWidth = l.lineWidthX;
         
-        this._edgeBatches.forEach((path, key) => {
+        this._batchMeta.forEach((batch, key) => {
             const [color, opacity] = key.split('|');
             ctx.strokeStyle = color;
             ctx.globalAlpha = parseFloat(opacity);
-            ctx.lineWidth = l.lineWidthX;
-            ctx.stroke(path);
+            ctx.beginPath();
+            const a = batch.arr;
+            for (let i = 0; i < batch.count; i += 4) {
+                ctx.moveTo(a[i], a[i+1]);
+                ctx.lineTo(a[i+2], a[i+3]);
+            }
+            ctx.stroke();
         });
 
         // 3. Distance Field for Glow
@@ -246,7 +290,6 @@ class QuantizedRenderer {
         // Every frame, check the "ghost" grids from the past
         if (fx.perimeterHistory && fx.perimeterHistory.length >= delay) {
             const echoGrid = fx.perimeterHistory[0]; // The oldest snapshot
-            const echoOpacity = fx.getEchoGfxValue('Opacity') || 0.5;
             
             if (echoGrid) {
                 const outside = this.computeTrueOutside(fx, blocksX, blocksY, echoGrid);
@@ -287,8 +330,10 @@ class QuantizedRenderer {
 
         if (!fx.echoEdgeMap || !fx.echoEdgeMap.size) return;
 
-        // Build draw batches keyed by opacity so we can multi-pass for values > 1.0
+        // Build coordinate batches
         const echoBatches = new Map();
+        const l = fx.layout;
+
         for (const entry of fx.echoEdgeMap.values()) {
             const age = currentStep - entry.lastSeen;
             let ageOpacity;
@@ -303,8 +348,15 @@ class QuantizedRenderer {
             const finalOpacity = ageOpacity * variance * (fx.getEchoGfxValue('Opacity') || 0.5);
             
             const key = `${echoColor}|${finalOpacity.toFixed(3)}`;
-            if (!echoBatches.has(key)) echoBatches.set(key, new Path2D());
-            this._addFaceToPath(echoBatches.get(key), fx, entry.x, entry.y, entry.face, true);
+            if (!echoBatches.has(key)) echoBatches.set(key, []);
+            
+            const px = l.screenOriginX + (entry.x * l.screenStepX);
+            const py = l.screenOriginY + (entry.y * l.screenStepY);
+            if (entry.face === 'W') {
+                echoBatches.get(key).push(px, py, px, py + l.screenStepY);
+            } else {
+                echoBatches.get(key).push(px, py, px + l.screenStepX, py);
+            }
         }
 
         echoCtx.save();
@@ -313,12 +365,17 @@ class QuantizedRenderer {
             echoCtx.filter = `saturate(${saturation * 100}%)`;
         }
 
-        echoBatches.forEach((path, key) => {
+        echoBatches.forEach((coords, key) => {
             const [c, oStr] = key.split('|');
             echoCtx.strokeStyle = c;
             echoCtx.globalAlpha = parseFloat(oStr);
             echoCtx.lineWidth = fx.layout.echoLineWidthX;
-            echoCtx.stroke(path);
+            echoCtx.beginPath();
+            for (let i = 0; i < coords.length; i += 4) {
+                echoCtx.moveTo(coords[i], coords[i+1]);
+                echoCtx.lineTo(coords[i+2], coords[i+3]);
+            }
+            echoCtx.stroke();
         });
         echoCtx.restore();
     }

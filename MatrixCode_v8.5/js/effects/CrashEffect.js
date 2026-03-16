@@ -44,6 +44,13 @@ class CrashEffect extends AbstractEffect {
         this.baseBlackLevel = this.MAX_BLACK_LEVEL; 
         this.endFlashTriggered = false;
         this.sheetFadeVal = 1.0;
+        
+        // --- High-Frequency Loop Optimization ---
+        this._masks = [];
+        this._maskPool = [];
+        for (let i = 0; i < 50; i++) {
+            this._maskPool.push({ x: 0, y: 0, w: 0, h: 0, alpha: 0, blur: 0 });
+        }
     }
 
     trigger(force = false) {
@@ -604,42 +611,36 @@ void main() {
     // New Generic Interface for Renderer (Requirement 4: Layering/Wrapping Visuals)
     getMasks() {
         if (!this.active) return [];
-        const masks = [];
+        const masks = this._masks;
+        masks.length = 0;
+        let poolIdx = 0;
+        
+        const addMask = (x, y, w, h, alpha, blur) => {
+            const m = this._maskPool[poolIdx++] || (this._maskPool[poolIdx-1] = { x:0, y:0, w:0, h:0, alpha:0, blur:0 });
+            m.x = x; m.y = y; m.w = w; m.h = h; m.alpha = alpha; m.blur = blur;
+            masks.push(m);
+        };
+        
         const cols = this.g.cols;
         const rows = this.g.rows;
 
         // 1. Black Sheets
         for (const s of this.blackSheets) {
             // Main Body
-            masks.push({
-                x: s.posX, y: s.posY, w: s.w, h: s.h,
-                alpha: s.currentAlpha, blur: s.blur
-            });
+            addMask(s.posX, s.posY, s.w, s.h, s.currentAlpha, s.blur);
 
             // Horizontal Wrapping Ghost
             if (s.posX + s.w > cols) {
-                masks.push({
-                    x: s.posX - cols, y: s.posY, w: s.w, h: s.h,
-                    alpha: s.currentAlpha, blur: s.blur
-                });
+                addMask(s.posX - cols, s.posY, s.w, s.h, s.currentAlpha, s.blur);
             } else if (s.posX < 0) {
-                 masks.push({
-                    x: s.posX + cols, y: s.posY, w: s.w, h: s.h,
-                    alpha: s.currentAlpha, blur: s.blur
-                });
+                 addMask(s.posX + cols, s.posY, s.w, s.h, s.currentAlpha, s.blur);
             }
 
             // Vertical Wrapping Ghost
             if (s.posY + s.h > rows) {
-                masks.push({
-                    x: s.posX, y: s.posY - rows, w: s.w, h: s.h,
-                    alpha: s.currentAlpha, blur: s.blur
-                });
+                addMask(s.posX, s.posY - rows, s.w, s.h, s.currentAlpha, s.blur);
             } else if (s.posY < 0) {
-                masks.push({
-                    x: s.posX, y: s.posY + rows, w: s.w, h: s.h,
-                    alpha: s.currentAlpha, blur: s.blur
-                });
+                addMask(s.posX, s.posY + rows, s.w, s.h, s.currentAlpha, s.blur);
             }
         }
         
@@ -648,14 +649,8 @@ void main() {
             if (snap.isSmith && snap.alpha > 0.01) {
                 const x = idx % cols;
                 const y = Math.floor(idx / cols);
-                // Combine fade alpha (snap.alpha) with density alpha (snap.densityAlpha)
                 const combinedAlpha = snap.alpha * (snap.densityAlpha || 0.5);
-                
-                masks.push({
-                    x: x, y: y, w: 1, h: 1,
-                    alpha: combinedAlpha, 
-                    blur: 0.1 // Crisp blocks for pixelated look
-                });
+                addMask(x, y, 1, 1, combinedAlpha, 0.1);
             }
         }
         
