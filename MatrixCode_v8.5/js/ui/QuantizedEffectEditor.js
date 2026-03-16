@@ -1684,7 +1684,7 @@ class QuantizedEffectEditor {
         this.effect.expansionPhase = 1; // Default to Step 1
         
         // Clear transient mask operations
-        if (this.effect.maskOps) this.effect.maskOps = [];
+        if (this.effect.maskOps) this.effect.maskOps.length = 0;
         
         // Reset the logic grid
         if (typeof this.effect._initLogicGrid === 'function') {

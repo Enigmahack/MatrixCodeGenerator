@@ -120,6 +120,10 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridsDirty = true;
         this._lastRendererOpIndex = 0;
 
+        // Deferred init flags — spread heavy work across frames to reduce GC pressure
+        this._pendingGridClear = false;
+        this._behaviorsInitialized = false;
+
         // Proxy properties to shared buffers
         Object.defineProperties(this, {
             renderGrid: { get: () => QuantizedBaseEffect.sharedBuffers.renderGrid, set: (v) => { QuantizedBaseEffect.sharedBuffers.renderGrid = v; } },
@@ -516,8 +520,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         const totalBlocks = blocksX * blocksY;
         
+        // Optimization: new typed arrays are already zero-initialized by the engine.
+        // Skip redundant .fill(0) on fresh allocations. Only fill on reuse.
+        let isNewAlloc = false;
+
         if (!this.logicGrid || this.logicGrid.length !== totalBlocks) {
-            this.logicGrid = new Uint8Array(totalBlocks);
+            this.logicGrid = new Uint8Array(totalBlocks); // zero-initialized
+            isNewAlloc = true;
         } else {
             this.logicGrid.fill(0);
         }
@@ -526,33 +535,33 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridsDirty = true;
 
         if (!this.renderGrid || this.renderGrid.length !== totalBlocks) {
-            this.renderGrid = new Int32Array(totalBlocks);
+            this.renderGrid = new Int32Array(totalBlocks); // zero-initialized
+            // Must fill -1 even on new alloc since default is 0, not -1
         }
         this.renderGrid.fill(-1);
 
         if (!this.promotionGrid || this.promotionGrid.length !== totalBlocks) {
-            this.promotionGrid = new Uint8Array(totalBlocks);
+            this.promotionGrid = new Uint8Array(totalBlocks); // zero-initialized, skip fill
+        } else {
+            this.promotionGrid.fill(0);
         }
-        this.promotionGrid.fill(0);
 
         if (!this.shadowRevealGrid || this.shadowRevealGrid.length !== totalBlocks) {
-            this.shadowRevealGrid = new Uint8Array(totalBlocks);
+            this.shadowRevealGrid = new Uint8Array(totalBlocks); // zero-initialized, skip fill
+        } else {
+            this.shadowRevealGrid.fill(0);
         }
-        this.shadowRevealGrid.fill(0);
-        
+
         for (let i = 0; i < 4; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
-                this.layerGrids[i].fill(-1);
-            } else {
-                this.layerGrids[i].fill(-1);
             }
+            this.layerGrids[i].fill(-1);
+
             if (!this.removalGrids[i] || this.removalGrids[i].length !== totalBlocks) {
                 this.removalGrids[i] = new Int32Array(totalBlocks);
-                this.removalGrids[i].fill(-1);
-            } else {
-                this.removalGrids[i].fill(-1);
             }
+            this.removalGrids[i].fill(-1);
         }
 
         // Initialize coverage counter
@@ -576,7 +585,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Since renderGrid was just filled with -1, all visible blocks are empty.
         const totalVisible = (endX - startX) * (endY - startY);
         this._visibleEmptyCount = totalVisible;
-        this._lastCoverageRect = { startX, endX, startY, endY };
+        if (!this._lastCoverageRect) this._lastCoverageRect = { startX: 0, endX: 0, startY: 0, endY: 0 };
+        this._lastCoverageRect.startX = startX; this._lastCoverageRect.endX = endX;
+        this._lastCoverageRect.startY = startY; this._lastCoverageRect.endY = endY;
         this._visibleFillRatio = 0;
     }
 
@@ -605,7 +616,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         this._visibleEmptyCount = count;
-        this._lastCoverageRect = { startX, endX, startY, endY };
+        if (!this._lastCoverageRect) this._lastCoverageRect = { startX: 0, endX: 0, startY: 0, endY: 0 };
+        this._lastCoverageRect.startX = startX; this._lastCoverageRect.endX = endX;
+        this._lastCoverageRect.startY = startY; this._lastCoverageRect.endY = endY;
         this._updateVisibleFillRatio();
     }
 
@@ -664,9 +677,15 @@ class QuantizedBaseEffect extends AbstractEffect {
     _resetV2Engine() {
         this.strips.clear();
         this._stripNextId = 0;
-        this.actionBuffer = [];
+        this.actionBuffer.length = 0;
         this.actionQueues.clear();
         this.sequence = [[]];
+
+        // Replace behaviorState with a fresh object to guarantee no stale
+        // dynamic fields survive between triggers.  A plain object with ~12
+        // primitive properties is trivially cheap for the GC — the expensive
+        // items (Maps, Sets, large arrays) were the original concern and those
+        // are already reused via .clear() / .length = 0 elsewhere.
         this.behaviorState = {
             step: 0,
             growTimer: 0,
@@ -687,8 +706,105 @@ class QuantizedBaseEffect extends AbstractEffect {
             pendingExpansions: [],
             spreadingNudgeSymmetryQueue: []
         };
-        // Re-init behaviors to refresh their closure state if needed
+
         this._initBehaviors();
+    }
+
+    /**
+     * Deferred grid overlay clearing — runs on first update() frame instead of
+     * blocking the trigger event handler. Effect is invisible (alpha=0) so this
+     * is visually seamless.
+     */
+    _executeDeferredGridClear() {
+        this._pendingGridClear = false;
+        if (!this.g) return;
+
+        this.g.clearAllOverrides();
+        this.g.clearAllEffects();
+
+        const g = this.g;
+        if (this._savedActiveIndices && this._savedActiveIndices.size > 0) {
+            for (const i of this._savedActiveIndices) {
+                if (g.effectActive) g.effectActive[i] = 0;
+                if (g.effectAlphas) g.effectAlphas[i] = 0;
+                if (g.effectChars) g.effectChars[i] = 0;
+                if (g.effectColors) g.effectColors[i] = 0;
+                if (g.effectGlows) g.effectGlows[i] = 0;
+
+                if (g.overrideChars) g.overrideChars[i] = 0;
+                if (g.overrideColors) g.overrideColors[i] = 0;
+                if (g.overrideAlphas) g.overrideAlphas[i] = 0;
+                if (g.overrideGlows) g.overrideGlows[i] = 0;
+                if (g.overrideMix) g.overrideMix[i] = 0;
+
+                if (g.secondaryActive) g.secondaryActive[i] = 0;
+                if (g.secondaryChars) g.secondaryChars[i] = 0;
+                if (g.secondaryColors) g.secondaryColors[i] = 0;
+                if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
+                if (g.secondaryGlows) g.secondaryGlows[i] = 0;
+
+                if (g.mix) g.mix[i] = 0;
+            }
+            this._savedActiveIndices = null;
+        } else if (this._savedActiveBlocks && this._savedActiveBlocks.length > 0) {
+            const bs = this.getBlockSize();
+            const cpX = bs.w;
+            const cpY = bs.h;
+
+            for (const b of this._savedActiveBlocks) {
+                const x1 = Math.max(0, Math.round(b.x * cpX));
+                const y1 = Math.max(0, Math.round(b.y * cpY));
+                const x2 = Math.min(g.cols, x1 + Math.round(b.w * cpX));
+                const y2 = Math.min(g.rows, y1 + Math.round(b.h * cpY));
+
+                for (let cy = y1; cy < y2; cy++) {
+                    const rowOff = cy * g.cols;
+                    for (let cx = x1; cx < x2; cx++) {
+                        const i = rowOff + cx;
+                        if (g.effectActive) g.effectActive[i] = 0;
+                        if (g.effectAlphas) g.effectAlphas[i] = 0;
+                        if (g.effectChars) g.effectChars[i] = 0;
+                        if (g.effectColors) g.effectColors[i] = 0;
+                        if (g.effectGlows) g.effectGlows[i] = 0;
+
+                        if (g.overrideChars) g.overrideChars[i] = 0;
+                        if (g.overrideColors) g.overrideColors[i] = 0;
+                        if (g.overrideAlphas) g.overrideAlphas[i] = 0;
+                        if (g.overrideGlows) g.overrideGlows[i] = 0;
+                        if (g.overrideMix) g.overrideMix[i] = 0;
+
+                        if (g.secondaryActive) g.secondaryActive[i] = 0;
+                        if (g.secondaryChars) g.secondaryChars[i] = 0;
+                        if (g.secondaryColors) g.secondaryColors[i] = 0;
+                        if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
+                        if (g.secondaryGlows) g.secondaryGlows[i] = 0;
+
+                        if (g.mix) g.mix[i] = 0;
+                    }
+                }
+            }
+            this._savedActiveBlocks = null;
+        } else {
+            // Fallback for first run — fill all 16 grid overlay buffers
+            if (g.effectActive) g.effectActive.fill(0);
+            if (g.effectAlphas) g.effectAlphas.fill(0);
+            if (g.effectChars) g.effectChars.fill(0);
+            if (g.effectColors) g.effectColors.fill(0);
+            if (g.effectGlows) g.effectGlows.fill(0);
+            if (g.overrideChars) g.overrideChars.fill(0);
+            if (g.overrideColors) g.overrideColors.fill(0);
+            if (g.overrideAlphas) g.overrideAlphas.fill(0);
+            if (g.overrideGlows) g.overrideGlows.fill(0);
+            if (g.overrideMix) g.overrideMix.fill(0);
+            if (g.secondaryActive) g.secondaryActive.fill(0);
+            if (g.secondaryChars) g.secondaryChars.fill(0);
+            if (g.secondaryColors) g.secondaryColors.fill(0);
+            if (g.secondaryAlphas) g.secondaryAlphas.fill(0);
+            if (g.secondaryGlows) g.secondaryGlows.fill(0);
+            if (g.mix) g.mix.fill(0);
+        }
+
+        if (g.complexStyles) g.complexStyles.clear();
     }
 
     trigger(force = false) {
@@ -700,90 +816,27 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
             return false;
         }
-        
-        // --- SPARSE CLEARING OPTIMIZATION ---
-        // Instead of massive .fill(0) calls on 120 million memory elements,
-        // we reset only the specific indices that were modified in the previous run.
-        if (this.g) {
-            this.g.clearAllOverrides();
-            this.g.clearAllEffects();
-            
-            const g = this.g;
-            // Surgical clear using activeIndices (populated in QuantizedShadow or subclasses)
+
+        // --- DEFERRED GRID CLEARING ---
+        // On re-triggers, snapshot current active indices/blocks for deferred
+        // clearing in the first update() frame.  On first-ever trigger the grid
+        // overlay buffers are already zeroed from allocation, so we can skip
+        // the clear entirely — this eliminates the first-run delay caused by
+        // filling 16+ large typed arrays synchronously.
+        if (this._hasTriggeredOnce) {
             if (this.activeIndices && this.activeIndices.size > 0) {
-                for (const i of this.activeIndices) {
-                    if (g.effectActive) g.effectActive[i] = 0;
-                    if (g.effectAlphas) g.effectAlphas[i] = 0;
-                    if (g.effectChars) g.effectChars[i] = 0;
-                    if (g.effectColors) g.effectColors[i] = 0;
-                    if (g.effectGlows) g.effectGlows[i] = 0;
-                    
-                    if (g.overrideChars) g.overrideChars[i] = 0;
-                    if (g.overrideColors) g.overrideColors[i] = 0;
-                    if (g.overrideAlphas) g.overrideAlphas[i] = 0;
-                    if (g.overrideGlows) g.overrideGlows[i] = 0;
-                    if (g.overrideMix) g.overrideMix[i] = 0;
-                    
-                    if (g.secondaryActive) g.secondaryActive[i] = 0;
-                    if (g.secondaryChars) g.secondaryChars[i] = 0;
-                    if (g.secondaryColors) g.secondaryColors[i] = 0;
-                    if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
-                    if (g.secondaryGlows) g.secondaryGlows[i] = 0;
-                    
-                    if (g.mix) g.mix[i] = 0;
-                }
+                this._savedActiveIndices = new Set(this.activeIndices);
                 this.activeIndices.clear();
             } else if (this.activeBlocks && this.activeBlocks.length > 0) {
-                // Fallback: Use activeBlocks if activeIndices wasn't used/populated
-                const bs = this.getBlockSize();
-                const cpX = bs.w;
-                const cpY = bs.h;
-                
-                for (const b of this.activeBlocks) {
-                    const x1 = Math.max(0, Math.round(b.x * cpX));
-                    const y1 = Math.max(0, Math.round(b.y * cpY));
-                    const x2 = Math.min(g.cols, x1 + Math.round(b.w * cpX));
-                    const y2 = Math.min(g.rows, y1 + Math.round(b.h * cpY));
-                    
-                    for (let cy = y1; cy < y2; cy++) {
-                        const rowOff = cy * g.cols;
-                        for (let cx = x1; cx < x2; cx++) {
-                            const i = rowOff + cx;
-                            if (g.effectActive) g.effectActive[i] = 0;
-                            if (g.effectAlphas) g.effectAlphas[i] = 0;
-                            if (g.effectChars) g.effectChars[i] = 0;
-                            if (g.effectColors) g.effectColors[i] = 0;
-                            if (g.effectGlows) g.effectGlows[i] = 0;
-                            
-                            if (g.overrideChars) g.overrideChars[i] = 0;
-                            if (g.overrideColors) g.overrideColors[i] = 0;
-                            if (g.overrideAlphas) g.overrideAlphas[i] = 0;
-                            if (g.overrideGlows) g.overrideGlows[i] = 0;
-                            if (g.overrideMix) g.overrideMix[i] = 0;
-                            
-                            if (g.secondaryActive) g.secondaryActive[i] = 0;
-                            if (g.secondaryChars) g.secondaryChars[i] = 0;
-                            if (g.secondaryColors) g.secondaryColors[i] = 0;
-                            if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
-                            if (g.secondaryGlows) g.secondaryGlows[i] = 0;
-                            
-                            if (g.mix) g.mix[i] = 0;
-                        }
-                    }
-                }
+                this._savedActiveBlocks = this.activeBlocks.slice();
             } else {
-                // Fallback for first run
-                const buffers = [
-                    g.effectActive, g.effectAlphas, g.effectChars, g.effectColors, g.effectGlows,
-                    g.overrideChars, g.overrideColors, g.overrideAlphas, g.overrideGlows, g.overrideMix,
-                    g.secondaryActive, g.secondaryChars, g.secondaryColors, g.secondaryAlphas, g.secondaryGlows,
-                    g.mix
-                ];
-                buffers.forEach(b => { if (b) b.fill(0); });
+                this._savedActiveIndices = null;
+                this._savedActiveBlocks = null;
             }
-            
-            // Clear complex state
-            if (this.g.complexStyles) this.g.complexStyles.clear();
+            this._pendingGridClear = true;
+        } else {
+            this._hasTriggeredOnce = true;
+            this._pendingGridClear = false;
         }
 
         // Reset V2 engine state for a clean slate
@@ -798,7 +851,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const shouldLoadPattern = !isGenerator || !force;
 
         if (shouldLoadPattern &&
-             (!this.sequence || this.sequence.length === 0 || (this.sequence.length === 1 && this.sequence[0].length === 0)) && 
+             (!this.sequence || this.sequence.length === 0 || (this.sequence.length === 1 && this.sequence[0].length === 0)) &&
              window.matrixPatterns && window.matrixPatterns[this.name]) {
             this.sequence = window.matrixPatterns[this.name];
             if (this.sequence && this.sequence.length > 1000) {
@@ -808,11 +861,11 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         this.active = true;
         this.expansionComplete = false;
-        
+
         this.cycleTimer = 0;
         this.cyclesCompleted = 0;
         this.expansionPhase = 0;
-        this.maskOps = [];
+        this.maskOps.length = 0;
         this._lastProcessedOpIndex = 0;
         this._lastRendererOpIndex = 0;
         this.animFrame = 0;
@@ -821,36 +874,39 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._maskDirty = true;
         this._gridsDirty = true;
         this._outsideMapDirty = true;
-        
+
         // Reset Render Cache
         this.renderer._edgeCacheDirty = true;
         this.renderer._distMapDirty = true;
-        this.renderer._cachedEdgeMaps = [];
+        this.renderer._cachedEdgeMaps.length = 0;
         this._outsideMapDirty = true;
         this._gridCacheDirty = true;
         this.lastGridSeed = -1;
-        
-        this.lineStates = new Map();
+
+        this.lineStates.clear();
         this.suppressedFades.clear();
         this.lastVisibilityChangeFrame = 0;
         this.lastMaskUpdateFrame = 0;
-        
+
         this.hasSwapped = false;
         this.isSwapping = false;
         this.swapTimer = 0;
-        
+
         this.blockMap.clear();
-        this.activeBlocks = [];
-        this.unfoldSequences = [[], [], [], []];
+        this.activeBlocks.length = 0;
+        for (let i = 0; i < 4; i++) {
+            if (this.unfoldSequences[i]) this.unfoldSequences[i].length = 0;
+            else this.unfoldSequences[i] = [];
+        }
         this.nextBlockId = 0;
         this.proceduralInitiated = false;
         this.finishedBranches.clear();
         this.nudgeAxisBalance = 0;
-        this.usedCardinalIndices = [];
+        this.usedCardinalIndices.length = 0;
         this._syncFrame = -1;
         this._lastSyncOpCount = -1;
-        this._currentStepActions = [];
-        
+        this._currentStepActions.length = 0;
+
         this._initLogicGrid();
 
         // --- NEW ALIGNMENT LOGIC ---
@@ -858,7 +914,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const bs = this.getBlockSize();
         const visW = Math.max(1, Math.floor(this.g.cols / bs.w));
         const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
-        
+
         let scx = 0, scy = 0;
         if (this.getConfig('RandomStart')) {
             scx = Math.floor((Math.random() - 0.5) * (visW - 10));
@@ -891,7 +947,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.timer = 0;
         this.step = 0;
         this.lastCapturedStep = -1;
-        this.perimeterHistory = [];
+        this.perimeterHistory.length = 0;
         this.echoEdgeMap = null;
         this.echoLastEdgeStep = -1;
         this.alpha = 0.0;
@@ -950,7 +1006,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         
         // --- 1. Reconstruction from Step 0 ---
         this.isReconstructing = true;
-        this.maskOps = [];
+        this.maskOps.length = 0;
         this.activeBlocks = []; 
         this.nextBlockId = 0;
         this.proceduralInitiated = false;
@@ -1055,16 +1111,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _capturePerimeterEcho() {
         if (!this.getConfig('PerimeterEchoEnabled')) {
-            this.perimeterHistory = [];
+            this.perimeterHistory.length = 0;
             this.echoEdgeMap = null;
             return;
         }
 
-        // WebGL Echo Path Optimization: 
+        // WebGL Echo Path Optimization:
         // When using WebGL, we implement history pooling directly on the GPU.
         // We skip massive Int32Array allocations/snapshots on the CPU.
         if (this.c.state.renderingEngine === 'webgl') {
-            if (this.perimeterHistory.length > 0) this.perimeterHistory = [];
+            if (this.perimeterHistory.length > 0) this.perimeterHistory.length = 0;
             this.echoHoldEntries = null;
             this.echoEdgeMap = null;
             return;
@@ -1092,7 +1148,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             } else {
                 // Hold mode: per-edge tracking handled inside renderEchoEdges.
                 this.echoHoldEntries = null;
-                this.perimeterHistory = [];
+                this.perimeterHistory.length = 0;
             }
 
             this._maskDirty = true;
@@ -1136,6 +1192,13 @@ class QuantizedBaseEffect extends AbstractEffect {
         const s = this.c.state;
         const fps = 60;
 
+        // Execute deferred grid clearing from trigger() — runs once on first update frame.
+        // This moves the heavy clearing work out of the trigger event handler so the
+        // browser can paint between the user action and the initialization work.
+        if (this._pendingGridClear) {
+            this._executeDeferredGridClear();
+        }
+
         // 1. Update master clock (Visuals/Fades)
         this.animFrame++;
 
@@ -1157,16 +1220,19 @@ class QuantizedBaseEffect extends AbstractEffect {
             return;
         }
 
-        // Periodic maintenance (Pruning expired ops)
+        // Periodic maintenance (Pruning expired ops) — in-place to avoid GC from .filter()
         if (this.animFrame % 60 === 0 && this.maskOps && this.maskOps.length > 0) {
             const fadeOut = this.getConfig('FadeFrames') || 0;
             const oldLen = this.maskOps.length;
-            this.maskOps = this.maskOps.filter(op => {
-                if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOut) return false;
-                return true;
-            });
-            if (this.maskOps.length !== oldLen) {
-                this._lastProcessedOpIndex = 0; 
+            let writeIdx = 0;
+            for (let ri = 0; ri < this.maskOps.length; ri++) {
+                const op = this.maskOps[ri];
+                if (op.expireFrame && this.animFrame >= op.expireFrame + fadeOut) continue;
+                this.maskOps[writeIdx++] = op;
+            }
+            this.maskOps.length = writeIdx;
+            if (writeIdx !== oldLen) {
+                this._lastProcessedOpIndex = 0;
                 this._gridsDirty = true;
             }
         }
@@ -1974,50 +2040,65 @@ class QuantizedBaseEffect extends AbstractEffect {
             : 1.0;
         const finalGlassBloom = 1.0 + (rawGlassBloom - 1.0) * bloomScale * this.alpha;
 
-        return {
-            logicGridSize: [gw, gh],
-            cellPitch: [cellPitchX, cellPitchY],
-            blockOffset: [offX, offY],
-            userBlockOffset: [this.userBlockOffX || 0, this.userBlockOffY || 0],
-            layerOrder: new Int32Array(this.layerOrder || [0, 1, 2, 3]),
-            showInterior: this.getConfig('ShowInterior') !== false,
-            intensity: (this.getLineGfxValue('Intensity') ?? 1.0) * (this.getLineGfxValue('Opacity') ?? 1.0) * this.alpha,
-            thickness: this.getLineGfxValue('Thickness') ?? 1.0,
-            tintOffset: this.getLineGfxValue('TintOffset') ?? 0.0,
-            sharpness: this.getLineGfxValue('Sharpness') ?? 0.05,
-            glowFalloff: this.getLineGfxValue('GlowFalloff') ?? 2.0,
-            roundness: this.getLineGfxValue('Roundness') ?? 0.0,
-            maskSoftness: this.getLineGfxValue('MaskSoftness') ?? 0.0,
-            brightness: (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0),
-            saturation: this.getLineGfxValue('Saturation') ?? 1.0,
-            additiveStrength: this.getLineGfxValue('AdditiveStrength') ?? 1.0,
-            glow: this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0),
-            varianceEnabled: this.getLineGfxValue('BrightnessVarianceEnabled') ? 1.0 : 0.0,
-            varianceAmount: this.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5,
-            varianceCoverage: this.getLineGfxValue('BrightnessVarianceCoverage') ?? 100,
-            varianceDirection: this.getLineGfxValue('BrightnessVarianceDirection') ?? 1,
-            color: [col.r / 255, col.g / 255, col.b / 255],
-            persistence: (() => {
-                const frames = this.getLineGfxValue('Persistence') || 0;
-                if (frames <= 0) return 0.0;
-                return 1.0 / frames;
-            })(),
-            sampleOffset: [this.getLineGfxValue('SampleOffsetX') * scale, this.getLineGfxValue('SampleOffsetY') * scale],
-            lineOffset: [this.getLineGfxValue('OffsetX') * scale, this.getLineGfxValue('OffsetY') * scale],
-            fillRatio: fillRatio,
-            
-            // Glass / Refraction
-            glassBloom: finalGlassBloom,
-            refractionEnabled: this.getConfig('GlassRefractionEnabled') ? 1 : 0,
-            refractionWidth: this.getConfig('GlassRefractionWidth') ?? 0.25,
-            refractionBrightness: 1.0 + ((this.getConfig('GlassRefractionBrightness') ?? 1.5) - 1.0) * this.alpha,
-            refractionSaturation: 1.0 + ((this.getConfig('GlassRefractionSaturation') ?? 1.5) - 1.0) * this.alpha,
-            refractionCompression: this.getConfig('GlassRefractionCompression') ?? 1.0,
-            refractionOffset: this.getConfig('GlassRefractionOffset') ?? 0.0,
-            refractionGlow: (this.getConfig('GlassRefractionGlow') ?? 0.0) * this.alpha,
-            compressionThreshold: this.getConfig('GlassCompressionThreshold') ?? 0.0,
-            shadowWorldFadeSpeed: this.getConfig('ShadowWorldFadeSpeed') ?? 0.5
-        };
+        const persistFrames = this.getLineGfxValue('Persistence') || 0;
+
+        // Reuse cached render state object to eliminate per-frame GC pressure
+        // from creating ~30-property objects + sub-arrays at 60fps
+        if (!this._cachedWebGLState) {
+            this._cachedWebGLState = {
+                logicGridSize: [0, 0], cellPitch: [0, 0], blockOffset: [0, 0],
+                userBlockOffset: [0, 0], layerOrder: null, showInterior: true,
+                intensity: 0, thickness: 0, tintOffset: 0, sharpness: 0,
+                glowFalloff: 0, roundness: 0, maskSoftness: 0, brightness: 0,
+                saturation: 0, additiveStrength: 0, glow: 0, varianceEnabled: 0,
+                varianceAmount: 0, varianceCoverage: 0, varianceDirection: 0,
+                color: [0, 0, 0], persistence: 0, sampleOffset: [0, 0],
+                lineOffset: [0, 0], fillRatio: 0, glassBloom: 0,
+                refractionEnabled: 0, refractionWidth: 0, refractionBrightness: 0,
+                refractionSaturation: 0, refractionCompression: 0, refractionOffset: 0,
+                refractionGlow: 0, compressionThreshold: 0, shadowWorldFadeSpeed: 0
+            };
+        }
+        const st = this._cachedWebGLState;
+        st.logicGridSize[0] = gw; st.logicGridSize[1] = gh;
+        st.cellPitch[0] = cellPitchX; st.cellPitch[1] = cellPitchY;
+        st.blockOffset[0] = offX; st.blockOffset[1] = offY;
+        st.userBlockOffset[0] = this.userBlockOffX || 0; st.userBlockOffset[1] = this.userBlockOffY || 0;
+        st.layerOrder = this._cachedLayerOrderI32 || (this._cachedLayerOrderI32 = new Int32Array(this.layerOrder || [0, 1, 2, 3]));
+        st.showInterior = this.getConfig('ShowInterior') !== false;
+        st.intensity = (this.getLineGfxValue('Intensity') ?? 1.0) * (this.getLineGfxValue('Opacity') ?? 1.0) * this.alpha;
+        st.thickness = this.getLineGfxValue('Thickness') ?? 1.0;
+        st.tintOffset = this.getLineGfxValue('TintOffset') ?? 0.0;
+        st.sharpness = this.getLineGfxValue('Sharpness') ?? 0.05;
+        st.glowFalloff = this.getLineGfxValue('GlowFalloff') ?? 2.0;
+        st.roundness = this.getLineGfxValue('Roundness') ?? 0.0;
+        st.maskSoftness = this.getLineGfxValue('MaskSoftness') ?? 0.0;
+        st.brightness = (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0);
+        st.saturation = this.getLineGfxValue('Saturation') ?? 1.0;
+        st.additiveStrength = this.getLineGfxValue('AdditiveStrength') ?? 1.0;
+        st.glow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        st.varianceEnabled = this.getLineGfxValue('BrightnessVarianceEnabled') ? 1.0 : 0.0;
+        st.varianceAmount = this.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
+        st.varianceCoverage = this.getLineGfxValue('BrightnessVarianceCoverage') ?? 100;
+        st.varianceDirection = this.getLineGfxValue('BrightnessVarianceDirection') ?? 1;
+        st.color[0] = col.r / 255; st.color[1] = col.g / 255; st.color[2] = col.b / 255;
+        st.persistence = persistFrames <= 0 ? 0.0 : 1.0 / persistFrames;
+        st.sampleOffset[0] = this.getLineGfxValue('SampleOffsetX') * scale;
+        st.sampleOffset[1] = this.getLineGfxValue('SampleOffsetY') * scale;
+        st.lineOffset[0] = this.getLineGfxValue('OffsetX') * scale;
+        st.lineOffset[1] = this.getLineGfxValue('OffsetY') * scale;
+        st.fillRatio = fillRatio;
+        st.glassBloom = finalGlassBloom;
+        st.refractionEnabled = this.getConfig('GlassRefractionEnabled') ? 1 : 0;
+        st.refractionWidth = this.getConfig('GlassRefractionWidth') ?? 0.25;
+        st.refractionBrightness = 1.0 + ((this.getConfig('GlassRefractionBrightness') ?? 1.5) - 1.0) * this.alpha;
+        st.refractionSaturation = 1.0 + ((this.getConfig('GlassRefractionSaturation') ?? 1.5) - 1.0) * this.alpha;
+        st.refractionCompression = this.getConfig('GlassRefractionCompression') ?? 1.0;
+        st.refractionOffset = this.getConfig('GlassRefractionOffset') ?? 0.0;
+        st.refractionGlow = (this.getConfig('GlassRefractionGlow') ?? 0.0) * this.alpha;
+        st.compressionThreshold = this.getConfig('GlassCompressionThreshold') ?? 0.0;
+        st.shadowWorldFadeSpeed = this.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
+        return st;
     }
 
     _drawMaskedLines(ctx, maskCanvas, width, height, s, d, alphaMult, isEcho = false) {
@@ -2074,18 +2155,40 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._checkDirtiness();
         this._updateRenderGridLogic();
         const s = this.c.state;
+        const isWebGL = (s.renderingEngine === 'webgl');
 
-        const glowStrength = this.getConfig('BorderIllumination') || 0;
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
-        this._ensureCanvases(width, height); 
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-             this._updateMask(width, height, s, d);
-             this._maskDirty = false;
+        this._ensureCanvases(width, height);
+
+        // --- MASK UPDATE ---
+        // In WebGL mode the GPU shader does its own edge detection, so the
+        // CPU-side BFS (computeTrueOutside + computeDistanceField) and canvas
+        // mask drawing are entirely redundant.  Skipping them removes the two
+        // heaviest synchronous operations from the first-trigger render path.
+        if (!isWebGL) {
+            if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
+                this._updateMask(width, height, s, d);
+                this._maskDirty = false;
+            }
+        } else {
+            // WebGL still needs layout computed for getWebGLRenderState() — run the
+            // lightweight layout portion only (no BFS, no canvas edge drawing).
+            if (this._maskDirty) {
+                this.renderer._computeLayoutOnly(this, width, height, s, d);
+                this._maskDirty = false;
+            }
         }
 
-        // Update Grid Cache (needed for both 2D and GPU rendering)
-        this._updateGridCache(width, height, s, d);
+        // --- GRID CACHE ---
+        // Defer the heavy grid-cache computation (~4000+ drawImage calls) during
+        // the first 3 frames of FADE_IN when alpha is near zero and the result
+        // would be invisible.  This lets the browser paint the trigger response
+        // before doing the expensive character atlas blit.
+        const deferGridCache = (this.state === 'FADE_IN' && this.animFrame <= 3);
+        if (!deferGridCache) {
+            this._updateGridCache(width, height, s, d);
+        }
 
         const showLines = (this.c.state.layerEnableQuantizedLines !== false);
         const showEcho = (s.layerEnablePerimeterEcho !== false);
@@ -2099,7 +2202,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // WebGL mode - lines and echo are both rendered via GPU in _renderQuantizedLineGfx.
         // No canvas overlay needed.
-        if (s.renderingEngine === 'webgl') {
+        if (isWebGL) {
             return;
         }
 
@@ -5198,6 +5301,22 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _initBehaviors() {
+        // Cache behavior closures — only create them once to avoid GC pressure
+        // from recreating 4 large closures on every trigger. Closures capture 'this'
+        // via 'self' so they remain valid across triggers.
+        if (this._behaviorsInitialized) {
+            // Just refresh enabled flags from current config
+            const bsd = this.growthPool.get('block_spawner_despawner');
+            if (bsd) bsd.enabled = this._getGenConfig('BlockSpawnerEnabled') ?? false;
+            const sn = this.growthPool.get('spreading_nudge');
+            if (sn) sn.enabled = this._getGenConfig('SpreadingNudgeEnabled') ?? false;
+            const sf = this.growthPool.get('shove_fill');
+            if (sf) sf.enabled = this._getGenConfig('ShoveFillEnabled') ?? false;
+            const hf = this.growthPool.get('hole_filler');
+            if (hf) hf.enabled = true;
+            return;
+        }
+        this._behaviorsInitialized = true;
         this.growthPool.clear();
         const self = this;
 

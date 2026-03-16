@@ -7,7 +7,16 @@
       "Bash(dotnet:*)",
       "Bash(python:*)",
       "Bash(sed:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js 2>&1)",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedRenderer.js 2>&1)",
+      "Bash(node -c MatrixCode_v8.5/js/core/MatrixKernel.js 2>&1)",
+      "Bash(node -c MatrixCode_v8.5/js/ui/QuantizedEffectEditor.js 2>&1)",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js 2>&1 && node -c MatrixCode_v8.5/js/effects/QuantizedRenderer.js 2>&1 && node -c MatrixCode_v8.5/js/effects/QuantizedBFSWorker.js 2>&1 && node -c MatrixCode_v8.5/js/core/MatrixKernel.js 2>&1 && echo \"All files pass syntax check\")",
+      "Bash(for f:*)",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js && echo \"OK: QuantizedBaseEffect.js\" && node -c MatrixCode_v8.5/js/effects/QuantizedRenderer.js && echo \"OK: QuantizedRenderer.js\" && node -c MatrixCode_v8.5/js/effects/QuantizedBFSWorker.js && echo \"OK: QuantizedBFSWorker.js\" && node -c MatrixCode_v8.5/js/core/MatrixKernel.js && echo \"OK: MatrixKernel.js\" && node -c MatrixCode_v8.5/js/ui/QuantizedEffectEditor.js && echo \"OK: QuantizedEffectEditor.js\")",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js && echo \"OK\")",
+      "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js && node -c MatrixCode_v8.5/js/effects/QuantizedRenderer.js && node -c MatrixCode_v8.5/js/effects/QuantizedBFSWorker.js && node -c MatrixCode_v8.5/js/core/MatrixKernel.js && node -c MatrixCode_v8.5/js/ui/QuantizedEffectEditor.js && echo \"All OK\")"
     ]
   }
 }

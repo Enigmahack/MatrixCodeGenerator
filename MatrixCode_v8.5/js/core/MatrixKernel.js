@@ -105,11 +105,25 @@ class MatrixKernel {
         requestAnimationFrame((time) => this._loop(time));
         this.fpsDisplayElement = document.getElementById('fps-counter');
 
-        // Pre-allocate resources for effects AFTER loop has started to prevent initialization hang
+        // Pre-allocate resources for effects using idle callbacks to avoid blocking the main thread.
+        // Uses requestIdleCallback where available (non-Safari) with setTimeout fallback.
+        // Retries if grid isn't ready yet to ensure buffers are allocated before first trigger.
         if (this.effectRegistry) {
-            setTimeout(() => {
-                this.effectRegistry.preallocateAll();
-            }, 1500); // Slightly longer delay
+            const schedulePrealloc = (attempt) => {
+                const doPrealloc = () => {
+                    this.effectRegistry.preallocateAll();
+                    // Retry if preallocate couldn't run (grid not ready) — up to 3 attempts
+                    if (!QuantizedBaseEffect._preallocated && attempt < 3) {
+                        setTimeout(() => schedulePrealloc(attempt + 1), 1000);
+                    }
+                };
+                if (typeof requestIdleCallback === 'function') {
+                    requestIdleCallback(doPrealloc, { timeout: 3000 });
+                } else {
+                    setTimeout(doPrealloc, 1500);
+                }
+            };
+            schedulePrealloc(0);
         }
 
         // Cleanup WebGL on unload to help Safari free up context slots
