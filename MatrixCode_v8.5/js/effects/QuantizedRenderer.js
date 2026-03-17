@@ -414,7 +414,8 @@ class QuantizedRenderer {
 
     _getEdgeOpacity(fx, age, isExterior) {
         if (age < 0) return 1.0; // Immediate appearance
-        const duration = isExterior ? (fx.getLineGfxValue('Duration') || 15) : (fx.getInnerLineGfxValue('Duration') || 10);
+        const duration = isExterior ? (fx.getLineGfxValue('Persistence') ?? 15) : (fx.getInnerLineGfxValue('Persistence') ?? 10);
+        if (duration === 0) return 0.0; // Off
         if (age >= duration) return 0;
         return 1.0 - (age / duration);
     }

@@ -1,0 +1,31 @@
+Todo 
+
+Behaviours: 
+- Deja Vu no longer shows the rows of characters from the 2DCanvas - repair that. 
+- Crash has the Deja Vu effect but doesn't use the selected/active characters. 
+- Fix quantized add behaviour. 
+	(Enable options to create larger blocks, sub-spines, add 'widen' behaviour)
+- Add a "1x1 block fill"
+- Max Block Scale should work for certain effects
+- Hole Filler does not appear to work. 
+- Echo controls appear to do nothing. 
+	Reassign them to the echo used in the Natural Refraction? 
+	Ensure Echo Brightness works for the echo. 
+
+Visuals: 
+- Boot Effect doesn't look right. Refine. 
+- Fix animation for quantized Retract. 
+
+UI Changes: 
+- Allow speed to go to 15
+- When Fade Duration (Quantized) goes to 0, fade lines do not stop rendering
+- Line saturation should be under the Line Basics
+- Shape & Sharpness: 
+	Sharpness/Roundness/GlowFalloff all appear to do nothing
+- Remove "Intersection Pulse"
+- Remove the "Block Generator not active or no behaviours found" 
+- Mask Scale (double-tap) has no default 
+
+
+Fade Duration should control the "Natural Refraction" fade rate, and the 2D Canvas lines should be removed/deactivated from rendering. 
+

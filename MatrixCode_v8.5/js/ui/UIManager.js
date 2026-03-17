@@ -898,7 +898,7 @@ class UIManager {
             // Get current effect and its growth pool
             const effect = window.matrix?.effects?.get('QuantizedBlockGenerator');
             if (!effect || !effect.growthPool) {
-                list.innerHTML = '<div class="status-msg">Block Generator not active or no behaviors found.</div>';
+                list.innerHTML = '';
                 return;
             }
 
