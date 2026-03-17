@@ -816,7 +816,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (g.complexStyles) g.complexStyles.clear();
     }
 
-    trigger(force = false) {
+    trigger(force = false, spawnPosition = null) {
         let startTime = 0;
         const logEnabled = this.c.state.logErrors;
         if (logEnabled) startTime = performance.now();
@@ -831,6 +831,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (this.active && !force) {
             if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
             return false;
+        }
+
+        // Ensure shared canvases are synced and properly initialized for this instance.
+        // We call this even if _preallocated is true to ensure instance property pointers are set.
+        if (this.g && this.g.cols) {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            this._ensureCanvases(w, h);
         }
 
         // --- DEFERRED GRID CLEARING ---
@@ -932,7 +940,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         const visH = Math.max(1, Math.floor(this.g.rows / bs.h));
 
         let scx = 0, scy = 0;
-        if (this.getConfig('RandomStart')) {
+        if (spawnPosition) {
+            // Tap-to-spawn: convert pixel coordinates to block-grid offset from center
+            scx = Math.floor(spawnPosition.bx - visW / 2);
+            scy = Math.floor(spawnPosition.by - visH / 2);
+        } else if (this.getConfig('RandomStart')) {
             scx = Math.floor((Math.random() - 0.5) * (visW - 10));
             scy = Math.floor((Math.random() - 0.5) * (visH - 10));
         }
@@ -940,18 +952,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Adjust center point based on the first block of the sequence (if it exists)
         // so that the animation's "seed" lands at our chosen scx/scy.
         let genOriginX = 0, genOriginY = 0;
-        if (this.sequence && this.sequence.length > 0) {
+        const hasSequence = this.sequence && this.sequence.length > 0 &&
+            !(this.sequence.length === 1 && this.sequence[0].length === 0);
+        if (hasSequence) {
             const firstBlock = QuantizedSequence.findFirstBlock(this.sequence);
             if (firstBlock) {
-                // Alignment logic: only shift the coordinate system if RandomStart is enabled.
-                // If fixed (not random), we want the sequence's own (0,0) to be the screen center.
-                if (this.getConfig('RandomStart')) {
+                // Alignment logic: only shift the coordinate system if spawn is offset from center.
+                if (spawnPosition || this.getConfig('RandomStart')) {
                     scx -= firstBlock.x;
                     scy -= firstBlock.y;
                 }
                 genOriginX = firstBlock.x;
                 genOriginY = firstBlock.y;
             }
+        } else if (spawnPosition || this.getConfig('RandomStart')) {
+            // No sequence — the seed block must land at the tap/random position.
+            // Set genOrigin to match scx/scy so _initProceduralState seeds there.
+            genOriginX = scx;
+            genOriginY = scy;
         }
         this.behaviorState.scx = scx;
         this.behaviorState.scy = scy;
@@ -1537,6 +1555,10 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _updateGridCache(w, h, s, d) {
+        if (!this.layout) {
+            this._updateMask(w, h, s, d);
+        }
+        
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
         if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
@@ -2113,6 +2135,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.refractionOffset = this.getConfig('GlassRefractionOffset') ?? 0.0;
         st.refractionGlow = (this.getConfig('GlassRefractionGlow') ?? 0.0) * this.alpha;
         st.refractionOpacity = (this.getConfig('GlassRefractionOpacity') ?? 1.0) * this.alpha;
+        st.refractionUnwrap = this.getConfig('GlassRefractionUnwrap') ? 1 : 0;
+        st.refractionMaskScale = this.getConfig('GlassRefractionMaskScale') ?? 1.0;
         st.compressionThreshold = this.getConfig('GlassCompressionThreshold') ?? 0.0;
         st.shadowWorldFadeSpeed = this.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         return st;

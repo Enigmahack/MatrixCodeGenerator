@@ -15,6 +15,7 @@
     <div id="loadingOverlay">
         <span id="loadingText">The Matrix Has You</span><span id="loadingDots"></span>
     </div>
+    <script>try{var o=document.getElementById('loadingOverlay');if(o){if(new URLSearchParams(window.location.search).get('mode')==='editor'){o.style.display='none';}else{var c=JSON.parse(localStorage.getItem('matrix_config_v8.5'));if(c&&c.skipIntro)o.style.display='none';}}}catch(e){}</script>
 
     <!-- Primary Canvas for Matrix Animation -->
     <canvas id="matrixCanvas" aria-label="Matrix Digital Rain Animation"></canvas>

@@ -7,7 +7,7 @@ let config = null;
 let grid = null;
 
 // A simple 'window' shim for compatibility
-const window = self; 
+self.window = self; 
 
 // --- Message Handling ---
 self.onmessage = function(e) {

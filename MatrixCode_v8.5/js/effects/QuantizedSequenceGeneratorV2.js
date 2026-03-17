@@ -141,19 +141,22 @@ class QuantizedSequenceGeneratorV2 {
 
     _init() {
         const randomStart = !!this._getConfig('RandomStart');
-        let scx = 0;
-        let scy = 0;
 
-        if (randomStart) {
-            const bs = this._getBlockSize();
-            const halfW = Math.floor(this.cols / bs.w / 2) - 5;
-            const halfH = Math.floor(this.rows / bs.h / 2) - 5;
-            scx = Math.floor((Math.random() * 2 - 1) * halfW);
-            scy = Math.floor((Math.random() * 2 - 1) * halfH);
+        // Preserve scx/scy if already set (e.g. by tap-to-spawn in base trigger)
+        const hasSpawnOffset = (this.behaviorState.scx !== 0 || this.behaviorState.scy !== 0);
+        if (!hasSpawnOffset) {
+            let scx = 0;
+            let scy = 0;
+            if (randomStart) {
+                const bs = this._getBlockSize();
+                const halfW = Math.floor(this.cols / bs.w / 2) - 5;
+                const halfH = Math.floor(this.rows / bs.h / 2) - 5;
+                scx = Math.floor((Math.random() * 2 - 1) * halfW);
+                scy = Math.floor((Math.random() * 2 - 1) * halfH);
+            }
+            this.behaviorState.scx = scx;
+            this.behaviorState.scy = scy;
         }
-
-        this.behaviorState.scx = scx;
-        this.behaviorState.scy = scy;
 
         this.behaviorState.pattern = this._generateRandomPattern();
         this.behaviorState.pausePattern = this._generateDistinctPattern(this.behaviorState.pattern);

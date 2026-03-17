@@ -23,6 +23,7 @@ class MatrixKernel {
 
         this._setupResizeListener();
         this._setupInputListener();
+        this._setupTapToSpawn();
         
         // FPS tracking variables
         this.lastFrameTime = 0; // Tracks time of the previous frame
@@ -93,7 +94,14 @@ class MatrixKernel {
         // Delay initialization slightly to ensure the DOM and WebGL context are ready (Safari fix)
         // Increased delay to 500ms for Safari stability
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
+        // Hide loading overlay immediately when Skip Intro is enabled,
+        // before any heavy init work makes it visible for frames.
+        if (this.config.get('skipIntro')) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
         // Ensure canvas has dimensions before context acquisition
         const mainCanvas = document.getElementById('matrixCanvas');
         if (mainCanvas) {
@@ -427,6 +435,71 @@ class MatrixKernel {
     }
 
     /**
+     * Sets up Tap to Spawn: click/touch on canvas triggers quantized effects at that location.
+     * @private
+     */
+    _setupTapToSpawn() {
+        this._tapToSpawnIndex = 0;
+
+        const handleTap = (clientX, clientY) => {
+            if (!this.config.state.tapToSpawnEnabled) return;
+
+            // Build rotation list of effects with TapToSpawn enabled
+            const quantizedEffects = [
+                { name: 'QuantizedPulse', prefix: 'quantizedPulse' },
+                { name: 'QuantizedAdd', prefix: 'quantizedAdd' },
+                { name: 'QuantizedRetract', prefix: 'quantizedRetract' },
+                { name: 'QuantizedClimb', prefix: 'quantizedClimb' },
+                { name: 'QuantizedZoom', prefix: 'quantizedZoom' },
+                { name: 'QuantizedBlockGenerator', prefix: 'quantizedGenerateV2' }
+            ];
+
+            const eligible = quantizedEffects.filter(e =>
+                this.config.state[e.prefix + 'Enabled'] &&
+                this.config.state[e.prefix + 'TapToSpawn']
+            );
+            if (eligible.length === 0) return;
+
+            // Cycle through eligible effects
+            this._tapToSpawnIndex = this._tapToSpawnIndex % eligible.length;
+            const chosen = eligible[this._tapToSpawnIndex];
+            this._tapToSpawnIndex = (this._tapToSpawnIndex + 1) % eligible.length;
+
+            // Convert screen coordinates to block-grid position
+            const d = this.config.derived;
+            const s = this.config.state;
+            const bs = this.effectRegistry.get(chosen.name);
+            if (!bs) return;
+            const blockSize = bs.getBlockSize ? bs.getBlockSize() : { w: 4, h: 4 };
+            const cellW = d.cellWidth || 14;
+            const cellH = d.cellHeight || 28;
+
+            // Convert viewport pixel position to block-grid coordinates
+            // cellW/cellH are in logical (post-stretch) space, so divide by stretch to convert
+            const bx = clientX / (cellW * blockSize.w * s.stretchX);
+            const by = clientY / (cellH * blockSize.h * s.stretchY);
+
+            this.effectRegistry.trigger(chosen.name, true, { bx, by, x: clientX, y: clientY });
+        };
+
+        // Click handler on the canvas
+        document.addEventListener('click', (e) => {
+            // Don't trigger if clicking on UI elements
+            if (e.target.closest('#settingsPanel') || e.target.closest('#menuToggle') || e.target.closest('.ui-overlay') || e.target.closest('button')) return;
+            handleTap(e.clientX, e.clientY);
+        });
+
+        // Touch handler
+        document.addEventListener('touchend', (e) => {
+            if (e.target.closest('#settingsPanel') || e.target.closest('#menuToggle') || e.target.closest('.ui-overlay') || e.target.closest('button')) return;
+            if (e.changedTouches && e.changedTouches.length > 0) {
+                const touch = e.changedTouches[0];
+                handleTap(touch.clientX, touch.clientY);
+            }
+        });
+    }
+
+    /**
      * Sets up subscriptions to configuration changes that trigger UI or rendering updates.
      * @private
      */
@@ -547,16 +620,19 @@ class MatrixKernel {
      * @private
      */
     async _chunkedPreallocate() {
-        // Tint loading screen to match the user's configured stream color
         const overlay = document.getElementById('loadingOverlay');
-        if (overlay) {
+
+        // Skip Intro: hide the overlay immediately so "The Matrix Has You" is never visible
+        if (this.config.get('skipIntro')) {
+            if (overlay) overlay.style.display = 'none';
+        } else if (overlay) {
+            // Tint loading screen to match the user's configured stream color
             const streamColor = this.config.state.streamColor || '#65d778';
             overlay.style.color = streamColor;
             overlay.style.textShadow = `0 0 8px ${streamColor}44, 0 0 20px ${streamColor}44`;
+            // Start the ellipsis animation on the loading overlay
+            this._startLoadingDots();
         }
-
-        // Start the ellipsis animation on the loading overlay
-        this._startLoadingDots();
 
         // Yield a frame so the loading screen paints before we start heavy work
         await new Promise(r => requestAnimationFrame(r));

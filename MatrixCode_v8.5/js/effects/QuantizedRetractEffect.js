@@ -26,7 +26,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
         this.swapTimer = 0;
     }
 
-    trigger(force = false) {
+    trigger(force = false, spawnPosition = null) {
         // 1. Strict Active Check
         if (this.active && !force) return false;
 
@@ -41,10 +41,7 @@ class QuantizedRetractEffect extends QuantizedBaseEffect {
             }
         }
 
-        if (!super.trigger(force)) return false;
-        
-        this.offsetX = 0.0; 
-        this.offsetY = 0.0;
+        if (!super.trigger(force, spawnPosition)) return false;
 
         this._initShadowWorld();
 

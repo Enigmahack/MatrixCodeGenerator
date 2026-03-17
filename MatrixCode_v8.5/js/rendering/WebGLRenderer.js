@@ -511,6 +511,8 @@ class WebGLRenderer {
                 uniform float u_refractionOffset;
                 uniform float u_refractionGlow;
                 uniform float u_refractionOpacity;
+                uniform bool u_refractionUnwrap;
+                uniform float u_refractionMaskScale;
 
                 uniform float u_varianceEnabled;
                 uniform float u_varianceAmount;
@@ -671,14 +673,14 @@ class WebGLRenderer {
                                 float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
                                 if (abs(o0NW - o0NE) > 0.5 && d < minDistA) {
                                     minDistA = d; float sx = (o0NE > o0NW) ? 1.0 : -1.0;
-                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
+                                    reflPA = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0NW, l0NE);
                                     bestEdgeIA = nearestI + vec2(0.0, -1.0); bestTypeA = 1.0;
                                 }
 
                                 float o123NW = max(o1NW, o23NW), o123NE = max(o1NE, o23NE);
                                 if (abs(o123NW - o123NE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o123NE > o123NW) ? 1.0 : -1.0;
-                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1NW, l1NE), max(l23NW, l23NE));
+                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1NW, l1NE), max(l23NW, l23NE));
                                     float l0occ = (o123NE > o123NW) ? l0NE : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI + vec2(0.0, -1.0); bestTypeB = 1.0;
@@ -689,14 +691,14 @@ class WebGLRenderer {
                                 float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
                                 if (abs(o0SW - o0SE) > 0.5 && d < minDistA) {
                                     minDistA = d; float sx = (o0SE > o0SW) ? 1.0 : -1.0;
-                                    reflPA = vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
+                                    reflPA = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaA = max(l0SW, l0SE);
                                     bestEdgeIA = nearestI; bestTypeA = 1.0;
                                 }
 
                                 float o123SW = max(o1SW, o23SW), o123SE = max(o1SE, o23SE);
                                 if (abs(o123SW - o123SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sx = (o123SE > o123SW) ? 1.0 : -1.0;
-                                    reflPB = vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1SW, l1SE), max(l23SW, l23SE));
+                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1SW, l1SE), max(l23SW, l23SE));
                                     float l0occ = (o123SE > o123SW) ? l0SE : l0SW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI; bestTypeB = 1.0;
@@ -707,14 +709,14 @@ class WebGLRenderer {
                                 float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
                                 if (abs(o0NW - o0SW) > 0.5 && d < minDistA) {
                                     minDistA = d; float sy = (o0SW > o0NW) ? 1.0 : -1.0;
-                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
+                                    reflPA = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NW, l0SW);
                                     bestEdgeIA = nearestI + vec2(-1.0, 0.0); bestTypeA = 0.0;
                                 }
 
                                 float o123NW = max(o1NW, o23NW), o123SW = max(o1SW, o23SW);
                                 if (abs(o123NW - o123SW) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o123SW > o123NW) ? 1.0 : -1.0;
-                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NW, l1SW), max(l23NW, l23SW));
+                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NW, l1SW), max(l23NW, l23SW));
                                     float l0occ = (o123SW > o123NW) ? l0SW : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI + vec2(-1.0, 0.0); bestTypeB = 0.0;
@@ -725,14 +727,14 @@ class WebGLRenderer {
                                 float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
                                 if (abs(o0NE - o0SE) > 0.5 && d < minDistA) {
                                     minDistA = d; float sy = (o0SE > o0NE) ? 1.0 : -1.0;
-                                    reflPA = vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
+                                    reflPA = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaA = max(l0NE, l0SE);
                                     bestEdgeIA = nearestI; bestTypeA = 0.0;
                                 }
 
                                 float o123NE = max(o1NE, o23NE), o123SE = max(o1SE, o23SE);
                                 if (abs(o123NE - o123SE) > 0.5 && d < minDistB) {
                                     minDistB = d; float sy = (o123SE > o123NE) ? 1.0 : -1.0;
-                                    reflPB = vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NE, l1SE), max(l23NE, l23SE));
+                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NE, l1SE), max(l23NE, l23SE));
                                     float l0occ = (o123SE > o123NE) ? l0SE : l0NE;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI; bestTypeB = 0.0;
@@ -751,7 +753,7 @@ class WebGLRenderer {
                                     vec2 rLP_ = nearestI + reflP_ / (u_cellPitch * u_screenStep); \
                                     vec2 rFrac_ = fract(rLP_); \
                                     float wE_ = 1.0 / max(1.0 + u_refractionCompression * refrBell_, 0.001); \
-                                    vec2 rCent_ = rFrac_ * 2.0 - 1.0; \
+                                    vec2 rCent_ = clamp((rFrac_ * 2.0 - 1.0) / u_refractionMaskScale, -1.0, 1.0); \
                                     vec2 wLP_ = floor(rLP_) + (sign(rCent_) * pow(abs(rCent_), vec2(wE_)) + 1.0) * 0.5; \
                                     vec2 rGP_ = (wLP_ - u_blockOffset + u_userBlockOffset) * u_cellPitch; \
                                     vec2 rSP_ = rGP_ * u_screenStep + u_screenOrigin; \
@@ -2244,6 +2246,8 @@ class WebGLRenderer {
             u_refractionOffset:      fxState.refractionOffset,
             u_refractionGlow:        fxState.refractionGlow,
             u_refractionOpacity:     fxState.refractionOpacity,
+            u_refractionUnwrap:      fxState.refractionUnwrap,
+            u_refractionMaskScale:   fxState.refractionMaskScale,
             u_compressionThreshold:  fxState.compressionThreshold
         };
 

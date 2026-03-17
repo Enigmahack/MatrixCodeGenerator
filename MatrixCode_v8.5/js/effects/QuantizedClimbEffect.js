@@ -21,7 +21,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
         this.swapTimer = 0;
     }
 
-    trigger(force = false) {
+    trigger(force = false, spawnPosition = null) {
         // 1. Strict Active Check
         if (this.active && !force) return false;
 
@@ -36,7 +36,7 @@ class QuantizedClimbEffect extends QuantizedBaseEffect {
             }
         }
 
-        if (!super.trigger(force)) return false;
+        if (!super.trigger(force, spawnPosition)) return false;
 
         this._initShadowWorld();
 

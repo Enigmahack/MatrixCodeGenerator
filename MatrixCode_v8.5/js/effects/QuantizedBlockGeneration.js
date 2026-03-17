@@ -5,9 +5,9 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
         this.configPrefix = "quantizedGenerateV2";
     }
 
-    trigger(force = false) {
-        // super.trigger(force = false) now handles scx/scy adjustment and sequence loading
-        if (!super.trigger(force)) return false;
+    trigger(force = false, spawnPosition = null) {
+        // super.trigger() now handles scx/scy adjustment and sequence loading
+        if (!super.trigger(force, spawnPosition)) return false;
         
         // If we have no sequence, start generating immediately.
         // Otherwise, super.trigger(force = false) put us in FADE_IN which transitions to SUSTAIN (PLAYBACK).

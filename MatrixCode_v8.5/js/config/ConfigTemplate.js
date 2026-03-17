@@ -36,6 +36,8 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Advanced', id: 'GlassRefractionOffset', type: 'range', label: 'Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Shifts the peak of the refraction band away from the edge center.", tags: ['shift', 'position'] },
     { sub: 'Line Advanced', id: 'GlassRefractionGlow', type: 'range', label: 'Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Additive glow emission at the refraction peak.", tags: ['bloom', 'glow'] },
     { sub: 'Line Advanced', id: 'GlassRefractionOpacity', type: 'range', label: 'Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Overall opacity of the refraction lines. 1 is fully opaque, 0 is fully transparent.", tags: ['alpha', 'transparency'] },
+    { sub: 'Line Advanced', id: 'GlassRefractionUnwrap', type: 'checkbox', label: 'Unwrap Lines', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Replaces the internal/external reflection with a simple overlay. The line mask shape and positioning remain the same, but the sampled content is taken from the original position instead of being mirrored.", tags: ['overlay', 'flat', 'simple'] },
+    { sub: 'Line Advanced', id: 'GlassRefractionMaskScale', type: 'range', label: 'Mask Scale', min: 0.5, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Scales the sampled characters inside the refraction band. 1 is normal size, values below 1 shrink characters, values above 1 enlarge them. The mask shape, width, and offset are unaffected.", tags: ['zoom', 'scale', 'size'] },
 
     { sub: 'Line Advanced', sub_header: 'Color & Composition', id: 'LineGfxTintOffset', type: 'range', label: 'Tint offset', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts.", tags: ['hue', 'tint', 'color'] },
     { sub: 'Line Advanced', id: 'LineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: "Boosts color saturation of the lines.", tags: ['vivid', 'color'] },
@@ -111,8 +113,12 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
     const settings = [
         { cat: 'Effects', type: 'accordion_subheader', label: 'Options', dep: effectDep },
         { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled', dep: effectDep, tier: 'basic', tags: ['auto', 'on'] },
-        ...(prefix !== 'quantizedGenerateV2' ? [{ cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] }] : []),
-        
+        { cat: 'Effects', id: prefix + "TapToSpawn", type: 'checkbox', label: 'Include in Tap to Spawn', dep: [effectDep, prefix + "Enabled", 'tapToSpawnEnabled'], tier: 'basic', description: 'Include this effect in the Tap to Spawn rotation.', tags: ['touch', 'click', 'spawn'] },
+        ...(prefix !== 'quantizedGenerateV2' ? [
+            { cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] },
+            { cat: 'Effects', id: prefix + "RandomStart", type: 'checkbox', label: 'Random Start Location', dep: [effectDep, prefix + "Enabled", prefix + "GeneratorTakeover", '!tapToSpawnEnabled'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen instead of the screen center.', tags: ['random', 'position'] },
+        ] : []),
+
         { cat: 'Effects', type: 'sub_accordion', label: 'Look Settings', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 600, step: 5, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'auto'] },
         { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'length'] },
@@ -419,6 +425,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', tier: 'basic', tags: ['error', 'stop', 'action'] },
 
     { cat: 'Effects', type: 'accordion_header', label: 'Resurrections', startOpen: true },
+    { cat: 'Effects', id: 'tapToSpawnEnabled', type: 'checkbox', label: 'Tap to Spawn', tier: 'basic', description: 'When enabled, clicking or tapping the screen triggers quantized effects at that location. Enabled effects cycle through on consecutive taps.', tags: ['touch', 'click', 'spawn', 'interactive'] },
 
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse',     action: 'quantizedPulse',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedPulse',         tier: 'basic', tags: ['quantizedpulse', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add',       action: 'quantizedAdd',            class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedAdd',           tier: 'basic', tags: ['quantizedadd', 'action', 'trigger'] },
@@ -441,10 +448,18 @@ const ConfigTemplate = [
     ...generateQuantizedEffectSettings('quantizedClimb', 'Quantized Climb', 'quantizedClimb'),
     ...generateQuantizedEffectSettings('quantizedZoom', 'Quantized Zoom', 'quantizedZoom'),
 
+    { cat: 'Effects', type: 'sub_accordion', label: 'Zoom Settings', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled'] },
+    { cat: 'Effects', id: 'quantizedZoomZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled'], tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'] },
+    { cat: 'Effects', id: 'quantizedZoomOpacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'] },
+    { cat: 'Effects', id: 'quantizedZoomZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'] },
+    { cat: 'Effects', id: 'quantizedZoomMaxScale', type: 'range', label: 'Max Zoom', min: 1.0, max: 2.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'advanced', description: 'Maximum zoom magnification. The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'] },
+    { cat: 'Effects', id: 'quantizedZoomDelay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'] },
+    { cat: 'Effects', type: 'end_group' },
+
     ...generateQuantizedEffectSettings('quantizedGenerateV2', 'Quantized Block Generator', 'QuantizedBlockGenerator'),
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Generation Settings', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2RandomStart', type: 'checkbox', label: 'Random Start Location', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2RandomStart', type: 'checkbox', label: 'Random Start Location', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', '!tapToSpawnEnabled'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
     { cat: 'Effects', id: 'quantizedGenerateV2AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
     { cat: 'Effects', id: 'quantizedGenerateV2GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
     { cat: 'Effects', id: 'quantizedGenerateV2SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },

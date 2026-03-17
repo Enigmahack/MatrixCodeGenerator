@@ -3,460 +3,243 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         super(g, c, r);
         this.name = "QuantizedZoom";
         this.active = false;
-        
+
         this.configPrefix = "quantizedZoom";
 
         // Simulation State
         this.timer = 0;
-        this.state = 'IDLE'; // IDLE, FADE_IN, SUSTAIN, FADE_OUT
-        this.alpha = 0.0;
+        this.state = 'IDLE';
+        this.alpha = 1.0;
 
-        // Sequence State
-        this.sequence = [[]];
-        this.expansionPhase = 0;
-        this.maskOps = [];
+        // Zoom State
+        this.zoomScale = 0.5;
+        this._zoomProgress = 0;
+        this.spawnX = 0;
+        this.spawnY = 0;
+        this._zoomOpacity = 1.0;
 
-        // Zoom Effect State
-        this.snapshotCanvas = null;
-        this.zoomScale = 1.0;
-        this.hasCaptured = false;
-
-        // Logic Grid expansion for safety (like GenerateEffect)
-        this.logicScale = 1.2;
-
-        // Shadow world for Zoom is a frozen snapshot of the falling code,
-        // captured once at trigger time and scaled/zoomed as blocks expand.
-        // We don't use the live shadow simulation (QuantizedShadow controller).
-        this.useShadowWorld = false;
+        // Snapshot (frozen image captured once)
+        this._snapshotCanvas = null;
+        this._snapshotCtx = null;
+        this._snapshotCaptured = false;
     }
 
     // Zoom only uses Layer 1 — no multi-layer promotion or L0 persistence.
     getConfig(key) {
         if (key === 'SingleLayerMode') return true;
         if (key === 'LayerPromotionEnabled') return false;
+        if (key === 'GeneratorTakeover') return true;
+        if (key === 'FadeInFrames' || key === 'FadeFrames') return 0;
         return super.getConfig(key);
     }
 
-    trigger(force = false) {
-        // 1. Strict Active Check
+    trigger(force = false, spawnPosition = null) {
         if (this.active && !force) return false;
 
-        // 2. Mutually Exclusive Lock
+        // Mutually Exclusive Lock
         if (window.matrix && window.matrix.effectRegistry) {
             const siblings = ["QuantizedPulse", "QuantizedAdd", "QuantizedRetract", "QuantizedClimb"];
             for (const name of siblings) {
                 const eff = window.matrix.effectRegistry.get(name);
-                if (eff && eff.active) {
-                    return false;
-                }
+                if (eff && eff.active) return false;
             }
         }
 
-        if (!super.trigger(force)) return false;
+        this.sequence = [[]];
 
-        this.state = 'FADE_IN';
-        this.timer = 0;
-        this.alpha = 0.0;
-        this.hasCaptured = false;
-        this.zoomScale = 1.0;
-        this.zoomProgress = 0;
+        this.spawnX = spawnPosition && typeof spawnPosition.x === 'number' ? spawnPosition.x : window.innerWidth / 2;
+        this.spawnY = spawnPosition && typeof spawnPosition.y === 'number' ? spawnPosition.y : window.innerHeight / 2;
 
-        // 1. Initialize Grid Dimensions First
-        this._initLogicGrid();
-        
-        if (this.useShadowWorld) {
-            this.expansionPhase = 0;
-            this.cycleTimer = 0;
-            this.cyclesCompleted = 0;
-            this.manualStep = false;
+        if (!super.trigger(force, spawnPosition)) return false;
 
-            this._initShadowWorld();
-        }
+        this.zoomScale = 0.5;
+        this._zoomProgress = 0;
+        this._zoomOpacity = 1.0;
+        this._snapshotCaptured = false;
 
-        // 2. Capture Current State
-        this._captureSnapshot();
-        
-        // 3. Generate Expansion Sequence (Bottom Center)
-        if (typeof QuantizedSequenceGenerator !== 'undefined') {
-            const generator = new QuantizedSequenceGenerator(this.c.state);
-            
-            // Use erosion/innerLine logic to match GenerateEffect style
-            // Allow Zoom-specific config, fallback to standard Generate defaults (0.2, 1)
-            const erosionRate = (this.c.state.quantizedZoomErosionRate !== undefined) ? this.c.state.quantizedZoomErosionRate : 0.2;
-            const innerLineDuration = (this.c.state.quantizedZoomInnerLineDuration !== undefined) ? this.c.state.quantizedZoomInnerLineDuration : 1;
-            
-            // Calculate seed position relative to the screen within the scaled grid
-            // logicGridH is 3.0x screen height. We want to start at the bottom of the screen portion.
-            const bs = this.getBlockSize();
-            const cellPitchY = Math.max(1, bs.h);
-            const blocksY = Math.ceil(this.g.rows / cellPitchY); // Screen height in blocks
-            const scaledH = this.logicGridH;
-            const offY = Math.floor((scaledH - blocksY) / 2); // Top offset
-            
-            const seedX = Math.floor(this.logicGridW / 2);
-            // Start at the bottom of the visible screen area (offY + blocksY)
-            const seedY = Math.min(this.logicGridH - 1, offY + blocksY); 
-            
-            // Check for pre-loaded animation sequence (from super.trigger loading matrixPatterns)
-            let initialSequence = null;
-            if (this.sequence && this.sequence.length > 1) {
-                initialSequence = this.sequence;
-            }
-
-                        this.sequence = generator.generate(this.logicGridW, this.logicGridH, 1000, {
-                            seedX, 
-                            seedY,
-                            erosionRate, 
-                            innerLineDuration,
-                            initialSequence
-                        });            this._log(`[QuantizedZoom] Sequence: ${this.sequence.length} steps.`);
-        } else {
-            this._error("QuantizedSequenceGenerator not found!");
-            this.active = false;
-            return false;
-        }
-
+        this._initShadowWorld();
         if (this.renderGrid) this.renderGrid.fill(-1);
 
         return true;
     }
 
+    /**
+     * Captures a single frozen snapshot of the currently visible code.
+     * One-time cost at trigger; never updated again.
+     */
     _captureSnapshot() {
+        const g = this.g;
         const d = this.c.derived;
         const s = this.c.state;
-        
-        // 1. Setup 3x Resolution Grid
-        const factor = 3;
-        const cols = this.g.cols * factor;
-        const rows = this.g.rows * factor;
-        
-        // Create Temp Grid
-        const tempGrid = new CellGrid(this.c);
-        
-        // Calculate dimensions matching 3x grid
-        const pixelW = cols * d.cellWidth;
-        const pixelH = rows * d.cellHeight;
-        
-        tempGrid.resize(pixelW, pixelH); 
-        
-        // Create Temp Simulation
-        const tempSim = new SimulationSystem(tempGrid, this.c, false);
-        tempSim.useWorker = false;
-        
-        // Initialize Stream Manager with high density
-        const sm = tempSim.streamManager;
-        sm.resize(tempGrid.cols);
-        tempSim.timeScale = 1.0;
-        
-        // Populate Simulation (Fast Warmup)
-        // High density injection (300% density - 3 streams per column on average)
-        const densityMultiplier = 3.0; 
-        const injectionCount = Math.floor(tempGrid.cols * densityMultiplier);
-        
-        for (let k = 0; k < injectionCount; k++) {
-            const col = Math.floor(Math.random() * tempGrid.cols);
-            // Distribute startY to create full screen coverage immediately
-            const startY = Math.floor(Math.random() * (tempGrid.rows + 20)) - 10; 
-            
-            const isEraser = Math.random() < 0.15; 
-            const stream = sm._initializeStream(col, isEraser, s);
-            stream.y = startY;
-            
-            // Randomize trail length significantly (0.5x to 3.0x) for variety
-            stream.visibleLen = Math.floor(stream.visibleLen * (0.5 + Math.random() * 2.5));
-            
-            // Manually set age to ensure immediate visibility if needed
-            sm.addActiveStream(stream);
-        }
-        
-        // Run Warmup
-        // Optimization: Reduced frames from 120 to 30. 
-        // 120 frames at 3x resolution was causing a >1.5s freeze.
-        const warmupFrames = 30; 
-        for (let i = 0; i < warmupFrames; i++) {
-            // Force fade logic to run by updating simulation fully
-            tempSim.update(i);
-            
-            // Inject CONTINUOUS streams during warmup to maintain density
-            if (i % 3 === 0) {
-                 const refillCount = Math.floor(tempGrid.cols * 0.05); // Refill 5% every 3 frames
-                 for(let r=0; r<refillCount; r++) {
-                     const col = Math.floor(Math.random() * tempGrid.cols);
-                     const stream = sm._initializeStream(col, Math.random() < 0.15, s);
-                     stream.y = 0; 
-                     // Apply same variance to refill
-                     stream.visibleLen = Math.floor(stream.visibleLen * (0.5 + Math.random() * 2.5));
-                     sm.addActiveStream(stream);
-                 }
-            }
-        }
-        
-        // 2. Render to Snapshot Canvas
-        const snapW = tempGrid.cols * d.cellWidth;
-        const snapH = tempGrid.rows * d.cellHeight;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
 
-        if (!this.snapshotCanvas) {
-            this.snapshotCanvas = document.createElement('canvas');
+        if (!this._snapshotCanvas) {
+            this._snapshotCanvas = document.createElement('canvas');
+            this._snapshotCtx = this._snapshotCanvas.getContext('2d');
         }
-        this.snapshotCanvas.width = snapW;
-        this.snapshotCanvas.height = snapH;
-        
-        const ctx = this.snapshotCanvas.getContext('2d');
+        this._snapshotCanvas.width = w;
+        this._snapshotCanvas.height = h;
 
-        // Fill Background
-        ctx.fillStyle = s.backgroundColor;
-        ctx.fillRect(0, 0, snapW, snapH);
-        
-        // Setup Secondary Transparent Canvas for Border Tinting
-        if (!this.charSnapshotCanvas) {
-            this.charSnapshotCanvas = document.createElement('canvas');
+        if (!QuantizedBaseEffect.sharedAtlas) {
+            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
         }
-        this.charSnapshotCanvas.width = snapW;
-        this.charSnapshotCanvas.height = snapH;
-        const charCtx = this.charSnapshotCanvas.getContext('2d');
-        charCtx.clearRect(0, 0, snapW, snapH);
-        
-        // Setup Font
-        const visualFontSize = s.fontSize;
-        const style = s.italicEnabled ? 'italic ' : '';
-        const weight = s.fontWeight;
-        const family = s.fontFamily;
-        const fontStr = `${style}${weight} ${visualFontSize}px ${family}`;
-        
-        ctx.font = fontStr;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        charCtx.font = fontStr;
-        charCtx.textAlign = 'center';
-        charCtx.textBaseline = 'middle';
-        
+        const atlas = QuantizedBaseEffect.sharedAtlas;
+        atlas.update();
+
+        const ctx = this._snapshotCtx;
+        const cols = g.cols;
+        const rows = g.rows;
         const cellW = d.cellWidth;
         const cellH = d.cellHeight;
-        const halfW = cellW / 2;
-        const halfH = cellH / 2;
-        
-        // Render pass: Column-based scanning
-        for (let x = 0; x < tempGrid.cols; x++) {
-            let currentRun = [];
-            
-            // Scan from bottom to top to find streams
-            for (let y = tempGrid.rows - 1; y >= 0; y--) {
-                const idx = y * tempGrid.cols + x;
-                const char = tempGrid.chars[idx];
-                
-                // Check if cell is occupied (char > 32)
-                if (char > 32) {
-                    currentRun.push({y, idx, char, color: tempGrid.colors[idx]});
-                } else {
-                    // End of a run (or empty space)
-                    if (currentRun.length > 0) {
-                        this._drawStreamRun(ctx, currentRun, cellW, cellH, halfW, halfH, x);
-                        this._drawStreamRun(charCtx, currentRun, cellW, cellH, halfW, halfH, x);
-                        currentRun = [];
-                    }
-                }
-            }
-            // Flush remaining run at top
-            if (currentRun.length > 0) {
-                this._drawStreamRun(ctx, currentRun, cellW, cellH, halfW, halfH, x);
-                this._drawStreamRun(charCtx, currentRun, cellW, cellH, halfW, halfH, x);
+        const chars = g.chars;
+
+        const originX = (w * 0.5) - (cols * cellW * 0.5 * s.stretchX);
+        const originY = (h * 0.5) - (rows * cellH * 0.5 * s.stretchY);
+
+        const colors = g.colors;
+        const alphas = g.alphas;
+        const maxSize = s.fontSize + (s.tracerSizeIncrease || 0);
+        const style = s.italicEnabled ? 'italic ' : '';
+        const fontStr = `${style}${s.fontWeight} ${maxSize}px ${s.fontFamily}`;
+
+        ctx.save();
+        ctx.translate(originX, originY);
+        if (s.stretchX !== 1 || s.stretchY !== 1) ctx.scale(s.stretchX, s.stretchY);
+        ctx.font = fontStr;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+
+        for (let y = 0; y < rows; y++) {
+            const rowOff = y * cols;
+            const cy = (y + 0.5) * cellH;
+            for (let x = 0; x < cols; x++) {
+                const i = rowOff + x;
+                const charCode = chars[i];
+                if (charCode <= 32) continue;
+                const a = alphas ? alphas[i] : 1.0;
+                if (a < 0.01) continue;
+
+                const c = colors[i];
+                const r = c & 0xFF;
+                const gr = (c >> 8) & 0xFF;
+                const b = (c >> 16) & 0xFF;
+
+                ctx.globalAlpha = a;
+                ctx.fillStyle = `rgb(${r},${gr},${b})`;
+                ctx.fillText(String.fromCharCode(charCode), (x + 0.5) * cellW, cy);
             }
         }
-        
-        this.hasCaptured = true;
-        // Cleanup
-        tempSim.grid = null;
-    }
-
-    _drawStreamRun(ctx, run, cellW, cellH, halfW, halfH, colX) {
-        const runLen = run.length;
-        // Filter: Ignore isolated noise for Tracer logic
-        // If run is very short, render it faint and uniform, NO white head.
-        const isValidStream = runLen >= 4; 
-        
-        for (let i = 0; i < runLen; i++) {
-            const cell = run[i];
-            const isHead = (i === 0);
-            
-            let r, g, b, alpha;
-            
-            if (isValidStream && isHead) {
-                // White Tracer
-                r = 255; g = 255; b = 255;
-                alpha = 1.0;
-            } else {
-                // Tail / Body
-                const cVal = cell.color;
-                r = cVal & 0xFF;
-                g = (cVal >> 8) & 0xFF;
-                b = (cVal >> 16) & 0xFF;
-
-                if (!isValidStream) {
-                    // Debris: Faint, uniform
-                    alpha = 0.3;
-                } else {
-                    // Fade Calculation
-                    // i=1 is right after head. i=runLen-1 is tail tip.
-                    // Normalize position 0.0 (near head) to 1.0 (tip)
-                    // We exclude the head (i=0) from this range
-                    const tailPos = (i - 1) / Math.max(1, runLen - 1);
-                    
-                    // Quadratic Fade: Starts at 1.0, curves down to 0.0
-                    // alpha = (1 - x)^2
-                    alpha = Math.pow(1.0 - tailPos, 2);
-                    
-                    // Boost min alpha slightly so body isn't invisible immediately
-                    // But tail tip goes to 0
-                    if (alpha < 0.05) alpha = 0; 
-                }
-            }
-            
-            if (alpha <= 0.01) continue;
-
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = `rgb(${r},${g},${b})`;
-            
-            const cx = (colX * cellW) + halfW;
-            const cy = (cell.y * cellH) + halfH;
-            
-            ctx.fillText(String.fromCharCode(cell.char), cx, cy);
-        }
+        ctx.restore();
+        this._snapshotCaptured = true;
     }
 
     update() {
         if (!this.active) return;
 
-        // Handle unique zoom logic before or after base update
         super.update();
 
-        if (this.active && this.state !== 'WAITING') {
-            const s = this.c.state;
-            const zoomDelayFrames = (s.quantizedZoomDelay !== undefined) ? s.quantizedZoomDelay * 60 : 0;
-            const zoomRate = (s.quantizedZoomZoomRate !== undefined) ? s.quantizedZoomZoomRate : 1.0;
-            
-            if (this.timer >= zoomDelayFrames) {
-                 if (!this.zoomProgress) this.zoomProgress = 0;
-                 this.zoomProgress += 0.005 * zoomRate; 
-                 const t = Math.min(1.0, this.zoomProgress);
-                 const smoothT = t * t * (3 - 2 * t);
-                 this.zoomScale = 1.0 + (3.0 * smoothT);
+        const s = this.c.state;
+
+        // Capture snapshot once after a few warmup frames
+        if (!this._snapshotCaptured && this.animFrame > 5) {
+            this._captureSnapshot();
+        }
+
+        // Progress zoom scale and opacity
+        if (this.state !== 'WAITING' && s.quantizedZoomZoomEnabled) {
+            const delayFrames = (s.quantizedZoomDelay || 0) * 60;
+            const rate = s.quantizedZoomZoomRate || 1.0;
+            const minScale = 0.5;
+            const maxScale = s.quantizedZoomMaxScale || 1.5;
+
+            if (this.animFrame >= delayFrames) {
+                this._zoomProgress += 0.005 * rate;
+                const t = Math.min(1.0, this._zoomProgress);
+                const smoothT = t * t * (3 - 2 * t);
+                this.zoomScale = minScale + ((maxScale - minScale) * smoothT);
+
+                // Fade out as zoom progresses
+                const baseOpacity = s.quantizedZoomOpacity ?? 1.0;
+                this._zoomOpacity = baseOpacity * (1.0 - smoothT);
             } else {
-                 this.zoomScale = 1.0;
+                this.zoomScale = minScale;
+                this._zoomOpacity = s.quantizedZoomOpacity ?? 1.0;
             }
         }
     }
 
-
-    // _updateMask removed to use Base implementation
-
+    /**
+     * Override render to draw the frozen zoomed snapshot onto the overlay canvas.
+     * Uses a clip path from revealed blocks — no scratch canvas or compositing modes.
+     */
     render(ctx, d) {
-        if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
-        if (!this.hasCaptured || !this.snapshotCanvas) return;
+        // Let the base handle gridCache for WebGL perimeter line texture
+        super.render(ctx, d);
+
+        if (!this._snapshotCaptured || this._zoomOpacity < 0.01) return;
 
         const s = this.c.state;
-        const isWebGL = (s.renderingEngine === 'webgl');
+        const w = ctx.canvas.width;
+        const h = ctx.canvas.height;
 
-        // --- WebGL FAST PATH ---
-        // GPU handles lines via _renderQuantizedLineGfx; we only need layout + grid cache.
-        if (isWebGL) {
-            this._checkDirtiness();
-            const width = ctx.canvas.width;
-            const height = ctx.canvas.height;
-            this._ensureCanvases(width, height);
-            if (this._maskDirty) {
-                this.renderer._computeLayoutOnly(this, width, height, s, d);
-                this._maskDirty = false;
+        const srGrid = this.shadowRevealGrid;
+        if (!srGrid) return;
+        const blocksX = this.logicGridW;
+        const blocksY = this.logicGridH;
+        if (!blocksX || !blocksY) return;
+
+        const bs = this.getBlockSize();
+        const pitchX = Math.max(1, bs.w);
+        const pitchY = Math.max(1, bs.h);
+        const { offX, offY } = this._computeCenteredOffset(blocksX, blocksY, pitchX, pitchY);
+
+        const cellW = d.cellWidth;
+        const cellH = d.cellHeight;
+        const cols = this.g.cols;
+        const originX = (w * 0.5) - (cols * cellW * 0.5 * s.stretchX);
+        const originY = (h * 0.5) - (this.g.rows * cellH * 0.5 * s.stretchY);
+        const stepX = cellW * s.stretchX;
+        const stepY = cellH * s.stretchY;
+
+        // Build clip path from revealed blocks
+        ctx.save();
+        ctx.beginPath();
+        let hasClip = false;
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                if (srGrid[by * blocksX + bx] === 0) continue;
+                const px = originX + (bx - offX) * pitchX * stepX;
+                const py = originY + (by - offY) * pitchY * stepY;
+                ctx.rect(px, py, pitchX * stepX, pitchY * stepY);
+                hasClip = true;
             }
-            this._updateGridCache(width, height, s, d);
-            return;
         }
+        if (!hasClip) { ctx.restore(); return; }
+        ctx.clip();
 
-        // --- 2D Canvas Path ---
-        this._checkDirtiness();
-        this._updateRenderGridLogic();
+        // Draw zoomed + tiled snapshot within the clip
+        ctx.globalAlpha = this._zoomOpacity;
 
-        const width = ctx.canvas.width;
-        const height = ctx.canvas.height;
-        this._ensureCanvases(width, height);
+        const sx = this.spawnX;
+        const sy = this.spawnY;
+        const Z = this.zoomScale;
+        const snap = this._snapshotCanvas;
+        const sw = snap.width;
+        const sh = snap.height;
 
-        // --- MASK UPDATE ---
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-            this._updateMask(width, height, s, d);
-            this._maskDirty = false;
-        }
+        ctx.translate(sx, sy);
+        ctx.scale(Z, Z);
+        ctx.translate(-sx, -sy);
 
-        // --- GRID CACHE ---
-        const deferGridCache = (this.state === 'FADE_IN' && this.animFrame <= 3);
-        if (!deferGridCache) {
-            this._updateGridCache(width, height, s, d);
-        }
+        // 2x2 tiling: four copies meeting at the spawn point
+        ctx.drawImage(snap, sx - sw, sy - sh);
+        ctx.drawImage(snap, sx,      sy - sh);
+        ctx.drawImage(snap, sx - sw, sy);
+        ctx.drawImage(snap, sx,      sy);
 
-        const scratchCtx = this.scratchCtx;
-
-        // --- Zoom Interior: Background masked by block window ---
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-
-        scratchCtx.fillStyle = s.backgroundColor || '#000000';
-        scratchCtx.globalAlpha = 0.6;
-        scratchCtx.fillRect(0, 0, width, height);
-
-        scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.maskCanvas, 0, 0);
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = this.alpha;
-        ctx.drawImage(this.scratchCanvas, 0, 0);
         ctx.restore();
-
-        // --- Zoom Interior: Frozen snapshot scaled/zoomed, masked by block window ---
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-
-        const gridW = this.g.cols * d.cellWidth;
-        const gridH = this.g.rows * d.cellHeight;
-        const drawW = gridW * s.stretchX * this.zoomScale;
-        const drawH = gridH * s.stretchY * this.zoomScale;
-        const drawX = (width - drawW) / 2;
-        const drawY = (height - drawH) / 2;
-
-        scratchCtx.save();
-        scratchCtx.imageSmoothingEnabled = (this.zoomScale !== 1.0);
-        scratchCtx.globalAlpha = 1.0;
-        scratchCtx.drawImage(this.snapshotCanvas, drawX, drawY, drawW, drawH);
-        scratchCtx.restore();
-
-        scratchCtx.globalCompositeOperation = 'destination-in';
-        scratchCtx.drawImage(this.maskCanvas, 0, 0);
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = this.alpha;
-        ctx.drawImage(this.scratchCanvas, 0, 0);
-        ctx.restore();
-
-        // --- Lines and Echo: Same pipeline as all other effects ---
-        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
-        const showEcho = (s.layerEnablePerimeterEcho !== false);
-
-        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const alphaMult = lineGlow / 4.0;
-
-        const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const echoAlphaMult = echoGlow / 4.0;
-
-        if (lineGlow > 0 && showLines) {
-            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult, false);
-        }
-        if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
-        }
     }
 }
 
-
-
-
-
+if (typeof window !== 'undefined') window.QuantizedZoomEffect = QuantizedZoomEffect;
