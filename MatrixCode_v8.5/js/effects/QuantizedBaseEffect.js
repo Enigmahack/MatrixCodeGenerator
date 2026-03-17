@@ -656,16 +656,20 @@ class QuantizedBaseEffect extends AbstractEffect {
     _getLooselyCentralAnchors(targetLayer, sampleSize = 30) {
         const anchors = this.activeBlocks.filter(b => b.layer === targetLayer);
         if (anchors.length === 0) return [];
-        
+
+        const ox = this.behaviorState?.genOriginX ?? 0;
+        const oy = this.behaviorState?.genOriginY ?? 0;
+        const getDist = (b) => Math.abs(b.x - ox) + Math.abs(b.y - oy);
+
         if (anchors.length <= sampleSize) {
-            return anchors.sort((a, b) => a.dist - b.dist);
+            return anchors.sort((a, b) => getDist(a) - getDist(b));
         }
 
         const sample = [];
         for (let i = 0; i < sampleSize; i++) {
             sample.push(anchors[Math.floor(Math.random() * anchors.length)]);
         }
-        return sample.sort((a, b) => a.dist - b.dist);
+        return sample.sort((a, b) => getDist(a) - getDist(b));
     }
 
     _getEdgeAnchors(targetLayer, sampleSize = 30) {
@@ -962,8 +966,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     scx -= firstBlock.x;
                     scy -= firstBlock.y;
                 }
-                genOriginX = firstBlock.x;
-                genOriginY = firstBlock.y;
+                // genOrigin must be the absolute grid coordinate relative to center where growth starts.
+                // When tapped, this is scx + firstBlock.x (which equals the original tap-to-center offset).
+                genOriginX = scx + firstBlock.x;
+                genOriginY = scy + firstBlock.y;
             }
         } else if (spawnPosition || this.getConfig('RandomStart')) {
             // No sequence — the seed block must land at the tap/random position.
@@ -2685,14 +2691,24 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!this.rearrangePool) this.rearrangePool = Array.from({ length: 3 }, () => 0);
 
         // Ensure we have at least one anchor if starting fresh and requested
-        if (forceSeed && (!this.activeBlocks || this.activeBlocks.length === 0)) {
-            const isRandomStart = !!this.getConfig('RandomStart');
-            if (!isRandomStart) {
+        if (forceSeed) {
+            const manualOnly = !!this.getConfig('ManualSeedOnly');
+            if (manualOnly) return; // Explicit bypass for effects that manage their own seeding (like Zoom)
+
+            const maxLayer = this._getMaxLayer();
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
+            
+            // Fix: check if ANY blocks exist across ANY layer before spawning a seed.
+            // This prevents the 'center block' spawn if a tap-to-spawn sequence has already placed a block on Layer 1.
+            let needsSeed = true;
+            if (this.activeBlocks && this.activeBlocks.length > 0) {
+                needsSeed = false;
+            }
+
+            if (needsSeed) {
                 if (!this.activeBlocks) this.activeBlocks = [];
                 // Principle #3: Adhere to LayerCount setting.
-                // Seed the center block on all active layers to ensure they have an initial anchor.
-                const maxLayer = this._getMaxLayer();
-                const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
+                // Seed the focal point block on all active layers to ensure they have an initial anchor.
                 // Use the current generator focal point so manual placement is respected.
                 const ox = this.behaviorState?.genOriginX ?? 0;
                 const oy = this.behaviorState?.genOriginY ?? 0;
@@ -2704,8 +2720,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                     // Use skipConnectivity=true and bypassOccupancy=true for the initial seeds
                     this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
                 }
-            } else {
-                this.proceduralInitiated = false; // Allow re-init once a seed is manually placed or scheduled
             }
         }
     }
@@ -2894,6 +2908,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         const chance = 0.66, reversionChance = 0.15;
         const maxLayer = this._getMaxLayer();
 
+        const ox = this.behaviorState?.genOriginX ?? 0;
+        const oy = this.behaviorState?.genOriginY ?? 0;
+
         const bs = this.getBlockSize();
         const xVisible = Math.ceil(this.g.cols / bs.w / 2), yVisible = Math.ceil(this.g.rows / bs.h / 2);
         const xGrowthLimit = xVisible + 3, yGrowthLimit = yVisible + 3;
@@ -2921,18 +2938,18 @@ class QuantizedBaseEffect extends AbstractEffect {
             let finished = this.finishedBranches.has(spine.id);
             if (!finished) {
                 for (let l = 1; l <= maxLayer; l++) {
-                    let freeX = spine.dx;
+                    let freeX = ox + spine.dx;
                     while (true) {
-                        const val = getGridVal(l, freeX, 0);
-                        if (val === -2 || Math.abs(freeX) >= xFinishLimit) { if (l === maxLayer) finished = true; break; }
+                        const val = getGridVal(l, freeX, oy);
+                        if (val === -2 || Math.abs(freeX - ox) >= xFinishLimit) { if (l === maxLayer) finished = true; break; }
                         if (val === -1) break;
                         freeX += spine.dx;
                     }
-                    if (Math.abs(freeX) < xFinishLimit && Math.random() < chance) {
+                    if (Math.abs(freeX - ox) < xFinishLimit && Math.random() < chance) {
                         for (let b = 0; b < xBurst; b++) {
                             const tx = freeX + (b * spine.dx);
-                            if (getGridVal(l, tx, 0) === -1 && Math.abs(tx) <= xGrowthLimit) {
-                                if (this._spawnBlock(tx, 0, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            if (getGridVal(l, tx, oy) === -1 && Math.abs(tx - ox) <= xGrowthLimit) {
+                                if (this._spawnBlock(tx, oy, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
                             } else break;
                         }
                     }
@@ -2945,18 +2962,18 @@ class QuantizedBaseEffect extends AbstractEffect {
             let finished = this.finishedBranches.has(spine.id);
             if (!finished) {
                 for (let l = 1; l <= maxLayer; l++) {
-                    let freeY = spine.dy;
+                    let freeY = oy + spine.dy;
                     while (true) {
-                        const val = getGridVal(l, 0, freeY);
-                        if (val === -2 || Math.abs(freeY) >= yFinishLimit) { if (l === 1) finished = true; break; }
+                        const val = getGridVal(l, ox, freeY);
+                        if (val === -2 || Math.abs(freeY - oy) >= yFinishLimit) { if (l === 1) finished = true; break; }
                         if (val === -1) break;
                         freeY += spine.dy;
                     }
-                    if (Math.abs(freeY) < yFinishLimit && Math.random() < chance) {
+                    if (Math.abs(freeY - oy) < yFinishLimit && Math.random() < chance) {
                         for (let b = 0; b < yBurst; b++) {
                             const ty = freeY + (b * spine.dy);
-                            if (getGridVal(l, 0, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
-                                if (this._spawnBlock(0, ty, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
+                            if (getGridVal(l, ox, ty) === -1 && Math.abs(ty - oy) <= yGrowthLimit) {
+                                if (this._spawnBlock(ox, ty, 1, 1, l, false, 0, true, true, true, false, true) !== -1) successInStep = true;
                             } else break;
                         }
                     }
@@ -2967,19 +2984,17 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // --- Core Spines Logic: Catch up Layer 0/1 to follow leading layers ---
         for (const spine of xSpines) {
-            for (let x = spine.dx; Math.abs(x) <= xGrowthLimit; x += spine.dx) {
+            for (let x = ox + spine.dx; Math.abs(x - ox) <= xGrowthLimit; x += spine.dx) {
                 let anyLeading = false;
-                for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, 0) !== -1) anyLeading = true;
+                for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, oy) !== -1) anyLeading = true;
                 
-                // If promotion is enabled, Layer 1 must follow any leading sub-layers
-                // Layer 0 is ignored here as it follows Layer 1 via promotion.
                 const targetL = usePromotion ? 1 : 0;
-                if (getGridVal(targetL, x, 0) === -1 && anyLeading) {
+                if (getGridVal(targetL, x, oy) === -1 && anyLeading) {
                     if (Math.random() < chance) {
                         for (let b = 0; b < xBurst; b++) {
                             const tx = x + (b * spine.dx);
-                            if (getGridVal(targetL, tx, 0) === -1) { 
-                                if (this._spawnBlock(tx, 0, 1, 1, targetL, false, 0, true, true, true, false, true) !== -1) successInStep = true; 
+                            if (getGridVal(targetL, tx, oy) === -1) { 
+                                if (this._spawnBlock(tx, oy, 1, 1, targetL, false, 0, true, true, true, false, true) !== -1) successInStep = true; 
                             } else break;
                         }
                     }
@@ -2987,18 +3002,18 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
-        let minX = 0, maxX = 0;
-        for (let x = -1; ; x--) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { minX = x + 1; break; } }
-        for (let x = 1; ; x++) { if (getGridVal(maxLayer, x, 0) === -1 || getGridVal(maxLayer, x, 0) === -2) { maxX = x - 1; break; } }
+        let minX = ox, maxX = ox;
+        for (let x = ox - 1; ; x--) { if (getGridVal(maxLayer, x, oy) === -1 || getGridVal(maxLayer, x, oy) === -2) { minX = x + 1; break; } }
+        for (let x = ox + 1; ; x++) { if (getGridVal(maxLayer, x, oy) === -1 || getGridVal(maxLayer, x, oy) === -2) { maxX = x - 1; break; } }
         for (let x = minX; x <= maxX; x++) {
             const directions = [{ id: 'n', dy: -1 }, { id: 's', dy: 1 }];
             for (const d of directions) {
                 const branchId = `wing_${d.id}_${x}`;
-                let wingFinished = this.finishedBranches.has(branchId), wingFreeY = d.dy;
+                let wingFinished = this.finishedBranches.has(branchId), wingFreeY = oy + d.dy;
                 if (!wingFinished) {
                     while (true) {
                         const val = getGridVal(maxLayer, x, wingFreeY);
-                        if (val === -2 || Math.abs(wingFreeY) >= yFinishLimit) { wingFinished = true; this.finishedBranches.add(branchId); break; }
+                        if (val === -2 || Math.abs(wingFreeY - oy) >= yFinishLimit) { wingFinished = true; this.finishedBranches.add(branchId); break; }
                         if (val === -1) break; wingFreeY += d.dy;
                     }
                 }
@@ -3006,13 +3021,13 @@ class QuantizedBaseEffect extends AbstractEffect {
                     if (Math.random() < chance) {
                         for (let b = 0; b < yBurst; b++) {
                             const ty = wingFreeY + (b * d.dy);
-                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) { if (this._spawnBlock(x, ty, 1, 1, maxLayer, false, 0, true, true, true, false, true) !== -1) successInStep = true; } else break;
+                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty - oy) <= yGrowthLimit) { if (this._spawnBlock(x, ty, 1, 1, maxLayer, false, 0, true, true, true, false, true) !== -1) successInStep = true; } else break;
                         }
                     }
-                    this._revertFrontier(x, 0, 0, d.dy, maxLayer, reversionChance, branchId);
+                    this._revertFrontier(x, oy, 0, d.dy, maxLayer, reversionChance, branchId);
                 }
-                const searchLimitY = wingFinished ? yGrowthLimit : Math.abs(wingFreeY);
-                for (let y = d.dy; Math.abs(y) <= searchLimitY; y += d.dy) {
+                const searchLimitY = wingFinished ? yGrowthLimit : Math.abs(wingFreeY - oy);
+                for (let y = oy + d.dy; Math.abs(y - oy) <= searchLimitY; y += d.dy) {
                     const targetL = usePromotion ? 1 : 0;
                     if (getGridVal(targetL, x, y) === -1 && getGridVal(maxLayer, x, y) !== -1) {
                         if (Math.random() < chance) {
@@ -3789,12 +3804,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         const id = this.nextBlockId++;
+        const ox = this.behaviorState?.genOriginX ?? 0;
+        const oy = this.behaviorState?.genOriginY ?? 0;
         const b = { 
             x, y, w, h, 
             startFrame: this.animFrame, 
             startPhase: this.expansionPhase, 
             layer, id, isShifter,
-            dist: Math.abs(x) + Math.abs(y),
+            dist: Math.abs(x - ox) + Math.abs(y - oy),
             invisible: invisible, // Record for local state
             stepAge: 0,
             source: source
@@ -5212,13 +5229,16 @@ class QuantizedBaseEffect extends AbstractEffect {
         connectedMap.fill(0);
         const queue = this._getBuffer('queue', w * h, Int32Array);
         let head = 0, tail = 0;
-        
-        const startIdx = cy * w + cx;
-        if (combined[startIdx] === 1) { 
-            connectedMap[startIdx] = 1; 
-            queue[tail++] = startIdx; 
+
+        const ox = this.behaviorState?.genOriginX ?? 0;
+        const oy = this.behaviorState?.genOriginY ?? 0;
+        const startIdx = (cy + oy) * w + (cx + ox);
+
+        if (gx >= 0 && gx < w && gy >= 0 && gy < h && combined[startIdx] === 1) {
+            connectedMap[startIdx] = 1;
+            queue[tail++] = startIdx;
         } else {
-            // Find any mainland cell if center isn't covered
+            // Find any mainland cell if focal point isn't covered
             for(let i=0; i<w*h; i++) {
                 if(combined[i] === 1) {
                     connectedMap[i] = 1;
@@ -5227,7 +5247,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }
-
         while (head < tail) {
             const idx = queue[head++];
             const gx = idx % w, gy = (idx / w) | 0;
@@ -5459,8 +5478,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                         if (!isAreaFree) continue;
 
                         this.actionBuffer.push({ layer: layer, fn: () => {
-                            // Set bypassOccupancy to false to enforce strict placement
-                            this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, true, true, true, false, false, 'block_spawner');
+                            // Set skipConnectivity (8th arg) to false to enforce strict placement
+                            this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, false, true, true, false, false, 'block_spawner');
                         }});
                         spawnedCount++;
                     }
@@ -5593,15 +5612,15 @@ class QuantizedBaseEffect extends AbstractEffect {
 
                     // Axial point growth (Harden/Nudge logic at the spreader head)
                     const cycle = s.spreadingNudgeCycles[arm.key];
-                    const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: 'N' }, s.fillRatio);
-                    this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax - s.genOriginX, ay - s.genOriginY, cycle, growthChance);
+                    const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: arm.dir }, s.fillRatio);
+                    this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, ax, ay, cycle, growthChance);
 
                     if (preferSymmetry) {
                         const mirAx = arm.vert ? ax : s.genOriginX - (ax - s.genOriginX);
                         const mirAy = arm.vert ? s.genOriginY - (ay - s.genOriginY) : ay;
                         const mirCycle = s.spreadingNudgeCycles[arm.key + '_mir'] || { step: 0, lastTempBlock: null };
                         s.spreadingNudgeCycles[arm.key + '_mir'] = mirCycle;
-                        this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, mirAx - s.genOriginX, mirAy - s.genOriginY, mirCycle, growthChance);
+                        this._attemptNudgeGrowthWithParams(targetLayer, bw, bh, mirAx, mirAy, mirCycle, growthChance);
                     }
 
                     // Spawn perpendicular "solid" strips to fill the area
@@ -6424,15 +6443,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             s.seedSchedule = this._generateSeedSchedule(s.genOriginX ?? 0, s.genOriginY ?? 0);
             s.insideOutWave = 1;
             if (this.growthPool.size === 0) this._initBehaviors();
-        }
-        if (this.activeBlocks.length === 0) {
-            const ox = s.genOriginX ?? 0, oy = s.genOriginY ?? 0;
-            const maxLayer = this._getMaxLayer();
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('LayerPromotionEnabled') || this.getConfig('SingleLayerMode'));
-            for (let l = 0; l <= maxLayer; l++) {
-                if (usePromotion && l !== 1) continue;
-                this._spawnBlock(ox, oy, 1, 1, l, false, 0, true, true, true, false, true);
-            }
         }
         s.growTimer++;
         this.actionBuffer = [];

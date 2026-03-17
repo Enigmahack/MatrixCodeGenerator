@@ -10144,12 +10144,5 @@ window.matrixPatterns = {
             8
         ]
     ],
-    "QuantizedZoom": [
-        [
-            10,
-            0,
-            0,
-            1
-        ]
-    ]
+    "QuantizedZoom": []
 };

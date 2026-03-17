@@ -26,9 +26,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
     // Zoom only uses Layer 1 — no multi-layer promotion or L0 persistence.
     getConfig(key) {
-        if (key === 'SingleLayerMode') return true;
-        if (key === 'LayerPromotionEnabled') return false;
+        if (key === 'SingleLayerMode') return false;
+        if (key === 'LayerPromotionEnabled') return true;
+        if (key === 'LayerCount') return 1;
         if (key === 'GeneratorTakeover') return true;
+        if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
         if (key === 'FadeInFrames' || key === 'FadeFrames') return 0;
         return super.getConfig(key);
     }
@@ -44,8 +46,6 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                 if (eff && eff.active) return false;
             }
         }
-
-        this.sequence = [[]];
 
         this.spawnX = spawnPosition && typeof spawnPosition.x === 'number' ? spawnPosition.x : window.innerWidth / 2;
         this.spawnY = spawnPosition && typeof spawnPosition.y === 'number' ? spawnPosition.y : window.innerHeight / 2;
