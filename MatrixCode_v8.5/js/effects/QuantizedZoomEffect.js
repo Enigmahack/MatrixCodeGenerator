@@ -5,26 +5,36 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.active = false;
         
         this.configPrefix = "quantizedZoom";
-        
+
         // Simulation State
         this.timer = 0;
         this.state = 'IDLE'; // IDLE, FADE_IN, SUSTAIN, FADE_OUT
         this.alpha = 0.0;
-        
+
         // Sequence State
-        this.sequence = [[]]; 
+        this.sequence = [[]];
         this.expansionPhase = 0;
         this.maskOps = [];
-        
+
         // Zoom Effect State
         this.snapshotCanvas = null;
         this.zoomScale = 1.0;
         this.hasCaptured = false;
-        
+
         // Logic Grid expansion for safety (like GenerateEffect)
-        this.logicScale = 1.2; 
-        
+        this.logicScale = 1.2;
+
+        // Shadow world for Zoom is a frozen snapshot of the falling code,
+        // captured once at trigger time and scaled/zoomed as blocks expand.
+        // We don't use the live shadow simulation (QuantizedShadow controller).
         this.useShadowWorld = false;
+    }
+
+    // Zoom only uses Layer 1 — no multi-layer promotion or L0 persistence.
+    getConfig(key) {
+        if (key === 'SingleLayerMode') return true;
+        if (key === 'LayerPromotionEnabled') return false;
+        return super.getConfig(key);
     }
 
     trigger(force = false) {
@@ -345,195 +355,103 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         if (!this.hasCaptured || !this.snapshotCanvas) return;
 
         const s = this.c.state;
-        const width = ctx.canvas.width;
-        const height = ctx.canvas.height;
-        this._ensureCanvases(width, height); 
+        const isWebGL = (s.renderingEngine === 'webgl');
 
-        // Update masks
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-             this._updateMask(width, height, s, d);
-             this._maskDirty = false;
-        }
-
-        // WebGL mode - lines and echo are both rendered via GPU in _renderQuantizedLineGfx.
-        // We skip the expensive 2D canvas masking/compositing below.
-        if (s.renderingEngine === 'webgl') {
+        // --- WebGL FAST PATH ---
+        // GPU handles lines via _renderQuantizedLineGfx; we only need layout + grid cache.
+        if (isWebGL) {
+            this._checkDirtiness();
+            const width = ctx.canvas.width;
+            const height = ctx.canvas.height;
+            this._ensureCanvases(width, height);
+            if (this._maskDirty) {
+                this.renderer._computeLayoutOnly(this, width, height, s, d);
+                this._maskDirty = false;
+            }
+            this._updateGridCache(width, height, s, d);
             return;
         }
 
+        // --- 2D Canvas Path ---
+        this._checkDirtiness();
+        this._updateRenderGridLogic();
+
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        this._ensureCanvases(width, height);
+
+        // --- MASK UPDATE ---
+        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
+            this._updateMask(width, height, s, d);
+            this._maskDirty = false;
+        }
+
+        // --- GRID CACHE ---
+        const deferGridCache = (this.state === 'FADE_IN' && this.animFrame <= 3);
+        if (!deferGridCache) {
+            this._updateGridCache(width, height, s, d);
+        }
+
         const scratchCtx = this.scratchCtx;
-        
-        // --- Layer 1: Interior (Zoom Window) ---
-        // 1A. Draw Solid Background (Black/BG Color) masked by Window
+
+        // --- Zoom Interior: Background masked by block window ---
         scratchCtx.globalCompositeOperation = 'source-over';
         scratchCtx.clearRect(0, 0, width, height);
-        
+
         scratchCtx.fillStyle = s.backgroundColor || '#000000';
         scratchCtx.globalAlpha = 0.6;
         scratchCtx.fillRect(0, 0, width, height);
-        
+
         scratchCtx.globalCompositeOperation = 'destination-in';
         scratchCtx.drawImage(this.maskCanvas, 0, 0);
-        
+
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = this.alpha;
         ctx.drawImage(this.scratchCanvas, 0, 0);
         ctx.restore();
 
-        // 1B. Draw Zoomed Snapshot (Characters) masked by Window
-        const drawZoomLayer = (mask, scale, tintColor = null, sourceCanvas = this.snapshotCanvas) => {
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-            
-            const gridW = this.g.cols * d.cellWidth;
-            const gridH = this.g.rows * d.cellHeight;
-            
-            const drawW = gridW * s.stretchX * scale;
-            const drawH = gridH * s.stretchY * scale;
-            const drawX = (width - drawW) / 2;
-            const drawY = (height - drawH) / 2; 
-            
-            scratchCtx.save();
-            scratchCtx.imageSmoothingEnabled = (scale !== 1.0);
-            scratchCtx.globalAlpha = 1.0; 
-            scratchCtx.drawImage(sourceCanvas, drawX, drawY, drawW, drawH);
-            scratchCtx.restore();
-            
-            if (tintColor) {
-                scratchCtx.globalCompositeOperation = 'source-in';
-                scratchCtx.fillStyle = tintColor;
-                scratchCtx.fillRect(0, 0, width, height);
-            }
+        // --- Zoom Interior: Frozen snapshot scaled/zoomed, masked by block window ---
+        scratchCtx.globalCompositeOperation = 'source-over';
+        scratchCtx.clearRect(0, 0, width, height);
 
-            scratchCtx.globalCompositeOperation = 'destination-in';
-            scratchCtx.drawImage(mask, 0, 0);
-            
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-over'; 
-            ctx.globalAlpha = this.alpha;
-            if (tintColor) ctx.globalCompositeOperation = 'screen';
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            ctx.restore();
-        };
+        const gridW = this.g.cols * d.cellWidth;
+        const gridH = this.g.rows * d.cellHeight;
+        const drawW = gridW * s.stretchX * this.zoomScale;
+        const drawH = gridH * s.stretchY * this.zoomScale;
+        const drawX = (width - drawW) / 2;
+        const drawY = (height - drawH) / 2;
 
-        // Draw Interior Characters
-        drawZoomLayer(this.maskCanvas, this.zoomScale, null, this.snapshotCanvas);
-        
-        // Ensure Grid Cache (Dense Characters) is updated
-        this._updateGridCache(width, height, s, d);
+        scratchCtx.save();
+        scratchCtx.imageSmoothingEnabled = (this.zoomScale !== 1.0);
+        scratchCtx.globalAlpha = 1.0;
+        scratchCtx.drawImage(this.snapshotCanvas, drawX, drawY, drawW, drawH);
+        scratchCtx.restore();
 
-        // Disable 2D line rendering if WebGL is active (GPU handles it)
-        if (s.renderingEngine === 'webgl') return;
+        scratchCtx.globalCompositeOperation = 'destination-in';
+        scratchCtx.drawImage(this.maskCanvas, 0, 0);
 
-        // --- Layer 2: Overlay (Border + Lines) ---
-        const drawCodeLayer = (maskCanvas, color) => {
-            if (!maskCanvas) return;
-            scratchCtx.globalCompositeOperation = 'source-over';
-            scratchCtx.clearRect(0, 0, width, height);
-            
-            // 1. Draw Dense Code Grid
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            
-            // 2. Tint
-            scratchCtx.globalCompositeOperation = 'source-in';
-            scratchCtx.fillStyle = color;
-            scratchCtx.fillRect(0, 0, width, height);
-            
-            // 3. Mask
-            scratchCtx.globalCompositeOperation = 'destination-in';
-            scratchCtx.drawImage(maskCanvas, 0, 0);
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = this.alpha;
+        ctx.drawImage(this.scratchCanvas, 0, 0);
+        ctx.restore();
 
-            // 4. Composite to Screen
-            ctx.save();
-            ctx.globalAlpha = this.alpha * alphaMult;
-            
-            // Glow
-            if (glowStrength > 2.0) {
-                ctx.globalCompositeOperation = 'screen';
-                ctx.shadowColor = color;
-                ctx.shadowBlur = glowStrength * 3.0; 
-                ctx.drawImage(this.scratchCanvas, 0, 0);
-            }
-            
-            // Solid
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.shadowBlur = 0;
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            
-            ctx.restore();
-        };
+        // --- Lines and Echo: Same pipeline as all other effects ---
+        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
+        const showEcho = (s.layerEnablePerimeterEcho !== false);
 
-        // Draw Interior Lines (Green/Cyan)
-        if (this.lineMaskCanvas) {
-             drawCodeLayer(this.lineMaskCanvas, iColor);
-        }
+        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const alphaMult = lineGlow / 4.0;
 
-        // Draw Perimeter (Gold)
-        if (this.perimeterMaskCanvas) {
-             drawCodeLayer(this.perimeterMaskCanvas, pColor);
-        }
-    }
-    
-    _ensureCanvases(w, h) {
-        if (!this.maskCanvas) {
-            this.maskCanvas = document.createElement('canvas');
-            this.maskCtx = this.maskCanvas.getContext('2d');
-            this._maskDirty = true;
-        }
-        if (!this.scratchCanvas) {
-            this.scratchCanvas = document.createElement('canvas');
-            this.scratchCtx = this.scratchCanvas.getContext('2d');
-        }
-        if (!this.gridCacheCanvas) {
-            this.gridCacheCanvas = document.createElement('canvas');
-            this.gridCacheCtx = this.gridCacheCanvas.getContext('2d');
-        }
-        if (!this.perimeterMaskCanvas) {
-            this.perimeterMaskCanvas = document.createElement('canvas');
-            this.perimeterMaskCtx = this.perimeterMaskCanvas.getContext('2d');
-        }
-        if (!this.lineMaskCanvas) {
-            this.lineMaskCanvas = document.createElement('canvas');
-            this.lineMaskCtx = this.lineMaskCanvas.getContext('2d');
-        }
+        const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        const echoAlphaMult = echoGlow / 4.0;
 
-        if (this.maskCanvas.width !== w || this.maskCanvas.height !== h) {
-            this.maskCanvas.width = w;
-            this.maskCanvas.height = h;
-            this._maskDirty = true;
+        if (lineGlow > 0 && showLines) {
+            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult, false);
         }
-        if (this.scratchCanvas.width !== w || this.scratchCanvas.height !== h) {
-            this.scratchCanvas.width = w;
-            this.scratchCanvas.height = h;
-        }
-        if (this.gridCacheCanvas.width !== w || this.gridCacheCanvas.height !== h) {
-            this.gridCacheCanvas.width = w;
-            this.gridCacheCanvas.height = h;
-            this.lastGridSeed = -1; 
-        }
-        if (this.perimeterMaskCanvas.width !== w || this.perimeterMaskCanvas.height !== h) {
-            this.perimeterMaskCanvas.width = w;
-            this.perimeterMaskCanvas.height = h;
-        }
-        if (this.lineMaskCanvas.width !== w || this.lineMaskCanvas.height !== h) {
-            this.lineMaskCanvas.width = w;
-            this.lineMaskCanvas.height = h;
-        }
-        
-        // RenderGrid Sizing (SCALED)
-        const blocksX = this.logicGridW;
-        const blocksY = this.logicGridH;
-        
-        if (blocksX && blocksY) {
-            const requiredSize = blocksX * blocksY;
-            if (!this.renderGrid || this.renderGrid.length !== requiredSize) {
-                 this.renderGrid = new Int32Array(requiredSize);
-                 this.renderGrid.fill(-1);
-                 // We must mark logic dirty so it repopulates if resized
-                 // But typically renderGrid is populated by _updateRenderGridLogic
-            }
+        if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
+            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
         }
     }
 }

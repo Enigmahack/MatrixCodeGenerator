@@ -510,6 +510,7 @@ class WebGLRenderer {
                 uniform float u_refractionCompression;
                 uniform float u_refractionOffset;
                 uniform float u_refractionGlow;
+                uniform float u_refractionOpacity;
 
                 uniform float u_varianceEnabled;
                 uniform float u_varianceAmount;
@@ -745,7 +746,7 @@ class WebGLRenderer {
 
                             #define APPLY_REFR(minD, reflP_, edgeA_, brightness_) \
                             { \
-                                float refrBell_ = max(1.0 - smoothstep(0.0, max(refrWidth,0.0001), abs(minD - refrOffPx)), 0.0) * edgeA_; \
+                                float refrBell_ = max(1.0 - smoothstep(0.0, max(refrWidth,0.0001), abs(minD - refrOffPx)), 0.0) * edgeA_ * u_refractionOpacity; \
                                 if (refrBell_ > 0.001) { \
                                     vec2 rLP_ = nearestI + reflP_ / (u_cellPitch * u_screenStep); \
                                     vec2 rFrac_ = fract(rLP_); \
@@ -2242,6 +2243,7 @@ class WebGLRenderer {
             u_refractionCompression: fxState.refractionCompression,
             u_refractionOffset:      fxState.refractionOffset,
             u_refractionGlow:        fxState.refractionGlow,
+            u_refractionOpacity:     fxState.refractionOpacity,
             u_compressionThreshold:  fxState.compressionThreshold
         };
 

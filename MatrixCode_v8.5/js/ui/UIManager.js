@@ -1723,11 +1723,14 @@ class UIManager {
                 // Handle Quantized Editor initialization during ALL refresh
                 this.refresh('quantEditorEnabled', true);
 
+                // Compute derived override state before dep evaluation
+                this._computeActiveOverrideState();
+
                 // Unified initial dependency refresh - ONCE
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
                     this._updateRowVisibility(row);
                 });
-                return; 
+                return;
             }
 
             if (key === 'keyBindings') {
@@ -1849,11 +1852,26 @@ class UIManager {
 
             // Update dependents - Re-evaluate all dependent rows
             if (!isRecursive) {
+                this._computeActiveOverrideState();
                 this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
                     this._updateRowVisibility(row);
                 });
             }
         } catch(e) { console.warn("UI Refresh Error:", e); }
+    }
+
+    /**
+     * Computes whether the currently active quantized effect has OverrideDefaults enabled.
+     * Sets _activeEffectOverrideDefaults in config state for use in dependency evaluation.
+     * @private
+     */
+    _computeActiveOverrideState() {
+        const activeEffect = this.c.get('activeQuantizedEffect');
+        if (activeEffect) {
+            this.c.state._activeEffectOverrideDefaults = !!this.c.get(activeEffect + 'OverrideDefaults');
+        } else {
+            this.c.state._activeEffectOverrideDefaults = false;
+        }
     }
 
     /**

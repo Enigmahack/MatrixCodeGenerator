@@ -2072,7 +2072,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 lineOffset: [0, 0], fillRatio: 0, glassBloom: 0,
                 refractionEnabled: 0, refractionWidth: 0, refractionBrightness: 0,
                 refractionSaturation: 0, refractionCompression: 0, refractionOffset: 0,
-                refractionGlow: 0, compressionThreshold: 0, shadowWorldFadeSpeed: 0
+                refractionGlow: 0, refractionOpacity: 1, compressionThreshold: 0, shadowWorldFadeSpeed: 0
             };
         }
         const st = this._cachedWebGLState;
@@ -2112,6 +2112,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.refractionCompression = this.getConfig('GlassRefractionCompression') ?? 1.0;
         st.refractionOffset = this.getConfig('GlassRefractionOffset') ?? 0.0;
         st.refractionGlow = (this.getConfig('GlassRefractionGlow') ?? 0.0) * this.alpha;
+        st.refractionOpacity = (this.getConfig('GlassRefractionOpacity') ?? 1.0) * this.alpha;
         st.compressionThreshold = this.getConfig('GlassCompressionThreshold') ?? 0.0;
         st.shadowWorldFadeSpeed = this.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         return st;

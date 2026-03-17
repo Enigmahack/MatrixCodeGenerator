@@ -35,6 +35,7 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Advanced', id: 'GlassRefractionCompression', type: 'range', label: 'Strength', min: 0.0, max: 10.0, step: 0.1, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Barrel distortion strength. Pulls the sampled coordinates toward the nearest cell boundary on both axes, simulating the optical bend of a curved glass edge. Stronger values snap tightly to the grid lines.", tags: ['distort', 'warp', 'bend'] },
     { sub: 'Line Advanced', id: 'GlassRefractionOffset', type: 'range', label: 'Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Shifts the peak of the refraction band away from the edge center.", tags: ['shift', 'position'] },
     { sub: 'Line Advanced', id: 'GlassRefractionGlow', type: 'range', label: 'Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Additive glow emission at the refraction peak.", tags: ['bloom', 'glow'] },
+    { sub: 'Line Advanced', id: 'GlassRefractionOpacity', type: 'range', label: 'Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Overall opacity of the refraction lines. 1 is fully opaque, 0 is fully transparent.", tags: ['alpha', 'transparency'] },
 
     { sub: 'Line Advanced', sub_header: 'Color & Composition', id: 'LineGfxTintOffset', type: 'range', label: 'Tint offset', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts.", tags: ['hue', 'tint', 'color'] },
     { sub: 'Line Advanced', id: 'LineGfxSaturation', type: 'range', label: 'Saturation', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: "Boosts color saturation of the lines.", tags: ['vivid', 'color'] },
@@ -126,25 +127,32 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
     // Add inheritable settings as overrides
     let currentSub = '';
     QuantizedInheritableSettings.forEach(s => {
-        if (prefix !== 'quantizedGenerateV2' && s.sub.startsWith('V2 Generator')) return;
+        // V2 Generator settings on non-Generator effects require GeneratorTakeover
+        const isV2Generator = s.sub.startsWith('V2 Generator');
+        const needsTakeoverDep = isV2Generator && prefix !== 'quantizedGenerateV2';
 
         if (s.sub !== currentSub) {
             if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
-            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub + ' Override', dep: [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"] });
+            const subDeps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
+            if (needsTakeoverDep) subDeps.push(prefix + "GeneratorTakeover");
+            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub + ' Override', dep: subDeps });
             currentSub = s.sub;
         }
 
         if (s.sub_header) {
-            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"] });
+            const headerDeps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
+            if (needsTakeoverDep) headerDeps.push(prefix + "GeneratorTakeover");
+            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: headerDeps });
         }
 
         // Clone the setting and update ID and Dependencies
         const override = { ...s };
         override.cat = 'Effects';
         override.id = prefix + s.id;
-        
+
         // Handle dependencies
         const deps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
+        if (needsTakeoverDep) deps.push(prefix + "GeneratorTakeover");
         if (s.dep) {
             const sDeps = Array.isArray(s.dep) ? s.dep : [s.dep];
             sDeps.forEach(d => {
@@ -185,6 +193,7 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Controls the brightness boost applied to trails (phosphor persistence). Default is 2.0.", tags: ['ghost', 'trail', 'bright'] },
     { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, tier: 'advanced', description: "The maximum alpha (transparency) for characters. Default is 0.99.", tags: ['transparency', 'alpha', 'see-through'] },
     { cat: 'Global', type: 'accordion_subheader', label: 'Quick Presets' },
+    { cat: 'Global', id: 'skipIntro', type: 'checkbox', label: 'Skip Intro', tier: 'basic', description: "Bypasses the loading screen transition and boot sequence on startup, starting the code as soon as it is ready to render.", tags: ['fast', 'skip', 'intro', 'boot', 'loading'] },
     { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for lower-end hardware. Disables: Bloom, Post-Process, Dissolve, Deterioration, Line Variance, Refraction. Sets 0.75x resolution, pauses when hidden/idle, and reduces spawn rate. All settings are restored when turned off.", tier: 'basic', tags: ['fast', 'lag', 'optimize', 'low', 'performance'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Global FX' },
@@ -497,7 +506,7 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'end_group' },
 
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Quantized Defaults' },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Quantized Defaults', dep: '!_activeEffectOverrideDefaults' },
     ...(() => {
         const defaults = [];
         let currentSub = '';
@@ -506,7 +515,7 @@ const ConfigTemplate = [
 
         if (s.sub !== currentSub) {
                 if (currentSub !== '') defaults.push({ cat: 'Effects', type: 'end_group' });
-                defaults.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub });
+                defaults.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub, dep: '!_activeEffectOverrideDefaults' });
                 currentSub = s.sub;
             }
             if (s.sub_header) {

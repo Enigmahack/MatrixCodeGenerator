@@ -128,7 +128,11 @@ class MatrixKernel {
         await this._chunkedPreallocate();
 
         // Preallocation complete — transition loading screen and start loop
-        this._transitionLoadingScreen();
+        if (this.config.get('skipIntro')) {
+            this._removeLoadingScreen();
+        } else {
+            this._transitionLoadingScreen();
+        }
 
         requestAnimationFrame((time) => this._loop(time));
 
@@ -151,8 +155,8 @@ class MatrixKernel {
             }
         });
 
-        // Trigger Boot Sequence on startup if enabled
-        if (this.config.get('bootSequenceEnabled')) {
+        // Trigger Boot Sequence on startup if enabled (skip when Skip Intro is on)
+        if (this.config.get('bootSequenceEnabled') && !this.config.get('skipIntro')) {
             // Short delay to ensure everything is ready
             setTimeout(() => {
                 this.effectRegistry.trigger('BootSequence');
@@ -707,6 +711,17 @@ class MatrixKernel {
             count = (count % 3) + 1;
             dotsEl.textContent = '.'.repeat(count);
         }, 400);
+    }
+
+    /**
+     * Immediately removes the loading screen without any transition.
+     * Used when Skip Intro is enabled.
+     * @private
+     */
+    _removeLoadingScreen() {
+        clearInterval(this._dotsInterval);
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) overlay.remove();
     }
 
     /**
