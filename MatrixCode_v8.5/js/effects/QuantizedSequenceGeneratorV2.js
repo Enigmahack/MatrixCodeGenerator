@@ -32,7 +32,6 @@ class QuantizedSequenceGeneratorV2 {
             this.layerGrids[l] = new Int32Array(this.logicGridW * this.logicGridH).fill(-1);
         }
 
-        this.promotionGrid = new Uint8Array(this.logicGridW * this.logicGridH).fill(0);
 
         this.strips = new Map();
         this.finishedBranches = new Set();
@@ -97,7 +96,7 @@ class QuantizedSequenceGeneratorV2 {
             'LineGfxTintOffset', 'LineGfxSaturation', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
-            'PerimeterEchoEnabled', 'LayerPromotionEnabled', 'SingleLayerMode'
+            'PerimeterEchoEnabled', 'SingleLayerMode'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -605,7 +604,7 @@ class QuantizedSequenceGeneratorV2 {
     _getMaxLayer() {
         let maxLayer = this._getConfig('LayerCount');
         if (maxLayer === undefined || maxLayer === null) maxLayer = 0;
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (usePromotion && (maxLayer === undefined || maxLayer === null || maxLayer < 1)) return 1;
         return maxLayer;
     }
@@ -847,7 +846,7 @@ class QuantizedSequenceGeneratorV2 {
             schedule[step].push({ layer, dir, originX: scx, originY: scy, boost: dirBoost[dir] });
         };
 
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         const minL = usePromotion ? 1 : 0;
         const endL = Math.min(1, maxLayer);
 
@@ -1156,7 +1155,8 @@ class QuantizedSequenceGeneratorV2 {
 
     _nudge(x, y, w, h, face, layer = 0, multiLayer = false) {
         // Principle #5: Disable starting nudges for Layer 0 when promotion is enabled
-        if (layer === 0 && (this._getConfig('LayerPromotionEnabled'))) {
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        if (layer === 0 && usePromotion) {
              return false;
         }
 
@@ -1216,7 +1216,7 @@ class QuantizedSequenceGeneratorV2 {
     _spawnBlock(x, y, w, h, layer, bypassOccupancy = false, source = null) {
         // Principle #4: Disable spawning on Layer 0 if promotion is enabled
         // EXCEPT if it's a promotion/forced spawn (indicated by bypassOccupancy)
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (!bypassOccupancy && layer === 0 && usePromotion) {
              return -1;
         }
@@ -1246,7 +1246,6 @@ class QuantizedSequenceGeneratorV2 {
                 grid[idx] = id;
                 
                 // Optimized Promotion: Spawn on L0 resets promotion counter
-                if (layer === 0 && this.promotionGrid) this.promotionGrid[idx] = 0;
             }
         }
         this.currentStepOps.push(['addRect', x1, y1, x2, y2, layer, 0, true]);
@@ -1277,9 +1276,6 @@ class QuantizedSequenceGeneratorV2 {
                 grid[idx] = -1;
 
                 // Optimized Promotion: If removing from L1, reset promotion counter
-                if (layer === 1 && this.promotionGrid) {
-                    this.promotionGrid[idx] = 0;
-                }
             }
         }
     }
@@ -1431,63 +1427,6 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
     }
-    _promoteLayer1Blocks() {
-        const w = this.logicGridW, h = this.logicGridH;
-        if (!w || !h || !this.layerGrids[0] || !this.layerGrids[1]) return;
-        
-        const l0 = this.layerGrids[0];
-        const l1 = this.layerGrids[1];
-        const cx = this.gridCX, cy = this.gridCY;
-
-        let promotedCount = 0;
-
-        // Optimized: Iterate over active L1 blocks instead of the whole grid
-        for (let i = 0; i < this.activeBlocks.length; i++) {
-            const b = this.activeBlocks[i];
-            if (b.layer !== 1) continue;
-            
-            const x1 = cx + b.x, y1 = cy + b.y;
-            const x2 = x1 + b.w - 1, y2 = y1 + b.h - 1;
-            const gx1 = Math.max(0, x1), gy1 = Math.max(0, y1);
-            const gx2 = Math.min(w - 1, x2), gy2 = Math.min(h - 1, y2);
-
-            for (let gy = gy1; gy <= gy2; gy++) {
-                const rowOff = gy * w;
-                for (let gx = gx1; gx <= gx2; gx++) {
-                    const idx = rowOff + gx;
-                    // Only increment if L0 is not already occupied
-                    if (l0[idx] === -1 && l1[idx] !== -1) {
-                        this.promotionGrid[idx]++;
-                        if (this.promotionGrid[idx] >= 3) {
-                            if (this._spawnBlock(gx - cx, gy - cy, 1, 1, 0, true, 'promotion') !== -1) {
-                                this.promotionGrid[idx] = 0;
-                                promotedCount++;
-                            }
-                        }
-                    } else {
-                        this.promotionGrid[idx] = 0;
-                    }
-                }
-            }
-        }
-
-        if (promotedCount > 0) {
-            // Prune Layer 1 activeBlocks that are fully promoted (matching live path)
-            this.activeBlocks = this.activeBlocks.filter(b => {
-                if (b.layer !== 1) return true;
-                for (let iy = 0; iy < b.h; iy++) {
-                    for (let ix = 0; ix < b.w; ix++) {
-                        const gx = cx + b.x + ix, gy = cy + b.y + iy;
-                        if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
-                            if (l1[gy * w + gx] !== -1 && l0[gy * w + gx] === -1) return true;
-                        }
-                    }
-                }
-                return false; 
-            });
-        }
-    }
-
     _isProceduralFinished() {
         // 1. Check axis points (fast)
         const w = this.logicGridW, h = this.logicGridH;
@@ -1521,7 +1460,7 @@ class QuantizedSequenceGeneratorV2 {
 
     _syncSubLayers() {
         const pref = this.configPrefix;
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         
         if (!this._getConfig('EnableSyncSubLayers') && !usePromotion) return;
         
@@ -1696,10 +1635,13 @@ class QuantizedSequenceGeneratorV2 {
                 this._syncSubLayers();
 
                 // Promotion check (matches live path)
-                const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+                const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+                // Promotion logic removed - no layers should promote.
+                /*
                 if (usePromotion) {
                     this._promoteLayer1Blocks();
                 }
+                */
 
                 // Process deferred removals from layer_collision_interference (mirrors _attemptGrowth top-of-step drain)
                 if (s.pendingDeletions && s.pendingDeletions.length > 0) {
@@ -1807,7 +1749,7 @@ class QuantizedSequenceGeneratorV2 {
         }
 
         this.behaviorState.proceduralLayerIndex = (targetLayer + 1) % (maxLayer + 1);
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (this.behaviorState.proceduralLayerIndex === 0 && usePromotion && maxLayer >= 1) {
             this.behaviorState.proceduralLayerIndex = 1;
         }
@@ -1839,7 +1781,7 @@ class QuantizedSequenceGeneratorV2 {
         };
 
         const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
 
         for (const spine of xSpines) {
             let finished = this.finishedBranches.has(spine.id);
@@ -1971,7 +1913,7 @@ class QuantizedSequenceGeneratorV2 {
             const qCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
             const qMaxLayer = this._getMaxLayer();
             const qBaseLife = 4 + Math.floor(Math.random() * 3);
-            const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+            const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
             const minL = usePromotion ? 1 : 0;
 
             s.layerDirs = {}; s.layerDirLife = {};
@@ -1988,7 +1930,7 @@ class QuantizedSequenceGeneratorV2 {
         if (this.activeBlocks.length === 0) {
             const ox = s.scx ?? 0, oy = s.scy ?? 0;
             const maxLayer = this._getMaxLayer();
-            const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+            const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
             for (let l = 0; l <= maxLayer; l++) {
                 if (usePromotion && l !== 1) continue;
                 this._spawnBlock(ox, oy, 1, 1, l, false, 'reseed');
@@ -2031,7 +1973,7 @@ class QuantizedSequenceGeneratorV2 {
 
         const s = this.behaviorState;
         const maxLayer = this._getMaxLayer();
-        const usePromotion = (this._getConfig('LayerPromotionEnabled') || this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         for (let l = 0; l <= maxLayer; l++) {
             if (usePromotion && l !== 1) continue;
             this._spawnBlock(s.scx, s.scy, 1, 1, l, true);

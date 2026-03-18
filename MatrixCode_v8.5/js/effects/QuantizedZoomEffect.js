@@ -27,7 +27,6 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     // Zoom only uses Layer 1 — no multi-layer promotion or L0 persistence.
     getConfig(key) {
         if (key === 'SingleLayerMode') return false;
-        if (key === 'LayerPromotionEnabled') return true;
         if (key === 'LayerCount') return 1;
         if (key === 'GeneratorTakeover') return true;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position

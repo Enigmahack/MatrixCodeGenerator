@@ -304,7 +304,6 @@ class ConfigurationManager {
             "quantizedDefaultShadowWorldFadeSpeed": 0.5,
             "quantizedDefaultSingleLayerMode": false,
             "quantizedDefaultSingleLayerModeRetainState": false,
-            "quantizedDefaultLayerPromotionEnabled": true,
             "quantizedDefaultPerimeterEchoEnabled": false,
             "quantizedDefaultGlassBloom": 1.2,
 
@@ -551,7 +550,6 @@ class ConfigurationManager {
             "quantizedGenerateV2Mode": "default",
             "quantizedGenerateV2LayerCount": 2,
             "quantizedGenerateV2QuadrantCount": "4",
-            "quantizedGenerateV2LayerPromotionEnabled": true,
             "quantizedGenerateV2SimultaneousSpawns": 3,
             "quantizedGenerateV2GreenFadeSeconds": 0.1,
             "quantizedGenerateV2MergeDelay": true,
