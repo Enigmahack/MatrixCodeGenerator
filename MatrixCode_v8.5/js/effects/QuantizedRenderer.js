@@ -380,6 +380,7 @@ class QuantizedRenderer {
         }
 
         // --- DRAW BATCHES ---
+        /*
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = l.lineWidthX;
@@ -396,6 +397,7 @@ class QuantizedRenderer {
             }
             ctx.stroke();
         });
+        */
 
         // 3. Distance Field for Glow — prefer async worker result
         if (fx.c.state.layerEnableQuantizedGlow !== false) {
@@ -514,6 +516,7 @@ class QuantizedRenderer {
             }
         }
 
+        /*
         echoCtx.save();
         const saturation = fx.getEchoGfxValue('Saturation') ?? 1.0;
         if (saturation !== 1.0) {
@@ -533,6 +536,7 @@ class QuantizedRenderer {
             echoCtx.stroke();
         });
         echoCtx.restore();
+        */
     }
 
     computeTrueOutside(fx, blocksX, blocksY, gridOverride = null) {

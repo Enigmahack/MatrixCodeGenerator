@@ -783,6 +783,7 @@ class WebGLRenderer {
 
                         // Composite Grid Lines
                         float lineAlpha = 0.0;
+                        /*
                         if (totalLine > 0.001) {
                             vec3 lineBaseColor = u_color;
                             lineBaseColor = applyHueShift(lineBaseColor, u_tintOffset);
@@ -798,6 +799,7 @@ class WebGLRenderer {
                             }
                             resultColor = mix(resultColor, lineBaseColor, lineAlpha);
                         }
+                        */
 
                         fragColor = vec4(resultColor, max(base.a, lineAlpha));
                         return;
@@ -2209,14 +2211,16 @@ class WebGLRenderer {
         }
 
         // --- PASS 1B: GENERATE MAIN LINES (Mode 0) ---
-        this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
+        // this._drawFullscreenPass(prog, this.fboLinePersist, { ...sharedUniforms, u_mode: 0 }, commonTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
 
         // --- PASS 1C: GENERATE ECHO LINES (Mode 0, same uniforms, delayed occupancy) ---
         // Uses identical sharedUniforms so thickness, glow shape, and line fundamentals match exactly.
+        /*
         if (gpuEchoEnabled && echoHasHistory) {
             const echoGenTextures = { ...commonTextures, 1: this.echoLogicGridTexture };
             this._drawFullscreenPass(prog, this.fboEchoLinePersist, { ...sharedUniforms, u_mode: 0 }, echoGenTextures, { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX });
         }
+        */
 
         // --- PASS 2: COMPOSITE ---
         // All post-processing (color, brightness, saturation, glow, refraction) is applied here.
