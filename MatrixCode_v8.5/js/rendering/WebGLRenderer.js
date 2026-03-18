@@ -87,7 +87,10 @@ class QuantizedEffectsPass extends RenderPass {
             gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboLinePersist);
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
-            
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboRefrPersist);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
             gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
             gl.disable(gl.BLEND);
             renderer._drawFullscreenTexture(sourceTex, 1.0, 0);
@@ -488,8 +491,8 @@ class WebGLRenderer {
 
                 uniform float u_thickness;
                 uniform vec3 u_color;
-                // uniform float u_intensity;
-                // uniform float u_glow;
+                uniform float u_intensity;
+                uniform float u_glow;
                 uniform float u_tintOffset;
                 // uniform float u_saturation;
                 // uniform float u_brightness;
@@ -589,52 +592,28 @@ class WebGLRenderer {
                         return;
                     }
 
-                    // Mode 1: Composite / Glass / Lines
+                    // --- SHARED COORDINATES ---
+                    vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
+                    vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
+                    vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
+
+                    // Mode 1: Composite / Glass / Refraction Lines
                     if (u_mode == 1) {
-                        vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
-                        vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
-                        vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
-                        vec2 cellLocal = fract(logicPos);
-
                         vec4 base = texture(u_characterBuffer, v_uv);
-                        vec4 persist = texture(u_persistenceBuffer, v_uv);
-                        float normalLine = persist.r;
-                        float fadeLine = persist.g;
-                        float totalLine = clamp(normalLine + fadeLine, 0.0, 1.0);
-
-                        vec2 sourceUV = v_uv + ((u_sourceGridOffset + u_sampleOffset) / u_resolution);
-
-                        // Sample Shadow World Character (Stencil)
-                        float shadowLuma = 0.0;
-                        if (u_maskSoftness > 0.0) {
-                            float s = u_maskSoftness / u_resolution.x;
-                            shadowLuma += texture(u_sourceGrid, sourceUV).r;
-                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(s, 0.0)).r;
-                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(-s, 0.0)).r;
-                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, s)).r;
-                            shadowLuma += texture(u_sourceGrid, sourceUV + vec2(0.0, -s)).r;
-                            shadowLuma /= 5.0;
-                        } else {
-                            shadowLuma = texture(u_sourceGrid, sourceUV).r;
-                        }
-
-                        // Apply Line Roundness as "Edge Softness" for the mask
-                        float edgeSoft = max(0.001, u_roundness * 0.5);
-                        float maskedLuma = smoothstep(0.5 - edgeSoft, 0.5 + edgeSoft, shadowLuma);
 
                         float blockMask = texture(u_shadowMask, v_uv).r;
                         float isVisible = step(0.001, blockMask);
 
                         vec3 resultColor = base.rgb;
                         if (isVisible > 0.5 && base.a > 0.01) {
-                            // Non-burn-in brightness boost: 
-                            // 1. Scales existing brightness linearly (Interior Brightness)
-                            // 2. Uses a soft-addition to prevent clipping/flattening highlights
                             float boost = u_glassBloom - 1.0;
                             resultColor.rgb += boost * resultColor.rgb * (1.0 - resultColor.rgb * 0.5);
                         }
 
                         // Natural Refraction: curved glass edge effect.
+                        // Fading is handled by the burn-in persistence buffer at the
+                        // pipeline level — this shader just renders the current frame.
+                        float refrAlpha = 0.0;
                         if (u_refractionEnabled) {
                             vec2 nearestI = floor(logicPos + 0.5);
                             vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
@@ -763,6 +742,7 @@ class WebGLRenderer {
                                         float luma_ = texture(u_sourceGrid, srUV_).r; \
                                         vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_), u_refractionSaturation); \
                                         resultColor = mix(resultColor, rc_ + rc_ * (u_refractionGlow * refrBell_), refrBell_); \
+                                        refrAlpha = max(refrAlpha, refrBell_ * luma_); \
                                     } \
                                 } \
                             }
@@ -781,17 +761,11 @@ class WebGLRenderer {
                             #undef APPLY_REFR
                         }
 
-                        // Composite Grid Lines
-                        float lineAlpha = 0.0;
-
-                        fragColor = vec4(resultColor, max(base.a, lineAlpha));
+                        fragColor = vec4(resultColor, max(base.a, refrAlpha));
                         return;
                     }
 
                     // Mode 0: Generate Lines
-                    vec2 screenPos = vec2(v_uv.x, 1.0 - v_uv.y) * u_resolution - u_offset;
-                    vec2 gridPos = (screenPos - u_screenOrigin) / u_screenStep;
-                    vec2 logicPos = gridPos / u_cellPitch + u_blockOffset - u_userBlockOffset;
                     vec2 nearestI = floor(logicPos + 0.5);
                     vec2 p = (logicPos - nearestI) * u_cellPitch * u_screenStep;
 
@@ -881,7 +855,8 @@ class WebGLRenderer {
                         }
                     }
                     fragColor = vec4(normalMax, fadeMax, 0.0, 1.0);
-                }`;
+                }
+`;
 
             this.lineProgram = this._createProgram(lineVS, lineFS);
 
@@ -1311,6 +1286,11 @@ class WebGLRenderer {
             const colorVS = `#version 300 es\nlayout(location=0) in vec2 a_position; void main(){ gl_Position=vec4(a_position, 0.0, 1.0); }`;
             const colorFS = `#version 300 es\nprecision highp float; uniform vec4 u_color; out vec4 fragColor; void main(){ fragColor=u_color; }`;
             this.colorProgram = this._createProgram(colorVS, colorFS);
+
+            // Copy/passthrough shader for blitting textures via _drawFullscreenPass
+            const copyVS = `#version 300 es\nlayout(location=0) in vec2 a_position; out vec2 v_uv; void main(){ v_uv=a_position; gl_Position=vec4(a_position*2.0-1.0, 0.0, 1.0); }`;
+            const copyFS = `#version 300 es\nprecision highp float; in vec2 v_uv; uniform sampler2D u_texture; out vec4 fragColor; void main(){ fragColor=texture(u_texture, v_uv); }`;
+            this.copyProgram = this._createProgram(copyVS, copyFS);
         }
     _initBuffers() {
         if (!this.gl) return;
@@ -1355,6 +1335,10 @@ class WebGLRenderer {
         this.fboLinePersist = this.gl.createFramebuffer();
         this.texLinePersist = this.gl.createTexture();
 
+        // Refraction Line Persistence (burn-in style fade for Mode 1 output)
+        this.fboRefrPersist = this.gl.createFramebuffer();
+        this.texRefrPersist = this.gl.createTexture();
+
         // Echo Line Persistence (GPU echo pass)
         this.fboEchoLinePersist = this.gl.createFramebuffer();
         this.texEchoLinePersist = this.gl.createTexture();
@@ -1377,6 +1361,7 @@ class WebGLRenderer {
         this.lastLogicGridWidth = 0;
         this.lastLogicGridHeight = 0;
         this.occupancyBuffer = null;
+        this.logicGridPersistence = null;
 
         // Echo logic grid texture (delayed occupancy)
         this.echoLogicGridTexture = this.gl.createTexture();
@@ -1493,8 +1478,15 @@ class WebGLRenderer {
                         this._configureFramebuffer(this.fboA2, this.texA2, this.fboWidth, this.fboHeight);
                         this._configureFramebuffer(this.fboCodeProcessed, this.texCodeProcessed, this.fboWidth, this.fboHeight);
                         this._configureFramebuffer(this.fboLinePersist, this.texLinePersist, this.fboWidth, this.fboHeight);
+                        this._configureFramebuffer(this.fboRefrPersist, this.texRefrPersist, this.fboWidth, this.fboHeight);
                         this._configureFramebuffer(this.fboEchoLinePersist, this.texEchoLinePersist, this.fboWidth, this.fboHeight);
-                        // Clear echo persistence FBO to black so it starts clean
+                        // Clear persistence FBOs to black so they start clean
+                        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboLinePersist);
+                        this.gl.clearColor(0, 0, 0, 0);
+                        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboRefrPersist);
+                        this.gl.clearColor(0, 0, 0, 0);
+                        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
                         this.gl.clearColor(0, 0, 0, 0);
                         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
@@ -1672,18 +1664,21 @@ class WebGLRenderer {
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE); 
 
         // Ensure logic texture and buffer are initialized
-        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer || !this.logicGridPersistence) {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, gw, gh, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
             this.occupancyBuffer = new Uint8Array(gw * gh * 4);
+            this.logicGridPersistence = new Float32Array(gw * gh * 4);
         }
 
         // 1. Prepare Logic Texture using consolidated shadowRevealGrid
         // We only use Layers 0 and 1 for the shadow reveal perimeter as requested.
-        this.occupancyBuffer.fill(0);
         const occupancy = this.occupancyBuffer;
+        if (!occupancy) return;
+        
+        occupancy.fill(0);
         if (fx.shadowRevealGrid) {
             for (let i = 0; i < gw * gh; i++) {
                 // If it's in the filled perimeter of L0/L1, mark it as active
@@ -1809,14 +1804,15 @@ class WebGLRenderer {
         const log = this.config && this.config.state.logErrors;
 
         // Ensure logic texture and buffer are initialized
-        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer) {
+        if (gw !== this.lastLogicGridWidth || gh !== this.lastLogicGridHeight || !this.occupancyBuffer || !this.logicGridPersistence) {
             gl.bindTexture(gl.TEXTURE_2D, this.logicGridTexture);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
             this.occupancyBuffer = new Uint8Array(gw * gh * 4);
+            this.logicGridPersistence = new Float32Array(gw * gh * 4);
             if (log) {
-                console.log(`[WebGLRenderer] Pre-allocated occupancyBuffer: ${gw}x${gh} (${(gw*gh*4/1024).toFixed(1)} KB)`);
+                console.log(`[WebGLRenderer] Pre-allocated buffers: ${gw}x${gh} (${(gw*gh*4/1024).toFixed(1)} KB)`);
             }
         }
 
@@ -1995,7 +1991,13 @@ class WebGLRenderer {
                     : [];
             fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
         }
-        if (!fx || !fx.renderGrid) return false;
+        if (!fx || !fx.renderGrid) {
+            if (!this._lineGfxDiagLogged) {
+                console.warn(`[WebGLRenderer] _renderQuantizedLineGfx bail: fx=${!!fx}, renderGrid=${!!(fx && fx.renderGrid)}`);
+                this._lineGfxDiagLogged = true;
+            }
+            return false;
+        }
 
         // --- ONE-SHOT PROFILING: Time the first invocation breakdown ---
         const isFirstCall = !this._quantizedRenderCalled;
@@ -2003,7 +2005,13 @@ class WebGLRenderer {
 
         const fxState = fx.getWebGLRenderState(s, d);
         const [gw, gh] = fxState.logicGridSize;
-        if (gw <= 0 || gh <= 0) return false;
+        if (gw <= 0 || gh <= 0) {
+            if (!this._lineGfxDiagLogged) {
+                console.warn(`[WebGLRenderer] _renderQuantizedLineGfx bail: gw=${gw}, gh=${gh}`);
+                this._lineGfxDiagLogged = true;
+            }
+            return false;
+        }
 
         // Detect effect change or step reset (new run) — clear echo state so the previous
         // run's tail doesn't bleed into the next run.
@@ -2013,6 +2021,12 @@ class WebGLRenderer {
             this.lastEchoStepCaptured = -1;
             if (this.fboEchoLinePersist) {
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboEchoLinePersist);
+                this.gl.clearColor(0, 0, 0, 0);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            }
+            if (this.fboRefrPersist) {
+                this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fboRefrPersist);
                 this.gl.clearColor(0, 0, 0, 0);
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -2029,16 +2043,15 @@ class WebGLRenderer {
         }
 
         // 1. Prepare Data Logic (Occupancy & Source Characters)
-        const now = fx.animFrame;
-        const fadeIn = fx.getConfig('FadeInFrames') || 0;
-        const fadeOut = fx.getConfig('FadeFrames') || 0;
-
-        this.occupancyBuffer.fill(0);
-        const occupancy = this.occupancyBuffer;
         const totalCells = gw * gh;
         const grids = fx.layerGrids;
-        const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
+        if (!grids) return false;
         
+        const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
+        const occupancy = this.occupancyBuffer;
+        if (!occupancy) return false;
+
+        occupancy.fill(0);
         for (let i = 0; i < totalCells; i++) {
             const tidx = i * 4;
             if (g0 && g0[i] !== -1) occupancy[tidx + 0] = 255;
@@ -2046,7 +2059,16 @@ class WebGLRenderer {
             if (g2 && g2[i] !== -1) occupancy[tidx + 2] = 255;
             if (g3 && g3[i] !== -1) occupancy[tidx + 3] = 255;
         }
-        
+
+        // One-shot diagnostic
+        if (isFirstCall) {
+            let occupiedCount = 0;
+            for (let i = 0; i < totalCells; i++) {
+                if (occupancy[i * 4] || occupancy[i * 4 + 1] || occupancy[i * 4 + 2] || occupancy[i * 4 + 3]) occupiedCount++;
+            }
+            console.log(`[WebGLRenderer] LineGfx first call: grid=${gw}x${gh}, occupied=${occupiedCount}/${totalCells}`);
+        }
+
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
@@ -2092,8 +2114,8 @@ class WebGLRenderer {
         sharedUniforms.u_logicGrid = 1;
         sharedUniforms.u_shadowMask = 3;
         sharedUniforms.u_sourceGrid = 4;
-        // sharedUniforms.u_intensity = fxState.intensity;
-        // sharedUniforms.u_glow = fxState.glow;
+        sharedUniforms.u_intensity = fxState.intensity;
+        sharedUniforms.u_glow = fxState.glow;
         sharedUniforms.u_thickness = fxState.thickness;
         sharedUniforms.u_tintOffset = fxState.tintOffset;
         sharedUniforms.u_sharpness = fxState.sharpness;
@@ -2193,16 +2215,19 @@ class WebGLRenderer {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         }
 
+        // --- PASS 1B: RENDER ---
+        // Render current frame logic grids (Mode 0) into persistence buffers using gl.MAX.
+        // This makes the current lines bright (1.0) and starts the fade process for next frame.
+        const renderUniforms = { ...sharedUniforms, u_mode: 0 };
+        const renderBlend    = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX };
+        this._drawFullscreenPass(prog, this.fboLinePersist, renderUniforms, commonTextures, renderBlend);
+        if (gpuEchoEnabled && echoHasHistory) {
+            this._drawFullscreenPass(prog, this.fboEchoLinePersist, { ...renderUniforms, u_logicGrid: 1 }, { ...commonTextures, 1: this.echoLogicGridTexture }, renderBlend);
+        }
+
         // --- PASS 2: COMPOSITE ---
         // All post-processing (color, brightness, saturation, glow, refraction) is applied here.
         // Echo pass uses the identical compUniforms — only the texture bindings differ.
-        const showCanvasLines = (s.layerEnableCanvasLines !== false);
-        const refractionActive = fxState.refractionEnabled && !s.performanceMode;
-
-        if (!showCanvasLines && !refractionActive) {
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            return true;
-        }
 
         const compUniforms = {
             ...sharedUniforms,
@@ -2226,22 +2251,55 @@ class WebGLRenderer {
             u_compressionThreshold:  fxState.compressionThreshold
         };
 
-        // Pass 2A: composite main lines → targetFBO (replace)
-        this._drawFullscreenPass(prog, targetFBO || this.fboA2, compUniforms, { ...commonTextures, 0: sourceTex, 2: this.texLinePersist }, null);
+        // Pass 2A: composite with burn-in persistence for refraction lines.
+        // Refraction is rendered SEPARATELY from the base scene so only lines persist,
+        // not the falling code background.
+        const refrPersistence = fxState.persistence; // 1/persistFrames
+        const dst = targetFBO || this.fboA2;
+        if (refrPersistence > 0.0 && fxState.refractionEnabled) {
+            // Step 1: Render base scene WITHOUT refraction → targetFBO
+            this._drawFullscreenPass(prog, dst, { ...compUniforms, u_refractionEnabled: false }, { ...commonTextures, 0: sourceTex, 2: this.texLinePersist }, null);
 
-        // Pass 2B: composite echo lines over main output using identical compUniforms.
-        // Only the persistence buffer and occupancy texture differ.
-        // blackTexture (alpha=0) as u_characterBuffer → Mode 1 outputs premultiplied alpha:
-        //   non-line pixels: (0,0,0,0) → fully transparent → main output preserved
-        //   line pixels:     (lineAlpha*color, lineAlpha) → echo composited over main
-        // ONE/ONE_MINUS_SRC_ALPHA is the correct blend for premultiplied-alpha output.
-        if (gpuEchoEnabled && echoHasHistory) {
-            this._drawFullscreenPass(prog, targetFBO || this.fboA2, compUniforms, {
-                ...commonTextures,
-                0: this.blackTexture,
-                1: this.echoLogicGridTexture,
-                2: this.texEchoLinePersist
-            }, { src: this.gl.ONE, dst: this.gl.ONE_MINUS_SRC_ALPHA });
+            // Step 2: Decay the refraction persistence FBO
+            const decayRefrUniforms = { u_color: [refrPersistence, refrPersistence, refrPersistence, refrPersistence] };
+            const decayRefrBlend = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT };
+            this._drawFullscreenPass(this.colorProgram, this.fboRefrPersist, decayRefrUniforms, {}, decayRefrBlend);
+
+            // Step 3: Render refraction-only into persistence FBO with gl.MAX
+            // Uses blackTexture as character buffer (same technique as echo pass) so
+            // only refraction line pixels are output; non-line pixels are transparent.
+            const maxBlend = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX };
+            this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, { ...commonTextures, 0: this.blackTexture, 2: this.texLinePersist }, maxBlend);
+
+            // Step 3B: Echo lines also render into persistence FBO with gl.MAX
+            // so they fade out through the same burn-in mechanism as main lines.
+            if (gpuEchoEnabled && echoHasHistory) {
+                this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, {
+                    ...commonTextures,
+                    0: this.blackTexture,
+                    1: this.echoLogicGridTexture,
+                    2: this.texEchoLinePersist
+                }, maxBlend);
+            }
+
+            // Step 4: Blend persistence (refraction + echo lines + fading trails) over base scene
+            // Premultiplied alpha composite: ONE / ONE_MINUS_SRC_ALPHA
+            this._drawFullscreenPass(this.copyProgram, dst,
+                { u_texture: 0 }, { 0: this.texRefrPersist },
+                { src: this.gl.ONE, dst: this.gl.ONE_MINUS_SRC_ALPHA });
+        } else {
+            // No persistence — render directly
+            this._drawFullscreenPass(prog, dst, compUniforms, { ...commonTextures, 0: sourceTex, 2: this.texLinePersist }, null);
+
+            // Echo lines without persistence — render directly over base
+            if (gpuEchoEnabled && echoHasHistory) {
+                this._drawFullscreenPass(prog, dst, compUniforms, {
+                    ...commonTextures,
+                    0: this.blackTexture,
+                    1: this.echoLogicGridTexture,
+                    2: this.texEchoLinePersist
+                }, { src: this.gl.ONE, dst: this.gl.ONE_MINUS_SRC_ALPHA });
+            }
         }
 
         // Final Cleanup

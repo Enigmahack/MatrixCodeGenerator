@@ -2096,7 +2096,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                 glowFalloff: 0, roundness: 0, maskSoftness: 0, brightness: 1.0,
                 saturation: 1.0, additiveStrength: 0, glow: 0, varianceEnabled: 0,
                 varianceAmount: 0, varianceCoverage: 0, varianceDirection: 0,
-                color: [0, 0, 0], persistence: 0, sampleOffset: [0, 0],
+                color: [0, 0, 0], persistence: 0, persistFrames: 0, sampleOffset: [0, 0],
                 lineOffset: [0, 0], fillRatio: 0, glassBloom: 0,
                 refractionEnabled: 0, refractionWidth: 0, refractionBrightness: 0,
                 refractionSaturation: 0, refractionCompression: 0, refractionOffset: 0,
@@ -2131,6 +2131,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.varianceDirection = this.getLineGfxValue('BrightnessVarianceDirection') ?? 1;
         st.color[0] = col.r / 255; st.color[1] = col.g / 255; st.color[2] = col.b / 255;
         st.persistence = persistFrames <= 0 ? 0.0 : 1.0 / persistFrames;
+        st.persistFrames = persistFrames;
         st.sampleOffset[0] = this.getLineGfxValue('SampleOffsetX') * scale;
         st.sampleOffset[1] = this.getLineGfxValue('SampleOffsetY') * scale;
         st.lineOffset[0] = this.getLineGfxValue('OffsetX') * scale;
