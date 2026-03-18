@@ -116,7 +116,7 @@ class ConfigurationManager {
             "smoothingAmount": 0,
             "showFpsCounter": false,
             "skipIntro": false,
-            "tapToSpawnEnabled": false,
+            "tapToSpawnEnabled": true,
             "performanceMode": false,
             "debugTabEnabled": false,
             "debugEnabled": false,

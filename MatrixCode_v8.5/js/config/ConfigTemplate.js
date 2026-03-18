@@ -96,54 +96,39 @@ const QuantizedInheritableSettingIds = new Set(QuantizedInheritableSettings.map(
 
 const generateQuantizedEffectSettings = (prefix, label, action) => {
     const effectDep = `activeQuantizedEffect:${prefix}`;
+    const overrideDep = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
+    
     const settings = [
-        { cat: 'Effects', type: 'accordion_subheader', label: 'Options', dep: effectDep },
         { cat: 'Effects', id: prefix + "Enabled", type: 'checkbox', label: 'Enabled', dep: effectDep, tier: 'basic', tags: ['auto', 'on'] },
-        { cat: 'Effects', id: prefix + "TapToSpawn", type: 'checkbox', label: 'Include in Tap to Spawn', dep: [effectDep, prefix + "Enabled", 'tapToSpawnEnabled'], tier: 'basic', description: 'Include this effect in the Tap to Spawn rotation.', tags: ['touch', 'click', 'spawn'] },
+        { cat: 'Effects', id: prefix + "TapToSpawn", type: 'checkbox', label: 'Tap to Spawn', dep: [effectDep, prefix + "Enabled"], tier: 'basic', description: 'Include this effect in the Tap to Spawn rotation.', tags: ['touch', 'click', 'spawn'] },
         ...(prefix !== 'quantizedGenerateV2' ? [
             { cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Generator Takeover', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator (V2) will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] },
-            { cat: 'Effects', id: prefix + "RandomStart", type: 'checkbox', label: 'Random Start Location', dep: [effectDep, prefix + "Enabled", prefix + "GeneratorTakeover", '!tapToSpawnEnabled'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen instead of the screen center.', tags: ['random', 'position'] },
+            { cat: 'Effects', id: prefix + "RandomStart", type: 'checkbox', label: 'Random Start Location', dep: [effectDep, prefix + "Enabled", prefix + "GeneratorTakeover"], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen instead of the screen center.', tags: ['random', 'position'] },
         ] : []),
 
-        { cat: 'Effects', type: 'sub_accordion', label: 'Line Basics', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 600, step: 5, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'auto'] },
         { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'length'] },
         { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Speed', min: 0.1, max: 15.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'basic', tags: ['fast', 'slow', 'motion'] },
         { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'width', 'grid'] },
         { cat: 'Effects', id: prefix + "BlockHeightCells", type: 'range', label: 'Block Height', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'height', 'grid'] },
-        { cat: 'Effects', type: 'end_group' },
 
-        { cat: 'Effects', id: prefix + "OverrideDefaults", type: 'checkbox', label: 'Override Quantized Defaults', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When enabled, you can customize the individual look of this effect. Otherwise, it will inherit from 'Quantized Defaults'.", tags: ['custom', 'unique'] },
+        { cat: 'Effects', id: prefix + "OverrideDefaults", type: 'checkbox', label: 'Override Defaults', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When enabled, you can customize the individual look of this effect. Otherwise, it will inherit from 'Quantized Defaults'.", tags: ['custom', 'unique'] },
     ];
 
-    // Add inheritable settings as overrides
-    let currentSub = '';
+    // Grouping inherited settings
+    const visualSettings = [];
+    const behaviorSettings = [];
+    const generatorSettings = [];
+
     QuantizedInheritableSettings.forEach(s => {
-        // V2 Generator settings on non-Generator effects require GeneratorTakeover
         const isV2Generator = s.sub.startsWith('V2 Generator');
         const needsTakeoverDep = isV2Generator && prefix !== 'quantizedGenerateV2';
 
-        if (s.sub !== currentSub) {
-            if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
-            const subDeps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
-            if (needsTakeoverDep) subDeps.push(prefix + "GeneratorTakeover");
-            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub + ' Override', dep: subDeps });
-            currentSub = s.sub;
-        }
-
-        if (s.sub_header) {
-            const headerDeps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
-            if (needsTakeoverDep) headerDeps.push(prefix + "GeneratorTakeover");
-            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: headerDeps });
-        }
-
-        // Clone the setting and update ID and Dependencies
         const override = { ...s };
         override.cat = 'Effects';
         override.id = prefix + s.id;
 
-        // Handle dependencies
-        const deps = [effectDep, prefix + "Enabled", prefix + "OverrideDefaults"];
+        const deps = [...overrideDep];
         if (needsTakeoverDep) deps.push(prefix + "GeneratorTakeover");
         if (s.dep) {
             const sDeps = Array.isArray(s.dep) ? s.dep : [s.dep];
@@ -154,10 +139,69 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         }
         override.dep = deps;
 
-        settings.push(override);
+        if (isV2Generator) {
+            generatorSettings.push(override);
+        } else if (s.sub === 'Line Basics' || s.sub === 'Line Advanced') {
+            visualSettings.push(override);
+        } else {
+            behaviorSettings.push(override);
+        }
     });
 
-    if (currentSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+    // Add Visual Settings Header
+    settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Visual Settings', dep: overrideDep });
+    
+    // Add Visual Settings (Line Basics and Line Advanced)
+    let currentVisSub = '';
+    visualSettings.forEach(s => {
+        if (s.sub !== currentVisSub) {
+            if (currentVisSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub, dep: overrideDep });
+            currentVisSub = s.sub;
+        }
+        if (s.sub_header) {
+            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
+        }
+        settings.push(s);
+    });
+    if (currentVisSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+
+    // Add Generator Settings (Sub-Accordion)
+    if (generatorSettings.length > 0) {
+        const genDep = [...overrideDep];
+        if (prefix !== 'quantizedGenerateV2') genDep.push(prefix + "GeneratorTakeover");
+        
+        settings.push({ cat: 'Effects', type: 'sub_accordion', label: 'Generator Settings', dep: genDep });
+        let currentGenSub = '';
+        generatorSettings.forEach(s => {
+             if (s.sub !== currentGenSub) {
+                currentGenSub = s.sub;
+            }
+            if (s.sub_header) {
+                 settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: genDep });
+            }
+            settings.push(s);
+        });
+        settings.push({ cat: 'Effects', type: 'end_group' });
+    }
+
+    // Add Behavior Settings Header
+    settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Behavior Settings', dep: overrideDep });
+    
+    // Add remaining Behavior Settings
+    let currentBehSub = '';
+    behaviorSettings.forEach(s => {
+        if (s.sub !== currentBehSub) {
+            if (currentBehSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
+            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub, dep: overrideDep });
+            currentBehSub = s.sub;
+        }
+        if (s.sub_header) {
+            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
+        }
+        settings.push(s);
+    });
+    if (currentBehSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
 
     return settings;
 };
@@ -411,14 +455,29 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', tier: 'basic', tags: ['error', 'stop', 'action'] },
 
     { cat: 'Effects', type: 'accordion_header', label: 'Resurrections', startOpen: true },
-    { cat: 'Effects', id: 'tapToSpawnEnabled', type: 'checkbox', label: 'Tap to Spawn', tier: 'basic', description: 'When enabled, clicking or tapping the screen triggers quantized effects at that location. Enabled effects cycle through on consecutive taps.', tags: ['touch', 'click', 'spawn', 'interactive'] },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'General' },
+    ...(() => {
+        const defaults = [];
+        const defPrefix = 'quantizedDefault';
+        QuantizedInheritableSettings.filter(s => s.sub === 'General' || s.sub === 'Line Basics').forEach(s => {
+            if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: '!_activeEffectOverrideDefaults' });
+            const setting = { ...s };
+            setting.cat = 'Effects';
+            setting.id = defPrefix + s.id;
+            setting.dep = '!_activeEffectOverrideDefaults';
+            defaults.push(setting);
+        });
+        return defaults;
+    })(),
 
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse',     action: 'quantizedPulse',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedPulse',         tier: 'basic', tags: ['quantizedpulse', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add',       action: 'quantizedAdd',            class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedAdd',           tier: 'basic', tags: ['quantizedadd', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract',   action: 'quantizedRetract',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedRetract',       tier: 'basic', tags: ['quantizedretract', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb',     action: 'quantizedClimb',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedClimb',         tier: 'basic', tags: ['quantizedclimb', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom',      action: 'quantizedZoom',           class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedZoom',          tier: 'basic', tags: ['quantizedzoom', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Block Generator',     action: 'QuantizedBlockGenerator', class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedGenerateV2',   tier: 'basic', tags: ['blockgenerator', 'action', 'trigger'] },
+    ...generateQuantizedEffectSettings('quantizedPulse', 'Quantized Pulse', 'quantizedPulse'),
+    ...generateQuantizedEffectSettings('quantizedAdd', 'Quantized Add', 'quantizedAdd'),
+    ...generateQuantizedEffectSettings('quantizedRetract', 'Quantized Retract', 'quantizedRetract'),
+    ...generateQuantizedEffectSettings('quantizedClimb', 'Quantized Climb', 'quantizedClimb'),
+    ...generateQuantizedEffectSettings('quantizedZoom', 'Quantized Zoom', 'quantizedZoom'),
+    ...generateQuantizedEffectSettings('quantizedGenerateV2', 'Quantized Block Generator', 'QuantizedBlockGenerator'),
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Effect Options' },
     { cat: 'Effects', id: 'activeQuantizedEffect', type: 'select', label: 'Selected Effect', options: [
         { label: 'Quantized Pulse', value: 'quantizedPulse' },
         { label: 'Quantized Add', value: 'quantizedAdd' },
@@ -428,118 +487,81 @@ const ConfigTemplate = [
         { label: 'Block Generator', value: 'quantizedGenerateV2' }
     ], tier: 'basic', tags: ['mode', 'switch', 'type'] },
 
-    ...generateQuantizedEffectSettings('quantizedPulse', 'Quantized Pulse', 'quantizedPulse'),
-    ...generateQuantizedEffectSettings('quantizedAdd', 'Quantized Add', 'quantizedAdd'),
-    ...generateQuantizedEffectSettings('quantizedRetract', 'Quantized Retract', 'quantizedRetract'),
-    ...generateQuantizedEffectSettings('quantizedClimb', 'Quantized Climb', 'quantizedClimb'),
-    ...generateQuantizedEffectSettings('quantizedZoom', 'Quantized Zoom', 'quantizedZoom'),
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse',     action: 'quantizedPulse',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedPulse',         tier: 'basic', tags: ['quantizedpulse', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add',       action: 'quantizedAdd',            class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedAdd',           tier: 'basic', tags: ['quantizedadd', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract',   action: 'quantizedRetract',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedRetract',       tier: 'basic', tags: ['quantizedretract', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb',     action: 'quantizedClimb',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedClimb',         tier: 'basic', tags: ['quantizedclimb', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom',      action: 'quantizedZoom',           class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedZoom',          tier: 'basic', tags: ['quantizedzoom', 'action', 'trigger'] },
+    { cat: 'Effects', type: 'button', label: 'Trigger Block Generator',     action: 'QuantizedBlockGenerator', class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedGenerateV2',   tier: 'basic', tags: ['blockgenerator', 'action', 'trigger'] },
 
-    { cat: 'Effects', type: 'sub_accordion', label: 'Zoom Settings', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled'] },
-    { cat: 'Effects', id: 'quantizedZoomZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled'], tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'] },
-    { cat: 'Effects', id: 'quantizedZoomOpacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'] },
-    { cat: 'Effects', id: 'quantizedZoomZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'] },
-    { cat: 'Effects', id: 'quantizedZoomMaxScale', type: 'range', label: 'Max Zoom', min: 1.0, max: 2.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'advanced', description: 'Maximum zoom magnification. The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'] },
-    { cat: 'Effects', id: 'quantizedZoomDelay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled'], tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'] },
+    // Detailed settings for specific effects (only visible when Override Defaults is enabled)
+    { cat: 'Effects', type: 'sub_accordion', label: 'Zoom Settings', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomOverrideDefaults'] },
+    { cat: 'Effects', id: 'quantizedZoomZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomOverrideDefaults'], tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'] },
+    { cat: 'Effects', id: 'quantizedZoomOpacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled', 'quantizedZoomOverrideDefaults'], tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'] },
+    { cat: 'Effects', id: 'quantizedZoomZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled', 'quantizedZoomOverrideDefaults'], tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'] },
+    { cat: 'Effects', id: 'quantizedZoomMaxScale', type: 'range', label: 'Max Zoom', min: 1.0, max: 2.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled', 'quantizedZoomOverrideDefaults'], tier: 'advanced', description: 'Maximum zoom magnification. The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'] },
+    { cat: 'Effects', id: 'quantizedZoomDelay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: ['activeQuantizedEffect:quantizedZoom', 'quantizedZoomEnabled', 'quantizedZoomZoomEnabled', 'quantizedZoomOverrideDefaults'], tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'] },
     { cat: 'Effects', type: 'end_group' },
 
-    ...generateQuantizedEffectSettings('quantizedGenerateV2', 'Quantized Block Generator', 'QuantizedBlockGenerator'),
+    // Grouping all detailed Block Generator settings into "Generator Settings" sub-accordion
+    { cat: 'Effects', type: 'sub_accordion', label: 'Generator Settings', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'] },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Generation Core' },
+    { cat: 'Effects', id: 'quantizedGenerateV2RandomStart', type: 'checkbox', label: 'Random Start Location', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 3, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: "Number of additional layers to generate (Layer 0 is always base, max 3 additional = 4 total).", tags: ['depth', 'complexity'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2QuadrantCount', type: 'select', label: 'Quadrant Restriction', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] },
 
-    { cat: 'Effects', type: 'sub_accordion', label: 'Generation Settings', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2RandomStart', type: 'checkbox', label: 'Random Start Location', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', '!tapToSpawnEnabled'], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 3, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: "Number of additional layers to generate (Layer 0 is always base, max 3 additional = 4 total).", tags: ['depth', 'complexity'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2QuadrantCount', type: 'select', label: 'Quadrant Restriction', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Rhythm & Timing' },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Size Scaling' },
+    { cat: 'Effects', id: 'quantizedGenerateV2FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).', tags: ['size', 'large'] },
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Inside-Out Expansion' },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutEnabled', type: 'checkbox', label: 'Enable', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'After the initial spine strips grow, seed parallel rows and columns at increasing perpendicular distances from both axes (wave 1 = ±1, wave 2 = ±2, etc.).', tags: ['pattern', 'bloom'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2InsideOutEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Number of global steps to wait before the first expansion wave fires. Gives the spine strips time to establish.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2InsideOutEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'The number of clusters of blocks that populate together.', tags: ['amount', 'cluster'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps between Buckets', min: 1, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2InsideOutEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: "Steps between each successive expansion wave bucket 'release'.", tags: ['speed', 'timing'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Logic & Behaviors' },
+    { cat: 'Effects', type: 'sortable_list', id: 'quantizedBehaviorPool', label: 'Behavior Pool', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', tags: ['logic', 'stack'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Main Nudge Growth' },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Default enabled state for Main Nudge Growth. Can also be toggled live in the Behavior Pool above.', tags: ['growth', 'lateral'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Number of global steps to wait before nudge strips begin spawning, giving main strips time to establish.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2NudgeChance', type: 'range', label: 'Randomness', min: 0.05, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2NudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the probability of block addition and retraction in the 3-step cycle.', tags: ['chance', 'amount'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Block Spawner/Despawner' },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'When enabled, spawns 1x1 blocks ahead of existing nudge strips to create connection points, and periodically removes them to create volatility.', tags: ['spawn', 'ahead'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 50, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Global steps to wait before the Block Spawner/Despawner becomes active.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerCount', type: 'range', label: 'Spawn Count', min: 1, max: 20, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Number of blocks to spawn per interval.', tags: ['amount', 'count'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Steps between each block spawn burst.', tags: ['speed', 'rate'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerDespawnCount', type: 'range', label: 'Despawn Count', min: 1, max: 20, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Number of blocks to remove per interval.', tags: ['amount', 'count'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Steps between each block despawn burst.', tags: ['speed', 'rate'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Hole Filler' },
+    { cat: 'Effects', id: 'quantizedGenerateV2HoleFillerEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'When enabled, aggressively fills enclosed empty spaces in Layer 1 to ensure a solid structure.', tags: ['fill', 'solid'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2HoleFillerRate', type: 'range', label: 'Check Rate', min: 1, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2HoleFillerEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'How often to perform the hole-filling scan. 1 is every step.', tags: ['speed', 'rate'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Spreading Nudge' },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'When enabled, periodically performs nudge growth at random locations along the axes.', tags: ['spawn', 'spreader'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeChance', type: 'range', label: 'Growth Chance', min: 0.05, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of block addition and retraction in the 3-step cycle for spreading points.', tags: ['chance', 'amount'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeLockToAxis', type: 'checkbox', label: 'Lock to Axis', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Force nudge growth to occur strictly on the X or Y cardinal axes.', tags: ['axis', 'lock'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgePreferCenter', type: 'checkbox', label: 'Prefer Center', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Favor nudge growth points closer to the seed origin.', tags: ['center', 'bias'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeRange', type: 'range', label: 'Spreading Range', min: 0.0, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'How far from the center/axis nudge growth can occur.', tags: ['random', 'range'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Maximum steps of delay between each axial movement. 1 is fastest (every step), 10 is slowest (up to 10 steps delay).', tags: ['timing', 'speed'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeMaxInstances', type: 'range', label: 'Max Instances', min: 4, max: 100, step: 4, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Maximum number of perpendicular nudge strips allowed at once.', tags: ['limit', 'density'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeSymmetry', type: 'checkbox', label: 'Prefer Symmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Attempt to perform matching nudge growth on the opposite side of the axis.', tags: ['symmetry', 'mirror'] },
+
+    { cat: 'Effects', type: 'accordion_subheader', label: 'Shove Fill' },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Shoots 1–3 cell wide strips outward from the spawn center in selected quadrant directions, backfilling behind each step. Stops at the canvas perimeter. Respects Quadrant Restriction and Allow Asymmetry.', tags: ['shove', 'push'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2ShoveFillEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Steps to wait before the first shove fires.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2ShoveFillEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Steps between each outward advance. Lower values move faster.', tags: ['speed', 'rate'] },
+    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, unit: 'blocks', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled', 'quantizedGenerateV2ShoveFillEnabled', 'quantizedGenerateV2OverrideDefaults'], tier: 'advanced', description: 'Maximum blocks to shove per step.', tags: ['speed', 'shove'] },
     { cat: 'Effects', type: 'end_group' },
 
-    { cat: 'Effects', type: 'sub_accordion', label: 'Rhythm & Timing', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Size Scaling', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).', tags: ['size', 'large'] },
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Inside-Out Expansion', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutEnabled', type: 'checkbox', label: 'Enable', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'After the initial spine strips grow, seed parallel rows and columns at increasing perpendicular distances from both axes (wave 1 = ±1, wave 2 = ±2, etc.).', tags: ['pattern', 'bloom'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2InsideOutEnabled'], tier: 'advanced', description: 'Number of global steps to wait before the first expansion wave fires. Gives the spine strips time to establish.', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2InsideOutEnabled'], tier: 'advanced', description: 'The number of clusters of blocks that populate together.', tags: ['amount', 'cluster'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps between Buckets', min: 1, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2InsideOutEnabled'], tier: 'advanced', description: "Steps between each successive expansion wave bucket 'release'.", tags: ['speed', 'timing'] },
-    { cat: 'Effects', type: 'end_group' },
-
-    { cat: 'Effects', type: 'sub_accordion', label: 'Behavior Settings', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', type: 'sortable_list', id: 'quantizedBehaviorPool', label: 'Behavior Pool', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', tags: ['logic', 'stack'] },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Main Nudge Growth', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2NudgeEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Default enabled state for Main Nudge Growth. Can also be toggled live in the Behavior Pool above.', tags: ['growth', 'lateral'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Number of global steps to wait before nudge strips begin spawning, giving main strips time to establish.', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2NudgeChance', type: 'range', label: 'Randomness', min: 0.05, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2NudgeEnabled'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the probability of block addition and retraction in the 3-step cycle.', tags: ['chance', 'amount'] },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Block Spawner/Despawner', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'When enabled, spawns 1x1 blocks ahead of existing nudge strips to create connection points, and periodically removes them to create volatility.', tags: ['spawn', 'ahead'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 50, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Global steps to wait before the Block Spawner/Despawner becomes active.', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerCount', type: 'range', label: 'Spawn Count', min: 1, max: 20, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled'], tier: 'advanced', description: 'Number of blocks to spawn per interval.', tags: ['amount', 'count'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled'], tier: 'advanced', description: 'Steps between each block spawn burst.', tags: ['speed', 'rate'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerDespawnCount', type: 'range', label: 'Despawn Count', min: 1, max: 20, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled'], tier: 'advanced', description: 'Number of blocks to remove per interval.', tags: ['amount', 'count'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2BlockSpawnerEnabled'], tier: 'advanced', description: 'Steps between each block despawn burst.', tags: ['speed', 'rate'] },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Hole Filler', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2HoleFillerEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'When enabled, aggressively fills enclosed empty spaces in Layer 1 to ensure a solid structure.', tags: ['fill', 'solid'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2HoleFillerRate', type: 'range', label: 'Check Rate', min: 1, max: 10, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2HoleFillerEnabled'], tier: 'advanced', description: 'How often to perform the hole-filling scan. 1 is every step.', tags: ['speed', 'rate'] },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Spreading Nudge', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'When enabled, periodically performs nudge growth at random locations along the axes.', tags: ['spawn', 'spreader'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeChance', type: 'range', label: 'Growth Chance', min: 0.05, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of block addition and retraction in the 3-step cycle for spreading points.', tags: ['chance', 'amount'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeLockToAxis', type: 'checkbox', label: 'Lock to Axis', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', description: 'Force nudge growth to occur strictly on the X or Y cardinal axes.', tags: ['axis', 'lock'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgePreferCenter', type: 'checkbox', label: 'Prefer Center', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', description: 'Favor nudge growth points closer to the seed origin.', tags: ['center', 'bias'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeRange', type: 'range', label: 'Spreading Range', min: 0.0, max: 1.0, step: 0.05, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'How far from the center/axis nudge growth can occur.', tags: ['random', 'range'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', description: 'Maximum steps of delay between each axial movement. 1 is fastest (every step), 10 is slowest (up to 10 steps delay).', tags: ['timing', 'speed'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeMaxInstances', type: 'range', label: 'Max Instances', min: 4, max: 100, step: 4, dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', description: 'Maximum number of perpendicular nudge strips allowed at once.', tags: ['limit', 'density'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2SpreadingNudgeSymmetry', type: 'checkbox', label: 'Prefer Symmetry', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2SpreadingNudgeEnabled'], tier: 'advanced', description: 'Attempt to perform matching nudge growth on the opposite side of the axis.', tags: ['symmetry', 'mirror'] },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Shove Fill', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillEnabled', type: 'checkbox', label: 'Enabled', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2Enabled'], tier: 'advanced', description: 'Shoots 1–3 cell wide strips outward from the spawn center in selected quadrant directions, backfilling behind each step. Stops at the canvas perimeter. Respects Quadrant Restriction and Allow Asymmetry.', tags: ['shove', 'push'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps to wait before the first shove fires.', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Steps between each outward advance. Lower values move faster.', tags: ['speed', 'rate'] },
-    { cat: 'Effects', id: 'quantizedGenerateV2ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, unit: 'blocks', dep: ['activeQuantizedEffect:quantizedGenerateV2', 'quantizedGenerateV2ShoveFillEnabled'], tier: 'advanced', description: 'Maximum blocks to shove per step.', tags: ['speed', 'shove'] },
-
-    { cat: 'Effects', type: 'end_group' },
-
-    { cat: 'Effects', type: 'accordion_subheader', label: 'Quantized Defaults', dep: '!_activeEffectOverrideDefaults' },
-    ...(() => {
-        const defaults = [];
-        let currentSub = '';
-        const defPrefix = 'quantizedDefault';
-        QuantizedInheritableSettings.forEach(s => {
-
-        if (s.sub !== currentSub) {
-                if (currentSub !== '') defaults.push({ cat: 'Effects', type: 'end_group' });
-                defaults.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub, dep: '!_activeEffectOverrideDefaults' });
-                currentSub = s.sub;
-            }
-            if (s.sub_header) {
-                defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header });
-            }
-            const setting = { ...s };
-            setting.cat = 'Effects';
-            setting.id = defPrefix + s.id;
-            setting.tags = (setting.tags || []).concat(['default', 'global']);
-            
-            if (s.dep) {
-                const deps = Array.isArray(s.dep) ? s.dep : [s.dep];
-                setting.dep = deps.map(d => {
-                    if (d.startsWith('!')) return '!' + defPrefix + d.substring(1);
-                    return defPrefix + d;
-                });
-            }
-            
-            // Inherit tier from definition (allows some defaults to be basic)
-            setting.tier = s.tier || 'advanced';
-            
-            defaults.push(setting);
-        });
-        if (currentSub !== '') defaults.push({ cat: 'Effects', type: 'end_group' });
-        return defaults;
-    })(),
 
     { cat: 'Effects', type: 'accordion_header', label: 'Special Effects', startOpen: true },
 
