@@ -86,6 +86,9 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Core)', id: 'ShiftMaxThickness', type: 'range', label: 'Shift Max Thickness', min: 1, max: 20, step: 1, tier: 'advanced', description: "Maximum allowed thickness for shifted blocks.", tags: ['shift', 'thickness'] },
 ];
 
+// Pre-built Set for O(1) inheritable-setting lookups (avoids O(n) .some() per getConfig call)
+const QuantizedInheritableSettingIds = new Set(QuantizedInheritableSettings.map(s => s.id));
+
 const generateQuantizedEffectSettings = (prefix, label, action) => {
     const effectDep = `activeQuantizedEffect:${prefix}`;
     const settings = [

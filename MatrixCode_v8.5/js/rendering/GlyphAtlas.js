@@ -129,6 +129,7 @@ class GlyphAtlas {
         // Reset dynamic state
         this.usedChars = [];
         this.charMap.clear();
+        this._invalidateCodeRectCache();
         this.capacity = Math.max(this.minCapacity, prevUsedChars.length);
 
         // Initial sizing (reset = true)
@@ -313,9 +314,29 @@ class GlyphAtlas {
     get(char) {
         const rect = this.charMap.get(char);
         if (rect) return rect;
-        
+
         // Lazy Load
         return this.addChar(char);
+    }
+
+    /**
+     * Fast lookup by charCode — avoids String.fromCharCode allocation in hot loops.
+     * Uses a pre-sized cache array indexed by charCode for O(1) access.
+     */
+    getByCode(charCode) {
+        let rect = this._codeRectCache ? this._codeRectCache[charCode] : undefined;
+        if (rect !== undefined) return rect;
+        // Fallback: convert to string, do standard get, cache result
+        const char = String.fromCharCode(charCode);
+        rect = this.get(char);
+        if (!this._codeRectCache) this._codeRectCache = new Array(65536);
+        this._codeRectCache[charCode] = rect;
+        return rect;
+    }
+
+    /** Invalidate the charCode rect cache when atlas is rebuilt */
+    _invalidateCodeRectCache() {
+        this._codeRectCache = null;
     }
 
     /**

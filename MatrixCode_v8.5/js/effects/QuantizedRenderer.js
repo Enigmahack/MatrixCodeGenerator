@@ -279,7 +279,16 @@ class QuantizedRenderer {
             fx._outsideMap = new Uint8Array(size);
         }
 
-        const status = gridOverride ? new Uint8Array(size) : fx._outsideMap;
+        // Pool the override status buffer to avoid per-call allocation
+        let status;
+        if (gridOverride) {
+            if (!this._overrideStatusBuf || this._overrideStatusBuf.length !== size) {
+                this._overrideStatusBuf = new Uint8Array(size);
+            }
+            status = this._overrideStatusBuf;
+        } else {
+            status = fx._outsideMap;
+        }
         status.fill(0);
 
         const grid = gridOverride || fx.renderGrid;

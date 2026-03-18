@@ -332,8 +332,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     getConfig(keySuffix) {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
-        const isInheritable = QuantizedInheritableSettings.some(s => s.id === keySuffix);
-        
+        const isInheritable = QuantizedInheritableSettingIds.has(keySuffix);
+
         const key = this.configPrefix + keySuffix;
         const val = this.c.state[key];
 
@@ -358,7 +358,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     getLineGfxValue(suffix) {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
-        const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'LineGfx' + suffix);
+        const isInheritable = QuantizedInheritableSettingIds.has('LineGfx' + suffix);
 
         const key = this.configPrefix + 'LineGfx' + suffix;
         const val = this.c.state[key];
@@ -376,7 +376,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     getInnerLineGfxValue(suffix) {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
-        const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'InnerLineGfx' + suffix);
+        const isInheritable = QuantizedInheritableSettingIds.has('InnerLineGfx' + suffix);
 
         const key = this.configPrefix + 'InnerLineGfx' + suffix;
         const val = this.c.state[key];
@@ -394,7 +394,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     getEchoGfxValue(suffix) {
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
-        const isInheritable = QuantizedInheritableSettings.some(s => s.id === 'EchoGfx' + suffix);
+        const isInheritable = QuantizedInheritableSettingIds.has('EchoGfx' + suffix);
 
         const key = this.configPrefix + 'EchoGfx' + suffix;
         const val = this.c.state[key];
@@ -440,6 +440,10 @@ class QuantizedBaseEffect extends AbstractEffect {
     set lastGridSeed(val) { QuantizedBaseEffect.lastGridSeed = val; }
 
     getBlockSize() {
+        // Per-frame cache: avoids repeated state lookups (called 20+ times per frame)
+        if (this._cachedBlockSizeFrame === this.animFrame && this._cachedBlockSize) {
+            return this._cachedBlockSize;
+        }
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
         let w, h;
         if (!overrideDefaults) {
@@ -450,7 +454,11 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (h == null) h = this.c.state[this.configPrefix + 'BlockHeightCells'];
         if (w == null) w = this.c.state.quantizedBlockWidthCells;
         if (h == null) h = this.c.state.quantizedBlockHeightCells;
-        return { w: w || 4, h: h || 4 };
+        if (!this._cachedBlockSize) this._cachedBlockSize = { w: 4, h: 4 };
+        this._cachedBlockSize.w = w || 4;
+        this._cachedBlockSize.h = h || 4;
+        this._cachedBlockSizeFrame = this.animFrame;
+        return this._cachedBlockSize;
     }
 
     preallocate() {
@@ -730,26 +738,16 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const g = this.g;
         if (this._savedActiveIndices && this._savedActiveIndices.size > 0) {
+            // Hoist null checks outside the loop — these don't change per-iteration
+            const eA = g.effectActive, eAl = g.effectAlphas, eCh = g.effectChars, eCo = g.effectColors, eG = g.effectGlows;
+            const oC = g.overrideChars, oCo = g.overrideColors, oA = g.overrideAlphas, oG = g.overrideGlows, oM = g.overrideMix;
+            const sA = g.secondaryActive, sCh = g.secondaryChars, sCo = g.secondaryColors, sAl = g.secondaryAlphas, sG = g.secondaryGlows;
+            const mx = g.mix;
             for (const i of this._savedActiveIndices) {
-                if (g.effectActive) g.effectActive[i] = 0;
-                if (g.effectAlphas) g.effectAlphas[i] = 0;
-                if (g.effectChars) g.effectChars[i] = 0;
-                if (g.effectColors) g.effectColors[i] = 0;
-                if (g.effectGlows) g.effectGlows[i] = 0;
-
-                if (g.overrideChars) g.overrideChars[i] = 0;
-                if (g.overrideColors) g.overrideColors[i] = 0;
-                if (g.overrideAlphas) g.overrideAlphas[i] = 0;
-                if (g.overrideGlows) g.overrideGlows[i] = 0;
-                if (g.overrideMix) g.overrideMix[i] = 0;
-
-                if (g.secondaryActive) g.secondaryActive[i] = 0;
-                if (g.secondaryChars) g.secondaryChars[i] = 0;
-                if (g.secondaryColors) g.secondaryColors[i] = 0;
-                if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
-                if (g.secondaryGlows) g.secondaryGlows[i] = 0;
-
-                if (g.mix) g.mix[i] = 0;
+                if (eA) eA[i] = 0; if (eAl) eAl[i] = 0; if (eCh) eCh[i] = 0; if (eCo) eCo[i] = 0; if (eG) eG[i] = 0;
+                if (oC) oC[i] = 0; if (oCo) oCo[i] = 0; if (oA) oA[i] = 0; if (oG) oG[i] = 0; if (oM) oM[i] = 0;
+                if (sA) sA[i] = 0; if (sCh) sCh[i] = 0; if (sCo) sCo[i] = 0; if (sAl) sAl[i] = 0; if (sG) sG[i] = 0;
+                if (mx) mx[i] = 0;
             }
             this._savedActiveIndices = null;
         } else if (this._savedActiveBlocks && this._savedActiveBlocks.length > 0) {
@@ -757,6 +755,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             const cpX = bs.w;
             const cpY = bs.h;
 
+            // Hoist null checks outside the loop
+            const eA = g.effectActive, eAl = g.effectAlphas, eCh = g.effectChars, eCo = g.effectColors, eG = g.effectGlows;
+            const oC = g.overrideChars, oCo = g.overrideColors, oA = g.overrideAlphas, oG = g.overrideGlows, oM = g.overrideMix;
+            const sA = g.secondaryActive, sCh = g.secondaryChars, sCo = g.secondaryColors, sAl = g.secondaryAlphas, sG = g.secondaryGlows;
+            const mx = g.mix;
             for (const b of this._savedActiveBlocks) {
                 const x1 = Math.max(0, Math.round(b.x * cpX));
                 const y1 = Math.max(0, Math.round(b.y * cpY));
@@ -767,25 +770,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                     const rowOff = cy * g.cols;
                     for (let cx = x1; cx < x2; cx++) {
                         const i = rowOff + cx;
-                        if (g.effectActive) g.effectActive[i] = 0;
-                        if (g.effectAlphas) g.effectAlphas[i] = 0;
-                        if (g.effectChars) g.effectChars[i] = 0;
-                        if (g.effectColors) g.effectColors[i] = 0;
-                        if (g.effectGlows) g.effectGlows[i] = 0;
-
-                        if (g.overrideChars) g.overrideChars[i] = 0;
-                        if (g.overrideColors) g.overrideColors[i] = 0;
-                        if (g.overrideAlphas) g.overrideAlphas[i] = 0;
-                        if (g.overrideGlows) g.overrideGlows[i] = 0;
-                        if (g.overrideMix) g.overrideMix[i] = 0;
-
-                        if (g.secondaryActive) g.secondaryActive[i] = 0;
-                        if (g.secondaryChars) g.secondaryChars[i] = 0;
-                        if (g.secondaryColors) g.secondaryColors[i] = 0;
-                        if (g.secondaryAlphas) g.secondaryAlphas[i] = 0;
-                        if (g.secondaryGlows) g.secondaryGlows[i] = 0;
-
-                        if (g.mix) g.mix[i] = 0;
+                        if (eA) eA[i] = 0; if (eAl) eAl[i] = 0; if (eCh) eCh[i] = 0; if (eCo) eCo[i] = 0; if (eG) eG[i] = 0;
+                        if (oC) oC[i] = 0; if (oCo) oCo[i] = 0; if (oA) oA[i] = 0; if (oG) oG[i] = 0; if (oM) oM[i] = 0;
+                        if (sA) sA[i] = 0; if (sCh) sCh[i] = 0; if (sCo) sCo[i] = 0; if (sAl) sAl[i] = 0; if (sG) sG[i] = 0;
+                        if (mx) mx[i] = 0;
                     }
                 }
             }
@@ -895,14 +883,25 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._maskDirty = true;
         this._gridsDirty = true;
         this._outsideMapDirty = true;
+        this._runGeneration = (this._runGeneration || 0) + 1; // Monotonic counter for WebGL to detect re-triggers
 
         // Reset Render Cache
         this.renderer._edgeCacheDirty = true;
         this.renderer._distMapDirty = true;
         this.renderer._cachedEdgeMaps.length = 0;
+        this.renderer._edgeBatches.clear();
+        this.renderer._echoBatches.clear();
+        this.renderer._edgeMaskBatches.clear();
+        this.renderer._batchMeta.clear();
+        this.renderer._asyncOutsideMap = null;
+        this.renderer._asyncDistMap = null;
+        this.renderer._asyncBlocksX = 0;
+        this.renderer._asyncBlocksY = 0;
         this._outsideMapDirty = true;
+        this._outsideMap = null;
         this._gridCacheDirty = true;
         this.lastGridSeed = -1;
+        this._cachedBlockSizeFrame = -1;
 
         this.lineStates.clear();
         this.suppressedFades.clear();
@@ -915,6 +914,20 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.hasSwapped = false;
         this.isSwapping = false;
         this.swapTimer = 0;
+
+        // Reset growth/overlap/cycle state from previous run
+        this.growthPool.clear();
+        this.overlapState = { step: 0 };
+        this.cycleState = null;
+        this.isReconstructing = false;
+        this._visibleEmptyCount = -1;
+        this._visibleFillRatio = 0;
+        this.echoHoldEntries = null;
+        this._cachedLayerOrderI32 = null;
+        this._lastBlocksX = 0;
+        this._lastBlocksY = 0;
+        this._lastPitchX = 0;
+        this._lastPitchY = 0;
 
         this.blockMap.clear();
         this.activeBlocks.length = 0;
@@ -930,6 +943,15 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._syncFrame = -1;
         this._lastSyncOpCount = -1;
         this._currentStepActions.length = 0;
+
+        // Reset shadow controller state for a clean run
+        if (this.shadowController) {
+            this.shadowController.shadowFade = null;
+            this.shadowController.oldWorldFade = null;
+            this.shadowController._targetActive = null;
+            this.shadowController._lastTargetIndices = null;
+            this.shadowController.activeIndices.clear();
+        }
 
         this._initLogicGrid();
 
@@ -1174,13 +1196,16 @@ class QuantizedBaseEffect extends AbstractEffect {
                 this.echoHoldEntries = null;
                 this.echoEdgeMap = null;
 
-                const snapshot = new Int32Array(compositeGrid.length);
+                const maxHistory = delay + 1;
+                // Pool snapshot buffers: recycle evicted entry instead of allocating new Int32Array
+                let snapshot;
+                if (this.perimeterHistory.length >= maxHistory) {
+                    snapshot = this.perimeterHistory.shift(); // recycle oldest buffer
+                } else {
+                    snapshot = new Int32Array(compositeGrid.length);
+                }
                 snapshot.set(compositeGrid);
                 this.perimeterHistory.push(snapshot);
-                const maxHistory = delay + 1;
-                if (this.perimeterHistory.length > maxHistory) {
-                    this.perimeterHistory.shift();
-                }
             } else {
                 // Hold mode: per-edge tracking handled inside renderEchoEdges.
                 this.echoHoldEntries = null;
@@ -1195,15 +1220,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!compositeGrid || !this.logicGridW || !this.logicGridH) return;
 
         // Standard trailing echo: ring buffer of renderGrid snapshots
-        const snapshot = new Int32Array(compositeGrid.length);
-        snapshot.set(compositeGrid);
-        this.perimeterHistory.push(snapshot);
-
+        // Pool snapshot buffers: recycle evicted entry instead of allocating new Int32Array
         const delay = this.getEchoGfxValue('Delay') || 3;
         const maxHistory = delay + 1;
-        if (this.perimeterHistory.length > maxHistory) {
-            this.perimeterHistory.shift();
+        let snapshot;
+        if (this.perimeterHistory.length >= maxHistory) {
+            snapshot = this.perimeterHistory.shift(); // recycle oldest buffer
+        } else {
+            snapshot = new Int32Array(compositeGrid.length);
         }
+        snapshot.set(compositeGrid);
+        this.perimeterHistory.push(snapshot);
 
         this._maskDirty = true;
     }
@@ -1665,11 +1692,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
                 
                 const cx = (x + 0.5) * cellW;
-                const charStr = String.fromCharCode(charCode);
-                const rect = atlas.get(charStr);
+                const rect = atlas.getByCode(charCode);
                 if (rect) {
                     // Draw from Atlas with middle/center alignment
-                    ctx.drawImage(atlas.canvas, rect.x, rect.y, rect.w, rect.h, 
+                    ctx.drawImage(atlas.canvas, rect.x, rect.y, rect.w, rect.h,
                                   cx - rect.w * 0.5, cy - rect.h * 0.5, rect.w, rect.h);
                 }
             }
@@ -1726,26 +1752,25 @@ class QuantizedBaseEffect extends AbstractEffect {
                     establishedMasks[l] = new Uint8Array(totalBlocks);
                 }
                 establishedMasks[l].fill(0);
-                
-                const grid = sb.layerGrids[l];
-                if (grid) {
-                    // SPARSE OPTIMIZATION: Use maskOps to find occupied cells instead of scanning the whole grid
-                    // We only need to check ops that have already been processed (before startIndex)
-                    for (let opIdx = 0; opIdx < startIndex; opIdx++) {
-                        const op = this.maskOps[opIdx];
-                        if (op.layer !== l || op.type === 'removeBlock' || op.type === 'rem') continue;
-                        
-                        const minX = Math.max(0, cx + Math.min(op.x1, op.x2));
-                        const maxX = Math.min(this.logicGridW - 1, cx + Math.max(op.x1, op.x2));
-                        const minY = Math.max(0, cy + Math.min(op.y1, op.y2));
-                        const maxY = Math.min(this.logicGridH - 1, cy + Math.max(op.y1, op.y2));
-                        
-                        for (let gy = minY; gy <= maxY; gy++) {
-                            const rowOff = gy * this.logicGridW;
-                            for (let gx = minX; gx <= maxX; gx++) {
-                                establishedMasks[l][rowOff + gx] = 1;
-                            }
-                        }
+            }
+
+            // Single-pass over ops (instead of 4 passes, one per layer)
+            const gridW = this.logicGridW;
+            for (let opIdx = 0; opIdx < startIndex; opIdx++) {
+                const op = this.maskOps[opIdx];
+                if (op.type === 'removeBlock' || op.type === 'rem') continue;
+                const ol = (op.layer !== undefined && op.layer >= 0 && op.layer <= 3) ? op.layer : 0;
+
+                const minX = Math.max(0, cx + Math.min(op.x1, op.x2));
+                const maxX = Math.min(gridW - 1, cx + Math.max(op.x1, op.x2));
+                const minY = Math.max(0, cy + Math.min(op.y1, op.y2));
+                const maxY = Math.min(this.logicGridH - 1, cy + Math.max(op.y1, op.y2));
+
+                const mask = establishedMasks[ol];
+                for (let gy = minY; gy <= maxY; gy++) {
+                    const rowOff = gy * gridW;
+                    for (let gx = minX; gx <= maxX; gx++) {
+                        mask[rowOff + gx] = 1;
                     }
                 }
             }
@@ -1903,33 +1928,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         const layerGrids = this.layerGrids;
         const foundationIdx = 0; // Layer 0 is foundation
 
+        // Pre-cache grid references outside the closure for faster access
+        const lg0 = layerGrids[0], lg1 = layerGrids[1], lg2 = layerGrids[2], lg3 = layerGrids[3];
+        const rGrid = this.renderGrid;
+        const lGrid = this.logicGrid;
+
         const compositeCell = (idx) => {
-            let finalVal = -1;
-            let anyActive = false;
-            
-            for (let l = 0; l < 4; l++) {
-                if (layerGrids[l] && layerGrids[l][idx] !== -1) {
-                    anyActive = true;
-                }
-            }
+            // Layer priority: L0 > L1; anyActive includes all 4 layers for logicGrid
+            const v0 = lg0[idx], v1 = lg1[idx];
+            const l0Active = (v0 !== -1);
+            const finalVal = l0Active ? v0 : (v1 !== -1 ? v1 : -1);
 
-            const l0Active = (layerGrids[0] && layerGrids[0][idx] !== -1);
-            const l1Active = (layerGrids[1] && layerGrids[1][idx] !== -1);
-            const l2Active = (layerGrids[2] && layerGrids[2][idx] !== -1);
-            const l3Active = (layerGrids[3] && layerGrids[3][idx] !== -1);
-
-            // Calculate finalVal using fixed layer priority: Layer 0 > 1
-            // We no longer favor the "most recent" frame; this prevents activation time from affecting layering.
-            let bestFrame = -1;
-            if (l0Active) {
-                bestFrame = layerGrids[0][idx];
-            } else if (l1Active) {
-                bestFrame = layerGrids[1][idx];
-            }
-            finalVal = bestFrame;
-
-            this.renderGrid[idx] = finalVal;
-            if (this.logicGrid) this.logicGrid[idx] = anyActive ? 1 : 0;
+            rGrid[idx] = finalVal;
+            if (lGrid) lGrid[idx] = (l0Active || v1 !== -1 || lg2[idx] !== -1 || lg3[idx] !== -1) ? 1 : 0;
             return finalVal;
         };
 
@@ -1998,7 +2009,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!w || !h || !this.shadowRevealGrid) return;
 
         // 1. Create a temporary "Main Mass" grid for Layers 0, 1, and (2 & 3 overlap)
-        const mainMass = new Int32Array(w * h);
+        // Reuse pooled buffer to avoid per-call allocation + GC
+        const size = w * h;
+        if (!this._mainMassBuffer || this._mainMassBuffer.length !== size) {
+            this._mainMassBuffer = new Int32Array(size);
+        }
+        const mainMass = this._mainMassBuffer;
         mainMass.fill(-1);
         const g0 = this.layerGrids[0], g1 = this.layerGrids[1];
         const g2 = this.layerGrids[2], g3 = this.layerGrids[3];
@@ -2023,6 +2039,11 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _computeCenteredOffset(blocksX, blocksY, pitchX, pitchY) {
+        // Per-frame cache: same inputs produce same outputs, called 3-5x per frame
+        const cco = this._cachedCenteredOffset;
+        if (cco && cco._bx === blocksX && cco._by === blocksY && cco._px === pitchX && cco._py === pitchY && cco._sc === this.g.cols && cco._sr === this.g.rows) {
+            return cco;
+        }
         const logicCellsX = blocksX * pitchX;
         const logicCellsY = blocksY * pitchY;
         const screenCellsX = this.g.cols;
@@ -2031,7 +2052,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cellOffY = Math.floor((logicCellsY - screenCellsY) / 2.0);
         const offX = cellOffX / pitchX;
         const offY = cellOffY / pitchY;
-        return { offX, offY };
+        if (!this._cachedCenteredOffset) {
+            this._cachedCenteredOffset = { offX: 0, offY: 0, _bx: 0, _by: 0, _px: 0, _py: 0, _sc: 0, _sr: 0 };
+        }
+        const r = this._cachedCenteredOffset;
+        r.offX = offX; r.offY = offY;
+        r._bx = blocksX; r._by = blocksY; r._px = pitchX; r._py = pitchY;
+        r._sc = screenCellsX; r._sr = screenCellsY;
+        return r;
     }
 
     _computeTrueOutside(blocksX, blocksY) {

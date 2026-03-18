@@ -784,10 +784,10 @@ class PostProcessor {
 
         // Apply Custom Parameters
         if (customParams) {
-            for (const [key, value] of Object.entries(customParams)) {
+            for (const key in customParams) {
                 const loc = this.gl.getUniformLocation(prog, key);
                 if (loc) {
-                    this.gl.uniform1f(loc, value);
+                    this.gl.uniform1f(loc, customParams[key]);
                 }
             }
         }

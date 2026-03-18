@@ -227,6 +227,48 @@ class WebGLRenderer {
         this._revealData = new Float32Array(65536); // 64k floats for vertex batching
         this._lineGfxUniforms = {};
         this._lineGfxTextures = {};
+
+        // Pre-allocated uniform/texture/blend variant objects for _renderQuantizedLineGfx.
+        // Eliminates all spread-operator ({...obj}) allocations in the per-frame render path.
+        this._renderUniforms = { u_mode: 0 };        // PASS 1B: render
+        this._echoRenderUniforms = { u_mode: 0, u_logicGrid: 1 }; // PASS 1B: echo render
+        this._compUniforms = { u_mode: 1 };           // PASS 2: composite (extended per-frame)
+        this._compNoRefrUniforms = { u_mode: 1, u_refractionEnabled: false }; // PASS 2A step 1
+        this._decayUniforms = { u_color: [0, 0, 0, 0] };
+        this._decayRefrUniforms = { u_color: [0, 0, 0, 0] };
+        this._decayBlend = { src: 0, dst: 0, eq: 0 };
+        this._renderBlend = { src: 0, dst: 0, eq: 0 };
+        this._maxBlend = { src: 0, dst: 0, eq: 0 };
+        this._echoCompBlend = { src: 0, dst: 0, eq: 0 };
+        this._copyUniforms = { u_texture: 0 };
+        this._copyTextures = { 0: null };
+        this._copyBlend = { src: 0, dst: 0, eq: 0 };
+        // Texture binding variants (slots 0-4, keyed by string for for...in iteration)
+        this._mainCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
+        this._refrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
+        this._echoRefrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
+        this._echoCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
+        this._echoRenderTextures = { 1: null, 3: null, 4: null };
+        this._emptyTextures = {};
+    }
+
+    /** Copy all own properties from src into dst (preserving dst's extra keys). Zero allocation. */
+    _syncUniforms(dst, src) {
+        for (const key in src) {
+            dst[key] = src[key];
+        }
+    }
+
+    /** Copy texture bindings from commonTextures into a variant, then apply overrides. */
+    _syncTextures(dst, common, overrides) {
+        for (const key in common) {
+            dst[key] = common[key];
+        }
+        if (overrides) {
+            for (const key in overrides) {
+                dst[key] = overrides[key];
+            }
+        }
     }
 
     setGrid(grid) {
@@ -1759,7 +1801,9 @@ class WebGLRenderer {
             this.gl.blendEquation(this.gl.FUNC_ADD); // Reset even when disabled to avoid state leaks
         }
         // 4. Type-Aware Uniform Dispatch (SOLID/DIP)
-        for (const [name, value] of Object.entries(uniforms)) {
+        // Uses for...in instead of Object.entries() to avoid temporary [key,value] array allocation
+        for (const name in uniforms) {
+            const value = uniforms[name];
             const loc = this._u(program, name);
             const type = this._uType(program, name);
             if (!loc) continue;
@@ -1785,10 +1829,11 @@ class WebGLRenderer {
         }
 
         // 5. Texture Dispatch
-        for (const [unit, tex] of Object.entries(textures)) {
-            const slot = parseInt(unit);
+        // Uses for...in instead of Object.entries() to avoid temporary array allocation
+        for (const unit in textures) {
+            const slot = unit | 0; // Fast integer coercion (replaces parseInt)
             this.gl.activeTexture(this.gl.TEXTURE0 + slot);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, textures[unit]);
         }
 
         // 6. Execute
@@ -2013,10 +2058,12 @@ class WebGLRenderer {
             return false;
         }
 
-        // Detect effect change or step reset (new run) — clear echo state so the previous
+        // Detect effect change or new run (re-trigger) — clear echo state so the previous
         // run's tail doesn't bleed into the next run.
-        if (fx !== this.lastRenderedFx || (this.lastEchoStepCaptured > 0 && fx.step === 0)) {
+        const fxGen = fx._runGeneration || 0;
+        if (fx !== this.lastRenderedFx || fxGen !== this._lastRenderedFxGeneration) {
             this.lastRenderedFx = fx;
+            this._lastRenderedFxGeneration = fxGen;
             this._clearEchoHistory();
             this.lastEchoStepCaptured = -1;
             if (this.fboEchoLinePersist) {
@@ -2031,6 +2078,8 @@ class WebGLRenderer {
                 this.gl.clear(this.gl.COLOR_BUFFER_BIT);
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             }
+            // Clear CPU-side persistence buffer so old line trails don't bleed through
+            if (this.logicGridPersistence) this.logicGridPersistence.fill(0);
         }
 
         // Ensure logic texture and buffer are initialized
@@ -2201,11 +2250,13 @@ class WebGLRenderer {
             if (!this.canUseFloat && decayVal > 0.0 && decayVal < (1.0 / 255.0)) {
                 decayVal = 1.0 / 255.0; // Minimum exact decay for 8-bit
             }
-            const decayUniforms = { u_color: [decayVal, decayVal, 0.0, 0.0] };
-            const decayBlend   = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT };
-            this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, decayUniforms, {}, decayBlend);
+            const du = this._decayUniforms;
+            du.u_color[0] = decayVal; du.u_color[1] = decayVal; du.u_color[2] = 0.0; du.u_color[3] = 0.0;
+            const db = this._decayBlend;
+            db.src = this.gl.ONE; db.dst = this.gl.ONE; db.eq = this.gl.FUNC_REVERSE_SUBTRACT;
+            this._drawFullscreenPass(this.colorProgram, this.fboLinePersist, du, this._emptyTextures, db);
             if (gpuEchoEnabled && echoHasHistory) {
-                this._drawFullscreenPass(this.colorProgram, this.fboEchoLinePersist, decayUniforms, {}, decayBlend);
+                this._drawFullscreenPass(this.colorProgram, this.fboEchoLinePersist, du, this._emptyTextures, db);
             }
         } else if (gpuEchoEnabled && echoHasHistory) {
             // No persistence: clear the echo FBO each frame for a clean snapshot render
@@ -2218,38 +2269,52 @@ class WebGLRenderer {
         // --- PASS 1B: RENDER ---
         // Render current frame logic grids (Mode 0) into persistence buffers using gl.MAX.
         // This makes the current lines bright (1.0) and starts the fade process for next frame.
-        const renderUniforms = { ...sharedUniforms, u_mode: 0 };
-        const renderBlend    = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX };
-        this._drawFullscreenPass(prog, this.fboLinePersist, renderUniforms, commonTextures, renderBlend);
+        // Pre-allocated: renderUniforms = sharedUniforms + u_mode:0
+        const renderUniforms = this._renderUniforms;
+        this._syncUniforms(renderUniforms, sharedUniforms);
+        renderUniforms.u_mode = 0;
+        const rb = this._renderBlend;
+        rb.src = this.gl.ONE; rb.dst = this.gl.ONE; rb.eq = this.gl.MAX;
+        this._drawFullscreenPass(prog, this.fboLinePersist, renderUniforms, commonTextures, rb);
         if (gpuEchoEnabled && echoHasHistory) {
-            this._drawFullscreenPass(prog, this.fboEchoLinePersist, { ...renderUniforms, u_logicGrid: 1 }, { ...commonTextures, 1: this.echoLogicGridTexture }, renderBlend);
+            // Pre-allocated: echoRenderUniforms = sharedUniforms + u_mode:0, u_logicGrid:1
+            const eru = this._echoRenderUniforms;
+            this._syncUniforms(eru, sharedUniforms);
+            eru.u_mode = 0;
+            eru.u_logicGrid = 1;
+            // Pre-allocated: echoRenderTextures = commonTextures with slot 1 swapped
+            const ert = this._echoRenderTextures;
+            this._syncTextures(ert, commonTextures, null);
+            ert[1] = this.echoLogicGridTexture;
+            this._drawFullscreenPass(prog, this.fboEchoLinePersist, eru, ert, rb);
         }
 
         // --- PASS 2: COMPOSITE ---
         // All post-processing (color, brightness, saturation, glow, refraction) is applied here.
         // Echo pass uses the identical compUniforms — only the texture bindings differ.
-
-        const compUniforms = {
-            ...sharedUniforms,
-            u_mode: 1,
-            u_characterBuffer: 0,
-            u_persistenceBuffer: 2,
-            u_sourceGridOffset: [s.quantizedSourceGridOffsetX * scale, s.quantizedSourceGridOffsetY * scale],
-            u_sampleOffset: fxState.sampleOffset,
-            u_offset: fxState.lineOffset,
-            u_glassBloom: fxState.glassBloom,
-            u_refractionEnabled:     s.performanceMode ? false : fxState.refractionEnabled,
-            u_refractionWidth:       fxState.refractionWidth,
-            u_refractionBrightness:  fxState.refractionBrightness,
-            u_refractionSaturation:  fxState.refractionSaturation,
-            u_refractionCompression: fxState.refractionCompression,
-            u_refractionOffset:      fxState.refractionOffset,
-            u_refractionGlow:        fxState.refractionGlow,
-            u_refractionOpacity:     fxState.refractionOpacity,
-            u_refractionUnwrap:      fxState.refractionUnwrap,
-            u_refractionMaskScale:   fxState.refractionMaskScale,
-            u_compressionThreshold:  fxState.compressionThreshold
-        };
+        // Pre-allocated: compUniforms = sharedUniforms + composite-specific fields
+        const compUniforms = this._compUniforms;
+        this._syncUniforms(compUniforms, sharedUniforms);
+        compUniforms.u_mode = 1;
+        compUniforms.u_characterBuffer = 0;
+        compUniforms.u_persistenceBuffer = 2;
+        if (!compUniforms.u_sourceGridOffset) compUniforms.u_sourceGridOffset = [0, 0];
+        compUniforms.u_sourceGridOffset[0] = s.quantizedSourceGridOffsetX * scale;
+        compUniforms.u_sourceGridOffset[1] = s.quantizedSourceGridOffsetY * scale;
+        compUniforms.u_sampleOffset = fxState.sampleOffset;
+        compUniforms.u_offset = fxState.lineOffset;
+        compUniforms.u_glassBloom = fxState.glassBloom;
+        compUniforms.u_refractionEnabled = s.performanceMode ? false : fxState.refractionEnabled;
+        compUniforms.u_refractionWidth = fxState.refractionWidth;
+        compUniforms.u_refractionBrightness = fxState.refractionBrightness;
+        compUniforms.u_refractionSaturation = fxState.refractionSaturation;
+        compUniforms.u_refractionCompression = fxState.refractionCompression;
+        compUniforms.u_refractionOffset = fxState.refractionOffset;
+        compUniforms.u_refractionGlow = fxState.refractionGlow;
+        compUniforms.u_refractionOpacity = fxState.refractionOpacity;
+        compUniforms.u_refractionUnwrap = fxState.refractionUnwrap;
+        compUniforms.u_refractionMaskScale = fxState.refractionMaskScale;
+        compUniforms.u_compressionThreshold = fxState.compressionThreshold;
 
         // Pass 2A: composite with burn-in persistence for refraction lines.
         // Refraction is rendered SEPARATELY from the base scene so only lines persist,
@@ -2258,47 +2323,69 @@ class WebGLRenderer {
         const dst = targetFBO || this.fboA2;
         if (refrPersistence > 0.0 && fxState.refractionEnabled) {
             // Step 1: Render base scene WITHOUT refraction → targetFBO
-            this._drawFullscreenPass(prog, dst, { ...compUniforms, u_refractionEnabled: false }, { ...commonTextures, 0: sourceTex, 2: this.texLinePersist }, null);
+            // Pre-allocated: compNoRefrUniforms = compUniforms + u_refractionEnabled:false
+            const cnru = this._compNoRefrUniforms;
+            this._syncUniforms(cnru, compUniforms);
+            cnru.u_refractionEnabled = false;
+            // Pre-allocated: mainCompTextures = commonTextures + slots 0,2
+            const mct = this._mainCompTextures;
+            this._syncTextures(mct, commonTextures, null);
+            mct[0] = sourceTex; mct[2] = this.texLinePersist;
+            this._drawFullscreenPass(prog, dst, cnru, mct, null);
 
             // Step 2: Decay the refraction persistence FBO
-            const decayRefrUniforms = { u_color: [refrPersistence, refrPersistence, refrPersistence, refrPersistence] };
-            const decayRefrBlend = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.FUNC_REVERSE_SUBTRACT };
-            this._drawFullscreenPass(this.colorProgram, this.fboRefrPersist, decayRefrUniforms, {}, decayRefrBlend);
+            const dru = this._decayRefrUniforms;
+            dru.u_color[0] = refrPersistence; dru.u_color[1] = refrPersistence;
+            dru.u_color[2] = refrPersistence; dru.u_color[3] = refrPersistence;
+            const drb = this._decayBlend;
+            drb.src = this.gl.ONE; drb.dst = this.gl.ONE; drb.eq = this.gl.FUNC_REVERSE_SUBTRACT;
+            this._drawFullscreenPass(this.colorProgram, this.fboRefrPersist, dru, this._emptyTextures, drb);
 
             // Step 3: Render refraction-only into persistence FBO with gl.MAX
             // Uses blackTexture as character buffer (same technique as echo pass) so
             // only refraction line pixels are output; non-line pixels are transparent.
-            const maxBlend = { src: this.gl.ONE, dst: this.gl.ONE, eq: this.gl.MAX };
-            this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, { ...commonTextures, 0: this.blackTexture, 2: this.texLinePersist }, maxBlend);
+            const mb = this._maxBlend;
+            mb.src = this.gl.ONE; mb.dst = this.gl.ONE; mb.eq = this.gl.MAX;
+            const rt = this._refrTextures;
+            this._syncTextures(rt, commonTextures, null);
+            rt[0] = this.blackTexture; rt[2] = this.texLinePersist;
+            this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, rt, mb);
 
             // Step 3B: Echo lines also render into persistence FBO with gl.MAX
             // so they fade out through the same burn-in mechanism as main lines.
             if (gpuEchoEnabled && echoHasHistory) {
-                this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, {
-                    ...commonTextures,
-                    0: this.blackTexture,
-                    1: this.echoLogicGridTexture,
-                    2: this.texEchoLinePersist
-                }, maxBlend);
+                const ert = this._echoRefrTextures;
+                this._syncTextures(ert, commonTextures, null);
+                ert[0] = this.blackTexture;
+                ert[1] = this.echoLogicGridTexture;
+                ert[2] = this.texEchoLinePersist;
+                this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, ert, mb);
             }
 
             // Step 4: Blend persistence (refraction + echo lines + fading trails) over base scene
             // Premultiplied alpha composite: ONE / ONE_MINUS_SRC_ALPHA
-            this._drawFullscreenPass(this.copyProgram, dst,
-                { u_texture: 0 }, { 0: this.texRefrPersist },
-                { src: this.gl.ONE, dst: this.gl.ONE_MINUS_SRC_ALPHA });
+            this._copyUniforms.u_texture = 0;
+            this._copyTextures[0] = this.texRefrPersist;
+            const cb = this._copyBlend;
+            cb.src = this.gl.ONE; cb.dst = this.gl.ONE_MINUS_SRC_ALPHA; cb.eq = 0;
+            this._drawFullscreenPass(this.copyProgram, dst, this._copyUniforms, this._copyTextures, cb);
         } else {
             // No persistence — render directly
-            this._drawFullscreenPass(prog, dst, compUniforms, { ...commonTextures, 0: sourceTex, 2: this.texLinePersist }, null);
+            const mct = this._mainCompTextures;
+            this._syncTextures(mct, commonTextures, null);
+            mct[0] = sourceTex; mct[2] = this.texLinePersist;
+            this._drawFullscreenPass(prog, dst, compUniforms, mct, null);
 
             // Echo lines without persistence — render directly over base
             if (gpuEchoEnabled && echoHasHistory) {
-                this._drawFullscreenPass(prog, dst, compUniforms, {
-                    ...commonTextures,
-                    0: this.blackTexture,
-                    1: this.echoLogicGridTexture,
-                    2: this.texEchoLinePersist
-                }, { src: this.gl.ONE, dst: this.gl.ONE_MINUS_SRC_ALPHA });
+                const ect = this._echoCompTextures;
+                this._syncTextures(ect, commonTextures, null);
+                ect[0] = this.blackTexture;
+                ect[1] = this.echoLogicGridTexture;
+                ect[2] = this.texEchoLinePersist;
+                const ecb = this._echoCompBlend;
+                ecb.src = this.gl.ONE; ecb.dst = this.gl.ONE_MINUS_SRC_ALPHA;
+                this._drawFullscreenPass(prog, dst, compUniforms, ect, ecb);
             }
         }
 

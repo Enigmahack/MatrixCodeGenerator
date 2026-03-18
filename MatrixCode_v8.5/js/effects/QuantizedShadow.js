@@ -49,6 +49,7 @@ class QuantizedShadow {
         } else {
             this.activeIndices.clear();
         }
+        this._lastTargetIndices = null;
 
         this.shadowSim.timeScale = 1.0;
 
@@ -105,8 +106,17 @@ class QuantizedShadow {
         const screenBlocksX = Math.ceil(g.cols / pitchX);
         const screenBlocksY = Math.ceil(g.rows / pitchY);
 
-        // 1. Mark target active cells
-        this._targetActive.fill(0);
+        // 1. Mark target active cells — sparse clear: only reset cells that were marked last frame
+        // instead of filling the entire array (which can be 100k+ elements)
+        if (this._lastTargetIndices && this._lastTargetIndices.length > 0) {
+            for (let ti = 0; ti < this._lastTargetIndices.length; ti++) {
+                this._targetActive[this._lastTargetIndices[ti]] = 0;
+            }
+        } else {
+            this._targetActive.fill(0);
+        }
+        if (!this._lastTargetIndices) this._lastTargetIndices = [];
+        let lastTargetCount = 0;
         let hasActiveTarget = false;
         if (fx.c.state.layerEnableShadowWorld !== false) {
             for (let by = 0; by < blocksY; by++) {
@@ -129,6 +139,7 @@ class QuantizedShadow {
                         for (let cx = startCellX; cx < endCellX; cx++) {
                             const cellIdx = rowOff + cx;
                             this._targetActive[cellIdx] = 1;
+                            this._lastTargetIndices[lastTargetCount++] = cellIdx;
                             this.activeIndices.add(cellIdx); // Track for sparse update
                             if (fx.activeIndices) fx.activeIndices.add(cellIdx);
                         }
@@ -137,6 +148,8 @@ class QuantizedShadow {
                 }
             }
         }
+
+        this._lastTargetIndices.length = lastTargetCount;
 
         let fadeSpeedSec = fx.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); 
