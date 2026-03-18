@@ -380,24 +380,6 @@ class QuantizedRenderer {
         }
 
         // --- DRAW BATCHES ---
-        /*
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = l.lineWidthX;
-        
-        this._batchMeta.forEach((batch, key) => {
-            const [color, opacity] = key.split('|');
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = parseFloat(opacity);
-            ctx.beginPath();
-            const a = batch.arr;
-            for (let i = 0; i < batch.count; i += 4) {
-                ctx.moveTo(a[i], a[i+1]);
-                ctx.lineTo(a[i+2], a[i+3]);
-            }
-            ctx.stroke();
-        });
-        */
 
         // 3. Distance Field for Glow — prefer async worker result
         if (fx.c.state.layerEnableQuantizedGlow !== false) {
@@ -515,28 +497,6 @@ class QuantizedRenderer {
                 echoBatches.get(key).push(px, py, px + l.screenStepX, py);
             }
         }
-
-        /*
-        echoCtx.save();
-        const saturation = fx.getEchoGfxValue('Saturation') ?? 1.0;
-        if (saturation !== 1.0) {
-            echoCtx.filter = `saturate(${saturation * 100}%)`;
-        }
-
-        echoBatches.forEach((coords, key) => {
-            const [c, oStr] = key.split('|');
-            echoCtx.strokeStyle = c;
-            echoCtx.globalAlpha = parseFloat(oStr);
-            echoCtx.lineWidth = fx.layout.echoLineWidthX;
-            echoCtx.beginPath();
-            for (let i = 0; i < coords.length; i += 4) {
-                echoCtx.moveTo(coords[i], coords[i+1]);
-                echoCtx.lineTo(coords[i+2], coords[i+3]);
-            }
-            echoCtx.stroke();
-        });
-        echoCtx.restore();
-        */
     }
 
     computeTrueOutside(fx, blocksX, blocksY, gridOverride = null) {

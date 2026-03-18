@@ -2267,15 +2267,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             ctx.drawImage(this.gridCacheCanvas, 0, 0);
             ctx.restore();
         }
-
-        /*
-        if (lineGlow > 0 && showLines) {
-            this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, d, alphaMult, false);
-        }
-        if (showEcho && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, d, echoAlphaMult, true);
-        }
-        */
     }
 
     renderDebug(ctx, derived) {
