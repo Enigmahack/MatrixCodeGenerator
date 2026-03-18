@@ -90,10 +90,10 @@ class QuantizedSequenceGeneratorV2 {
         // Settings that all Quantized effects share and can inherit from Quantized Defaults.
         const inheritable = [
             'ShadowWorldFadeSpeed', 'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold',
-            'LineGfxColor', 'LineGfxBrightness', 'LineGfxIntensity', 'LineGfxGlow', 'LineGfxPersistence',
+            'LineGfxColor', 'LineGfxPersistence',
             'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 'GlassRefractionSaturation',
             'GlassRefractionCompression', 'GlassRefractionOffset', 'GlassRefractionGlow',
-            'LineGfxTintOffset', 'LineGfxSaturation', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
+            'LineGfxTintOffset', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
             'PerimeterEchoEnabled', 'SingleLayerMode'

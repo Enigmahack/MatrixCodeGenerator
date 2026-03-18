@@ -906,6 +906,9 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         this.lineStates.clear();
         this.suppressedFades.clear();
+        for (let l = 0; l < 4; l++) {
+            if (this.removalGrids[l]) this.removalGrids[l].fill(-1);
+        }
         this.lastVisibilityChangeFrame = 0;
         this.lastMaskUpdateFrame = 0;
 
@@ -2089,9 +2092,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             this._cachedWebGLState = {
                 logicGridSize: [0, 0], cellPitch: [0, 0], blockOffset: [0, 0],
                 userBlockOffset: [0, 0], layerOrder: null, showInterior: true,
-                intensity: 0, thickness: 0, tintOffset: 0, sharpness: 0,
-                glowFalloff: 0, roundness: 0, maskSoftness: 0, brightness: 0,
-                saturation: 0, additiveStrength: 0, glow: 0, varianceEnabled: 0,
+                intensity: 1.0, thickness: 0, tintOffset: 0, sharpness: 0,
+                glowFalloff: 0, roundness: 0, maskSoftness: 0, brightness: 1.0,
+                saturation: 1.0, additiveStrength: 0, glow: 0, varianceEnabled: 0,
                 varianceAmount: 0, varianceCoverage: 0, varianceDirection: 0,
                 color: [0, 0, 0], persistence: 0, sampleOffset: [0, 0],
                 lineOffset: [0, 0], fillRatio: 0, glassBloom: 0,
@@ -2107,17 +2110,21 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.userBlockOffset[0] = this.userBlockOffX || 0; st.userBlockOffset[1] = this.userBlockOffY || 0;
         st.layerOrder = this._cachedLayerOrderI32 || (this._cachedLayerOrderI32 = new Int32Array(this.layerOrder || [0, 1, 2, 3]));
         st.showInterior = this.getConfig('ShowInterior') !== false;
-        st.intensity = (this.getLineGfxValue('Intensity') ?? 1.0) * (this.getLineGfxValue('Opacity') ?? 1.0) * this.alpha;
+
+        st.intensity = this.alpha * (this.getLineGfxValue('Opacity') ?? 1.0); 
         st.thickness = this.getLineGfxValue('Thickness') ?? 1.0;
         st.tintOffset = this.getLineGfxValue('TintOffset') ?? 0.0;
         st.sharpness = this.getLineGfxValue('Sharpness') ?? 0.05;
         st.glowFalloff = this.getLineGfxValue('GlowFalloff') ?? 2.0;
         st.roundness = this.getLineGfxValue('Roundness') ?? 0.0;
         st.maskSoftness = this.getLineGfxValue('MaskSoftness') ?? 0.0;
-        st.brightness = (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0);
-        st.saturation = this.getLineGfxValue('Saturation') ?? 1.0;
+        // st.brightness = (this.getLineGfxValue('Brightness') ?? 1.0) * (s.brightness ?? 1.0);
+        st.brightness = (s.brightness ?? 1.0);
+        // st.saturation = this.getLineGfxValue('Saturation') ?? 1.0;
+        st.saturation = 1.0;
         st.additiveStrength = this.getLineGfxValue('AdditiveStrength') ?? 1.0;
-        st.glow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        // st.glow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
+        st.glow = (this.getConfig('BorderIllumination') ?? 4.0);
         st.varianceEnabled = this.getLineGfxValue('BrightnessVarianceEnabled') ? 1.0 : 0.0;
         st.varianceAmount = this.getLineGfxValue('BrightnessVarianceAmount') ?? 0.5;
         st.varianceCoverage = this.getLineGfxValue('BrightnessVarianceCoverage') ?? 100;

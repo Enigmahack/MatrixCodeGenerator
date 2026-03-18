@@ -272,16 +272,17 @@ class QuantizedRenderer {
         const grid = fx.renderGrid;
         if (!grid) return;
 
-        const currentStep = fx.cyclesCompleted || 0;
         const perimeterColor = fx.getLineGfxValue('Color') || "#ffffff";
         const innerColor = fx.getInnerLineGfxValue('Color') || "#00FF00";
         
         const delay = fx.getEchoGfxValue('Delay') || 3;
         const showEcho = (fx.c.state.layerEnablePerimeterEcho !== false);
 
+        const persistence = fx.getLineGfxValue('Persistence') ?? 15;
+
         // 1. Process Echos if enabled
         if (showEcho && fx.echoCtx) {
-            this._renderEchoEdges(fx, fx.echoCtx, currentStep, delay, blocksX, blocksY, perimeterColor);
+            this._renderEchoEdges(fx, fx.echoCtx, now, delay, blocksX, blocksY, perimeterColor);
         }
 
         // 2. Build Coordinate Batches for current frame
@@ -333,11 +334,11 @@ class QuantizedRenderer {
 
         // --- EDGE SCAN ---
         for (let y = 0; y <= blocksY; y++) {
-            const py = l.screenOriginY + (y * l.screenStepY);
+            const py = l.screenOriginX !== undefined ? l.screenOriginY + (y * l.screenStepY) : 0;
             const pyNext = py + l.screenStepY;
             
             for (let x = 0; x <= blocksX; x++) {
-                const px = l.screenOriginX + (x * l.screenStepX);
+                const px = l.screenOriginX !== undefined ? l.screenOriginX + (x * l.screenStepX) : 0;
                 const pxNext = px + l.screenStepX;
 
                 // Vertical edge (West face of block x,y)
@@ -346,15 +347,33 @@ class QuantizedRenderer {
                     const idxB = y * blocksX + x;
                     const valA = grid[idxA];
                     const valB = grid[idxB];
-                    if ((valA !== -1) !== (valB !== -1)) {
+                    
+                    const activeA = valA !== -1;
+                    const activeB = valB !== -1;
+
+                    if (activeA !== activeB) {
                         const isExterior = (valA === -1 && outside[idxA]) || (valB === -1 && outside[idxB]);
-                        const birth = Math.max(valA, valB);
-                        const age = now - birth;
-                        const opacity = this._getEdgeOpacity(fx, age, isExterior);
+                        const opacity = this._getEdgeOpacity(fx, 0, isExterior, true);
                         if (opacity > 0.001) {
                             const color = isExterior ? perimeterColor : innerColor;
                             const key = `${color}|${opacity.toFixed(3)}`;
                             addEdge(key, px, py, px, pyNext);
+                        }
+                    } else if (!activeA && !activeB && persistence > 0) {
+                        const remA = this._getLatestRem(fx, idxA);
+                        const remB = this._getLatestRem(fx, idxB);
+                        if (remA !== remB) {
+                            const death = Math.max(remA, remB);
+                            const age = now - death;
+                            if (age >= 0 && age < persistence) {
+                                const isExterior = (outside[idxA] || outside[idxB]);
+                                const opacity = this._getEdgeOpacity(fx, age, isExterior, false);
+                                if (opacity > 0.001) {
+                                    const color = isExterior ? perimeterColor : innerColor;
+                                    const key = `${color}|${opacity.toFixed(3)}`;
+                                    addEdge(key, px, py, px, pyNext);
+                                }
+                            }
                         }
                     }
                 }
@@ -364,15 +383,33 @@ class QuantizedRenderer {
                     const idxB = y * blocksX + x;
                     const valA = grid[idxA];
                     const valB = grid[idxB];
-                    if ((valA !== -1) !== (valB !== -1)) {
+                    
+                    const activeA = valA !== -1;
+                    const activeB = valB !== -1;
+
+                    if (activeA !== activeB) {
                         const isExterior = (valA === -1 && outside[idxA]) || (valB === -1 && outside[idxB]);
-                        const birth = Math.max(valA, valB);
-                        const age = now - birth;
-                        const opacity = this._getEdgeOpacity(fx, age, isExterior);
+                        const opacity = this._getEdgeOpacity(fx, 0, isExterior, true);
                         if (opacity > 0.001) {
                             const color = isExterior ? perimeterColor : innerColor;
                             const key = `${color}|${opacity.toFixed(3)}`;
                             addEdge(key, px, py, pxNext, py);
+                        }
+                    } else if (!activeA && !activeB && persistence > 0) {
+                        const remA = this._getLatestRem(fx, idxA);
+                        const remB = this._getLatestRem(fx, idxB);
+                        if (remA !== remB) {
+                            const death = Math.max(remA, remB);
+                            const age = now - death;
+                            if (age >= 0 && age < persistence) {
+                                const isExterior = (outside[idxA] || outside[idxB]);
+                                const opacity = this._getEdgeOpacity(fx, age, isExterior, false);
+                                if (opacity > 0.001) {
+                                    const color = isExterior ? perimeterColor : innerColor;
+                                    const key = `${color}|${opacity.toFixed(3)}`;
+                                    addEdge(key, px, py, pxNext, py);
+                                }
+                            }
                         }
                     }
                 }
@@ -396,12 +433,24 @@ class QuantizedRenderer {
         }
     }
 
-    _getEdgeOpacity(fx, age, isExterior) {
-        if (age < 0) return 1.0; // Immediate appearance
-        const duration = isExterior ? (fx.getLineGfxValue('Persistence') ?? 15) : (fx.getInnerLineGfxValue('Persistence') ?? 10);
-        if (duration === 0) return 0.0; // Off
-        if (age >= duration) return 0;
-        return 1.0 - (age / duration);
+    _getEdgeOpacity(fx, age, isExterior, isActive = true) {
+        const duration = fx.getLineGfxValue('Persistence') ?? 15;
+        const baseOpacity = fx.getLineGfxValue('Opacity') ?? 1.0;
+
+        if (isActive) return baseOpacity;
+        
+        if (duration <= 0 || age >= duration) return 0;
+        return baseOpacity * (1.0 - (age / duration));
+    }
+
+    _getLatestRem(fx, idx) {
+        if (!fx.removalGrids) return -1;
+        let r = -1;
+        if (fx.removalGrids[0] && fx.removalGrids[0][idx] > r) r = fx.removalGrids[0][idx];
+        if (fx.removalGrids[1] && fx.removalGrids[1][idx] > r) r = fx.removalGrids[1][idx];
+        if (fx.removalGrids[2] && fx.removalGrids[2][idx] > r) r = fx.removalGrids[2][idx];
+        if (fx.removalGrids[3] && fx.removalGrids[3][idx] > r) r = fx.removalGrids[3][idx];
+        return r;
     }
 
     _addFaceToPath(path, fx, bx, by, face, isEcho = false) {
@@ -418,13 +467,18 @@ class QuantizedRenderer {
         }
     }
 
-    _renderEchoEdges(fx, echoCtx, currentStep, delay, blocksX, blocksY, echoColor) {
+    _renderEchoEdges(fx, echoCtx, now, delay, blocksX, blocksY, echoColor) {
         if (!fx.echoEdgeMap) fx.echoEdgeMap = new Map();
         
         const getVariance = (coord, axis) => {
             const seed = (axis === 'V') ? coord * 1.5 : coord * 2.3;
-            return 0.4 + (Math.sin(seed + currentStep * 0.1) * 0.3);
+            const step = fx.cyclesCompleted || 0;
+            return 0.4 + (Math.sin(seed + step * 0.1) * 0.3);
         };
+
+        const persistence = fx.getLineGfxValue('Persistence') ?? 15;
+        const effectiveInterval = fx._getEffectiveInterval();
+        const delayFrames = delay * effectiveInterval;
 
         // Every frame, check the "ghost" grids from the past
         if (fx.perimeterHistory && fx.perimeterHistory.length >= delay) {
@@ -433,7 +487,7 @@ class QuantizedRenderer {
             if (echoGrid) {
                 const outside = this.computeTrueOutside(fx, blocksX, blocksY, echoGrid);
 
-                // Refresh lastSeen for all edges currently in the live perimeter
+                // Refresh lastSeenFrame for all edges currently in the live perimeter
                 for (let y = 0; y <= blocksY; y++) {
                     for (let x = 0; x <= blocksX; x++) {
                         // Vertical edge (W face)
@@ -442,7 +496,7 @@ class QuantizedRenderer {
                             const idxB = y * blocksX + x;
                             if ((echoGrid[idxA] !== -1) !== (echoGrid[idxB] !== -1)) {
                                 if ((echoGrid[idxA] === -1 && outside[idxA]) || (echoGrid[idxB] === -1 && outside[idxB])) {
-                                    fx.echoEdgeMap.set(`${x}|${y}|W`, { x, y, face: 'W', lastSeen: currentStep });
+                                    fx.echoEdgeMap.set(`${x}|${y}|W`, { x, y, face: 'W', lastSeenFrame: now });
                                 }
                             }
                         }
@@ -452,7 +506,7 @@ class QuantizedRenderer {
                             const idxB = y * blocksX + x;
                             if ((echoGrid[idxA] !== -1) !== (echoGrid[idxB] !== -1)) {
                                 if ((echoGrid[idxA] === -1 && outside[idxA]) || (echoGrid[idxB] === -1 && outside[idxB])) {
-                                    fx.echoEdgeMap.set(`${x}|${y}|N`, { x, y, face: 'N', lastSeen: currentStep });
+                                    fx.echoEdgeMap.set(`${x}|${y}|N`, { x, y, face: 'N', lastSeenFrame: now });
                                 }
                             }
                         }
@@ -460,9 +514,9 @@ class QuantizedRenderer {
                 }
 
                 // Evict entries that have fully faded (older than hold + fade window)
-                const maxAge = delay * 2;
+                const maxAge = delayFrames + persistence;
                 for (const [key, entry] of fx.echoEdgeMap) {
-                    if (currentStep - entry.lastSeen > maxAge) fx.echoEdgeMap.delete(key);
+                    if (now - entry.lastSeenFrame > maxAge) fx.echoEdgeMap.delete(key);
                 }
             }
         }
@@ -474,17 +528,21 @@ class QuantizedRenderer {
         const l = fx.layout;
 
         for (const entry of fx.echoEdgeMap.values()) {
-            const age = currentStep - entry.lastSeen;
+            const lastSeen = entry.lastSeenFrame ?? (entry.lastSeen * effectiveInterval);
+            const age = now - lastSeen;
             let ageOpacity;
-            if (age <= delay) {
+            if (age <= delayFrames) {
                 ageOpacity = 1.0;                          // hold phase
             } else {
-                ageOpacity = 1.0 - (age - delay) / delay; // fade phase
+                const fadeAge = age - delayFrames;
+                if (persistence <= 0) ageOpacity = 0;
+                else ageOpacity = 1.0 - (fadeAge / persistence); // fade phase
             }
             if (ageOpacity <= 0.001) continue;
 
             const variance = getVariance(entry.face === 'W' ? entry.x : entry.y, entry.face === 'W' ? 'V' : 'H');
-            const finalOpacity = ageOpacity * variance * (fx.getEchoGfxValue('Opacity') || 0.5);
+            const globalOpacity = fx.getLineGfxValue('Opacity') ?? 1.0;
+            const finalOpacity = ageOpacity * variance * (fx.getEchoGfxValue('Opacity') || 0.5) * globalOpacity;
             
             const key = `${echoColor}|${finalOpacity.toFixed(3)}`;
             if (!echoBatches.has(key)) echoBatches.set(key, []);

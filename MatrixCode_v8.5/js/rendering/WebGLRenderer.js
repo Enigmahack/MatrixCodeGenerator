@@ -488,11 +488,11 @@ class WebGLRenderer {
 
                 uniform float u_thickness;
                 uniform vec3 u_color;
-                uniform float u_intensity;
-                uniform float u_glow;
+                // uniform float u_intensity;
+                // uniform float u_glow;
                 uniform float u_tintOffset;
-                uniform float u_saturation;
-                uniform float u_brightness;
+                // uniform float u_saturation;
+                // uniform float u_brightness;
                 uniform float u_additiveStrength;
                 uniform float u_sharpness;
                 uniform float u_glowFalloff;
@@ -842,7 +842,7 @@ class WebGLRenderer {
                         if (abs(oNW - oNE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, -u_cellPitch.y * u_screenStep.y), vec2(0.0, 0.0));
                             float var = getVariance(nearestI + vec2(0.0, -1.0), 1.0); 
-                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aNE) * var;
+                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (4.0 * 0.5)) * max(aNW, aNE) * var;
                             if (isS123 && a0NW > 0.01 && a0NE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else {
@@ -852,7 +852,7 @@ class WebGLRenderer {
                         if (abs(oSW - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(0.0, u_cellPitch.y * u_screenStep.y));
                             float var = getVariance(nearestI, 1.0); 
-                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aSW, aSE) * var;
+                            float val = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, d), exp(-d * u_glowFalloff) * (4.0 * 0.5)) * max(aSW, aSE) * var;
                             if (isS123 && a0SW > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else {
@@ -862,7 +862,7 @@ class WebGLRenderer {
                         if (abs(oNW - oSW) > 0.5) {
                             float d = getSDF(p, vec2(-u_cellPitch.x * u_screenStep.x, 0.0), vec2(0.0, 0.0));
                             float var = getVariance(nearestI + vec2(-1.0, 0.0), 0.0); 
-                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNW, aSW) * var;
+                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (4.0 * 0.5)) * max(aNW, aSW) * var;
                             if (isS123 && a0NW > 0.01 && a0SW > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else {
@@ -872,7 +872,7 @@ class WebGLRenderer {
                         if (abs(oNE - oSE) > 0.5) {
                             float d = getSDF(p, vec2(0.0, 0.0), vec2(u_cellPitch.x * u_screenStep.x, 0.0));
                             float var = getVariance(nearestI, 0.0); 
-                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (u_glow * 0.5)) * max(aNE, aSE) * var;
+                            float val = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, d), exp(-d * u_glowFalloff) * (4.0 * 0.5)) * max(aNE, aSE) * var;
                             if (isS123 && a0NE > 0.01 && a0SE > 0.01) {
                                 fadeMax = max(fadeMax, val);
                             } else {
@@ -2092,16 +2092,16 @@ class WebGLRenderer {
         sharedUniforms.u_logicGrid = 1;
         sharedUniforms.u_shadowMask = 3;
         sharedUniforms.u_sourceGrid = 4;
-        sharedUniforms.u_intensity = fxState.intensity;
-        sharedUniforms.u_glow = fxState.glow;
+        // sharedUniforms.u_intensity = fxState.intensity;
+        // sharedUniforms.u_glow = fxState.glow;
         sharedUniforms.u_thickness = fxState.thickness;
         sharedUniforms.u_tintOffset = fxState.tintOffset;
         sharedUniforms.u_sharpness = fxState.sharpness;
         sharedUniforms.u_glowFalloff = fxState.glowFalloff;
         sharedUniforms.u_roundness = fxState.roundness;
         sharedUniforms.u_maskSoftness = fxState.maskSoftness;
-        sharedUniforms.u_brightness = fxState.brightness;
-        sharedUniforms.u_saturation = fxState.saturation;
+        // sharedUniforms.u_brightness = fxState.brightness;
+        // sharedUniforms.u_saturation = fxState.saturation;
         sharedUniforms.u_additiveStrength = fxState.additiveStrength;
         sharedUniforms.u_varianceEnabled = s.performanceMode ? 0.0 : fxState.varianceEnabled;
         sharedUniforms.u_varianceAmount = fxState.varianceAmount;

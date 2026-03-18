@@ -17,15 +17,17 @@ Visuals:
 - Fix animation for quantized Retract. 
 
 UI Changes: 
-- Allow speed to go to 15
-- When Fade Duration (Quantized) goes to 0, fade lines do not stop rendering
 - Line saturation should be under the Line Basics
 - Shape & Sharpness: 
 	Sharpness/Roundness/GlowFalloff all appear to do nothing
 - Remove "Intersection Pulse"
-- Remove the "Block Generator not active or no behaviours found" 
 - Mask Scale (double-tap) has no default 
 
 
 Fade Duration should control the "Natural Refraction" fade rate, and the 2D Canvas lines should be removed/deactivated from rendering. 
 
+
+Line basics should be called "Effect Basics"
+
+
+Non functional, remove. 
