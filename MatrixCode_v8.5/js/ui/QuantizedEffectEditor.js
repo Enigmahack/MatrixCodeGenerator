@@ -567,18 +567,16 @@ class QuantizedEffectEditor {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, width, height);
 
-        // 1. Render actual effect components (Fades, Source Grid etc)
-        // This also triggers _updateMask which is essential for line fade logic.
+        // 1. Render actual effect components (layout, grid cache)
         this.effect.renderEditorPreview(ctx, this.effect.c.derived, this.effect.editorPreviewOp);
 
         // Ensure layout exists for schematic rendering
         if (!this.effect.layout) {
-            // Force a mask update to generate layout if missing
             if (typeof this.effect._ensureCanvases === 'function') {
                 this.effect._ensureCanvases(width, height);
             }
-            if (typeof this.effect._updateMask === 'function') {
-                this.effect._updateMask(width, height, this.effect.c.state, this.effect.c.derived);
+            if (this.effect.renderer && typeof this.effect.renderer._computeLayoutOnly === 'function') {
+                this.effect.renderer._computeLayoutOnly(this.effect, width, height, this.effect.c.state, this.effect.c.derived);
             }
             if (!this.effect.layout) return; // Still missing? Bail.
         }

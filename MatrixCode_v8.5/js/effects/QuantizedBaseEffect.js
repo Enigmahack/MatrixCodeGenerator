@@ -501,11 +501,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             QuantizedBaseEffect.sharedAtlas.update();
         }
 
-        // 5. Warm up CPU Render Paths (Masking)
-        // Bypass if WebGL is active to save startup time
-        if (s.renderingEngine !== 'webgl') {
-            this._updateMask(w, h, s, d);
-        }
+        // 5. Warm up layout (needed for grid cache in both modes)
+        this.renderer._computeLayoutOnly(this, w, h, s, d);
 
         // 6. Warm up Grid Cache (needed in both modes — WebGL uploads it as a GPU texture)
         this._updateGridCache(w, h, s, d);
@@ -1589,7 +1586,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _updateGridCache(w, h, s, d) {
         if (!this.layout) {
-            this._updateMask(w, h, s, d);
+            this.renderer._computeLayoutOnly(this, w, h, s, d);
         }
         
         const rotatorCycle = d.rotatorCycleFrames || 20;
@@ -2181,155 +2178,33 @@ class QuantizedBaseEffect extends AbstractEffect {
         return st;
     }
 
-    _drawMaskedLines(ctx, maskCanvas, width, height, s, d, alphaMult, isEcho = false) {
-        const scratchCtx = this.scratchCtx;
-        const isSolid = this.c.state.quantizedSolidPerimeter || false;
-        
-        // Retrieve independent offsets based on the line type
-        const sampX = isEcho ? this.getEchoGfxValue('SampleOffsetX') : this.getLineGfxValue('SampleOffsetX');
-        const sampY = isEcho ? this.getEchoGfxValue('SampleOffsetY') : this.getLineGfxValue('SampleOffsetY');
-        const offX = isEcho ? this.getEchoGfxValue('OffsetX') : this.getLineGfxValue('OffsetX');
-        const offY = isEcho ? this.getEchoGfxValue('OffsetY') : this.getLineGfxValue('OffsetY');
-
-        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (sampX || 0);
-        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (sampY || 0);
-
-        scratchCtx.globalCompositeOperation = 'source-over';
-        scratchCtx.clearRect(0, 0, width, height);
-        
-        if (isSolid) {
-            scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.save();
-            scratchCtx.translate(offX || 0, offY || 0);
-            scratchCtx.drawImage(maskCanvas, 0, 0);
-            scratchCtx.restore();
-        } else {
-            this._updateGridCache(width, height, s, d);
-            scratchCtx.globalAlpha = 1.0;
-            scratchCtx.save();
-            scratchCtx.translate(srcOffX, srcOffY);
-            scratchCtx.drawImage(this.gridCacheCanvas, 0, 0);
-            scratchCtx.restore();
-            scratchCtx.globalCompositeOperation = 'source-in';
-            scratchCtx.globalAlpha = this.alpha;
-            scratchCtx.save();
-            scratchCtx.translate(offX || 0, offY || 0);
-            scratchCtx.drawImage(maskCanvas, 0, 0);
-            scratchCtx.restore();
-        }
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        let remainingAlpha = alphaMult;
-        // Multi-pass draw for extra punchy lines if alphaMult > 1.0
-        while (remainingAlpha > 0.001) {
-            ctx.globalAlpha = Math.min(1.0, remainingAlpha);
-            ctx.drawImage(this.scratchCanvas, 0, 0);
-            remainingAlpha -= 1.0;
-        }
-        ctx.restore();
-    }
+    // _drawMaskedLines removed — Canvas2D line rendering pipeline replaced by
+    // GPU-only Natural Refraction path (_renderQuantizedLineGfx).
 
     render(ctx, d) {
         if (!this.active || (this.alpha <= 0.01 && !this.debugMode)) return;
         const s = this.c.state;
-        const isWebGL = (s.renderingEngine === 'webgl');
 
-        // --- WebGL FAST PATH ---
-        // In WebGL mode, lines and echo are rendered by the GPU via
-        // _renderQuantizedLineGfx, but the shader still needs gridCacheCanvas
-        // as a source texture for the character-masked perimeter line reveal.
-        // We must keep _ensureCanvases + _updateGridCache alive, but skip
-        // _updateMask and _drawMaskedLines (2D-canvas-only composite pipeline).
-        if (isWebGL) {
-            this._checkDirtiness();
-            const width = ctx.canvas.width;
-            const height = ctx.canvas.height;
-            this._ensureCanvases(width, height);
-            if (this._maskDirty) {
-                this.renderer._computeLayoutOnly(this, width, height, s, d);
-                this._maskDirty = false;
-            }
-            this._updateGridCache(width, height, s, d);
-            return;
-        }
-
-        // --- 2D Canvas Path ---
+        // Lines and echo are rendered exclusively by the GPU via
+        // _renderQuantizedLineGfx (Natural Refraction). The shader needs
+        // gridCacheCanvas as a source texture for the character-masked
+        // perimeter line reveal, so we keep _ensureCanvases +
+        // _updateGridCache alive but skip all Canvas2D line drawing.
         this._checkDirtiness();
-        this._updateRenderGridLogic();
-
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
         this._ensureCanvases(width, height);
-
-        // --- MASK UPDATE ---
-        if (this._maskDirty || this.maskCanvas.width !== width || this.maskCanvas.height !== height) {
-            this._updateMask(width, height, s, d);
+        if (this._maskDirty) {
+            this.renderer._computeLayoutOnly(this, width, height, s, d);
             this._maskDirty = false;
         }
-
-        // --- GRID CACHE ---
-        // Defer the heavy grid-cache computation (~4000+ drawImage calls) during
-        // the first 3 frames of FADE_IN when alpha is near zero and the result
-        // would be invisible.  This lets the browser paint the trigger response
-        // before doing the expensive character atlas blit.
-        const deferGridCache = (this.state === 'FADE_IN' && this.animFrame <= 3);
-        if (!deferGridCache) {
-            this._updateGridCache(width, height, s, d);
-        }
-
-        const showLines = (this.c.state.layerEnableQuantizedLines !== false);
-        const showEcho = (s.layerEnablePerimeterEcho !== false);
-        const showSource = (this.c.state.layerEnableQuantizedGridCache === true);
-
-        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const alphaMult = lineGlow / 4.0;
-
-        const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
-        const echoAlphaMult = (echoGlow / 4.0) * (1 - delayFade);
-
-        // 2D canvas mode - both lines and echo use the same masking pipeline.
-        const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
-        const srcOffY = (0) + (d.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);
-
-        if (showSource) {
-            ctx.save();
-            ctx.globalAlpha = 0.3;
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.translate(srcOffX, srcOffY);
-            ctx.drawImage(this.gridCacheCanvas, 0, 0);
-            ctx.restore();
-        }
+        this._updateGridCache(width, height, s, d);
     }
 
     renderDebug(ctx, derived) {
         if (!this.debugMode) return;
-        const s = this.c.state;
-        if (s.renderingEngine === 'webgl') return;
-
-        const width = ctx.canvas.width;
-        const height = ctx.canvas.height;
-        this._ensureCanvases(width, height);
-        if (!this.layout || this.maskCanvas.width !== width || this._maskDirty) {
-             this._updateMask(width, height, s, derived);
-             this._maskDirty = false;
-        }
-        this._updateGridCache(width, height, s, derived);
-
-        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const alphaMult = Math.min(1.0, lineGlow / 4.0);
-
-        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult, false);
-
-        // Echo with character masking in debug mode - same pipeline as canvas lines
-        const showEchoDebug = (s.layerEnablePerimeterEcho !== false);
-        if (showEchoDebug && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-            const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
-            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0) * (1 - delayFade);
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
-        }
+        // Line rendering is handled exclusively by the GPU (Natural Refraction).
+        // No Canvas2D line drawing in debug mode.
     }
 
     renderEditorPreview(ctx, derived, previewOp) {
@@ -2370,43 +2245,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._ensureCanvases(width, height);
         this._checkDirtiness();
         if (this._maskDirty) {
-             this._updateMask(width, height, s, derived);
-             this._maskDirty = false;
-        }
-        
-        const lineGlow = this.getLineGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const alphaMult = Math.min(1.0, lineGlow / 4.0);
-
-        if (s.renderingEngine === 'webgl') {
-            // Echo handled by GPU pass in _renderQuantizedLineGfx
-            return;
+            this.renderer._computeLayoutOnly(this, width, height, s, derived);
+            this._maskDirty = false;
         }
 
-        this._updateGridCache(width, height, s, derived);
-
-        const srcOffX = (0) + (derived.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
-        const srcOffY = (0) + (derived.cellHeight * 0.5) + (this.c.state.quantizedSourceGridOffsetY || 0) + (this.getLineGfxValue('SampleOffsetY') || 0);
-
-        if (this.c.state.layerEnableQuantizedGridCache === true) {
-            this._updateGridCache(width, height, s, derived);
-            ctx.save();
-            ctx.globalAlpha = 0.3;
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.translate(srcOffX, srcOffY);
-            ctx.drawImage(this.gridCacheCanvas, 0, 0);
-            ctx.restore();
-        }
-
-        this._drawMaskedLines(ctx, this.lineMaskCanvas, width, height, s, derived, alphaMult, false);
-
-        // Echo with character masking - same pipeline as canvas lines
-        const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
-        if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
-            const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-            const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
-            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0) * (1 - delayFade);
-            this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
-        }
+        // Line rendering is handled exclusively by the GPU (Natural Refraction).
+        // No Canvas2D line drawing in editor preview.
 
         if (this._previewActive) {
             if (this._lastPreviewOpsAddedCount > 0) {

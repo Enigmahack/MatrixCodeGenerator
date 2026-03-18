@@ -706,11 +706,13 @@ class MatrixKernel {
             }
         });
 
-        // Chunk 5: CPU mask + grid cache (2D path only)
-        if (s.renderingEngine !== 'webgl') {
-            await chunk('mask', () => qfx._updateMask(w, h, s, d));
-            await chunk('gridCache', () => qfx._updateGridCache(w, h, s, d));
-        }
+        // Chunk 5: Layout + grid cache warm-up
+        await chunk('layout', () => {
+            if (qfx.renderer && typeof qfx.renderer._computeLayoutOnly === 'function') {
+                qfx.renderer._computeLayoutOnly(qfx, w, h, s, d);
+            }
+        });
+        await chunk('gridCache', () => qfx._updateGridCache(w, h, s, d));
 
         // Chunk 6: WebGL renderer buffers + GPU shader warm-up
         await chunk('webglBuffers', () => {

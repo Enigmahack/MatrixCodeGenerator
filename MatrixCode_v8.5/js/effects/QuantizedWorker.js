@@ -188,7 +188,7 @@ function update() {
         effect.gridCacheCanvas = mockCanvas;
     }
 
-    renderer.updateMask(effect, w, h, s, d);
+    renderer._computeLayoutOnly(effect, w, h, s, d);
 
     // 3. Extract and send render data to the main thread
     const batches = renderer._batchMeta;
