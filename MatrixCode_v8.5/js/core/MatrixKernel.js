@@ -784,7 +784,7 @@ class MatrixKernel {
         if (!dotsEl) return;
         let count = 0;
         this._dotsInterval = setInterval(() => {
-            count = (count % 3) + 1;
+            count = (count + 1) % 4;
             dotsEl.textContent = '.'.repeat(count);
         }, 400);
     }
@@ -811,20 +811,22 @@ class MatrixKernel {
         const dotsEl = document.getElementById('loadingDots');
         if (!overlay) return;
 
-        // Stop dot animation
-        clearInterval(this._dotsInterval);
-        if (dotsEl) dotsEl.textContent = '';
-
-        // Swap to final message
-        if (textEl) textEl.textContent = 'Knock Knock, Neo';
-
-        // Hold the final message briefly, then fade out
+        // Hold the Loading... message briefly, then fade out
         setTimeout(() => {
             overlay.classList.add('fade-out');
             // Remove from DOM after transition completes
-            overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
-            // Fallback removal if transitionend doesn't fire (e.g. reduced motion)
-            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 2000);
+            overlay.addEventListener('transitionend', () => {
+                // Stop dot animation and remove overlay
+                clearInterval(this._dotsInterval);
+                overlay.remove();
+            }, { once: true });
+            // Fallback removal if transitionend doesn't fire
+            setTimeout(() => { 
+                if (overlay.parentNode) {
+                    clearInterval(this._dotsInterval);
+                    overlay.remove();
+                }
+            }, 2000);
         }, 900);
     }
 

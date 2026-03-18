@@ -803,7 +803,7 @@ class WebGLRenderer {
                             #undef APPLY_REFR
                         }
 
-                        fragColor = vec4(resultColor, max(base.a, refrAlpha));
+                        fragColor = vec4(resultColor * u_intensity, max(base.a, refrAlpha) * u_intensity);
                         return;
                     }
 
@@ -2315,6 +2315,7 @@ class WebGLRenderer {
         compUniforms.u_refractionUnwrap = fxState.refractionUnwrap;
         compUniforms.u_refractionMaskScale = fxState.refractionMaskScale;
         compUniforms.u_compressionThreshold = fxState.compressionThreshold;
+        compUniforms.u_intensity = 1.0; // Default: full brightness for main composite
 
         // Pass 2A: composite with burn-in persistence for refraction lines.
         // Refraction is rendered SEPARATELY from the base scene so only lines persist,

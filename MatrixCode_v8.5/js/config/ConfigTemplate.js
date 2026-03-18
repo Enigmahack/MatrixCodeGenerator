@@ -346,7 +346,7 @@ const ConfigTemplate = [
     { cat: 'Behavior', id: 'rotatorRandomSpeedEnabled', type: 'checkbox', label: 'Randomize Rotation Speed', dep: 'rotatorEnabled', tier: 'advanced', description: "Vary the rotation speed randomly throughout the rotator's life cycle.", tags: ['random', 'variety'] },
 
     // 4. EFFECTS TAB
-    { cat: 'Effects', type: 'accordion_header', label: 'Trilogy', startOpen: true },
+    { cat: 'Effects', type: 'accordion_header', label: 'Trilogy' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Pulse' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'ripple', 'action'] },
@@ -454,7 +454,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'button', label: 'Trigger Crash Now', action: 'crash', class: 'btn-warn', tier: 'basic', tags: ['error', 'stop', 'action'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Resurrections', startOpen: true },
+    { cat: 'Effects', type: 'accordion_header', label: 'Resurrections' },
     { cat: 'Effects', type: 'accordion_subheader', label: 'General' },
     ...(() => {
         const defaults = [];
@@ -563,7 +563,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
 
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Special Effects', startOpen: true },
+    { cat: 'Effects', type: 'accordion_header', label: 'Special Effects' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Star Power' },
     { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', tier: 'basic', tags: ['sparkle', 'rainbow', 'glimmer'] },
@@ -582,7 +582,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', tags: ['chance', 'amount'] },
     { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled', tier: 'advanced', tags: ['light', 'bright'] },
 
-    { cat: 'Effects', type: 'accordion_header', label: 'Post Processing', startOpen: true },
+    { cat: 'Effects', type: 'accordion_header', label: 'Post Processing' },
     { cat: 'Effects', type: 'sub_accordion', label: 'User Shader' },
     { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader', tier: 'basic', tags: ['custom', 'glsl', 'glitch'] },
     { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'none' },
