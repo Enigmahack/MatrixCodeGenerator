@@ -24,9 +24,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._snapshotCaptured = false;
     }
 
-    // Zoom only uses Layer 1 — no multi-layer promotion or L0 persistence.
     getConfig(key) {
-        if (key === 'SingleLayerMode') return false;
         if (key === 'LayerCount') return 1;
         if (key === 'GeneratorTakeover') return true;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
@@ -56,7 +54,21 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._zoomOpacity = 1.0;
         this._snapshotCaptured = false;
 
+        // Match BlockGenerator: check for sequence and enter GENERATING if none exists
+        const hasSequence = this.sequence && this.sequence.length > 0 && !(this.sequence.length === 1 && this.sequence[0].length === 0);
+        if (!hasSequence) {
+            this.state = 'GENERATING';
+            this.alpha = 1.0;
+            this.timer = 0;
+            this.expansionPhase = 0;
+        }
+
         this._initShadowWorld();
+        if (this.state === 'GENERATING') {
+            this._initProceduralState(true);
+        } else {
+            this._initProceduralState(false);
+        }
         if (this.renderGrid) this.renderGrid.fill(-1);
 
         return true;

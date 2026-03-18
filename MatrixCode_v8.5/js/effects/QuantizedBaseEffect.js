@@ -2286,7 +2286,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const alphaMult = lineGlow / 4.0;
 
         const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-        const echoAlphaMult = echoGlow / 4.0;
+        const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
+        const echoAlphaMult = (echoGlow / 4.0) * (1 - delayFade);
 
         // 2D canvas mode - both lines and echo use the same masking pipeline.
         const srcOffX = (0) + (d.cellWidth * 0.5) + (this.c.state.quantizedSourceGridOffsetX || 0) + (this.getLineGfxValue('SampleOffsetX') || 0);
@@ -2325,7 +2326,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const showEchoDebug = (s.layerEnablePerimeterEcho !== false);
         if (showEchoDebug && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
             const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
+            const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
+            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0) * (1 - delayFade);
             this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
         }
     }
@@ -2401,7 +2403,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const showEchoPreview = (s.layerEnablePerimeterEcho !== false);
         if (showEchoPreview && this.getConfig('PerimeterEchoEnabled') && this.echoCanvas) {
             const echoGlow = this.getEchoGfxValue('Glow') ?? (this.getConfig('BorderIllumination') ?? 4.0);
-            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0);
+            const delayFade = (this.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
+            const echoAlphaMult = Math.min(1.0, echoGlow / 4.0) * (1 - delayFade);
             this._drawMaskedLines(ctx, this.echoCanvas, width, height, s, derived, echoAlphaMult, true);
         }
 
@@ -5315,6 +5318,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (sf) sf.enabled = this._getGenConfig('ShoveFillEnabled') ?? false;
             const hf = this.growthPool.get('hole_filler');
             if (hf) hf.enabled = true;
+            const bt = this.growthPool.get('block_thicken');
+            if (bt) bt.enabled = this._getGenConfig('BlockThickenEnabled') ?? false;
             return;
         }
         this._behaviorsInitialized = true;
@@ -5673,6 +5678,120 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }, { enabled: this._getGenConfig('ShoveFillEnabled') ?? false, label: 'Shove Fill' });
+
+        // Behavior: Block Thicken — picks a random axis line and thickens blocks along it
+        this.registerBehavior('block_thicken', function(s) {
+            const startDelay = this._getGenConfig('BlockThickenStartDelay') ?? 10;
+            const spawnFreq  = Math.max(1, this._getGenConfig('BlockThickenSpawnFrequency') ?? 5);
+            const spawnChance = (this._getGenConfig('BlockThickenSpawnChance') ?? 50) / 100;
+            const layer = 1;
+
+            // Timing gate
+            if (s.step < startDelay) return;
+            if ((s.step - startDelay) % spawnFreq !== 0) return;
+
+            // Chance gate
+            if (Math.random() > spawnChance) return;
+
+            const bs = this.getBlockSize();
+            const xVis = Math.ceil(this.g.cols / bs.w / 2) + 2;
+            const yVis = Math.ceil(this.g.rows / bs.h / 2) + 2;
+
+            // Pick a random axis: 0 = X (vertical line), 1 = Y (horizontal line)
+            const axis = Math.random() < 0.5 ? 0 : 1;
+
+            // Collect all occupied coordinates on the chosen axis to pick from
+            const occupiedLines = new Set();
+            const blocks = this.activeBlocks.filter(b => b.layer === layer);
+            for (const b of blocks) {
+                if (axis === 0) {
+                    // X axis — collect all unique x values covered by this block
+                    for (let x = b.x; x < b.x + b.w; x++) occupiedLines.add(x);
+                } else {
+                    // Y axis — collect all unique y values covered by this block
+                    for (let y = b.y; y < b.y + b.h; y++) occupiedLines.add(y);
+                }
+            }
+
+            if (occupiedLines.size === 0) return;
+
+            // Pick a random line from the occupied set
+            const lineArr = [...occupiedLines];
+            const chosenLine = lineArr[Math.floor(Math.random() * lineArr.length)];
+
+            // Find all blocks that intersect this line
+            const lineBlocks = blocks.filter(b => {
+                if (axis === 0) {
+                    return b.x <= chosenLine && b.x + b.w - 1 >= chosenLine;
+                } else {
+                    return b.y <= chosenLine && b.y + b.h - 1 >= chosenLine;
+                }
+            });
+
+            if (lineBlocks.length === 0) return;
+
+            // For each block on this line, try to add blocks on both sides along the perpendicular axis
+            for (const b of lineBlocks) {
+                if (axis === 0) {
+                    // Line is vertical (X = chosenLine), thicken along X (add columns left and right)
+                    // Walk left (x-1, x-2, ...) and right (x+w, x+w+1, ...) adding 1-wide columns
+                    // as long as there are adjacent occupied cells on the perpendicular axis (Y)
+                    const thickenSide = (startX, dx) => {
+                        let tx = startX;
+                        while (Math.abs(tx) <= xVis) {
+                            // Check: does this column have any adjacent occupied neighbor on Y that connects?
+                            let hasAdjacentEdge = false;
+                            for (let ty = b.y; ty < b.y + b.h; ty++) {
+                                if (this._isOccupied(tx, ty, layer)) { hasAdjacentEdge = false; break; }
+                                // Check if there's a block above or below connecting
+                                if (this._isOccupied(tx, ty - 1, layer) || this._isOccupied(tx, ty + 1, layer)) {
+                                    hasAdjacentEdge = true;
+                                }
+                            }
+                            if (!hasAdjacentEdge) break;
+                            // Spawn a column of blocks at tx covering the same Y span
+                            for (let ty = b.y; ty < b.y + b.h; ty++) {
+                                if (!this._isOccupied(tx, ty, layer)) {
+                                    const ftx = tx, fty = ty;
+                                    this.actionBuffer.push({ layer, fn: () => {
+                                        this._spawnBlock(ftx, fty, 1, 1, layer, false, 0, true, true, true, false, true, 'block_thicken');
+                                    }});
+                                }
+                            }
+                            tx += dx;
+                        }
+                    };
+                    thickenSide(b.x - 1, -1); // Thicken left
+                    thickenSide(b.x + b.w, 1); // Thicken right
+                } else {
+                    // Line is horizontal (Y = chosenLine), thicken along Y (add rows above and below)
+                    const thickenSide = (startY, dy) => {
+                        let ty = startY;
+                        while (Math.abs(ty) <= yVis) {
+                            let hasAdjacentEdge = false;
+                            for (let tx = b.x; tx < b.x + b.w; tx++) {
+                                if (this._isOccupied(tx, ty, layer)) { hasAdjacentEdge = false; break; }
+                                if (this._isOccupied(tx - 1, ty, layer) || this._isOccupied(tx + 1, ty, layer)) {
+                                    hasAdjacentEdge = true;
+                                }
+                            }
+                            if (!hasAdjacentEdge) break;
+                            for (let tx = b.x; tx < b.x + b.w; tx++) {
+                                if (!this._isOccupied(tx, ty, layer)) {
+                                    const ftx = tx, fty = ty;
+                                    this.actionBuffer.push({ layer, fn: () => {
+                                        this._spawnBlock(ftx, fty, 1, 1, layer, false, 0, true, true, true, false, true, 'block_thicken');
+                                    }});
+                                }
+                            }
+                            ty += dy;
+                        }
+                    };
+                    thickenSide(b.y - 1, -1); // Thicken above
+                    thickenSide(b.y + b.h, 1); // Thicken below
+                }
+            }
+        }, { enabled: this._getGenConfig('BlockThickenEnabled') ?? false, label: 'Block Thicken' });
 
         this.registerBehavior('hole_filler', function(s) {
             if (!this._getGenConfig('HoleFillerEnabled')) return;

@@ -2354,12 +2354,16 @@ class WebGLRenderer {
             // Step 3B: Echo lines also render into persistence FBO with gl.MAX
             // so they fade out through the same burn-in mechanism as main lines.
             if (gpuEchoEnabled && echoHasHistory) {
+                const savedIntensity = compUniforms.u_intensity;
+                const delayFade = (fx.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
+                compUniforms.u_intensity = savedIntensity * (1 - delayFade);
                 const ert = this._echoRefrTextures;
                 this._syncTextures(ert, commonTextures, null);
                 ert[0] = this.blackTexture;
                 ert[1] = this.echoLogicGridTexture;
                 ert[2] = this.texEchoLinePersist;
                 this._drawFullscreenPass(prog, this.fboRefrPersist, compUniforms, ert, mb);
+                compUniforms.u_intensity = savedIntensity;
             }
 
             // Step 4: Blend persistence (refraction + echo lines + fading trails) over base scene
@@ -2378,6 +2382,9 @@ class WebGLRenderer {
 
             // Echo lines without persistence — render directly over base
             if (gpuEchoEnabled && echoHasHistory) {
+                const savedIntensity = compUniforms.u_intensity;
+                const delayFade = (fx.getEchoGfxValue('DelayFadeAmount') || 0) / 100;
+                compUniforms.u_intensity = savedIntensity * (1 - delayFade);
                 const ect = this._echoCompTextures;
                 this._syncTextures(ect, commonTextures, null);
                 ect[0] = this.blackTexture;
@@ -2386,6 +2393,7 @@ class WebGLRenderer {
                 const ecb = this._echoCompBlend;
                 ecb.src = this.gl.ONE; ecb.dst = this.gl.ONE_MINUS_SRC_ALPHA;
                 this._drawFullscreenPass(prog, dst, compUniforms, ect, ecb);
+                compUniforms.u_intensity = savedIntensity;
             }
         }
 
