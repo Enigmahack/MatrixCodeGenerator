@@ -125,7 +125,7 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
 
         { cat: 'Effects', type: 'accordion_subheader', label: 'Playback', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Animation Speed', min: 0.1, max: 15.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'basic', tags: ['fast', 'slow', 'motion'] },
-        { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Auto-Trigger Interval', min: 10, max: 600, step: 5, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "How often this effect automatically triggers.", tags: ['timing', 'auto'] },
+        { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 605, step: 5, unit: 's', transform: v => v === 605 ? 'Random' : v + 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "How often this effect automatically triggers.", tags: ['timing', 'auto'] },
         { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Effect Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'length'] },
 
         { cat: 'Effects', type: 'accordion_subheader', label: 'Grid Size', dep: [effectDep, prefix + "Enabled"] },

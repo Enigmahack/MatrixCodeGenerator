@@ -308,15 +308,11 @@ class EffectRegistry {
         }
     }
 
-    /**
-     * Resets the timer for an automated effect with randomization.
-     * @private
-     */
     _resetTimer(fx) {
         let seconds = this.config.get(fx.frequencyKey);
-        // Handle "Random" (500s) special case
-        if (seconds === 500) {
-            seconds = Utils.randomInt(50, 500);
+        // Handle "Random" (500s or 605s) special case
+        if (seconds === 500 || seconds === 605) {
+            seconds = Utils.randomInt(50, seconds);
         }
         
         const minFrames = seconds * 60;

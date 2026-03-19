@@ -4,8 +4,9 @@ Behaviours:
 - Hole Filler does not appear to work. 
 
 Visuals: 
-- Boot Effect doesn't look right. Refine. 
+- Boot Effect doesn't look right. Refine. (The bluish/white boot animation only)
 - Fix animation for quantized Retract. 
+- 
 
 UI Changes: 
 Reorganize once done with the needed settings. 
