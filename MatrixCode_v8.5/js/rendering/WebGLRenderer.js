@@ -228,6 +228,10 @@ class WebGLRenderer {
         this._lineGfxUniforms = {};
         this._lineGfxTextures = {};
 
+        // Cached effect reference — avoids per-frame Array.from + .find
+        this._cachedQuantizedFx = null;
+        this._cachedQuantizedFxValid = false;
+
         // Pre-allocated uniform/texture/blend variant objects for _renderQuantizedLineGfx.
         // Eliminates all spread-operator ({...obj}) allocations in the per-frame render path.
         this._renderUniforms = { u_mode: 0 };        // PASS 1B: render
@@ -269,6 +273,41 @@ class WebGLRenderer {
                 dst[key] = overrides[key];
             }
         }
+    }
+
+    /** Find the active Quantized effect, with per-frame caching. */
+    _getActiveQuantizedFx() {
+        if (this._cachedQuantizedFxValid) return this._cachedQuantizedFx;
+        this._cachedQuantizedFxValid = true;
+        this._cachedQuantizedFx = null;
+        if (!this.effects || !this.effects.effects) return null;
+        const effects = this.effects.effects;
+        if (Array.isArray(effects)) {
+            for (let i = 0; i < effects.length; i++) {
+                if (effects[i].active && effects[i].name.startsWith('Quantized')) {
+                    this._cachedQuantizedFx = effects[i];
+                    return effects[i];
+                }
+            }
+        } else if (effects instanceof Map) {
+            for (const e of effects.values()) {
+                if (e.active && e.name.startsWith('Quantized')) {
+                    this._cachedQuantizedFx = e;
+                    return e;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Get effect list without allocating. Returns an iterable. */
+    _getEffectIterable() {
+        if (!this.effects || !this.effects.effects) return null;
+        const effects = this.effects.effects;
+        if (Array.isArray(effects)) return effects;
+        if (effects instanceof Map) return effects.values();
+        if (typeof this.effects.getAll === 'function') return this.effects.getAll();
+        return null;
     }
 
     setGrid(grid) {
@@ -438,10 +477,15 @@ class WebGLRenderer {
         const locs = {};
         for (let i = 0; i < count; i++) {
             const info = this.gl.getActiveUniform(prog, i);
-            locs[info.name] = {
+            const entry = {
                 loc: this.gl.getUniformLocation(prog, info.name),
                 type: info.type
             };
+            locs[info.name] = entry;
+            // Also cache array uniforms under their base name (e.g. "u_weight[0]" → "u_weight")
+            if (info.name.endsWith('[0]')) {
+                locs[info.name.slice(0, -3)] = entry;
+            }
         }
         this.uLocs.set(prog, locs);
 
@@ -1660,7 +1704,7 @@ class WebGLRenderer {
         // Stride = 40 bytes (Optimized & Aligned)
         if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
         this.instanceBuffer = this.gl.createBuffer();
-        this.prevInstanceBuffer = null; // force full upload on next frame
+        this._instanceBufferInitialized = false; // force full upload on next frame
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 40, this.gl.DYNAMIC_DRAW);
 
@@ -1764,19 +1808,20 @@ class WebGLRenderer {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
         this.gl.enableVertexAttribArray(0);
         this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-        
+
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_image'), 0);
-        
-                const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
-                this.gl.uniform1fv(this.gl.getUniformLocation(this.bloomProgram, 'u_weight'), weights);
-                this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_spread'), 0.0);
-                this.gl.uniform1f(this.gl.getUniformLocation(this.bloomProgram, 'u_opacity'), opacity);
-                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_horizontal'), 1);
-                this.gl.uniform1i(this.gl.getUniformLocation(this.bloomProgram, 'u_extract'), 0);
-        
-                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);    }
+        this.gl.uniform1i(this._u(this.bloomProgram, 'u_image'), 0);
+
+        const weights = [1.0, 0.0, 0.0, 0.0, 0.0];
+        this.gl.uniform1fv(this._u(this.bloomProgram, 'u_weight'), weights);
+        this.gl.uniform1f(this._u(this.bloomProgram, 'u_spread'), 0.0);
+        this.gl.uniform1f(this._u(this.bloomProgram, 'u_opacity'), opacity);
+        this.gl.uniform1i(this._u(this.bloomProgram, 'u_horizontal'), 1);
+        this.gl.uniform1i(this._u(this.bloomProgram, 'u_extract'), 0);
+
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    }
 
     _renderQuantizedShadows(fx) {
         if (!fx || !fx.renderGrid) return;
@@ -2113,15 +2158,7 @@ class WebGLRenderer {
     }
 
     _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
-        let fx = null;
-        if (this.effects && this.effects.effects) {
-            const effectList = (Array.isArray(this.effects.effects))
-                ? this.effects.effects
-                : (this.effects.effects instanceof Map)
-                    ? Array.from(this.effects.effects.values())
-                    : [];
-            fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
-        }
+        const fx = this._getActiveQuantizedFx();
         if (!fx || !fx.renderGrid) {
             if (!this._lineGfxDiagLogged) {
                 console.warn(`[WebGLRenderer] _renderQuantizedLineGfx bail: fx=${!!fx}, renderGrid=${!!(fx && fx.renderGrid)}`);
@@ -2508,26 +2545,25 @@ class WebGLRenderer {
                 if (!this.bloomProgram) return;
                 this.gl.disable(this.gl.BLEND);
                 this.gl.useProgram(this.bloomProgram);
-                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.screenQuadBuffer);
-                this.gl.enableVertexAttribArray(0);
-                this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
-        
+                this.gl.bindVertexArray(this.vaoLine);
+
                 this.gl.activeTexture(this.gl.TEXTURE0);
                 this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTex);
                 this.gl.uniform1i(this._u(this.bloomProgram, 'u_image'), 0);
-        
+
                 // Broader Gaussian weights to actually push the glow out further
                 const weights = [0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216];
                 this.gl.uniform1fv(this._u(this.bloomProgram, 'u_weight'), weights);
-        
+
                 // Multiply the strength slider by a base factor to ensure it creates a wide radius
                 // Base strength goes up to 10. Multiplying by 10.0 means we get up to 100 pixel offsets.
                 this.gl.uniform1f(this._u(this.bloomProgram, 'u_spread'), strength * 10.0);
                 this.gl.uniform1f(this._u(this.bloomProgram, 'u_opacity'), opacity);
                 this.gl.uniform1i(this._u(this.bloomProgram, 'u_horizontal'), horizontal ? 1 : 0);
                 this.gl.uniform1i(this._u(this.bloomProgram, 'u_extract'), extract ? 1 : 0);
-        
+
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+                this.gl.bindVertexArray(null);
             }    render(frame) {
         if (!this.posBuffer || this.fboWidth === 0) return; 
         
@@ -2537,18 +2573,12 @@ class WebGLRenderer {
         const activeFonts = d.activeFonts;
         const gl = this.gl;
 
+        // Invalidate per-frame effect cache
+        this._cachedQuantizedFxValid = false;
+
         // Determine if any quantized effect is truly active for shader logic
-        let hasActiveQuantizedEffect = false;
-        let fx = null;
-        if (this.effects) {
-             const effectList = (Array.isArray(this.effects.effects)) 
-                ? this.effects.effects 
-                : (this.effects.effects instanceof Map) 
-                    ? Array.from(this.effects.effects.values()) 
-                    : [];
-             fx = effectList.find(e => e.active && e.name.startsWith('Quantized'));
-             hasActiveQuantizedEffect = !!fx;
-        }
+        const fx = this._getActiveQuantizedFx();
+        const hasActiveQuantizedEffect = !!fx;
 
         gl.enable(gl.BLEND);
         gl.blendEquation(gl.FUNC_ADD); // ROOT CAUSE FIX: Reset stale equation from Quantized Effects
@@ -2812,6 +2842,7 @@ class WebGLRenderer {
                     mF32[baseOff + 8] = isOverridden ? 0 : gParams[gIdx + 3];   // Dissolve
                 }
             }
+
         }
 
         if (atlas.hasChanges) {
@@ -2820,41 +2851,9 @@ class WebGLRenderer {
              atlas.resetChanges();
         }
 
-        // --- UPLOAD (dirty-range) ---
+        // --- UPLOAD ---
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        const curr = this.instanceDataU32;
-        if (!this.prevInstanceBuffer) {
-            // First frame after buffer init: full upload then snapshot.
-            this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
-            this.prevInstanceBuffer = new Uint32Array(totalCells * 10);
-            this.prevInstanceBuffer.set(curr);
-        } else {
-            const prev = this.prevInstanceBuffer;
-            // Merge dirty runs separated by <= MERGE_GAP clean cells to reduce call overhead.
-            const MERGE_GAP = 8;
-            let rangeStart = -1, rangeEnd = -1;
-            for (let i = 0; i < totalCells; i++) {
-                const base = i * 10;
-                let dirty = false;
-                for (let j = 0; j < 10; j++) {
-                    if (curr[base + j] !== prev[base + j]) { dirty = true; break; }
-                }
-                if (dirty) {
-                    if (rangeStart === -1) {
-                        rangeStart = i; rangeEnd = i + 1;
-                    } else if (i < rangeEnd + MERGE_GAP) {
-                        rangeEnd = i + 1;
-                    } else {
-                        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, rangeStart * 40, this.instanceData, rangeStart * 10, (rangeEnd - rangeStart) * 10);
-                        rangeStart = i; rangeEnd = i + 1;
-                    }
-                }
-            }
-            if (rangeStart !== -1) {
-                this.gl.bufferSubData(this.gl.ARRAY_BUFFER, rangeStart * 40, this.instanceData, rangeStart * 10, (rangeEnd - rangeStart) * 10);
-            }
-            prev.set(curr);
-        }
+        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
 
 
         // --- SHADOW MASK PASS ---
@@ -2873,18 +2872,9 @@ class WebGLRenderer {
             let maskPoolIdx = 0;
 
             if (this.effects) {
-                 // Support both Array and Map structures for EffectRegistry
-                 const effectList = (Array.isArray(this.effects.effects)) 
-                    ? this.effects.effects 
-                    : (this.effects.effects instanceof Map) 
-                        ? Array.from(this.effects.effects.values()) 
-                        : (typeof this.effects.get === 'function' && typeof this.effects.getAll === 'function') 
-                            ? this.effects.getAll() 
-                            : []; 
+                 const iterable = this._getEffectIterable();
 
-                 const iterable = (this.effects.effects instanceof Map) ? this.effects.effects.values() : effectList;
-
-                 for (const effect of iterable) {
+                 for (const effect of (iterable || [])) {
                      if (effect.active) {
                          // GPU-Accelerated Shadow for Quantized Effects
                          if (effect instanceof QuantizedBaseEffect) {

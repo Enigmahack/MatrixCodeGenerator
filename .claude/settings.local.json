@@ -28,7 +28,9 @@
       "Bash(grep -r \"_handleDebugInput\\\\|_boundDebugHandler\\\\|addEventListener.*keydown.*_bound\\\\|addEventListener.*keydown.*debug\" /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5 --include=\"*.js\" --include=\"*.html\" | grep -v \"removeEventListener\\\\|QuantizedBaseEffect\")",
       "Bash(grep -r \"new QuantizedSequenceGenerator\\\\b\" /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5 --include=\"*.js\" --include=\"*.html\" 2>/dev/null | wc -l)",
       "Bash(node -c MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js)",
-      "Bash(node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js && echo \"BaseEffect OK\" && node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js && echo \"SeqGenV2 OK\" && node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/index.html 2>&1; echo \"Done\")"
+      "Bash(node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js && echo \"BaseEffect OK\" && node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js && echo \"SeqGenV2 OK\" && node -c /Users/enigma/Documents/MatrixCodeGenerator/MatrixCode_v8.5/index.html 2>&1; echo \"Done\")",
+      "Bash(node -c MatrixCode_v8.5/js/rendering/WebGLRenderer.js 2>&1 && node -c MatrixCode_v8.5/js/rendering/PostProcessor.js 2>&1)",
+      "Bash(node -c MatrixCode_v8.5/js/rendering/WebGLRenderer.js 2>&1 && node -c MatrixCode_v8.5/js/rendering/PostProcessor.js 2>&1 && echo \"OK\")"
     ]
   }
 }

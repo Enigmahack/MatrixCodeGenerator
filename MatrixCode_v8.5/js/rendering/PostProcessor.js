@@ -465,18 +465,33 @@ class PostProcessor {
 
         const vs = createShader(this.gl.VERTEX_SHADER, this.vertexShaderSource);
         const fs = createShader(this.gl.FRAGMENT_SHADER, fragSource);
-        
+
         if (!vs || !fs) return null;
 
         const prog = this.gl.createProgram();
         this.gl.attachShader(prog, vs);
         this.gl.attachShader(prog, fs);
         this.gl.linkProgram(prog);
-        
+
         if (!this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
             console.warn("Program Link Error", this.gl.getProgramInfoLog(prog));
             return null;
         }
+
+        // Cache attribute and uniform locations at compile time
+        if (!this._locCache) this._locCache = new Map();
+        const locs = {
+            aPosition: this.gl.getAttribLocation(prog, 'aPosition'),
+            uTexture: this.gl.getUniformLocation(prog, 'uTexture'),
+            uResolution: this.gl.getUniformLocation(prog, 'uResolution'),
+            uTime: this.gl.getUniformLocation(prog, 'uTime'),
+            uMouse: this.gl.getUniformLocation(prog, 'uMouse'),
+            uParameter: this.gl.getUniformLocation(prog, 'uParameter'),
+            uFlipY: this.gl.getUniformLocation(prog, 'uFlipY'),
+            uGlobalBrightness: this.gl.getUniformLocation(prog, 'uGlobalBrightness')
+        };
+        this._locCache.set(prog, locs);
+
         return prog;
     }
 
@@ -750,42 +765,50 @@ class PostProcessor {
     _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, brightness = 1.0, customParams = null) {
         this.gl.useProgram(prog);
 
-        const posLoc = this.gl.getAttribLocation(prog, 'aPosition');
+        // Use cached locations (populated at compile time)
+        const cached = this._locCache ? this._locCache.get(prog) : null;
+
+        const posLoc = cached ? cached.aPosition : this.gl.getAttribLocation(prog, 'aPosition');
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.enableVertexAttribArray(posLoc);
         this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 0, 0);
 
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-        
-        const uTex = this.gl.getUniformLocation(prog, 'uTexture');
+
+        const uTex = cached ? cached.uTexture : this.gl.getUniformLocation(prog, 'uTexture');
         this.gl.uniform1i(uTex, 0);
-        
-        const uRes = this.gl.getUniformLocation(prog, 'uResolution');
-        // Use stored dimensions or fallback to context size
+
+        const uRes = cached ? cached.uResolution : this.gl.getUniformLocation(prog, 'uResolution');
         const rw = Math.max(1, this.width || this.gl.drawingBufferWidth);
         const rh = Math.max(1, this.height || this.gl.drawingBufferHeight);
         this.gl.uniform2f(uRes, rw, rh);
-        
-        const uTime = this.gl.getUniformLocation(prog, 'uTime');
+
+        const uTime = cached ? cached.uTime : this.gl.getUniformLocation(prog, 'uTime');
         this.gl.uniform1f(uTime, time);
 
-        const uMouse = this.gl.getUniformLocation(prog, 'uMouse');
+        const uMouse = cached ? cached.uMouse : this.gl.getUniformLocation(prog, 'uMouse');
         if (uMouse) this.gl.uniform2f(uMouse, mouseX, mouseY);
 
-        const uParam = this.gl.getUniformLocation(prog, 'uParameter');
+        const uParam = cached ? cached.uParameter : this.gl.getUniformLocation(prog, 'uParameter');
         if (uParam) this.gl.uniform1f(uParam, param);
-        
-        const uFlip = this.gl.getUniformLocation(prog, 'uFlipY');
+
+        const uFlip = cached ? cached.uFlipY : this.gl.getUniformLocation(prog, 'uFlipY');
         if (uFlip) this.gl.uniform1f(uFlip, flipY);
 
-        const uGlobalBright = this.gl.getUniformLocation(prog, 'uGlobalBrightness');
+        const uGlobalBright = cached ? cached.uGlobalBrightness : this.gl.getUniformLocation(prog, 'uGlobalBrightness');
         if (uGlobalBright) this.gl.uniform1f(uGlobalBright, brightness);
 
-        // Apply Custom Parameters
+        // Apply Custom Parameters (use per-program cache for dynamic uniforms)
         if (customParams) {
             for (const key in customParams) {
-                const loc = this.gl.getUniformLocation(prog, key);
+                let loc;
+                if (cached && key in cached) {
+                    loc = cached[key];
+                } else {
+                    loc = this.gl.getUniformLocation(prog, key);
+                    if (cached) cached[key] = loc; // Cache for next frame
+                }
                 if (loc) {
                     this.gl.uniform1f(loc, customParams[key]);
                 }
