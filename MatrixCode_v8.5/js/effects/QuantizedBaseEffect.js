@@ -3971,17 +3971,11 @@ class QuantizedBaseEffect extends AbstractEffect {
      */
     _performHoleCleanup() {
         if (!this.logicGridW || !this.logicGridH) return;
-        // Throttle: only run every 4 logic steps to avoid expensive BFS each frame.
-        // The old guard (_gridsDirty check) was too aggressive — _gridsDirty is cleared
-        // by _updateRenderGridLogic() inside _attemptV2Growth() before we get here,
-        // so hole cleanup was essentially never running.
-        if (this.activeBlocks.length > 0 && (this.behaviorState.step % 4 !== 0)) return;
 
         const w = this.logicGridW, h = this.logicGridH;
         const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
 
-        // Use the composite grid (renderGrid) for finding holes in the overall mass.
-        // If renderGrid is stale, we'll re-calculate composite occupancy on the fly.
+        // Build composite occupancy map across all layers
         const compositeMap = this._getBuffer('compositeMap', w * h, Int8Array);
         compositeMap.fill(-1);
         for (let l = 0; l < this.layerGrids.length; l++) {
@@ -4016,35 +4010,33 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (cgx > 0) add(cgx - 1, cgy); if (cgx < w - 1) add(cgx + 1, cgy);
         }
 
-        // 2. Identify and fill holes within the mass
+        // 2. Fill every enclosed empty cell (any hole of any size)
+        //    Also fill "small gap" cells (3+ cardinal neighbors occupied) as inlets/dead-ends.
         let filledCount = 0;
         const maxLayer = this._getMaxLayer();
         const startL = this.getConfig('SingleLayerMode') ? 1 : 0;
 
-        // Iterate entire grid (visible + logic padding)
         for (let gy = 1; gy < h - 1; gy++) {
             for (let gx = 1; gx < w - 1; gx++) {
                 const i = gy * w + gx;
-                if (compositeMap[i] === -1) {
-                    // Case A: Enclosed Hole (Cannot reach edge of world)
-                    const isEnclosed = (outsideMap[i] === 0);
+                if (compositeMap[i] !== -1) continue;
 
-                    // Case B: Inlets / Dead-ends (3 or 4 cardinal neighbors are full)
-                    let neighborCount = 0;
-                    if (compositeMap[i - 1] !== -1) neighborCount++;
-                    if (compositeMap[i + 1] !== -1) neighborCount++;
-                    if (compositeMap[i - w] !== -1) neighborCount++;
-                    if (compositeMap[i + w] !== -1) neighborCount++;
-                    const isSmallGap = (neighborCount >= 3);
+                // Enclosed: not reachable from grid boundary via empty cells
+                const isEnclosed = (outsideMap[i] === 0);
 
-                    if (isEnclosed || isSmallGap) {
-                        // Fill on ALL active layers to ensure immediate solidity
-                        for (let l = startL; l <= maxLayer; l++) {
-                            this._spawnBlock(gx - cx, gy - cy, 1, 1, l, false, 0, true, true, true, false, true, 'hole_filler');
-                        }
-                        compositeMap[i] = 1; // Mark as filled for neighbor check of next cell
-                        filledCount++;
+                // Small gap: 3 or 4 cardinal neighbors occupied (inlets/dead-ends)
+                let neighborCount = 0;
+                if (compositeMap[i - 1] !== -1) neighborCount++;
+                if (compositeMap[i + 1] !== -1) neighborCount++;
+                if (compositeMap[i - w] !== -1) neighborCount++;
+                if (compositeMap[i + w] !== -1) neighborCount++;
+
+                if (isEnclosed || neighborCount >= 3) {
+                    for (let l = startL; l <= maxLayer; l++) {
+                        this._spawnBlock(gx - cx, gy - cy, 1, 1, l, false, 0, true, true, true, false, true, 'hole_filler');
                     }
+                    compositeMap[i] = 1; // Mark filled so subsequent neighbor checks see it
+                    filledCount++;
                 }
             }
         }
@@ -4052,7 +4044,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (filledCount > 0) {
             this._gridsDirty = true;
             this._maskDirty = true;
-            if (this.c.state.logErrors) this._log(`[HoleCleanup] Filled ${filledCount} blocks across layers ${startL}-${maxLayer}.`);
+            if (this.c.state.logErrors) this._log(`[HoleCleanup] Filled ${filledCount} cells across layers ${startL}-${maxLayer}.`);
         }
     }
 

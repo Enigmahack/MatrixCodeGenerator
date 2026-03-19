@@ -1,8 +1,6 @@
 Todo 
 
 Behaviours: 
-- Deja Vu no longer shows the rows of characters from the 2DCanvas - repair that. 
-- Crash has the Deja Vu effect but doesn't use the selected/active characters. 
 - Hole Filler does not appear to work. 
 
 Visuals: 
