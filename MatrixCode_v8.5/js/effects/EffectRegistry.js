@@ -392,6 +392,14 @@ class EffectRegistry {
         });
     }
 
+    get hasActiveOverlay() {
+        const effects = this.effects;
+        for (let i = 0; i < effects.length; i++) {
+            if (effects[i].active && typeof effects[i].render === 'function') return true;
+        }
+        return false;
+    }
+
     render(ctx, derived) {
         const cw = derived.cellWidth;
         const ch = derived.cellHeight;

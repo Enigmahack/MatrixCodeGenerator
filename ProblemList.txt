@@ -3,15 +3,11 @@ Todo
 Behaviours: 
 - Deja Vu no longer shows the rows of characters from the 2DCanvas - repair that. 
 - Crash has the Deja Vu effect but doesn't use the selected/active characters. 
-- Fix quantized add behaviour. 
-	(Enable options to create larger blocks, sub-spines, add 'widen' behaviour)
-- Max Block Scale should work for certain effects
 - Hole Filler does not appear to work. 
 
 Visuals: 
 - Boot Effect doesn't look right. Refine. 
 - Fix animation for quantized Retract. 
-- Single block fill (quantized zoom)
 
 UI Changes: 
 Reorganize once done with the needed settings. 

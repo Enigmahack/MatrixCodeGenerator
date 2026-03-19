@@ -15,7 +15,11 @@ class MatrixKernel {
         this.timestep = 1000 / 60;
         this._lastResetReason = "Startup"; // Track last reset
         this._justResumed = false; // Flag to suppress catch-up warnings on first frame after resume
-        
+
+        // Resize guard state (initialized so first resize always proceeds)
+        this._lastWindowW = 0;
+        this._lastWindowH = 0;
+
         // Idle Detection State
         this.isIdle = false;
         this._idleTimer = null;
@@ -24,7 +28,7 @@ class MatrixKernel {
         this._setupResizeListener();
         this._setupInputListener();
         this._setupTapToSpawn();
-        
+
         // FPS tracking variables
         this.lastFrameTime = 0; // Tracks time of the previous frame
         this._fpsBuffer    = new Float32Array(30); // Circular buffer — avoids push/shift/reduce per frame
@@ -35,16 +39,11 @@ class MatrixKernel {
         this._lastDebugUpdateTime = 0;
         this._cachedDebugText = "";
 
+        // Pre-bind the animation loop to avoid per-frame closure allocation
+        this._boundLoop = (time) => this._loop(time);
+
         // Configuration subscription for dynamic updates
         this._setupConfigSubscriptions();
-
-        // Override console.error based on logErrors setting
-        const originalError = console.error;
-        console.error = (...args) => {
-            if (this.config.state.logErrors) {
-                originalError.apply(console, args);
-            }
-        };
     }
 
     async initAsync() {
@@ -142,7 +141,7 @@ class MatrixKernel {
             this._transitionLoadingScreen();
         }
 
-        requestAnimationFrame((time) => this._loop(time));
+        requestAnimationFrame(this._boundLoop);
 
         // Cleanup WebGL on unload to help Safari free up context slots
         window.addEventListener('beforeunload', () => {
@@ -226,6 +225,10 @@ class MatrixKernel {
         this.effectRegistry = new EffectRegistry(this.grid, this.config);
     }
 
+    _logError(...args) {
+        if (this.config.state.logErrors) console.error(...args);
+    }
+
     get activeWorld() { return this.worlds[this.activeWorldIndex]; }
     get inactiveWorld() { return this.worlds[1 - this.activeWorldIndex]; }
 
@@ -255,7 +258,7 @@ class MatrixKernel {
         if (typeof ConfigTemplate !== 'undefined') {
             this.effectRegistry.autoRegister(ConfigTemplate);
         } else {
-            if (this.config.state.logErrors) console.error("ConfigTemplate not found. Cannot auto-register effects.");
+            this._logError("ConfigTemplate not found. Cannot auto-register effects.");
         }
     }
 
@@ -291,13 +294,13 @@ class MatrixKernel {
                     if (this.config.state.logErrors) console.log(`[MatrixKernel] WebGL Renderer initialized successfully on attempt ${retries + 1}.`);
                 } catch (e) {
                     retries++;
-                    if (this.config.state.logErrors) console.error(`[MatrixKernel] WebGL attempt ${retries} failed:`, e.message);
-                    
+                    this._logError(`[MatrixKernel] WebGL attempt ${retries} failed:`, e.message);
+
                     if (retries < maxRetries) {
                         // Wait longer between retries
                         await new Promise(resolve => setTimeout(resolve, 500 * retries));
                     } else {
-                        if (this.config.state.logErrors) console.error("[MatrixKernel] All WebGL initialization attempts failed.");
+                        this._logError("[MatrixKernel] All WebGL initialization attempts failed.");
                         if (this.notifications) {
                             this.notifications.show("Critical Error: WebGL failed to initialize. Your browser may not support the required features.", "error");
                         }
@@ -306,7 +309,7 @@ class MatrixKernel {
                 }
             }
         } else {
-             if (this.config.state.logErrors) console.error("WebGLRenderer not found. Application cannot start.");
+             this._logError("WebGLRenderer not found. Application cannot start.");
              this.notifications.show("Critical Error: WebGL Renderer missing.", "error");
              return;
         }
@@ -441,18 +444,18 @@ class MatrixKernel {
     _setupTapToSpawn() {
         this._tapToSpawnIndex = 0;
 
+        // Static list — reused on every tap to avoid per-tap array allocation
+        const quantizedEffects = [
+            { name: 'QuantizedPulse', prefix: 'quantizedPulse' },
+            { name: 'QuantizedAdd', prefix: 'quantizedAdd' },
+            { name: 'QuantizedRetract', prefix: 'quantizedRetract' },
+            { name: 'QuantizedClimb', prefix: 'quantizedClimb' },
+            { name: 'QuantizedZoom', prefix: 'quantizedZoom' },
+            { name: 'QuantizedBlockGenerator', prefix: 'quantizedGenerateV2' }
+        ];
+
         const handleTap = (clientX, clientY) => {
             if (!this.config.state.tapToSpawnEnabled) return;
-
-            // Build rotation list of effects with TapToSpawn enabled
-            const quantizedEffects = [
-                { name: 'QuantizedPulse', prefix: 'quantizedPulse' },
-                { name: 'QuantizedAdd', prefix: 'quantizedAdd' },
-                { name: 'QuantizedRetract', prefix: 'quantizedRetract' },
-                { name: 'QuantizedClimb', prefix: 'quantizedClimb' },
-                { name: 'QuantizedZoom', prefix: 'quantizedZoom' },
-                { name: 'QuantizedBlockGenerator', prefix: 'quantizedGenerateV2' }
-            ];
 
             const eligible = quantizedEffects.filter(e =>
                 this.config.state[e.prefix + 'Enabled'] &&
@@ -542,9 +545,10 @@ class MatrixKernel {
             // Recalculate stream speeds when timing settings change
             if (speedTriggers.has(key) || key === 'ALL') {
                 if (this.worlds) {
-                    this.worlds.forEach(w => {
+                    for (let i = 0; i < this.worlds.length; i++) {
+                        const w = this.worlds[i];
                         if (w.sim && w.sim.streamManager) w.sim.streamManager.recalculateSpeeds();
-                    });
+                    }
                 }
             }
 
@@ -601,7 +605,8 @@ class MatrixKernel {
         d.cellHeight = targetCellH * ratio;
 
         // 3. Resize All Grids
-        this.worlds.forEach(w => w.grid.resize(logicalW, logicalH));
+        this.worlds[0].grid.resize(logicalW, logicalH);
+        this.worlds[1].grid.resize(logicalW, logicalH);
         
         if (this.renderer) {
             this.renderer.resize();
@@ -841,30 +846,37 @@ class MatrixKernel {
     _loop(time) {
         const loopStartTime = performance.now();
         // Handle optional pausing
-        const shouldPause = (document.hidden && this.config.state.pauseWhenHidden) || 
+        const shouldPause = (document.hidden && this.config.state.pauseWhenHidden) ||
                             (this.isIdle && this.config.state.pauseWhenIdle);
 
         if (shouldPause) {
             this.lastTime = time;
-            this.lastFrameTime = performance.now();
-            requestAnimationFrame((nextTime) => this._loop(nextTime));
+            this.lastFrameTime = time;
+            requestAnimationFrame(this._boundLoop);
             return;
         }
 
-        // 1. Calculate Delta and FPS
-        const now = performance.now();
-        const deltaFPS = now - this.lastFrameTime;
-        this.lastFrameTime = now;
+        // 1. Calculate Delta and FPS (use rAF time consistently to avoid clock skew)
+        const deltaFPS = time - this.lastFrameTime;
+        this.lastFrameTime = time;
 
         if (deltaFPS > 0 && this.config.state.showFpsCounter) {
             const fps = 1000 / deltaFPS;
-            // ... (rest of FPS logic)
             const slot = this._fpsBufferIdx % 30;
             this._fpsBufferSum -= this._fpsBuffer[slot];
             this._fpsBuffer[slot] = fps;
             this._fpsBufferSum += fps;
             this._fpsBufferIdx++;
             if (this._fpsBufferCount < 30) this._fpsBufferCount++;
+
+            // Correct floating-point drift every 900 frames (30 full buffer cycles)
+            if (this._fpsBufferIdx % 900 === 0) {
+                let sum = 0;
+                const len = Math.min(this._fpsBufferCount, 30);
+                for (let i = 0; i < len; i++) sum += this._fpsBuffer[i];
+                this._fpsBufferSum = sum;
+            }
+
             const smoothedFps = this._fpsBufferSum / this._fpsBufferCount;
 
             // 2. Update Display
@@ -872,7 +884,7 @@ class MatrixKernel {
                 // Throttled Debug Metrics: Only recalculate heavy metrics every 30 frames
                 // This eliminates per-frame iteration over activeIndices.
                 const shouldUpdateDebug = this.config.state.debugEnabled && (this.frame % 30 === 0 || !this._cachedDebugText);
-                
+
                 if (shouldUpdateDebug) {
                     let debugText = "";
                     if (performance.memory) {
@@ -883,9 +895,14 @@ class MatrixKernel {
                         const cellCount = this.grid.activeIndices.size;
                         const sm = this.simulation.streamManager;
                         const streams = sm ? sm.activeStreams : [];
-                        const tracers = streams.filter(s => !s.isEraser && !s.isUpward).length;
-                        const erasers = streams.filter(s => s.isEraser).length;
-                        
+
+                        // Single-pass stream counting (avoids two filter() calls)
+                        let tracers = 0, erasers = 0;
+                        for (let i = 0; i < streams.length; i++) {
+                            if (streams[i].isEraser) erasers++;
+                            else if (!streams[i].isUpward) tracers++;
+                        }
+
                         let rotators = 0;
                         for (const idx of this.grid.activeIndices) {
                             if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.ROTATOR) rotators++;
@@ -897,7 +914,7 @@ class MatrixKernel {
                         debugText += ` | Erasers: ${erasers}`;
                         debugText += ` | Rotators: ${rotators}`;
                         debugText += ` | Shimmers: ${shimmers}`;
-                        
+
                         const qGenV2 = this.effectRegistry.get('QuantizedBlockGenerator');
                         if (qGenV2 && qGenV2.active && qGenV2.debugInternalCount !== undefined) {
                             debugText += ` | IntLines: ${qGenV2.debugInternalCount}`;
@@ -914,7 +931,6 @@ class MatrixKernel {
             // Hide the counter if the setting is disabled
             this.fpsDisplayElement.style.display = 'none';
         }
-
 
         // Start main rendering loop
         if (!this.lastTime) this.lastTime = time;
@@ -959,8 +975,8 @@ class MatrixKernel {
         }
         const renderTime = performance.now() - renderT0;
 
-        // Render Overlay Effects
-        if (this.overlayCtx) {
+        // Render Overlay Effects (skip if no effects are active to avoid wasted clearRect)
+        if (this.overlayCtx && this.effectRegistry.hasActiveOverlay) {
             this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
             this.effectRegistry.render(this.overlayCtx, this.config.derived);
         }
@@ -971,8 +987,8 @@ class MatrixKernel {
                 console.log(`[MatrixKernel] Slow frame: ${loopTime.toFixed(1)}ms (update: ${updateTime.toFixed(1)}ms, render: ${renderTime.toFixed(1)}ms)`);
             }
         }
-        
-        requestAnimationFrame((nextTime) => this._loop(nextTime));
+
+        requestAnimationFrame(this._boundLoop);
     }
 
     /**
@@ -982,9 +998,10 @@ class MatrixKernel {
     _updateFrame() {
         this.frame++;
         this.effectRegistry.update();
-        
-        // Update both worlds independently
-        this.worlds.forEach(w => w.sim.update(this.frame));
+
+        // Update both worlds independently (unrolled to avoid per-frame closure)
+        this.worlds[0].sim.update(this.frame);
+        this.worlds[1].sim.update(this.frame);
 
         // Final application of visual overrides AFTER simulation
         this.effectRegistry.postUpdate();

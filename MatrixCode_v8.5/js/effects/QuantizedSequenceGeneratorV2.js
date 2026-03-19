@@ -221,8 +221,9 @@ class QuantizedSequenceGeneratorV2 {
                         return distA - distB;
                     });
 
-                    const sizes = [
-                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
+                    const biasArea = gen._getConfig('BlockSizeBias') ?? 1;
+                    const sizes = biasArea > 1 ? null : [
+                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1},
                         {w: 1, h: 3}, {w: 3, h: 1}
                     ];
 
@@ -235,7 +236,7 @@ class QuantizedSequenceGeneratorV2 {
                         const pdx = parent.x - s.scx, pdy = parent.y - s.scy;
                         const parentQuad = Math.abs(pdx) > Math.abs(pdy) ? (pdx > 0 ? 'E' : 'W') : (pdy > 0 ? 'S' : 'N');
 
-                        const size = sizes[Math.floor(Math.random() * sizes.length)];
+                        const size = sizes ? sizes[Math.floor(Math.random() * sizes.length)] : (() => { const d = gen._getBiasedBlockDimensions(); return { w: d.bw, h: d.bh }; })();
                         
                         // RELAXATION: Allow any side if it's allowed OR if the parent is in an allowed quadrant (branching)
                         const availSides = ['N', 'S', 'E', 'W'].filter(d => {
@@ -1067,7 +1068,52 @@ class QuantizedSequenceGeneratorV2 {
         }
     }
 
+    _getBiasedBlockDimensions() {
+        const maxArea = this._getConfig('BlockSizeBias') ?? 1;
+        const shapeBias = this._getConfig('BlockShapeBias') ?? 3;
+
+        if (maxArea <= 1) return { bw: 1, bh: 1 };
+
+        // Pick a random target area from 1 to maxArea
+        const area = 1 + Math.floor(Math.random() * maxArea);
+        if (area <= 1) return { bw: 1, bh: 1 };
+
+        // Find all factor pairs [w, h] where w * h === area
+        const pairs = [];
+        for (let w = 1; w * w <= area; w++) {
+            if (area % w === 0) {
+                const h = area / w;
+                pairs.push([w, h]);
+                if (w !== h) pairs.push([h, w]);
+            }
+        }
+
+        // Weight pairs by shape bias (ratio = 0 for skinny, 1 for square)
+        const weights = pairs.map(([w, h]) => {
+            const ratio = Math.min(w, h) / Math.max(w, h);
+            switch (shapeBias) {
+                case 1: return Math.pow(1 - ratio + 0.05, 3);   // Skinny
+                case 2: return Math.pow(1 - ratio + 0.15, 1.5); // Thin
+                case 3: return 1;                                 // Mixed
+                case 4: return Math.pow(ratio + 0.15, 1.5);     // Stubby
+                case 5: return Math.pow(ratio + 0.05, 3);       // Wide
+                default: return 1;
+            }
+        });
+
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+        let r = Math.random() * totalWeight;
+        for (let i = 0; i < pairs.length; i++) {
+            r -= weights[i];
+            if (r <= 0) return { bw: pairs[i][0], bh: pairs[i][1] };
+        }
+        return { bw: 1, bh: 1 };
+    }
+
     _calcBlockSize(strip, fillRatio) {
+        const maxArea = this._getConfig('BlockSizeBias') ?? 1;
+        if (maxArea > 1) return this._getBiasedBlockDimensions();
+
         const bs = this._getBlockSize();
         const visW = Math.max(1, Math.floor(this.cols / bs.w));
         const visH = Math.max(1, Math.floor(this.rows / bs.h));
@@ -1731,6 +1777,7 @@ class QuantizedSequenceGeneratorV2 {
 
         const xSpines = [{id: 'spine_west', dx: -1}, {id: 'spine_east', dx: 1}];
         const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        const advDims = () => this._getBiasedBlockDimensions();
 
         for (const spine of xSpines) {
             let finished = this.finishedBranches.has(spine.id);
@@ -1744,10 +1791,11 @@ class QuantizedSequenceGeneratorV2 {
                         freeX += spine.dx;
                     }
                     if (Math.abs(freeX) < xFinishLimit && Math.random() < chance) {
+                        const { bw, bh } = advDims();
                         for (let b = 0; b < xBurst; b++) {
-                            const tx = freeX + (b * spine.dx);
+                            const tx = freeX + (b * spine.dx * bw);
                             if (getGridVal(l, tx, 0) === -1 && Math.abs(tx) <= xGrowthLimit) {
-                                this._spawnBlock(tx, 0, 1, 1, l, false, 'advanced');
+                                this._spawnBlock(tx, 0, bw, bh, l, false, 'advanced');
                             } else break;
                         }
                     }
@@ -1755,7 +1803,7 @@ class QuantizedSequenceGeneratorV2 {
                 if (finished) this.finishedBranches.add(spine.id);
             }
         }
-        
+
         const ySpines = [{id: 'spine_north', dy: -1}, {id: 'spine_south', dy: 1}];
         for (const spine of ySpines) {
             let finished = this.finishedBranches.has(spine.id);
@@ -1769,10 +1817,11 @@ class QuantizedSequenceGeneratorV2 {
                         freeY += spine.dy;
                     }
                     if (Math.abs(freeY) < yFinishLimit && Math.random() < chance) {
+                        const { bw, bh } = advDims();
                         for (let b = 0; b < yBurst; b++) {
-                            const ty = freeY + (b * spine.dy);
+                            const ty = freeY + (b * spine.dy * bh);
                             if (getGridVal(l, 0, ty) === -1 && Math.abs(ty) <= yGrowthLimit) {
-                                this._spawnBlock(0, ty, 1, 1, l, false, 'advanced');
+                                this._spawnBlock(0, ty, bw, bh, l, false, 'advanced');
                             } else break;
                         }
                     }
@@ -1786,14 +1835,15 @@ class QuantizedSequenceGeneratorV2 {
             for (let x = spine.dx; Math.abs(x) <= xGrowthLimit; x += spine.dx) {
                 let anyLeading = false;
                 for (let l = 1; l <= maxLayer; l++) if (getGridVal(l, x, 0) !== -1) anyLeading = true;
-                
+
                 const targetL = usePromotion ? 1 : 0;
                 if (getGridVal(targetL, x, 0) === -1 && anyLeading) {
                     if (Math.random() < chance) {
+                        const { bw, bh } = advDims();
                         for (let b = 0; b < xBurst; b++) {
-                            const tx = x + (b * spine.dx);
-                            if (getGridVal(targetL, tx, 0) === -1) { 
-                                this._spawnBlock(tx, 0, 1, 1, targetL, false, 'advanced');
+                            const tx = x + (b * spine.dx * bw);
+                            if (getGridVal(targetL, tx, 0) === -1) {
+                                this._spawnBlock(tx, 0, bw, bh, targetL, false, 'advanced');
                             } else break;
                         }
                     }
@@ -1820,9 +1870,10 @@ class QuantizedSequenceGeneratorV2 {
                 }
                 if (!wingFinished) {
                     if (Math.random() < chance) {
+                        const { bw, bh } = advDims();
                         for (let b = 0; b < yBurst; b++) {
-                            const ty = wingFreeY + (b * d.dy);
-                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) { this._spawnBlock(x, ty, 1, 1, maxLayer, false, 'advanced'); } else break;
+                            const ty = wingFreeY + (b * d.dy * bh);
+                            if (getGridVal(maxLayer, x, ty) === -1 && Math.abs(ty) <= yGrowthLimit) { this._spawnBlock(x, ty, bw, bh, maxLayer, false, 'advanced'); } else break;
                         }
                     }
                 }
@@ -1831,10 +1882,11 @@ class QuantizedSequenceGeneratorV2 {
                     const targetL = usePromotion ? 1 : 0;
                     if (getGridVal(targetL, x, y) === -1 && getGridVal(maxLayer, x, y) !== -1) {
                         if (Math.random() < chance) {
+                            const { bw, bh } = advDims();
                             for (let b = 0; b < yBurst; b++) {
-                                const ty = y + (b * d.dy);
-                                if (getGridVal(targetL, x, ty) === -1 && getGridVal(maxLayer, x, ty) !== -1) { 
-                                    this._spawnBlock(x, ty, 1, 1, targetL, false, 'advanced');
+                                const ty = y + (b * d.dy * bh);
+                                if (getGridVal(targetL, x, ty) === -1 && getGridVal(maxLayer, x, ty) !== -1) {
+                                    this._spawnBlock(x, ty, bw, bh, targetL, false, 'advanced');
                                 } else break;
                             }
                         }
@@ -1888,7 +1940,9 @@ class QuantizedSequenceGeneratorV2 {
 
         this._tickLayerDirs(s);
         this._updateFillRatio(s);
-        this._seedStrips(s);
+        if (this._getConfig('SpinesFirstEnabled') !== false) {
+            this._seedStrips(s);
+        }
 
         // PERMANENT CORE BEHAVIOR: Main Nudge Growth
         if (this._getConfig('NudgeEnabled') !== false) {
@@ -1902,7 +1956,9 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
 
-        this._tickStrips(s);
+        if (this._getConfig('SpinesFirstEnabled') !== false) {
+            this._tickStrips(s);
+        }
         this._expandInsideOut(s);
 
         const quota = this._getConfig('SimultaneousSpawns') || 1;
