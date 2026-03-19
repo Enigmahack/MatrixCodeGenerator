@@ -73,7 +73,9 @@ class SimulationSystem {
 
         this.streamManager = new StreamManager(grid, config);
         this.glowSystem = new GlowSystem(grid);
+        this.glowBlocksSystem = new GlowBlocksSystem(grid, config);
         this.grid.glowSystem = this.glowSystem; 
+        this.grid.glowBlocksSystem = this.glowBlocksSystem;
         
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
@@ -243,6 +245,9 @@ class SimulationSystem {
             if (this.grid.envGlows) this.grid.envGlows.fill(0);
             this.glowSystem.update();
             this.glowSystem.apply();
+            
+            this.glowBlocksSystem.update();
+            this.glowBlocksSystem.apply();
 
             if (this.grid.cellLocks) this.grid.cellLocks.fill(0);
         }

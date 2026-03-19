@@ -8,6 +8,7 @@
 importScripts('../core/Utils.js');
 importScripts('../data/CellGrid.js');
 importScripts('../effects/GlowSystem.js');
+importScripts('../effects/GlowBlocksSystem.js');
 importScripts('../simulation/StreamModes.js');
 importScripts('../simulation/StreamManager.js');
 
@@ -33,7 +34,9 @@ class WorkerSimulationSystem {
         this.config = config;
         this.streamManager = new StreamManager(grid, config);
         this.glowSystem = new GlowSystem(grid);
+        this.glowBlocksSystem = new GlowBlocksSystem(grid, config);
         this.grid.glowSystem = this.glowSystem;
+        this.grid.glowBlocksSystem = this.glowBlocksSystem;
         
         this.overlapInitialized = false;
         this._lastOverlapDensity = null;
@@ -55,6 +58,9 @@ class WorkerSimulationSystem {
         if (this.grid.envGlows) this.grid.envGlows.fill(0);
         this.glowSystem.update();
         this.glowSystem.apply();
+
+        this.glowBlocksSystem.update();
+        this.glowBlocksSystem.apply();
 
         if (this.grid.cellLocks) {
             this.grid.cellLocks.fill(0);

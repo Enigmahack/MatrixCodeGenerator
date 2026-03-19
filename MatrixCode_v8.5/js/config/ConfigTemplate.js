@@ -402,6 +402,24 @@ const ConfigTemplate = [
     { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['bloom', 'bright'] },
     { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', transform: v => (v * 100).toFixed(0) + '%', tier: 'advanced', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting.", tags: ['glitch', 'random'] },
 
+    { cat: 'Appearance', type: 'accordion_header', label: 'Glow Blocks' },
+    { cat: 'Appearance', id: 'glowBlocksEnabled', type: 'checkbox', label: 'Enable Glow Blocks', tier: 'basic', description: 'Invisible floating blocks that boost and tint underlying code.', tags: ['float', 'glow', 'block', 'tint'] },
+    
+    { cat: 'Appearance', type: 'accordion_subheader', label: 'Behavior', dep: 'glowBlocksEnabled' },
+    { cat: 'Appearance', id: 'glowBlocksFrequency', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, transform: v => (v * 100).toFixed(0) + '%', dep: 'glowBlocksEnabled', tier: 'advanced', description: "The chance that the full density of blocks will be active at any given time.", tags: ['chance', 'spawn'] },
+    { cat: 'Appearance', id: 'glowBlocksDensity', type: 'range', label: 'Density', min: 1, max: 50, step: 1, dep: 'glowBlocksEnabled', tier: 'basic', description: "Target number of blocks to maintain on the screen.", tags: ['amount', 'count'] },
+    { cat: 'Appearance', id: 'glowBlocksSpeed', type: 'range', label: 'Speed', min: 0.01, max: 1.0, step: 0.01, transform: v => (v * 100).toFixed(0), dep: 'glowBlocksEnabled', tier: 'basic', description: "Drift velocity of the blocks as they bounce around the grid.", tags: ['motion', 'fast'] },
+    { cat: 'Appearance', id: 'glowBlocksArea', type: 'range', label: 'Max Area', min: 1, max: 64, step: 1, unit: 'cl', dep: 'glowBlocksEnabled', tier: 'advanced', description: 'Maximum number of grid cells a single block can occupy.', tags: ['size', 'volume'] },
+    { cat: 'Appearance', id: 'glowBlocksAllowShapes', type: 'checkbox', label: 'Allow Irregular Shapes', dep: 'glowBlocksEnabled', tier: 'advanced', description: "Enables organic, edge-connected growth for more complex block forms.", tags: ['random', 'form'] },
+
+    { cat: 'Appearance', type: 'accordion_subheader', label: 'Look', dep: 'glowBlocksEnabled' },
+    { cat: 'Appearance', id: 'glowBlocksIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'glowBlocksEnabled', tier: 'basic', description: "Global multiplier for both luminance and tint effects.", tags: ['strength', 'power'] },
+    { cat: 'Appearance', id: 'glowBlocksLuminanceBoost', type: 'range', label: 'Luminance Boost', min: 0.0, max: 5.0, step: 0.1, dep: 'glowBlocksEnabled', tier: 'advanced', description: "Additional brightness applied to characters inside the blocks.", tags: ['bright', 'light'] },
+    { cat: 'Appearance', id: 'glowBlocksStaticColorEnabled', type: 'checkbox', label: 'Static Color', dep: 'glowBlocksEnabled', tier: 'basic', description: "Use a single fixed color for all blocks instead of randomizing per-block.", tags: ['fixed', 'set'] },
+    { cat: 'Appearance', id: 'glowBlocksStaticColor', type: 'color', label: 'Block Color', dep: 'glowBlocksStaticColorEnabled', tier: 'basic', description: "The color used for all blocks when Static Color is enabled.", tags: ['tint', 'hue'] },
+    { cat: 'Appearance', id: 'glowBlocksTintInfluence', type: 'range', label: 'Tint Influence', min: 0, max: 100, unit: '%', dep: 'glowBlocksEnabled', tier: 'advanced', description: "How strongly the block color blends with the underlying code (0% = Original Only).", tags: ['color', 'hue'] },
+    { cat: 'Appearance', id: 'glowBlocksFadeRate', type: 'range', label: 'Fade Rate', min: 0.0, max: 1.0, step: 0.01, dep: 'glowBlocksEnabled', tier: 'advanced', description: 'How quickly the effect fades after a block moves away. 1.0 means instant off.', tags: ['decay', 'trail', 'linger'] },
+
     { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
     { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', tags: ['width', 'spacing', 'density'] },
     { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', tags: ['height', 'spacing', 'density'] },
