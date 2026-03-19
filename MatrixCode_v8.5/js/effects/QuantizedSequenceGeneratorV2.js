@@ -544,18 +544,19 @@ class QuantizedSequenceGeneratorV2 {
             const scanMinX = -xVis, scanMaxX = xVis;
             const scanMinY = -yVis, scanMaxY = yVis;
             const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
-            const outsideMap = new Uint8Array(scanW * scanH);
+            const outsideMap = gen._getBuffer('hfOutside', scanW * scanH, Uint8Array);
+            outsideMap.fill(0);
             const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
 
+            const maxL = gen._getMaxLayer();
             const isOccupiedAny = (bx, by) => {
-                const maxL = gen._getMaxLayer();
                 for (let l = 0; l <= maxL; l++) {
                     if (gen._isOccupied(bx, by, l)) return true;
                 }
                 return false;
             };
 
-            const queue = new Int32Array(scanW * scanH);
+            const queue = gen._getBuffer('hfQueue', scanW * scanH, Int32Array);
             let head = 0, tail = 0;
 
             const add = (bx, by) => {
@@ -1259,13 +1260,18 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _removeBlock(x, y, w, h, layer) {
-        // Find block for ID reference (needed for sub-layer sync)
-        const block = this.activeBlocks.find(b => b.layer === layer && b.x === x && b.y === y && b.w === w && b.h === h);
-        if (!block) return;
-        const bid = block.id;
+        // Find and splice in a single pass instead of .find() + .filter() (avoids double O(n))
+        let blockIdx = -1;
+        for (let i = 0; i < this.activeBlocks.length; i++) {
+            const b = this.activeBlocks[i];
+            if (b.layer === layer && b.x === x && b.y === y && b.w === w && b.h === h) {
+                blockIdx = i; break;
+            }
+        }
+        if (blockIdx === -1) return;
 
         this.currentStepOps.push(['removeBlock', x, y, x + w - 1, y + h - 1, layer, 0, true]);
-        this.activeBlocks = this.activeBlocks.filter(b => b !== block);
+        this.activeBlocks.splice(blockIdx, 1);
         
         const gx1 = this.gridCX + x, gy1 = this.gridCY + y, gx2 = this.gridCX + x + w - 1, gy2 = this.gridCY + y + h - 1;
         const grid = this.layerGrids[layer];
@@ -1575,21 +1581,6 @@ class QuantizedSequenceGeneratorV2 {
         return !!grid && gx >= 0 && gx < this.logicGridW && gy >= 0 && gy < this.logicGridH && grid[gy * this.logicGridW + gx] !== -1;
     }
 
-    _isUnderLayer(b, layer) {
-        const x1 = b.x, y1 = b.y, x2 = b.x + b.w - 1, y2 = b.y + b.h - 1;
-        const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
-        const grid = this.layerGrids[layer];
-        if (!grid) return false;
-        for (let gy = gy1; gy <= gy2; gy++) {
-            for (let gx = gx1; gx <= gx2; gx++) {
-                if (gy >= 0 && gy < this.logicGridH && gx >= 0 && gx < this.logicGridW) {
-                    if (grid[gy * this.logicGridW + gx] !== -1) return true;
-                }
-            }
-        }
-        return false;
-    }
-
     checkScreenEdge(bx, by) {
         const bs = this._getBlockSize();
         const halfVisibleW = Math.floor(this.cols / bs.w / 2);
@@ -1598,14 +1589,16 @@ class QuantizedSequenceGeneratorV2 {
         const limitW = halfVisibleW + extension;
         const limitH = halfVisibleH + extension;
 
-        const edges = {
-            left: bx <= -limitW,
-            right: bx >= limitW,
-            top: by <= -limitH,
-            bottom: by >= limitH
-        };
+        const left = bx <= -limitW, right = bx >= limitW;
+        const top = by <= -limitH, bottom = by >= limitH;
 
-        return (edges.left || edges.right || edges.top || edges.bottom) ? edges : false;
+        if (left || right || top || bottom) {
+            if (!this._edgeResult) this._edgeResult = { left: false, right: false, top: false, bottom: false };
+            this._edgeResult.left = left; this._edgeResult.right = right;
+            this._edgeResult.top = top; this._edgeResult.bottom = bottom;
+            return this._edgeResult;
+        }
+        return false;
     }
 
     /**
@@ -1704,56 +1697,11 @@ class QuantizedSequenceGeneratorV2 {
         if (this._isCanvasFullyCovered()) return;
 
         const mode = this._getConfig('Mode') || 'default';
-        if (mode === 'v2' || this.configPrefix === 'quantizedGenerateV2') {
-            return this._attemptV2Growth();
-        }
-
         if (mode === 'advanced') {
             return this._attemptAdvancedGrowth();
         }
 
-        // Default behavior pool
-        const useNudge = (this._getConfig('EnableNudge') !== false);
-        const quota = this._getConfig('SimultaneousSpawns') || 1;
-        const maxLayer = this._getMaxLayer();
-        const targetLayer = this.behaviorState.proceduralLayerIndex || 0;
-        
-        let actionsPerformed = 0;
-        const maxAttempts = quota * 3;
-        let attempts = 0;
-
-        const pool = [];
-        if (useNudge) {
-            pool.push({ name: 'Nudge', fn: () => {
-                const sw = this._getConfig('MinBlockWidth') || 1;
-                const mw = (this._getConfig('MaxBlockWidth') || 2) * 1.5;
-                const sh = this._getConfig('MinBlockHeight') || 1;
-                const mh = (this._getConfig('MaxBlockHeight') || 2) * 1.5;
-                const bw = Math.floor(Math.random() * (mw - sw + 1)) + sw;
-                const bh = Math.floor(Math.random() * (mh - sh + 1)) + sh;
-                return this._attemptNudgeGrowthWithParams(targetLayer, bw, bh);
-            }});
-        }
-
-        while (actionsPerformed < quota && attempts < maxAttempts) {
-            attempts++;
-            let success = false;
-            if (pool.length > 0) {
-                const behavior = pool[Math.floor(Math.random() * pool.length)];
-                if (behavior.fn()) success = true;
-            }
-            if (success) actionsPerformed++;
-        }
-
-        if (actionsPerformed === 0 && attempts >= maxAttempts) {
-            return this._attemptAdvancedGrowth();
-        }
-
-        this.behaviorState.proceduralLayerIndex = (targetLayer + 1) % (maxLayer + 1);
-        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
-        if (this.behaviorState.proceduralLayerIndex === 0 && usePromotion && maxLayer >= 1) {
-            this.behaviorState.proceduralLayerIndex = 1;
-        }
+        return this._attemptV2Growth();
     }
 
     _attemptAdvancedGrowth() {
