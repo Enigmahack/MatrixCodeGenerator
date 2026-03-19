@@ -28,7 +28,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         if (key === 'LayerCount') return 1;
         if (key === 'GeneratorTakeover') return false;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
-        if (key === 'FadeInFrames' || key === 'FadeFrames') return 0;
+        
+        if (!super.getConfig('TriggerBrightnessSwell')) {
+            if (key === 'FadeInFrames' || key === 'FadeFrames') return 0;
+        }
+        
         return super.getConfig(key);
     }
 
@@ -163,7 +167,13 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             const minScale = 0.5;
             const maxScale = s.quantizedZoomMaxScale || 1.5;
 
-            if (this.animFrame >= delayFrames) {
+            // Use the elapsed frames, subtracting the swell delay if applicable
+            let effectiveAnimFrame = this.animFrame;
+            if (this.startFrame !== undefined) {
+                effectiveAnimFrame = this.animFrame - this.startFrame;
+            }
+
+            if (effectiveAnimFrame >= delayFrames) {
                 this._zoomProgress += 0.005 * rate;
                 const t = Math.min(1.0, this._zoomProgress);
                 const smoothT = t * t * (3 - 2 * t);

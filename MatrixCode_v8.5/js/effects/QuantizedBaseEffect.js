@@ -333,6 +333,17 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     getConfig(keySuffix) {
+        // Prevent infinite recursion if getConfig('TriggerBrightnessSwell') calls getConfig internally
+        if (keySuffix === 'FadeInFrames' && !this._inGetConfigSwellCheck) {
+            this._inGetConfigSwellCheck = true;
+            if (this.getConfig('TriggerBrightnessSwell')) {
+                const fadeOutFrames = this.getConfig('FadeFrames') || 0;
+                this._inGetConfigSwellCheck = false;
+                return fadeOutFrames * 2;
+            }
+            this._inGetConfigSwellCheck = false;
+        }
+
         const overrideDefaults = this.c.state[this.configPrefix + 'OverrideDefaults'];
         const isInheritable = QuantizedInheritableSettingIds.has(keySuffix);
 
@@ -1014,6 +1025,17 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.echoLastEdgeStep = -1;
         this.alpha = 0.0;
 
+        // Initialize Brightness Swell state
+        if (this.getConfig('TriggerBrightnessSwell')) {
+            this._swelling = true;
+            this._swellTimer = 0;
+            // Swell duration = equivalent of 8 logical steps
+            const interval = this._getEffectiveInterval ? this._getEffectiveInterval() : 10;
+            this._swellDurationFrames = 8 * interval;
+        } else {
+            this._swelling = false;
+        }
+
         if (this.debugMode) {
             // Keydown handling for stepping is managed by the Editor when active
         }
@@ -1264,6 +1286,19 @@ class QuantizedBaseEffect extends AbstractEffect {
         // browser can paint between the user action and the initialization work.
         if (this._pendingGridClear) {
             this._executeDeferredGridClear();
+        }
+
+        // Handle trigger swell logic before animation step progression
+        if (this._swelling) {
+            this._swellTimer++;
+            this.cycleTimer = 0; // Freeze logical animation steps during swell
+            if (this._swellTimer >= this._swellDurationFrames) {
+                this._swelling = false;
+                // Capture the frame when the swell finishes to start duration calculations
+                this.startFrame = this.animFrame;
+            }
+        } else if (this.startFrame === undefined) {
+            this.startFrame = this.animFrame;
         }
 
         // 1. Update master clock (Visuals/Fades)
@@ -2174,7 +2209,27 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.glassBloom = finalGlassBloom;
         st.refractionEnabled = this.getConfig('GlassRefractionEnabled') ? 1 : 0;
         st.refractionWidth = this.getConfig('GlassRefractionWidth') ?? 0.25;
-        st.refractionBrightness = 1.0 + ((this.getConfig('GlassRefractionBrightness') ?? 1.5) - 1.0) * this.alpha;
+
+        // Brightness Interpolation and Swell Logic
+        const startBrightness = this.getConfig('GlassRefractionBrightness') ?? 1.5;
+        let currentBrightnessTarget = startBrightness;
+
+        if (this._swelling) {
+            const progress = this._swellTimer / Math.max(1, this._swellDurationFrames);
+            const swellAmount = Math.sin(progress * Math.PI); // 0 -> 1 -> 0 curve
+            currentBrightnessTarget = startBrightness + (swellAmount * 1.5);
+        } else if (this.startFrame !== undefined) {
+            const durationFrames = (this.getConfig('DurationSeconds') || 5) * 60;
+            const totalFrames = Math.max(1, durationFrames);
+            const elapsed = this.animFrame - this.startFrame;
+            const progress = Math.max(0, Math.min(1.0, elapsed / totalFrames));
+
+            const endBrightness = this.getConfig('GlassRefractionBrightnessEnd') ?? startBrightness;
+            currentBrightnessTarget = startBrightness + (endBrightness - startBrightness) * progress;
+        }
+
+        st.refractionBrightness = 1.0 + (currentBrightnessTarget - 1.0) * this.alpha;
+
         st.refractionSaturation = 1.0 + ((this.getConfig('GlassRefractionSaturation') ?? 1.5) - 1.0) * this.alpha;
         st.refractionCompression = this.getConfig('GlassRefractionCompression') ?? 1.0;
         st.refractionOffset = this.getConfig('GlassRefractionOffset') ?? 0.0;

@@ -18,8 +18,10 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Appearance', id: 'LineGfxPersistence', type: 'range', label: 'Line Persistence', min: 1, max: 180, step: 1, unit: 'fr', tier: 'advanced', description: "Controls how long lines linger after the effect retracts. Similar to burn-in.", tags: ['trail', 'fade', 'length'] },
 
     { sub: 'Line Appearance', sub_header: 'Perimeter Lines', id: 'GlassRefractionEnabled', type: 'checkbox', label: 'Enable Perimeter Lines', tier: 'basic', description: "Adds a light-refraction highlight centered on block edges.", tags: ['glass', 'bend', 'light', 'perimeter', 'lines'] },
+    { sub: 'Line Appearance', id: 'TriggerBrightnessSwell', type: 'checkbox', label: 'Trigger Brightness Swell', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Pauses animation initially and swells line brightness to max, then fades back to start before continuing.", tags: ['swell', 'brightness', 'pause'] },
     { sub: 'Line Appearance', id: 'GlassRefractionWidth', type: 'range', label: 'Line Width', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Width of the refraction band as a fraction of cell size.", tags: ['size', 'width'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionBrightness', type: 'range', label: 'Line Brightness', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Brightness of the refraction edge highlight.", tags: ['light', 'bright'] },
+    { sub: 'Line Appearance', id: 'GlassRefractionBrightness', type: 'range', label: 'Line Brightness Start', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Brightness of the refraction edge highlight at the beginning.", tags: ['light', 'bright', 'start'] },
+    { sub: 'Line Appearance', id: 'GlassRefractionBrightnessEnd', type: 'range', label: 'Line Brightness End', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Target brightness at the end of the effect.", tags: ['light', 'bright', 'end'] },
     { sub: 'Line Appearance', id: 'GlassRefractionSaturation', type: 'range', label: 'Color Saturation', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Saturation boost for the refraction edge highlight.", tags: ['color', 'vivid'] },
     { sub: 'Line Appearance', id: 'GlassRefractionGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Additive glow emission at the refraction peak.", tags: ['bloom', 'glow'] },
     { sub: 'Line Appearance', id: 'GlassRefractionCompression', type: 'range', label: 'Barrel Distortion', min: 0.0, max: 10.0, step: 0.1, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Pulls sampled coordinates toward cell boundaries, simulating the optical bend of a curved glass edge. Stronger values snap tightly to grid lines.", tags: ['distort', 'warp', 'bend'] },
@@ -188,6 +190,7 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         if (s.sub_header) {
             settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
         }
+
         settings.push(s);
     });
     if (currentVisSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
