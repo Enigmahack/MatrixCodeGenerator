@@ -5,6 +5,7 @@ class DejaVuEffect extends AbstractEffect {
         this.active = false; 
         this.map = null;
         this.bars = [];
+        this.timer = 0;
         
         // Sub-effect states
         this.vertGlitch = { active: false, timer: 0, srcX: 0, width: 4 };
@@ -16,8 +17,18 @@ class DejaVuEffect extends AbstractEffect {
         if(this.active) return false; 
         this.active = true; 
         
-        const seconds = durationSeconds || this.c.state.dejaVuDurationSeconds;
-        this.timer = seconds * 60; 
+        // Handle case where durationSeconds might be a boolean (e.g. true from UI/Keybinds)
+        let seconds = (typeof durationSeconds === 'number') ? durationSeconds : this.c.state.dejaVuDurationSeconds;
+        if (!seconds || seconds === true) seconds = 5; // Final fallback
+
+        this.timer = Math.round(seconds * 60); 
+
+        // Safety: ensure timer is at least 300 frames (5s) if somehow misconfigured
+        if (this.timer < 60) this.timer = 300;
+        
+        if (this.c.get('logEffects')) {
+            console.log(`[DejaVuEffect] Triggered. Config: ${this.c.state.dejaVuDurationSeconds}s, Passed: ${durationSeconds}, Final: ${seconds}s (${this.timer} frames)`);
+        }
         
         this.bars = []; 
         this.map = new Uint8Array(this.g.rows); 
@@ -81,9 +92,16 @@ void main() {
     }
     
     update() {
-        const s = this.c.state;
         if(!this.active) return;
-        if(this.timer-- <= 0) { 
+
+        const s = this.c.state;
+        const d = this.c.derived;
+
+        this.timer--;
+        if(this.timer <= 0) { 
+            if (this.c.get('logEffects')) {
+                console.log(`[DejaVuEffect] Timer finished. Deactivating.`);
+            }
             this.active = false; 
             this.bars = []; 
             this.map = null; 
@@ -93,6 +111,8 @@ void main() {
         
         this.map.fill(0);
         
+        const tracerColor = d.tracerColorUint32;
+        
         if(Math.random() < s.dejaVuIntensity) {
             const h = Utils.randomInt(s.dejaVuMinRectHeight, s.dejaVuMaxRectHeight); 
             const y = Utils.randomInt(0, Math.max(0, this.g.rows - h));
@@ -101,18 +121,14 @@ void main() {
             this.bars.push({ y, h, age: 0, maxAge: duration });
 
             if (this.g.glowSystem) {
+                // Use tracerColor for the glow instead of streamColor to match the "white" bars
                 this.g.glowSystem.addRect(
-                    this.g.cols / 2, y + (h / 2), this.g.cols, h, 2.0, this.c.derived.streamColorUint32, duration, 'linear', 4
+                    this.g.cols / 2, y + (h / 2), this.g.cols, h, 2.5, tracerColor, duration, 'linear', 4
                 );
             }
         }
         
-        const activeFonts = this.c.derived.activeFonts;
-        const glitchCount = Math.max(1, Math.floor(this.g.cols * 0.05));
-        const cols = this.g.cols;
         const rows = this.g.rows;
-        const randomizeColors = s.dejaVuRandomizeColors;
-        
         for(let i=this.bars.length-1; i>=0; i--) {
             const b = this.bars[i]; 
             b.age++;
@@ -120,27 +136,6 @@ void main() {
             const limit = Math.min(rows, b.y + b.h);
             for(let r=b.y; r < limit; r++) {
                 this.map[r] = 1; 
-                for(let k=0; k<glitchCount; k++) {
-                    const x = (Math.random() * cols) | 0;
-                    const idx = r * cols + x;
-                    this.g.mix[idx] = 0; 
-                    const fontIdx = (Math.random() * activeFonts.length) | 0;
-                    const fontData = activeFonts[fontIdx];
-                    if (fontData.chars.length > 0) {
-                        const char = fontData.chars[(Math.random() * fontData.chars.length) | 0];
-                        let color = this.g.colors[idx];
-                        const alpha = this.g.alphas[idx];
-                        const glow = this.g.glows[idx];
-                        if(randomizeColors) {
-                            const h = (Math.random() * 360) | 0;
-                            const rgb = Utils.hslToRgb(h, 90, 70);
-                            color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
-                            this.g.complexStyles.set(idx, { h, s: 90, l: 70, glitched: true });
-                            this.g.baseColors[idx] = color;
-                        }
-                        this.g.setPrimary(idx, char, color, alpha, fontIdx, glow);
-                    }
-                }
             }
         }
 
@@ -195,11 +190,14 @@ void main() {
         const d = this.c.derived;
         const cols = grid.cols;
         const tracerColor = d.tracerColorUint32;
-        const holeBrightness = s.dejaVuHoleBrightness;
+        // holeBrightness is labeled 'Intensity' in UI, but 0.02 is too low for a "hidden map" look.
+        // We boost it and ensure a minimum visibility for the "white" rectangles.
+        const holeAlpha = Math.max(0.2, s.dejaVuHoleBrightness * 5.0);
         const activeFonts = d.activeFonts;
         const fallbackFontIdx = 0;
         const fallbackChars = activeFonts[0].chars;
         const timeSeed = Math.floor(Date.now() / 150);
+        const randomizeColors = s.dejaVuRandomizeColors;
 
         for (let y = 0; y < grid.rows; y++) {
             if (this.map[y] === 1) {
@@ -207,22 +205,24 @@ void main() {
                 for (let x = 0; x < cols; x++) {
                     const i = rowOffset + x;
                     const baseAlpha = grid.alphas[i];
-                    const char = grid.getChar(i);
                     const fontIdx = grid.fontIndices[i];
                     
-                    if (baseAlpha < 0.01) {
-                        if (holeBrightness > 0.01) {
-                            if (fallbackChars && fallbackChars.length > 0) {
-                                const hash = (i ^ timeSeed) * 2654435761;
-                                const rndIdx = (hash & 0x7FFFFFFF) % fallbackChars.length;
-                                grid.setOverride(i, fallbackChars[rndIdx], tracerColor, holeBrightness, fallbackFontIdx, 0);
-                            } else {
-                                grid.setOverride(i, char, tracerColor, holeBrightness, fallbackFontIdx, 0);
-                            }
-                        }
-                    } else {
-                        grid.setOverride(i, char, tracerColor, baseAlpha, fontIdx, 0);
+                    // Always scramble characters within the bars to show the "hidden character map"
+                    const hash = (i ^ timeSeed) * 2654435761;
+                    const rndIdx = (hash & 0x7FFFFFFF) % fallbackChars.length;
+                    const char = fallbackChars[rndIdx];
+                    
+                    let finalAlpha = Math.max(holeAlpha, baseAlpha);
+                    let color = tracerColor;
+
+                    if (randomizeColors) {
+                        const h = (hash % 360);
+                        const rgb = Utils.hslToRgb(h, 90, 70);
+                        color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
                     }
+
+                    // Use setHighPriorityEffect to ensure these blocks stand out against the simulation
+                    grid.setHighPriorityEffect(i, char, color, finalAlpha, fallbackFontIdx, 0.5);
                 }
             }
         }
@@ -241,7 +241,7 @@ void main() {
                     const alpha = grid.alphas[readIdx];
                     const fontIdx = grid.fontIndices[readIdx];
                     const color = tracerColor; 
-                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                    grid.setHighPriorityEffect(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
                 }
             }
         }
@@ -261,7 +261,7 @@ void main() {
                     const alpha = grid.alphas[readIdx];
                     const fontIdx = grid.fontIndices[readIdx];
                     const color = tracerColor;
-                    grid.setOverride(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
+                    grid.setHighPriorityEffect(i, char, color, alpha, fontIdx, grid.glows[readIdx]);
                 }
             }
         }
@@ -299,7 +299,7 @@ void main() {
                          color = tracerColor;
                     }
                     
-                    grid.setOverride(i, char, color, alpha, fontIdx, glow);
+                    grid.setHighPriorityEffect(i, char, color, alpha, fontIdx, glow);
                 }
             }
         }
