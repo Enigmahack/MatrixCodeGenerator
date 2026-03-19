@@ -9,9 +9,9 @@ class QuantizedEffectEditor {
         this.dom = null;
         this.currentTool = 'select'; 
         this.currentFace = 'N'; 
-        this.currentLayer = 0; // 0, 1, 2, 3
-        this.visibleLayers = [true, true, true, true];
-        this.layerColors = ['#0f0', '#0af', '#f0c', '#ff0']; // Green, Blue, Magenta, Yellow
+        this.currentLayer = 0; // 0, 1
+        this.visibleLayers = [true, true];
+        this.layerColors = ['#0f0', '#0af']; // Green, Blue
         this.hoverBlock = null;
 
         this._boundMouseDown = this._onMouseDown.bind(this);
@@ -288,7 +288,7 @@ class QuantizedEffectEditor {
                         count = this.effect.mergeSelectionAtStep(msg.selection, targetIdx);
                     } else {
                         this._log(`[Editor-Main] Performing flattenLayers at index ${targetIdx}`);
-                        const layersToMerge = [1, 2]; // Default
+                        const layersToMerge = [1]; // Default
                         count = this.effect.flattenLayers(layersToMerge, null, targetIdx);
                     }
 
@@ -1142,7 +1142,7 @@ class QuantizedEffectEditor {
         layerBtnGroup.style.marginBottom = '10px';
 
         this.layerBtns = [];
-        [0, 1, 2, 3].forEach(l => {
+        [0, 1].forEach(l => {
             const btn = this._createBtn(`L${l}`, () => {
                 this.currentLayer = l;
                 this._updateUI();
@@ -1151,7 +1151,7 @@ class QuantizedEffectEditor {
             btn.style.flex = '1';
             btn.style.color = this.layerColors[l];
             btn.style.borderColor = this.layerColors[l];
-            btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay, L2-L3 are secondary layers.`;
+            btn.title = `Select Layer ${l} for drawing. L0 is base, L1 is overlay.`;
             layerBtnGroup.appendChild(btn);
             this.layerBtns[l] = btn;
         });
@@ -1248,7 +1248,7 @@ class QuantizedEffectEditor {
         showLayerGroup.style.flexDirection = 'column';
         showLayerGroup.style.gap = '2px';
         
-        [0, 1, 2, 3].forEach(l => {
+        [0, 1].forEach(l => {
             const lbl = document.createElement('label');
             lbl.style.display = 'flex';
             lbl.style.alignItems = 'center';
@@ -1391,8 +1391,6 @@ class QuantizedEffectEditor {
         legend.innerHTML = `
             <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[0]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,255,0,0.5);margin-right:5px;border:1px solid #0f0;"></span>Add (L0)</div>
             <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[1]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(0,200,255,0.5);margin-right:5px;border:1px solid #0af;"></span>Add (L1)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[2]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,200,0.5);margin-right:5px;border:1px solid #f0c;"></span>Add (L2)</div>
-            <div style="display:flex;align-items:center;margin-bottom:2px;color:${this.layerColors[3]};"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,255,0,0.5);margin-right:5px;border:1px solid #ff0;"></span>Add (L3)</div>
             <div style="display:flex;align-items:center;margin-bottom:2px;color:#f00;"><span style="display:inline-block;width:10px;height:10px;background:rgba(255,0,0,0.5);margin-right:5px;border:1px solid #f00;"></span>Remove</div>
             <div style="display:flex;align-items:center;color:#0088FF;"><span style="display:inline-block;width:10px;height:10px;background:none;border:1px dashed #0088FF;margin-right:5px;"></span>Selection</div>
         `;

@@ -161,7 +161,7 @@ class QuantizedSequenceGeneratorV2 {
         this.behaviorState.pausePattern = this._generateDistinctPattern(this.behaviorState.pattern);
 
         const quadrantCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
-        const _maxLayer = this._getConfig('LayerCount') ?? 0;
+        const _maxLayer = Math.min(this._getConfig('LayerCount') ?? 0, 1);
         const _baseLife = 4 + Math.floor(Math.random() * 3);
         this.behaviorState.layerDirs = {};
         this.behaviorState.layerDirLife = {};
@@ -604,6 +604,7 @@ class QuantizedSequenceGeneratorV2 {
     _getMaxLayer() {
         let maxLayer = this._getConfig('LayerCount');
         if (maxLayer === undefined || maxLayer === null) maxLayer = 0;
+        maxLayer = Math.min(maxLayer, 1);
         const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
         if (usePromotion && (maxLayer === undefined || maxLayer === null || maxLayer < 1)) return 1;
         return maxLayer;

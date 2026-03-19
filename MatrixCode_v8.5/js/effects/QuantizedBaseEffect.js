@@ -98,9 +98,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         this.blockMap = new Map();
         this.activeBlocks = [];
         this.activeIndices = new Set();
-        this.unfoldSequences = [[], [], [], []];
-        this.visibleLayers = [true, true, true, true];
-        this.layerOrder = [0, 1, 2, 3];
+        this.unfoldSequences = [[], []];
+        this.visibleLayers = [true, true];
+        this.layerOrder = [0, 1, 0, 1];
         this.proceduralLayerIndex = 0;
         this.nextBlockId = 0;
         this.overlapState = { step: 0 };
@@ -351,6 +351,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     _getMaxLayer() {
         let maxLayer = this.getConfig('LayerCount');
         if (maxLayer === undefined || maxLayer === null) maxLayer = 0;
+        maxLayer = Math.min(maxLayer, 1);
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
         if (usePromotion && (maxLayer === undefined || maxLayer === null || maxLayer < 1)) return 1;
         return maxLayer;
@@ -559,7 +560,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.shadowRevealGrid.fill(0);
         }
 
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 2; i++) {
             if (!this.layerGrids[i] || this.layerGrids[i].length !== totalBlocks) {
                 this.layerGrids[i] = new Int32Array(totalBlocks);
             }
@@ -1926,18 +1927,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         const foundationIdx = 0; // Layer 0 is foundation
 
         // Pre-cache grid references outside the closure for faster access
-        const lg0 = layerGrids[0], lg1 = layerGrids[1], lg2 = layerGrids[2], lg3 = layerGrids[3];
+        const lg0 = layerGrids[0], lg1 = layerGrids[1];
         const rGrid = this.renderGrid;
         const lGrid = this.logicGrid;
 
         const compositeCell = (idx) => {
-            // Layer priority: L0 > L1; anyActive includes all 4 layers for logicGrid
+            // Layer priority: L0 > L1
             const v0 = lg0[idx], v1 = lg1[idx];
             const l0Active = (v0 !== -1);
             const finalVal = l0Active ? v0 : (v1 !== -1 ? v1 : -1);
 
             rGrid[idx] = finalVal;
-            if (lGrid) lGrid[idx] = (l0Active || v1 !== -1 || lg2[idx] !== -1 || lg3[idx] !== -1) ? 1 : 0;
+            if (lGrid) lGrid[idx] = (l0Active || v1 !== -1) ? 1 : 0;
             return finalVal;
         };
 
@@ -2014,7 +2015,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const mainMass = this._mainMassBuffer;
         mainMass.fill(-1);
         const g0 = this.layerGrids[0], g1 = this.layerGrids[1];
-        const g2 = this.layerGrids[2], g3 = this.layerGrids[3];
 
         for (let i = 0; i < w * h; i++) {
             const l0Active = (g0 && g0[i] !== -1);
@@ -2125,7 +2125,9 @@ class QuantizedBaseEffect extends AbstractEffect {
                 lineOffset: [0, 0], fillRatio: 0, glassBloom: 0,
                 refractionEnabled: 0, refractionWidth: 0, refractionBrightness: 0,
                 refractionSaturation: 0, refractionCompression: 0, refractionOffset: 0,
-                refractionGlow: 0, refractionOpacity: 1, compressionThreshold: 0, shadowWorldFadeSpeed: 0
+                refractionGlow: 0, refractionOpacity: 1, refractionMaskZoom: 1.0,
+                refraction3DEnabled: 0, refraction3DStrength: 0.3,
+                compressionThreshold: 0, shadowWorldFadeSpeed: 0
             };
         }
         const st = this._cachedWebGLState;
@@ -2173,6 +2175,9 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.refractionOpacity = (this.getConfig('GlassRefractionOpacity') ?? 1.0) * this.alpha;
         st.refractionUnwrap = this.getConfig('GlassRefractionUnwrap') ? 1 : 0;
         st.refractionMaskScale = this.getConfig('GlassRefractionMaskScale') ?? 1.0;
+        st.refractionMaskZoom = this.getConfig('GlassRefractionMaskZoom') ?? 1.0;
+        st.refraction3DEnabled = this.getConfig('GlassRefraction3DEnabled') ? 1 : 0;
+        st.refraction3DStrength = this.getConfig('GlassRefraction3DStrength') ?? 0.3;
         st.compressionThreshold = this.getConfig('GlassCompressionThreshold') ?? 0.0;
         st.shadowWorldFadeSpeed = this.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
         return st;
@@ -2386,8 +2391,6 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const grid0 = this.layerGrids[0];
         const grid1 = this.layerGrids[1];
-        const grid2 = this.layerGrids[2];
-        const grid3 = this.layerGrids[3];
 
         const isOcc = (grid, bx, by) => {
             if (bx < 0 || bx >= blocksX || by < 0 || by >= blocksY || !grid) return false;
@@ -2395,11 +2398,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         };
 
         const isMain = (bx, by) => {
-            const l0 = isOcc(grid0, bx, by);
-            const l1 = isOcc(grid1, bx, by);
-            const l2 = isOcc(grid2, bx, by);
-            const l3 = isOcc(grid3, bx, by);
-            return l0 || l1 || (l2 && l3);
+            return isOcc(grid0, bx, by) || isOcc(grid1, bx, by);
         };
 
         const addEdgeToPath = (path, x, y, isV) => {
@@ -2434,10 +2433,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (let y = 0; y < blocksY; y++) {
                 const a0 = isOcc(grid0, x-1, y), b0 = isOcc(grid0, x, y);
                 const a1 = isOcc(grid1, x-1, y), b1 = isOcc(grid1, x, y);
-                const a2 = isOcc(grid2, x-1, y), b2 = isOcc(grid2, x, y);
-                const a3 = isOcc(grid3, x-1, y), b3 = isOcc(grid3, x, y);
-                const a23 = a2 && a3, b23 = b2 && b3;
-                const aL123 = a1 || a23, bL123 = b1 || b23;
 
                 let isNorm = false;
                 let isDim = false;
@@ -2445,8 +2440,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // 1. L0 boundary always normal
                 if (a0 !== b0) isNorm = true;
 
-                // 2. L1 & L2+3 combined perimeter
-                if (aL123 !== bL123) {
+                // 2. L1 perimeter
+                if (a1 !== b1) {
                     if (a0 && b0) isDim = true;
                     else isNorm = true;
                 }
@@ -2460,10 +2455,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (let x = 0; x < blocksX; x++) {
                 const a0 = isOcc(grid0, x, y-1), b0 = isOcc(grid0, x, y);
                 const a1 = isOcc(grid1, x, y-1), b1 = isOcc(grid1, x, y);
-                const a2 = isOcc(grid2, x, y-1), b2 = isOcc(grid2, x, y);
-                const a3 = isOcc(grid3, x, y-1), b3 = isOcc(grid3, x, y);
-                const a23 = a2 && a3, b23 = b2 && b3;
-                const aL123 = a1 || a23, bL123 = b1 || b23;
 
                 let isNorm = false;
                 let isDim = false;
@@ -2471,8 +2462,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 // 1. L0 boundary always normal
                 if (a0 !== b0) isNorm = true;
 
-                // 2. L1 & L2+3 combined perimeter
-                if (aL123 !== bL123) {
+                // 2. L1 perimeter
+                if (a1 !== b1) {
                     if (a0 && b0) isDim = true;
                     else isNorm = true;
                 }

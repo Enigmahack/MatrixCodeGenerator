@@ -558,6 +558,9 @@ class WebGLRenderer {
                 uniform float u_refractionOpacity;
                 uniform bool u_refractionUnwrap;
                 uniform float u_refractionMaskScale;
+                uniform float u_refractionMaskZoom;
+                uniform bool u_refraction3DEnabled;
+                uniform float u_refraction3DStrength;
 
                 uniform float u_varianceEnabled;
                 uniform float u_varianceAmount;
@@ -629,7 +632,7 @@ class WebGLRenderer {
                         vec2 blockCoord = floor(logicPos);
 
                         vec4 occ = getOccupancy(blockCoord);
-                        float maskSum = getLayerVal(occ, u_layerOrder.x) + getLayerVal(occ, u_layerOrder.y) + getLayerVal(occ, u_layerOrder.z) + getLayerVal(occ, u_layerOrder.w);
+                        float maskSum = getLayerVal(occ, u_layerOrder.x) + getLayerVal(occ, u_layerOrder.y);
                         fragColor = vec4(maskSum, 0.0, 0.0, maskSum);
                         return;
                     }
@@ -675,13 +678,9 @@ class WebGLRenderer {
                             float l1NE = getLayerVal(occNE,u_layerOrder.y); float o1NE = step(0.01,l1NE);
                             float l1SW = getLayerVal(occSW,u_layerOrder.y); float o1SW = step(0.01,l1SW);
                             float l1SE = getLayerVal(occSE,u_layerOrder.y); float o1SE = step(0.01,l1SE);
-                            // Layer 2/3: only occupied when both co-inhabit the same block
-                            float l23NW = min(getLayerVal(occNW,u_layerOrder.z),getLayerVal(occNW,u_layerOrder.w)); float o23NW = step(0.01,l23NW);
-                            float l23NE = min(getLayerVal(occNE,u_layerOrder.z),getLayerVal(occNE,u_layerOrder.w)); float o23NE = step(0.01,l23NE);
-                            float l23SW = min(getLayerVal(occSW,u_layerOrder.z),getLayerVal(occSW,u_layerOrder.w)); float o23SW = step(0.01,l23SW);
-                            float l23SE = min(getLayerVal(occSE,u_layerOrder.z),getLayerVal(occSE,u_layerOrder.w)); float o23SE = step(0.01,l23SE);
+                            // Layers 2/3 removed — only layers 0 and 1 are active
 
-                            // Accumulator A: layer 0 + layer 2/3 (full brightness)
+                            // Accumulator A: layer 0 (full brightness)
                             float minDistA = 1.0e10; float edgeAlphaA = 0.0; vec2 reflPA = p;
                             vec2 bestEdgeIA = nearestI; float bestTypeA = 0.0;
 
@@ -698,11 +697,10 @@ class WebGLRenderer {
                                     bestEdgeIA = nearestI + vec2(0.0, -1.0); bestTypeA = 1.0;
                                 }
 
-                                float o123NW = max(o1NW, o23NW), o123NE = max(o1NE, o23NE);
-                                if (abs(o123NW - o123NE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sx = (o123NE > o123NW) ? 1.0 : -1.0;
-                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1NW, l1NE), max(l23NW, l23NE));
-                                    float l0occ = (o123NE > o123NW) ? l0NE : l0NW;
+                                if (abs(o1NW - o1NE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o1NE > o1NW) ? 1.0 : -1.0;
+                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1NW, l1NE);
+                                    float l0occ = (o1NE > o1NW) ? l0NE : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI + vec2(0.0, -1.0); bestTypeB = 1.0;
                                 }
@@ -716,11 +714,10 @@ class WebGLRenderer {
                                     bestEdgeIA = nearestI; bestTypeA = 1.0;
                                 }
 
-                                float o123SW = max(o1SW, o23SW), o123SE = max(o1SE, o23SE);
-                                if (abs(o123SW - o123SE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sx = (o123SE > o123SW) ? 1.0 : -1.0;
-                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(max(l1SW, l1SE), max(l23SW, l23SE));
-                                    float l0occ = (o123SE > o123SW) ? l0SE : l0SW;
+                                if (abs(o1SW - o1SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sx = (o1SE > o1SW) ? 1.0 : -1.0;
+                                    reflPB = u_refractionUnwrap ? p : vec2(abs(p.x)*sx, p.y); edgeAlphaB = max(l1SW, l1SE);
+                                    float l0occ = (o1SE > o1SW) ? l0SE : l0SW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI; bestTypeB = 1.0;
                                 }
@@ -734,11 +731,10 @@ class WebGLRenderer {
                                     bestEdgeIA = nearestI + vec2(-1.0, 0.0); bestTypeA = 0.0;
                                 }
 
-                                float o123NW = max(o1NW, o23NW), o123SW = max(o1SW, o23SW);
-                                if (abs(o123NW - o123SW) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sy = (o123SW > o123NW) ? 1.0 : -1.0;
-                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NW, l1SW), max(l23NW, l23SW));
-                                    float l0occ = (o123SW > o123NW) ? l0SW : l0NW;
+                                if (abs(o1NW - o1SW) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o1SW > o1NW) ? 1.0 : -1.0;
+                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NW, l1SW);
+                                    float l0occ = (o1SW > o1NW) ? l0SW : l0NW;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI + vec2(-1.0, 0.0); bestTypeB = 0.0;
                                 }
@@ -752,11 +748,10 @@ class WebGLRenderer {
                                     bestEdgeIA = nearestI; bestTypeA = 0.0;
                                 }
 
-                                float o123NE = max(o1NE, o23NE), o123SE = max(o1SE, o23SE);
-                                if (abs(o123NE - o123SE) > 0.5 && d < minDistB) {
-                                    minDistB = d; float sy = (o123SE > o123NE) ? 1.0 : -1.0;
-                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(max(l1NE, l1SE), max(l23NE, l23SE));
-                                    float l0occ = (o123SE > o123NE) ? l0SE : l0NE;
+                                if (abs(o1NE - o1SE) > 0.5 && d < minDistB) {
+                                    minDistB = d; float sy = (o1SE > o1NE) ? 1.0 : -1.0;
+                                    reflPB = u_refractionUnwrap ? p : vec2(p.x, abs(p.y)*sy); edgeAlphaB = max(l1NE, l1SE);
+                                    float l0occ = (o1SE > o1NE) ? l0SE : l0NE;
                                     brightDeltaB = (l0occ > 0.01) ? -0.3 : 0.0;
                                     bestEdgeIB = nearestI; bestTypeB = 0.0;
                                 }
@@ -780,16 +775,23 @@ class WebGLRenderer {
                                     vec2 rSP_ = rGP_ * u_screenStep + u_screenOrigin; \
                                     vec2 rUV_ = vec2((rSP_.x+u_offset.x)/u_resolution.x, 1.0-(rSP_.y+u_offset.y)/u_resolution.y); \
                                     vec2 srUV_ = rUV_ + (u_sourceGridOffset + u_sampleOffset) / u_resolution; \
+                                    srUV_ = (srUV_ - 0.5) / u_refractionMaskZoom + 0.5; \
                                     if (srUV_.x>=0.0 && srUV_.x<=1.0 && srUV_.y>=0.0 && srUV_.y<=1.0) { \
                                         float luma_ = texture(u_sourceGrid, srUV_).r; \
-                                        vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_), u_refractionSaturation); \
+                                        float shade3D_ = 1.0; \
+                                        if (u_refraction3DEnabled && refrWidth > 0.001) { \
+                                            float perpNorm_ = clamp((minD - refrOffPx) / refrWidth, -1.0, 1.0); \
+                                            float n2_ = perpNorm_ * perpNorm_; \
+                                            shade3D_ = 1.0 - u_refraction3DStrength * n2_; \
+                                        } \
+                                        vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_) * shade3D_, u_refractionSaturation); \
                                         resultColor = mix(resultColor, rc_ + rc_ * (u_refractionGlow * refrBell_), refrBell_); \
                                         refrAlpha = max(refrAlpha, refrBell_ * luma_); \
                                     } \
                                 } \
                             }
 
-                            // Layer 0 + layer 2/3: full brightness
+                            // Layer 0: full brightness
                             if (edgeAlphaA > 0.0 && minDistA < 1.0e9) {
                                 float var = getVariance(bestEdgeIA, bestTypeA);
                                 APPLY_REFR(minDistA, reflPA, edgeAlphaA, u_refractionBrightness * var)
@@ -826,21 +828,16 @@ class WebGLRenderer {
                     vec4 occSE = getOccupancy(nearestI + vec2(0.0, 0.0));
 
                     int L0 = u_layerOrder.x; int L1 = u_layerOrder.y;
-                    int L2 = u_layerOrder.z; int L3 = u_layerOrder.w;
 
                     float a0NW = getLayerVal(occNW, L0); float a0NE = getLayerVal(occNE, L0);
                     float a0SW = getLayerVal(occSW, L0); float a0SE = getLayerVal(occSE, L0);
                     float a1NW = getLayerVal(occNW, L1); float a1NE = getLayerVal(occNE, L1);
                     float a1SW = getLayerVal(occSW, L1); float a1SE = getLayerVal(occSE, L1);
-                    float a2NW = getLayerVal(occNW, L2); float a2NE = getLayerVal(occNE, L2);
-                    float a2SW = getLayerVal(occSW, L2); float a2SE = getLayerVal(occSE, L2);
-                    float a3NW = getLayerVal(occNW, L3); float a3NE = getLayerVal(occNE, L3);
-                    float a3SW = getLayerVal(occSW, L3); float a3SE = getLayerVal(occSE, L3);
 
-                    float s123NW = max(a1NW, a2NW * a3NW);
-                    float s123NE = max(a1NE, a2NE * a3NE);
-                    float s123SW = max(a1SW, a2SW * a3SW);
-                    float s123SE = max(a1SE, a2SE * a3SE);
+                    float s123NW = a1NW;
+                    float s123NE = a1NE;
+                    float s123SW = a1SW;
+                    float s123SE = a1SE;
 
                     for(int i=0; i<2; i++) {
                         float aNW, aNE, aSW, aSE;
@@ -2314,6 +2311,9 @@ class WebGLRenderer {
         compUniforms.u_refractionOpacity = fxState.refractionOpacity;
         compUniforms.u_refractionUnwrap = fxState.refractionUnwrap;
         compUniforms.u_refractionMaskScale = fxState.refractionMaskScale;
+        compUniforms.u_refractionMaskZoom = fxState.refractionMaskZoom;
+        compUniforms.u_refraction3DEnabled = fxState.refraction3DEnabled;
+        compUniforms.u_refraction3DStrength = fxState.refraction3DStrength;
         compUniforms.u_compressionThreshold = fxState.compressionThreshold;
         compUniforms.u_intensity = 1.0; // Default: full brightness for main composite
 
