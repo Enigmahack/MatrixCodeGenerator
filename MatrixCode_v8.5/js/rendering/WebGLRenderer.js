@@ -566,6 +566,7 @@ class WebGLRenderer {
                 uniform float u_varianceAmount;
                 uniform float u_varianceCoverage;
                 uniform float u_varianceDirection;
+                uniform float u_singleBlockFill;
 
                 out vec4 fragColor;
 
@@ -803,6 +804,54 @@ class WebGLRenderer {
                             }
 
                             #undef APPLY_REFR
+
+                            // Single Block Fill: solid character fill for single-width blocks.
+                            // Samples the character at the pixel's own position (no barrel distortion)
+                            // and applies it at full strength, confined to the block interior.
+                            if (u_singleBlockFill > 0.5) {
+                                vec2 blockPos = floor(logicPos);
+                                vec4 blockOcc = getOccupancy(blockPos);
+                                float bL0 = getLayerVal(blockOcc, u_layerOrder.x);
+                                float bL1 = getLayerVal(blockOcc, u_layerOrder.y);
+                                if (bL0 > 0.01 || bL1 > 0.01) {
+                                    vec4 nbN = getOccupancy(blockPos + vec2(0.0, -1.0));
+                                    vec4 nbS = getOccupancy(blockPos + vec2(0.0, 1.0));
+                                    vec4 nbW = getOccupancy(blockPos + vec2(-1.0, 0.0));
+                                    vec4 nbE = getOccupancy(blockPos + vec2(1.0, 0.0));
+                                    float fillAlpha = 0.0;
+                                    if (bL0 > 0.01) {
+                                        bool nsE = getLayerVal(nbN, u_layerOrder.x) < 0.01 && getLayerVal(nbS, u_layerOrder.x) < 0.01;
+                                        bool ewE = getLayerVal(nbW, u_layerOrder.x) < 0.01 && getLayerVal(nbE, u_layerOrder.x) < 0.01;
+                                        if (nsE || ewE) fillAlpha = max(fillAlpha, bL0);
+                                    }
+                                    if (bL1 > 0.01) {
+                                        bool nsE = getLayerVal(nbN, u_layerOrder.y) < 0.01 && getLayerVal(nbS, u_layerOrder.y) < 0.01;
+                                        bool ewE = getLayerVal(nbW, u_layerOrder.y) < 0.01 && getLayerVal(nbE, u_layerOrder.y) < 0.01;
+                                        if (nsE || ewE) fillAlpha = max(fillAlpha, bL1);
+                                    }
+                                    if (fillAlpha > 0.01) {
+                                        vec2 f = fract(logicPos);
+                                        bool occW = getLayerVal(nbW, u_layerOrder.x) > 0.01 || getLayerVal(nbW, u_layerOrder.y) > 0.01;
+                                        bool occE = getLayerVal(nbE, u_layerOrder.x) > 0.01 || getLayerVal(nbE, u_layerOrder.y) > 0.01;
+                                        bool occN = getLayerVal(nbN, u_layerOrder.x) > 0.01 || getLayerVal(nbN, u_layerOrder.y) > 0.01;
+                                        bool occS = getLayerVal(nbS, u_layerOrder.x) > 0.01 || getLayerVal(nbS, u_layerOrder.y) > 0.01;
+                                        float edgeFade = (occW ? 1.0 : smoothstep(0.0, 0.15, f.x))
+                                                       * (occE ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.x))
+                                                       * (occN ? 1.0 : smoothstep(0.0, 0.15, f.y))
+                                                       * (occS ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.y));
+                                        float bell = fillAlpha * u_refractionOpacity * edgeFade;
+                                        vec2 fillUV = v_uv + (u_sourceGridOffset + u_sampleOffset) / u_resolution;
+                                        fillUV = (fillUV - 0.5) / u_refractionMaskZoom + 0.5;
+                                        if (fillUV.x >= 0.0 && fillUV.x <= 1.0 && fillUV.y >= 0.0 && fillUV.y <= 1.0) {
+                                            float luma = texture(u_sourceGrid, fillUV).r;
+                                            vec3 tc = applyHueShift(u_color, u_tintOffset);
+                                            vec3 fc = boostSaturation(tc * luma * u_refractionBrightness, u_refractionSaturation);
+                                            resultColor = mix(resultColor, fc, bell);
+                                            refrAlpha = max(refrAlpha, bell * luma);
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         fragColor = vec4(resultColor * u_intensity, max(base.a, refrAlpha) * u_intensity);
@@ -893,6 +942,46 @@ class WebGLRenderer {
                             }
                         }
                     }
+                    // Single Block Fill: solid fill for pixels inside single-width blocks.
+                    // Check the block the pixel is actually inside (not the intersection corners).
+                    // This fills only inward — no bleed into surrounding empty space.
+                    // A soft edge fade prevents a hard cutoff at block boundaries.
+                    if (u_singleBlockFill > 0.5) {
+                        vec2 blockPos = floor(logicPos);
+                        vec4 blockOcc = getOccupancy(blockPos);
+                        float bL0 = getLayerVal(blockOcc, L0);
+                        float bL1 = getLayerVal(blockOcc, L1);
+                        if (bL0 > 0.01 || bL1 > 0.01) {
+                            vec4 nbN = getOccupancy(blockPos + vec2(0.0, -1.0));
+                            vec4 nbS = getOccupancy(blockPos + vec2(0.0, 1.0));
+                            vec4 nbW = getOccupancy(blockPos + vec2(-1.0, 0.0));
+                            vec4 nbE = getOccupancy(blockPos + vec2(1.0, 0.0));
+                            float fillVal = 0.0;
+                            if (bL0 > 0.01) {
+                                bool nsE = getLayerVal(nbN, L0) < 0.01 && getLayerVal(nbS, L0) < 0.01;
+                                bool ewE = getLayerVal(nbW, L0) < 0.01 && getLayerVal(nbE, L0) < 0.01;
+                                if (nsE || ewE) fillVal = max(fillVal, bL0);
+                            }
+                            if (bL1 > 0.01) {
+                                bool nsE = getLayerVal(nbN, L1) < 0.01 && getLayerVal(nbS, L1) < 0.01;
+                                bool ewE = getLayerVal(nbW, L1) < 0.01 && getLayerVal(nbE, L1) < 0.01;
+                                if (nsE || ewE) fillVal = max(fillVal, bL1);
+                            }
+                            if (fillVal > 0.01) {
+                                vec2 f = fract(logicPos);
+                                bool occW = getLayerVal(nbW, L0) > 0.01 || getLayerVal(nbW, L1) > 0.01;
+                                bool occE = getLayerVal(nbE, L0) > 0.01 || getLayerVal(nbE, L1) > 0.01;
+                                bool occN = getLayerVal(nbN, L0) > 0.01 || getLayerVal(nbN, L1) > 0.01;
+                                bool occS = getLayerVal(nbS, L0) > 0.01 || getLayerVal(nbS, L1) > 0.01;
+                                float edgeFade = (occW ? 1.0 : smoothstep(0.0, 0.15, f.x))
+                                               * (occE ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.x))
+                                               * (occN ? 1.0 : smoothstep(0.0, 0.15, f.y))
+                                               * (occS ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.y));
+                                normalMax = max(normalMax, fillVal * edgeFade);
+                            }
+                        }
+                    }
+
                     fragColor = vec4(normalMax, fadeMax, 0.0, 1.0);
                 }
 `;
@@ -2175,6 +2264,7 @@ class WebGLRenderer {
         sharedUniforms.u_varianceAmount = fxState.varianceAmount;
         sharedUniforms.u_varianceCoverage = fxState.varianceCoverage;
         sharedUniforms.u_varianceDirection = fxState.varianceDirection;
+        sharedUniforms.u_singleBlockFill = fxState.singleBlockFill;
         sharedUniforms.u_color = fxState.color;
 
         const commonTextures = this._lineGfxTextures;

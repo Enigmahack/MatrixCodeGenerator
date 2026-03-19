@@ -15,3 +15,5 @@ Visuals:
 
 UI Changes: 
 Reorganize once done with the needed settings. 
+Line Softness and Blend Strength can safely be removed from the UI. 
+

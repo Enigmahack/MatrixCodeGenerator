@@ -915,6 +915,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         // Reset growth/overlap/cycle state from previous run
         this.growthPool.clear();
+        this._behaviorsInitialized = false;
         this.overlapState = { step: 0 };
         this.cycleState = null;
         this.isReconstructing = false;
@@ -2127,7 +2128,8 @@ class QuantizedBaseEffect extends AbstractEffect {
                 refractionSaturation: 0, refractionCompression: 0, refractionOffset: 0,
                 refractionGlow: 0, refractionOpacity: 1, refractionMaskZoom: 1.0,
                 refraction3DEnabled: 0, refraction3DStrength: 0.3,
-                compressionThreshold: 0, shadowWorldFadeSpeed: 0
+                compressionThreshold: 0, shadowWorldFadeSpeed: 0,
+                singleBlockFill: 0
             };
         }
         const st = this._cachedWebGLState;
@@ -2180,6 +2182,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         st.refraction3DStrength = this.getConfig('GlassRefraction3DStrength') ?? 0.3;
         st.compressionThreshold = this.getConfig('GlassCompressionThreshold') ?? 0.0;
         st.shadowWorldFadeSpeed = this.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
+        st.singleBlockFill = this.getConfig('SingleBlockFillEnabled') ? 1 : 0;
         return st;
     }
 
@@ -5155,6 +5158,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (hf) hf.enabled = true;
             const bt = this.growthPool.get('block_thicken');
             if (bt) bt.enabled = this._getGenConfig('BlockThickenEnabled') ?? false;
+            const as = this.growthPool.get('axis_shift');
+            if (as) as.enabled = this._getGenConfig('AxisShiftEnabled') ?? false;
             return;
         }
         this._behaviorsInitialized = true;
@@ -5708,6 +5713,92 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }, { enabled: true, label: 'Aggressive Hole Filler' });
+
+        // ── Axis Shift ───────────────────────────────────────────────────────
+        // Treats newly placed lines of blocks as sub-axes, spawning strips
+        // in all 4 directions from a point along the line — exactly like the
+        // main seed-schedule creates spine strips from the primary origin.
+        // NOTE: This behavior is ticked deterministically every step (not via
+        // the random behavior pool) because it must track strip growth over
+        // time — strips are deleted when deactivated, so we snapshot them as
+        // they qualify.
+        this.registerBehavior('axis_shift', function(s) {
+            const startDelay = this._getGenConfig('AxisShiftStartDelay') ?? 15;
+            const rate = Math.max(1, this._getGenConfig('AxisShiftRate') ?? 5);
+            const maxAxes = this._getGenConfig('AxisShiftMaxAxes') ?? 10;
+            const minLength = this._getGenConfig('AxisShiftMinLength') ?? 3;
+            const layer = 1;
+
+            // Initialize state
+            if (!s.axisShiftAxes) s.axisShiftAxes = [];
+            if (!s.axisShiftUsedStrips) s.axisShiftUsedStrips = new Set();
+            if (!s.axisShiftCandidates) s.axisShiftCandidates = [];
+
+            // Continuously snapshot strips that have grown enough — they may
+            // become inactive (and get deleted from this.strips) before we
+            // get around to using them, so capture their info now.
+            for (const strip of this.strips.values()) {
+                if (s.axisShiftUsedStrips.has(strip.id)) continue;
+                if (strip.growCount >= minLength) {
+                    s.axisShiftUsedStrips.add(strip.id);
+                    s.axisShiftCandidates.push({
+                        id: strip.id,
+                        direction: strip.direction,
+                        originX: strip.originX,
+                        originY: strip.originY,
+                        growCount: strip.growCount
+                    });
+                }
+            }
+
+            if (s.step < startDelay) return;
+            if ((s.step - startDelay) % rate !== 0) return;
+
+            // Cap check
+            if (s.axisShiftAxes.length >= maxAxes) return;
+            if (s.axisShiftCandidates.length === 0) return;
+
+            const allowed = this._getAllowedDirs(layer);
+
+            // Pick a random candidate from the snapshot pool
+            const idx = Math.floor(Math.random() * s.axisShiftCandidates.length);
+            const candidate = s.axisShiftCandidates.splice(idx, 1)[0];
+
+            // Pick a point along the line as the new sub-origin
+            const [dx, dy] = this._dirDelta(candidate.direction);
+            const offset = 1 + Math.floor(Math.random() * Math.max(1, candidate.growCount - 1));
+            const subOriginX = candidate.originX + dx * offset;
+            const subOriginY = candidate.originY + dy * offset;
+
+            // Create spine-like strips from the sub-origin
+            const boost = this._getGenConfig('SpineBoost') ?? 4;
+            const subBoost = Math.max(1, Math.floor(boost / 2));
+            const spawnAmount = Math.min(4, Math.max(1, this._getGenConfig('AxisShiftSpawnAmount') ?? 4));
+            const dirs = ['N', 'S', 'E', 'W'];
+            Utils.shuffle(dirs);
+
+            let spawned = 0;
+            for (const dir of dirs) {
+                if (spawned >= spawnAmount) break;
+                // Relaxed quadrant check: allow if direction OR parent arm is allowed
+                if (allowed && !allowed.has(dir) && !allowed.has(candidate.direction)) continue;
+
+                spawned++;
+                this.actionBuffer.push({ layer, fn: () => {
+                    const strip = this._createStrip(layer, dir, subOriginX, subOriginY);
+                    strip.isSpine = true;
+                    strip.boostSteps = subBoost;
+                    strip.pattern = this._generateInsideOutPattern();
+                    strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
+                    strip.arm = candidate.direction;
+                }});
+            }
+
+            s.axisShiftAxes.push({
+                x: subOriginX, y: subOriginY,
+                step: s.step, parentDir: candidate.direction
+            });
+        }, { enabled: this._getGenConfig('AxisShiftEnabled') ?? false, label: 'Axis Shift' });
     }
 
     _pickLayerDirs(count) {
@@ -6356,11 +6447,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._tickStrips(s);
         this._expandInsideOut(s);
 
+        // Axis Shift: tick deterministically every step (needs to snapshot
+        // strips before they are deactivated/deleted by other behaviors).
+        const axisShift = this.growthPool.get('axis_shift');
+        if (axisShift && axisShift.enabled) {
+            axisShift.fn.call(this, s);
+        }
+
         // INCREMENT AGE OF ALL ACTIVE BLOCKS
         for (const b of this.activeBlocks) b.stepAge = (b.stepAge || 0) + 1;
 
         const quota = this.getConfig('SimultaneousSpawns') || 1;
-        const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled);
+        const enabledBehaviors = [...this.growthPool.values()].filter(b => b.fn && b.enabled && b !== axisShift);
         if (enabledBehaviors.length > 0) {
             for (let q = 0; q < quota; q++) {
                 const b = enabledBehaviors[Math.floor(Math.random() * enabledBehaviors.length)];

@@ -31,6 +31,8 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Appearance', sub_header: 'Rounded Shading', id: 'GlassRefraction3DEnabled', type: 'checkbox', label: 'Enable Rounding', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Adds cylindrical shading to refraction lines — edges darken, center stays bright — for a rounded look.", tags: ['rounded', 'cylinder', 'shading'] },
     { sub: 'Line Appearance', id: 'GlassRefraction3DStrength', type: 'range', label: 'Rounding Strength', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefraction3DEnabled', tier: 'advanced', description: "Intensity of the cylindrical shading. 0.3 is subtle, 1.0 is dramatic.", tags: ['depth', 'intensity', 'shading'] },
 
+    { sub: 'Line Appearance', sub_header: 'Single Block Fill', id: 'SingleBlockFillEnabled', type: 'checkbox', label: 'Enable Single Block Fill', tier: 'advanced', description: "Extends line rendering width to fill the interior of isolated 1x1 blocks that are completely surrounded by perimeter lines (Primary or Echo).", tags: ['fill', 'block', 'single', 'isolated'] },
+
     { sub: 'Line Appearance', sub_header: 'Random Line Dimming', id: 'LineGfxBrightnessVarianceEnabled', type: 'checkbox', label: 'Enable Random Dimming', tier: 'advanced', description: "Applies random brightness variations to individual line segments.", tags: ['random', 'flicker', 'variety'] },
     { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceAmount', type: 'range', label: 'Dimming Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', description: "Amount of random brightness reduction applied to lines.", tags: ['random', 'amount'] },
     { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceCoverage', type: 'range', label: 'Affected Lines', min: 0, max: 100, step: 5, unit: '%', dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', description: "Percentage of rows/columns affected by the dimming.", tags: ['random', 'area'] },
@@ -92,6 +94,13 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps Between Buckets', min: 1, max: 20, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
+
+    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Axis Shift', id: 'AxisShiftEnabled', type: 'checkbox', label: 'Enable Axis Shift', tier: 'advanced', description: "Treats newly placed lines of blocks as sub-axes, spawning growth in all directions from them exactly like the main spawn axis.", tags: ['axis', 'shift', 'spawn', 'fractal'] },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftRate', type: 'range', label: 'Check Rate', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Steps between attempts to create new sub-axes." },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftMaxAxes', type: 'range', label: 'Max Sub-Axes', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Maximum number of sub-axes that can be active." },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Minimum number of blocks a strip must have grown before it qualifies as a sub-axis." },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "How many spine-like strips will be spawned from the new origin." },
 
     { sub: 'V2 Generator (Core)', sub_header: 'Other Generator Settings', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
     { sub: 'V2 Generator (Core)', id: 'NudgeStartDelay', type: 'range', label: 'Nudge Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
