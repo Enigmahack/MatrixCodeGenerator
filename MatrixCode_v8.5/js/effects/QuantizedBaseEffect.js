@@ -5925,8 +5925,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             }
         }
         
-        s.allowNudges = !!this._getGenConfig('L3AllowNudges');
-
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
