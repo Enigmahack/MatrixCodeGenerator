@@ -6,9 +6,3 @@ Behaviours:
 Visuals: 
 - Boot Effect doesn't look right. Refine. (The bluish/white boot animation only)
 - Fix animation for quantized Retract. 
-- 
-
-UI Changes: 
-Reorganize once done with the needed settings. 
-Line Softness and Blend Strength can safely be removed from the UI. 
-

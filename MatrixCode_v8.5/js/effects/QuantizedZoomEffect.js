@@ -26,7 +26,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
     getConfig(key) {
         if (key === 'LayerCount') return 1;
-        if (key === 'GeneratorTakeover') return true;
+        if (key === 'GeneratorTakeover') return false;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
         if (key === 'FadeInFrames' || key === 'FadeFrames') return 0;
         return super.getConfig(key);
@@ -63,7 +63,6 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             this.expansionPhase = 0;
         }
 
-        this._initShadowWorld();
         if (this.state === 'GENERATING') {
             this._initProceduralState(true);
         } else {
@@ -178,6 +177,20 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                 this._zoomOpacity = s.quantizedZoomOpacity ?? 1.0;
             }
         }
+    }
+
+    /**
+     * Ensure the effect remains active until the zoom/fade animation is complete,
+     * even if the base lifecycle (duration) has finished.
+     */
+    _terminate() {
+        const s = this.c.state;
+        // If zoom is enabled and still visible, delay termination
+        if (s.quantizedZoomZoomEnabled && this._snapshotCaptured && this._zoomOpacity >= 0.01) {
+            this.alpha = 0.0; // Hide reality grid blocks
+            return;
+        }
+        super._terminate();
     }
 
     /**

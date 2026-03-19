@@ -19,6 +19,7 @@ class MatrixKernel {
         // Resize guard state (initialized so first resize always proceeds)
         this._lastWindowW = 0;
         this._lastWindowH = 0;
+        this._wasOverlayActive = false;
 
         // Idle Detection State
         this.isIdle = false;
@@ -976,9 +977,16 @@ class MatrixKernel {
         const renderTime = performance.now() - renderT0;
 
         // Render Overlay Effects (skip if no effects are active to avoid wasted clearRect)
-        if (this.overlayCtx && this.effectRegistry.hasActiveOverlay) {
-            this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-            this.effectRegistry.render(this.overlayCtx, this.config.derived);
+        if (this.overlayCtx) {
+            const hasActive = this.effectRegistry.hasActiveOverlay;
+            // Always clear if something was active last frame (to wipe it out) or if currently active
+            if (hasActive || this._wasOverlayActive) {
+                this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+                if (hasActive) {
+                    this.effectRegistry.render(this.overlayCtx, this.config.derived);
+                }
+            }
+            this._wasOverlayActive = hasActive;
         }
 
         if (this.config.state.logErrors) {
