@@ -1326,6 +1326,23 @@ class QuantizedEffectEditor {
         singleLayerToggle.append(singleLayerCheck, document.createTextNode(' Single Layer Mode'));
         container.appendChild(singleLayerToggle);
 
+        const spawnFromPerimeterToggle = document.createElement('label');
+        spawnFromPerimeterToggle.style.display = 'block';
+        spawnFromPerimeterToggle.style.marginTop = '5px';
+        spawnFromPerimeterToggle.title = "Allows all sub-behaviors to spawn from the outermost perimeter, bypassing standard connectivity preconditions.";
+        const spawnFromPerimeterCheck = document.createElement('input');
+        spawnFromPerimeterCheck.type = 'checkbox';
+        spawnFromPerimeterCheck.checked = (this.effect && !!this.effect.getConfig('SpawnFromPerimeter'));
+        spawnFromPerimeterCheck.onchange = (e) => {
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'toggleSpawnFromPerimeter', val: e.target.checked });
+            }
+            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SpawnFromPerimeter', e.target.checked);
+            this.isDirty = true;
+        };
+        spawnFromPerimeterToggle.append(spawnFromPerimeterCheck, document.createTextNode(' Spawn From Perimeter'));
+        container.appendChild(spawnFromPerimeterToggle);
+
         const retainStateToggle = document.createElement('label');
         retainStateToggle.style.display = 'block';
         retainStateToggle.style.marginTop = '3px';

@@ -182,6 +182,53 @@ class QuantizedSequenceGeneratorV2 {
         };
     }
 
+    _getOutsideMap() {
+        const w = this.logicGridW, h = this.logicGridH;
+        const bs = this._getBlockSize();
+        const xVis = Math.ceil(this.cols / bs.w / 2) + 2;
+        const yVis = Math.ceil(this.rows / bs.h / 2) + 2;
+
+        const scanMinX = -xVis, scanMaxX = xVis;
+        const scanMinY = -yVis, scanMaxY = yVis;
+        const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
+        const outsideMap = this._getBuffer('genOutside', scanW * scanH, Uint8Array);
+        outsideMap.fill(0);
+        
+        const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
+
+        const maxL = this._getMaxLayer();
+        const isOccupiedAny = (bx, by) => {
+            for (let l = 0; l <= maxL; l++) {
+                if (this._isOccupied(bx, by, l)) return true;
+            }
+            return false;
+        };
+
+        const queue = this._getBuffer('genQueue', scanW * scanH, Int32Array);
+        let head = 0, tail = 0;
+
+        const add = (bx, by) => {
+            if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
+            const idx = getIdx(bx, by);
+            if (outsideMap[idx] === 0 && !isOccupiedAny(bx, by)) {
+                outsideMap[idx] = 1;
+                queue[tail++] = idx;
+            }
+        };
+
+        for (let bx = scanMinX; bx <= scanMaxX; bx++) { add(bx, scanMinY); add(bx, scanMaxY); }
+        for (let by = scanMinY; by <= scanMaxY; by++) { add(scanMinX, by); add(scanMaxX, by); }
+
+        while (head < tail) {
+            const idx = queue[head++];
+            const bx = scanMinX + (idx % scanW);
+            const by = scanMinY + Math.floor(idx / scanW);
+            add(bx + 1, by); add(bx - 1, by); add(bx, by + 1); add(bx, by - 1);
+        }
+
+        return { outsideMap, scanMinX, scanMaxX, scanMinY, scanMaxY, scanW, getIdx };
+    }
+
     _initBehaviors() {
         this.growthPool.clear();
         const gen = this;
@@ -192,18 +239,41 @@ class QuantizedSequenceGeneratorV2 {
             const layer = 1;
 
             const allowed = gen._getAllowedDirs(layer);
+            const spawnFromPerimeter = !!gen._getConfig('SpawnFromPerimeter');
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
                 const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 5;
 
+                let outsideInfo = null;
+                if (spawnFromPerimeter) {
+                    outsideInfo = gen._getOutsideMap();
+                }
+
                 const perimeterBlocks = gen.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
 
-                    // NEW: Ensure seed parents are connected to the spines (X or Y axis)
+                    // Standard Precondition: Connected to spines
                     const onYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
                     const onXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
-                    if (!onXSpine && !onYSpine) return false;
+                    const onSpine = onXSpine || onYSpine;
+
+                    // Option: Spawn from ANY perimeter block
+                    let onOuterPerimeter = false;
+                    if (spawnFromPerimeter && outsideInfo) {
+                        const { outsideMap, getIdx } = outsideInfo;
+                        // Check if any neighbor of this block is in the outsideMap
+                        const neighbors = [];
+                        for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
+                        for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
+                        
+                        onOuterPerimeter = neighbors.some(n => {
+                            if (n.x < outsideInfo.scanMinX || n.x > outsideInfo.scanMaxX || n.y < outsideInfo.scanMinY || n.y > outsideInfo.scanMaxY) return false;
+                            return outsideMap[getIdx(n.x, n.y)] === 1;
+                        });
+                    }
+
+                    if (!onSpine && !onOuterPerimeter) return false;
 
                     const neighbors = [
                         {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
@@ -1419,8 +1489,18 @@ class QuantizedSequenceGeneratorV2 {
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
 
+            const spawnFromPerimeter = !!gen._getConfig('SpawnFromPerimeter');
+
             // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
-            if (!this._isOccupied(bx, by, 0) && !this._isOccupied(bx, by, 1)) continue;
+            const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
+            let perimeterEstablished = false;
+            if (spawnFromPerimeter && !spineEstablished) {
+                // Check if any cardinal neighbor of (bx, by) is occupied on L0 or L1
+                const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
+                perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
+            }
+
+            if (!spineEstablished && !perimeterEstablished) continue;
 
             // Prepare waves for this bucket
             const waves = [];
@@ -1901,6 +1981,12 @@ class QuantizedSequenceGeneratorV2 {
         const s = this.behaviorState;
         this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
+
+        // One-time per step calculation of outsideInfo if SpawnFromPerimeter is enabled
+        s.outsideInfo = null;
+        if (this._getConfig('SpawnFromPerimeter')) {
+            s.outsideInfo = this._getOutsideMap();
+        }
 
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {
             for (const d of s.pendingDeletions) this._removeBlock(d.x, d.y, d.w, d.h, d.layer);

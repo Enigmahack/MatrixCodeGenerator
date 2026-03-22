@@ -52,6 +52,7 @@ const QuantizedInheritableSettings = [
 
     // Block Behavior — layer, echo, and transition settings
     { sub: 'Block Behavior', id: 'SingleLayerMode', type: 'checkbox', label: 'Single Layer Mode', tier: 'basic', description: "Simplified mode that uses only Layer 1 with no Layer 0 promotion.", tags: ['layer', 'simple', 'single'] },
+    { sub: 'Block Behavior', id: 'SpawnFromPerimeter', type: 'checkbox', label: 'Spawn From Perimeter', tier: 'basic', description: "Allows all sub-behaviors to spawn from the outermost perimeter, bypassing standard connectivity preconditions.", tags: ['growth', 'perimeter', 'spawn'] },
     { sub: 'Block Behavior', sub_header: 'Block Sizing', id: 'BlockSizeBias', type: 'range', label: 'Block Size Bias', min: 1, max: 20, step: 1, tier: 'basic', transform: v => v === 1 ? '1×1' : '≤' + v, description: "Maximum cluster area for generated blocks. 1 = single-cell blocks only, higher values allow larger multi-cell clusters.", tags: ['size', 'cluster', 'area'] },
     { sub: 'Block Behavior', id: 'BlockShapeBias', type: 'range', label: 'Bias', min: 1, max: 5, step: 1, tier: 'basic', transform: v => ['Skinny', 'Thin', 'Mixed', 'Stubby', 'Wide'][v - 1], description: "Skinny: long 1-wide blocks. Thin: narrow blocks. Mixed: even random distribution. Stubby: slightly wider blocks. Wide: squarish blocks.", tags: ['shape', 'aspect', 'ratio'] },
     { sub: 'Block Behavior', sub_header: 'Perimeter Echo', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Enable Perimeter Echo', tier: 'basic', description: "Replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
@@ -59,14 +60,22 @@ const QuantizedInheritableSettings = [
     { sub: 'Block Behavior', id: 'EchoGfxDelayFadeAmount', type: 'range', label: 'Echo Fade', min: 0, max: 100, step: 1, unit: '%', tier: 'basic', description: "Brightness reduction for the echo. 0% is full brightness, 100% effectively hides it.", tags: ['delay', 'echo', 'fade', 'brightness'] },
     { sub: 'Block Behavior', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Transition Speed', min: 0, max: 2, step: 0.1, unit: 's', tier: 'advanced', description: "Crossfade duration when blocks are added or removed.", tags: ['fade', 'speed', 'transition'] },
 
-    { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
-    { sub: 'V2 Generator', id: 'SpineBoost', type: 'range', label: 'Spine Boost Multiplier', min: 1, max: 10, step: 1, dep: 'SpinesFirstEnabled', tier: 'advanced', description: "Boosts growth probability along the central X/Y spines of the cross.", tags: ['growth', 'spine'] },
-    { sub: 'V2 Generator', id: 'FillThreshold', type: 'range', label: 'Fill Threshold', min: 0.1, max: 1.0, step: 0.05, tier: 'advanced', description: "Fill ratio threshold before maximum block scaling limits apply.", tags: ['growth', 'scale', 'threshold'] },
-    { sub: 'V2 Generator', id: 'MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 10, step: 1, tier: 'advanced', description: "Maximum block size multiplier once threshold is reached.", tags: ['growth', 'scale'] },
-    { sub: 'V2 Generator', id: 'GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', tier: 'advanced', description: "Dynamically scale block size/speed based on aspect ratio.", tags: ['growth', 'scale', 'auto'] },
-    { sub: 'V2 Generator', id: 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', tier: 'advanced', description: "Allows uneven growth speeds across the axes.", tags: ['growth', 'uneven'] },
-    { sub: 'V2 Generator', id: 'QuadrantCount', type: 'range', label: 'Max Direction Count', min: 1, max: 4, step: 1, tier: 'advanced', description: "Maximum number of allowed growth directions at any one time.", tags: ['growth', 'directions'] },
+    { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
+    { sub: 'V2 Generator', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
+    { sub: 'V2 Generator', id: 'SpineBoost', type: 'range', label: 'Spine Burst', min: 1, max: 10, step: 1, unit: 'steps', dep: 'SpinesFirstEnabled', tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
+    { sub: 'V2 Generator', id: 'SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] },
+    { sub: 'V2 Generator', id: 'LayerCount', type: 'range', label: 'Layer Count', min: 0, max: 1, step: 1, tier: 'advanced', description: "Number of additional layers to generate (Layer 0 is always base, max 1 additional = 2 total).", tags: ['depth', 'complexity'] },
+    { sub: 'V2 Generator', id: 'GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
+    { sub: 'V2 Generator', id: 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
+    { sub: 'V2 Generator', id: 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] },
     
+    { sub: 'V2 Generator', sub_header: 'Size Scaling', id: 'FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] },
+    { sub: 'V2 Generator', id: 'MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, tier: 'advanced', description: "Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).", tags: ['size', 'large'] },
+
+    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Main Nudge Growth', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'NudgeStartDelay', type: 'range', label: 'Nudge Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Sub-Behaviors)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced' },
+
     { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Block Spawner/Despawner', id: 'BlockSpawnerEnabled', type: 'checkbox', label: 'Enable Spawner', tier: 'advanced', description: "Randomly spawns and despawns blocks outside the main edge.", tags: ['spawn', 'despawn'] },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
@@ -107,11 +116,7 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Minimum number of blocks a strip must have grown before it qualifies as a sub-axis." },
     { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "How many spine-like strips will be spawned from the new origin." },
 
-    { sub: 'V2 Generator (Core)', sub_header: 'Other Generator Settings', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
-    { sub: 'V2 Generator (Core)', id: 'NudgeStartDelay', type: 'range', label: 'Nudge Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Core)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Core)', id: 'ShiftFrequency', type: 'range', label: 'Shift Frequency', min: 1, max: 10, step: 1, tier: 'advanced', description: "Controls how often quadrants attempt to shift/grow in a blocky manner.", tags: ['shift', 'growth'] },
-    { sub: 'V2 Generator (Core)', id: 'ShiftMaxThickness', type: 'range', label: 'Shift Max Thickness', min: 1, max: 20, step: 1, tier: 'advanced', description: "Maximum allowed thickness for shifted blocks.", tags: ['shift', 'thickness'] },
+    { sub: 'V2 Generator (Logic)', sub_header: 'Logic & Behaviors', id: 'BehaviorPool', type: 'sortable_list', label: 'Behavior Pool', tier: 'advanced', tags: ['logic', 'stack'] },
 ];
 
 // Pre-built Set for O(1) inheritable-setting lookups (avoids O(n) .some() per getConfig call)
@@ -241,71 +246,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
             }
             settings.push(s);
         });
-        settings.push({ cat: 'Effects', type: 'end_group' });
-    }
-
-    // Generator-specific detailed settings under Behavior (quantizedGenerateV2 only)
-    if (prefix === 'quantizedGenerateV2') {
-        settings.push({ cat: 'Effects', type: 'sub_accordion', label: 'Generator Details', dep: overrideDep });
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Generation Core' });
-        settings.push({ cat: 'Effects', id: prefix + 'RandomStart', type: 'checkbox', label: 'Random Start Location', dep: overrideDep, tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] });
-        settings.push({ cat: 'Effects', id: prefix + 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', dep: overrideDep, tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] });
-        settings.push({ cat: 'Effects', id: prefix + 'GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', dep: overrideDep, tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpineBoost', type: 'range', label: 'Spine Burst', min: 0, max: 10, step: 1, unit: 'steps', dep: overrideDep, tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, dep: overrideDep, tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] });
-        settings.push({ cat: 'Effects', id: prefix + 'LayerCount', type: 'range', label: 'Layer Count', min: 0, max: 1, step: 1, dep: overrideDep, tier: 'advanced', description: "Number of additional layers to generate (Layer 0 is always base, max 1 additional = 2 total).", tags: ['depth', 'complexity'] });
-        settings.push({ cat: 'Effects', id: prefix + 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', dep: overrideDep, tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Rhythm & Timing' });
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Size Scaling' });
-        settings.push({ cat: 'Effects', id: prefix + 'FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, dep: overrideDep, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] });
-        settings.push({ cat: 'Effects', id: prefix + 'MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, dep: overrideDep, tier: 'advanced', description: 'Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).', tags: ['size', 'large'] });
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Inside-Out Expansion' });
-        const ioDep = [...overrideDep, prefix + 'InsideOutEnabled'];
-        settings.push({ cat: 'Effects', id: prefix + 'InsideOutEnabled', type: 'checkbox', label: 'Enable', dep: overrideDep, tier: 'advanced', description: 'After the initial spine strips grow, seed parallel rows and columns at increasing perpendicular distances from both axes (wave 1 = ±1, wave 2 = ±2, etc.).', tags: ['pattern', 'bloom'] });
-        settings.push({ cat: 'Effects', id: prefix + 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: ioDep, tier: 'advanced', description: 'Number of global steps to wait before the first expansion wave fires. Gives the spine strips time to establish.', tags: ['timing', 'wait'] });
-        settings.push({ cat: 'Effects', id: prefix + 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: ioDep, tier: 'advanced', description: 'The number of clusters of blocks that populate together.', tags: ['amount', 'cluster'] });
-        settings.push({ cat: 'Effects', id: prefix + 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps between Buckets', min: 1, max: 10, step: 1, unit: 'steps', dep: ioDep, tier: 'advanced', description: "Steps between each successive expansion wave bucket 'release'.", tags: ['speed', 'timing'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Logic & Behaviors' });
-        settings.push({ cat: 'Effects', type: 'sortable_list', id: 'quantizedBehaviorPool', label: 'Behavior Pool', dep: overrideDep, tier: 'advanced', tags: ['logic', 'stack'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Main Nudge Growth' });
-        settings.push({ cat: 'Effects', id: prefix + 'NudgeEnabled', type: 'checkbox', label: 'Enabled', dep: overrideDep, tier: 'advanced', description: 'Default enabled state for Main Nudge Growth. Can also be toggled live in the Behavior Pool above.', tags: ['growth', 'lateral'] });
-        settings.push({ cat: 'Effects', id: prefix + 'NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 20, step: 1, unit: 'steps', dep: overrideDep, tier: 'advanced', description: 'Number of global steps to wait before nudge strips begin spawning, giving main strips time to establish.', tags: ['timing', 'wait'] });
-        settings.push({ cat: 'Effects', id: prefix + 'NudgeChance', type: 'range', label: 'Randomness', min: 0.05, max: 1.0, step: 0.05, dep: [...overrideDep, prefix + 'NudgeEnabled'], tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the probability of block addition and retraction in the 3-step cycle.', tags: ['chance', 'amount'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Block Spawner/Despawner' });
-        const bsDep = [...overrideDep, prefix + 'BlockSpawnerEnabled'];
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerEnabled', type: 'checkbox', label: 'Enabled', dep: overrideDep, tier: 'advanced', description: 'When enabled, spawns 1x1 blocks ahead of existing nudge strips to create connection points, and periodically removes them to create volatility.', tags: ['spawn', 'ahead'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 50, step: 1, unit: 'steps', dep: overrideDep, tier: 'advanced', description: 'Global steps to wait before the Block Spawner/Despawner becomes active.', tags: ['timing', 'wait'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerCount', type: 'range', label: 'Spawn Count', min: 1, max: 20, step: 1, dep: bsDep, tier: 'advanced', description: 'Number of blocks to spawn per interval.', tags: ['amount', 'count'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: bsDep, tier: 'advanced', description: 'Steps between each block spawn burst.', tags: ['speed', 'rate'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerDespawnCount', type: 'range', label: 'Despawn Count', min: 1, max: 20, step: 1, dep: bsDep, tier: 'advanced', description: 'Number of blocks to remove per interval.', tags: ['amount', 'count'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: bsDep, tier: 'advanced', description: 'Steps between each block despawn burst.', tags: ['speed', 'rate'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Hole Filler' });
-        settings.push({ cat: 'Effects', id: prefix + 'HoleFillerEnabled', type: 'checkbox', label: 'Enabled', dep: overrideDep, tier: 'advanced', description: 'When enabled, aggressively fills enclosed empty spaces in Layer 1 to ensure a solid structure.', tags: ['fill', 'solid'] });
-        settings.push({ cat: 'Effects', id: prefix + 'HoleFillerRate', type: 'range', label: 'Check Rate', min: 1, max: 10, step: 1, unit: 'steps', dep: [...overrideDep, prefix + 'HoleFillerEnabled'], tier: 'advanced', description: 'How often to perform the hole-filling scan. 1 is every step.', tags: ['speed', 'rate'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Spreading Nudge' });
-        const snDep = [...overrideDep, prefix + 'SpreadingNudgeEnabled'];
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeEnabled', type: 'checkbox', label: 'Enabled', dep: overrideDep, tier: 'advanced', description: 'When enabled, periodically performs nudge growth at random locations along the axes.', tags: ['spawn', 'spreader'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: snDep, tier: 'advanced', tags: ['timing', 'wait'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeChance', type: 'range', label: 'Growth Chance', min: 0.05, max: 1.0, step: 0.05, dep: snDep, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of block addition and retraction in the 3-step cycle for spreading points.', tags: ['chance', 'amount'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeLockToAxis', type: 'checkbox', label: 'Lock to Axis', dep: snDep, tier: 'advanced', description: 'Force nudge growth to occur strictly on the X or Y cardinal axes.', tags: ['axis', 'lock'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgePreferCenter', type: 'checkbox', label: 'Prefer Center', dep: snDep, tier: 'advanced', description: 'Favor nudge growth points closer to the seed origin.', tags: ['center', 'bias'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeRange', type: 'range', label: 'Spreading Range', min: 0.0, max: 1.0, step: 0.05, dep: snDep, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'How far from the center/axis nudge growth can occur.', tags: ['random', 'range'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: snDep, tier: 'advanced', description: 'Maximum steps of delay between each axial movement. 1 is fastest (every step), 10 is slowest (up to 10 steps delay).', tags: ['timing', 'speed'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeMaxInstances', type: 'range', label: 'Max Instances', min: 4, max: 100, step: 4, dep: snDep, tier: 'advanced', description: 'Maximum number of perpendicular nudge strips allowed at once.', tags: ['limit', 'density'] });
-        settings.push({ cat: 'Effects', id: prefix + 'SpreadingNudgeSymmetry', type: 'checkbox', label: 'Prefer Symmetry', dep: snDep, tier: 'advanced', description: 'Attempt to perform matching nudge growth on the opposite side of the axis.', tags: ['symmetry', 'mirror'] });
-
-        settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Shove Fill' });
-        const sfDep = [...overrideDep, prefix + 'ShoveFillEnabled'];
-        settings.push({ cat: 'Effects', id: prefix + 'ShoveFillEnabled', type: 'checkbox', label: 'Enabled', dep: overrideDep, tier: 'advanced', description: 'Shoots 1–3 cell wide strips outward from the spawn center in selected quadrant directions, backfilling behind each step. Stops at the canvas perimeter. Respects Quadrant Restriction and Allow Asymmetry.', tags: ['shove', 'push'] });
-        settings.push({ cat: 'Effects', id: prefix + 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, unit: 'steps', dep: sfDep, tier: 'advanced', description: 'Steps to wait before the first shove fires.', tags: ['timing', 'wait'] });
-        settings.push({ cat: 'Effects', id: prefix + 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 20, step: 1, unit: 'steps', dep: sfDep, tier: 'advanced', description: 'Steps between each outward advance. Lower values move faster.', tags: ['speed', 'rate'] });
-        settings.push({ cat: 'Effects', id: prefix + 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, unit: 'blocks', dep: sfDep, tier: 'advanced', description: 'Maximum blocks to shove per step.', tags: ['speed', 'shove'] });
         settings.push({ cat: 'Effects', type: 'end_group' });
     }
 

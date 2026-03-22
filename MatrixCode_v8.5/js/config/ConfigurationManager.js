@@ -298,6 +298,7 @@ class ConfigurationManager {
             "quantizedDefaultShadowWorldFadeSpeed": 0.5,
             "quantizedDefaultSingleLayerMode": false,
             "quantizedDefaultSingleLayerModeRetainState": false,
+            "quantizedDefaultSpawnFromPerimeter": false,
             "quantizedDefaultPerimeterEchoEnabled": false,
             "quantizedDefaultGlassBloom": 1.2,
 

@@ -4299,19 +4299,42 @@ class QuantizedBaseEffect extends AbstractEffect {
             const layer = 1;
 
             const allowed = this._getAllowedDirs(layer);
+            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
                 const maxSpawn = this._getGenConfig('BlockSpawnerCount') ?? 5;
 
+                let outsideMap = null;
+                if (spawnFromPerimeter) {
+                    outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
+                }
+
                 // Collect perimeter blocks
                 const perimeterBlocks = this.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
 
-                    // NEW: Ensure seed parents are connected to the spines (X or Y axis)
+                    // Standard Precondition: Connected to spines
                     const onYSpine = (b.x <= s.genOriginX && b.x + b.w - 1 >= s.genOriginX);
                     const onXSpine = (b.y <= s.genOriginY && b.y + b.h - 1 >= s.genOriginY);
-                    if (!onXSpine && !onYSpine) return false;
+                    const onSpine = onXSpine || onYSpine;
+
+                    // Option: Spawn from ANY perimeter block
+                    let onOuterPerimeter = false;
+                    if (spawnFromPerimeter && outsideMap) {
+                        const cx = this._gridCX, cy = this._gridCY, w = this.logicGridW;
+                        const neighbors = [];
+                        for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
+                        for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
+                        
+                        onOuterPerimeter = neighbors.some(n => {
+                            const gx = cx + n.x, gy = cy + n.y;
+                            if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH) return false;
+                            return outsideMap[gy * w + gx] === 1;
+                        });
+                    }
+
+                    if (!onSpine && !onOuterPerimeter) return false;
 
                     const neighbors = [
                         {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
@@ -4857,6 +4880,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             const minLength = this._getGenConfig('AxisShiftMinLength') ?? 3;
             const layer = 1;
 
+            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
+
             // Initialize state
             if (!s.axisShiftAxes) s.axisShiftAxes = [];
             if (!s.axisShiftUsedStrips) s.axisShiftUsedStrips = new Set();
@@ -4882,6 +4907,33 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (s.step < startDelay) return;
             if ((s.step - startDelay) % rate !== 0) return;
 
+            // Option: Spawn from ANY perimeter block
+            if (spawnFromPerimeter && s.outsideMap) {
+                const cx = this._gridCX, cy = this._gridCY, w = this.logicGridW;
+                const perimeterCandidates = this.activeBlocks.filter(b => {
+                    // Is this block on the outermost perimeter?
+                    const neighbors = [];
+                    for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
+                    for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
+                    return neighbors.some(n => {
+                        const gx = cx + n.x, gy = cy + n.y;
+                        if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH) return false;
+                        return s.outsideMap[gy * w + gx] === 1;
+                    });
+                });
+
+                if (perimeterCandidates.length > 0) {
+                    const b = perimeterCandidates[Math.floor(Math.random() * perimeterCandidates.length)];
+                    s.axisShiftCandidates.push({
+                        id: 'perimeter_' + b.id + '_' + s.step,
+                        direction: 'ANY',
+                        originX: b.x + Math.floor(b.w / 2),
+                        originY: b.y + Math.floor(b.h / 2),
+                        growCount: 2 // Artificial growCount to allow offset pick
+                    });
+                }
+            }
+
             // Cap check
             if (s.axisShiftAxes.length >= maxAxes) return;
             if (s.axisShiftCandidates.length === 0) return;
@@ -4893,8 +4945,8 @@ class QuantizedBaseEffect extends AbstractEffect {
             const candidate = s.axisShiftCandidates.splice(idx, 1)[0];
 
             // Pick a point along the line as the new sub-origin
-            const [dx, dy] = this._dirDelta(candidate.direction);
-            const offset = 1 + Math.floor(Math.random() * Math.max(1, candidate.growCount - 1));
+            const [dx, dy] = (candidate.direction === 'ANY') ? [0, 0] : this._dirDelta(candidate.direction);
+            const offset = (candidate.direction === 'ANY') ? 0 : (1 + Math.floor(Math.random() * Math.max(1, candidate.growCount - 1)));
             const subOriginX = candidate.originX + dx * offset;
             const subOriginY = candidate.originY + dy * offset;
 
@@ -4909,7 +4961,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (const dir of dirs) {
                 if (spawned >= spawnAmount) break;
                 // Relaxed quadrant check: allow if direction OR parent arm is allowed
-                if (allowed && !allowed.has(dir) && !allowed.has(candidate.direction)) continue;
+                if (allowed && !allowed.has(dir) && candidate.direction !== 'ANY' && !allowed.has(candidate.direction)) continue;
 
                 spawned++;
                 this.actionBuffer.push({ layer, fn: () => {
@@ -4918,7 +4970,7 @@ class QuantizedBaseEffect extends AbstractEffect {
                     strip.boostSteps = subBoost;
                     strip.pattern = this._generateInsideOutPattern();
                     strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
-                    strip.arm = candidate.direction;
+                    strip.arm = (candidate.direction === 'ANY') ? dir : candidate.direction;
                 }});
             }
 
@@ -5394,8 +5446,18 @@ class QuantizedBaseEffect extends AbstractEffect {
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
 
+            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
+
             // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
-            if (!this._isOccupied(bx, by, 0) && !this._isOccupied(bx, by, 1)) continue;
+            const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
+            let perimeterEstablished = false;
+            if (spawnFromPerimeter && !spineEstablished) {
+                // Check if any cardinal neighbor of (bx, by) is occupied on L0 or L1
+                const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
+                perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
+            }
+
+            if (!spineEstablished && !perimeterEstablished) continue;
 
             // Prepare waves for this bucket
             const waves = [];
@@ -5537,6 +5599,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         const s = this.behaviorState;
         this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
+
+        // One-time per step calculation of outsideMap if SpawnFromPerimeter is enabled
+        s.outsideMap = null;
+        if (this.getConfig('SpawnFromPerimeter')) {
+            s.outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
+        }
 
         if (s.pendingDeletions && s.pendingDeletions.length > 0) {
             for (const d of s.pendingDeletions) this._removeBlock(d.x, d.y, d.w, d.h, d.layer);
