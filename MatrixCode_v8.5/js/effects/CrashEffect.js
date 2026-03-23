@@ -477,7 +477,10 @@ void main() {
                                 displayFont = fontIdx;
                             } else if (this.snap && this.snap.alphas[idx] > 0.01) {
                                 const charSeed = (idx ^ Math.floor(bar.id)) * 7.123;
-                                const charCode = Utils.CHARS.charCodeAt(Math.floor((charSeed - Math.floor(charSeed)) * Utils.CHARS.length));
+                                const activeFonts = this.c.derived.activeFonts;
+                                const fontData = activeFonts[0] || { chars: "01" };
+                                const charSet = fontData.chars;
+                                const charCode = charSet.charCodeAt(Math.floor((charSeed - Math.floor(charSeed)) * charSet.length));
                                 charStr = String.fromCharCode(charCode);
                                 displayFont = 0;
                             } else {
@@ -788,7 +791,9 @@ void main() {
         // Deterministic pseudo-random character based on index and current bolt
         // Simple hash: (idx * magic1 + boltId * magic2) % len
         const seed = Math.floor(idx * 137 + this.supermanState.boltId * 997);
-        const charSet = Utils.CHARS;
+        const activeFonts = this.c.derived.activeFonts;
+        const fontData = activeFonts[0] || { chars: "01" };
+        const charSet = fontData.chars;
         return charSet[seed % charSet.length];
     }
 

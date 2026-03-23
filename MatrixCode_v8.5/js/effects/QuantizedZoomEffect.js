@@ -67,7 +67,14 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.zoomScale = 0.25;
         this._smoothedZoom = 0.25;
         this._zoomOpacity = 1.0;
-        this._savedBrightness = this.c.state.brightness ?? 1.0;
+        
+        // If re-triggering while already dimmed, restore original first before re-saving
+        if (this._savedBrightness !== null) {
+            this.c.state.brightness = this._savedBrightness;
+        } else {
+            this._savedBrightness = this.c.state.brightness ?? 1.0;
+        }
+        
         this._fadingOut = false;
         this._fadeOutProgress = 0;
         this._stripsCaptured = false;
@@ -415,6 +422,22 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             this._savedBrightness = null;
         }
         super._terminate();
+    }
+
+    stop() {
+        if (this._savedBrightness !== null) {
+            this.c.state.brightness = this._savedBrightness;
+            this._savedBrightness = null;
+        }
+        super.stop();
+    }
+
+    _handleDebugInput(e) {
+        if (e.key === 'Escape') {
+            this.stop();
+            return;
+        }
+        super._handleDebugInput(e);
     }
 
     /**
