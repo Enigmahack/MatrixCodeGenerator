@@ -82,14 +82,19 @@ class QuantizedEffectsPass extends RenderPass {
         gl.clear(gl.COLOR_BUFFER_BIT);
         
         if (renderer._renderQuantizedLineGfx(s, d, sourceTex, targetFBO)) {
+            renderer._quantizedPersistenceDirty = true;
             return targetTex;
         } else {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboLinePersist);
-            gl.clearColor(0, 0, 0, 0);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboRefrPersist);
-            gl.clearColor(0, 0, 0, 0);
-            gl.clear(gl.COLOR_BUFFER_BIT);
+            // Optimization: Only clear persistence FBOs if they were actually used by an effect
+            if (renderer._quantizedPersistenceDirty) {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboLinePersist);
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.fboRefrPersist);
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                renderer._quantizedPersistenceDirty = false;
+            }
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
             gl.disable(gl.BLEND);
@@ -2159,9 +2164,11 @@ class WebGLRenderer {
 
     _renderQuantizedLineGfx(s, d, sourceTex, targetFBO = null) {
         const fx = this._getActiveQuantizedFx();
-        if (!fx || !fx.renderGrid) {
+        if (!fx) return false; // Inactive state — bail silently (standard)
+
+        if (!fx.renderGrid) {
             if (!this._lineGfxDiagLogged) {
-                console.warn(`[WebGLRenderer] _renderQuantizedLineGfx bail: fx=${!!fx}, renderGrid=${!!(fx && fx.renderGrid)}`);
+                console.warn(`[WebGLRenderer] _renderQuantizedLineGfx bail: fx active but renderGrid missing (init in progress?)`);
                 this._lineGfxDiagLogged = true;
             }
             return false;

@@ -1,26 +1,23 @@
-with open("MatrixCode_v8.5/js/config/ConfigTemplate.js", "r") as f:
-    lines = f.readlines()
+import re
 
-new_lines = []
-in_generator_settings_func = False
+with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
+    cm = f.read()
 
-for i, line in enumerate(lines):
-    if "const generateQuantizedEffectSettings =" in line:
-        in_generator_settings_func = True
-    if "return settings;" in line and in_generator_settings_func:
-        # End of func
-        # in_generator_settings_func = False # will do it after append
-        pass
-    
-    # Check for the line to remove if it's outside the func
-    if "if (prefix === 'quantizedGenerateV2' && s.sub.startsWith('V2 Generator')) return;" in line:
-        if not in_generator_settings_func:
-            # Skip this line!
-            continue
-    
-    new_lines.append(line)
-    if "return settings;" in line and in_generator_settings_func:
-        in_generator_settings_func = False
+def remove_duplicates(cm):
+    lines = cm.split('\n')
+    seen = set()
+    new_lines = []
+    for line in lines:
+        match = re.search(r'^\s*"([^"]+)":', line)
+        if match:
+            key = match.group(1)
+            if key in seen:
+                continue
+            seen.add(key)
+        new_lines.append(line)
+    return '\n'.join(new_lines)
 
-with open("MatrixCode_v8.5/js/config/ConfigTemplate.js", "w") as f:
-    f.writelines(new_lines)
+cm = remove_duplicates(cm)
+
+with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
+    f.write(cm)

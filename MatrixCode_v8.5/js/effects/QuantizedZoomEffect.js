@@ -36,7 +36,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 
     getConfig(key) {
-        if (key === 'LayerCount') return 1;
+        if (key === 'LayerCount') return 2;
         if (key === 'GeneratorTakeover') return false;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
 
