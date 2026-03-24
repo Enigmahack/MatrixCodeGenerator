@@ -197,10 +197,10 @@ class QuantizedSequenceGeneratorV2 {
         
         const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
 
-        const minL = this._getMinLayer();
-        const maxL = this._getMaxLayer();
-        for (let l = minL; l <= maxL; l++) {
-
+        const isOccupiedAny = (bx, by) => {
+            const minL = this._getMinLayer();
+            const maxL = this._getMaxLayer();
+            for (let l = minL; l <= maxL; l++) {
                 if (this._isOccupied(bx, by, l)) return true;
             }
             return false;
@@ -985,7 +985,6 @@ class QuantizedSequenceGeneratorV2 {
         if (!s.dirPools) s.dirPools = { 0: [], 1: [] };
         if (!s.lastLayerDirs) s.lastLayerDirs = { 0: null, 1: null };
 
-        const minL = this._getMinLayer();
         const minL = this._getMinLayer();
         const maxL = this._getMaxLayer();
         for (let l = minL; l <= maxL; l++) {
