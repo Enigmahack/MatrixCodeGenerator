@@ -86,6 +86,8 @@ class MatrixKernel {
                 if (this.ui && this.ui.quantEditor) {
                     this.ui.quantEditor.channel.postMessage({ type: 'bye' });
                 }
+                // Flush any pending debounced save so the final state persists
+                if (this.config && this.config.saveImmediate) this.config.saveImmediate();
             });
             return;
         }
@@ -146,6 +148,7 @@ class MatrixKernel {
 
         // Cleanup WebGL on unload to help Safari free up context slots
         window.addEventListener('beforeunload', () => {
+            if (this.config && this.config.saveImmediate) this.config.saveImmediate();
             if (this.renderer && typeof this.renderer.dispose === 'function') {
                 this.renderer.dispose();
             }
@@ -539,8 +542,16 @@ class MatrixKernel {
 
         this.config.subscribe((key) => {
             // Resize the canvas and grid on resolution-related changes
-            if (resizeTriggers.has(key) || key === 'ALL') {
+            if (resizeTriggers.has(key)) {
                 this._resize();
+            } else if (key === 'ALL') {
+                // For 'ALL' (e.g. storage event from another tab), only resize if
+                // window dimensions actually changed to avoid spurious re-triggers
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                if (w !== this._lastWindowW || h !== this._lastWindowH) {
+                    this._resize();
+                }
             }
 
             // Recalculate stream speeds when timing settings change

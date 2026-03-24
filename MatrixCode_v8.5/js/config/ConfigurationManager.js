@@ -11,6 +11,7 @@ class ConfigurationManager {
         this.subscribers = [];
         this._previousSmoothingEnabled = undefined;
         this._previousSmoothingAmount = undefined;
+        this._saveTimer = null;
 
         // Define keys that are shared across all profiles (Global Settings)
         this.SHARED_KEYS = new Set([
@@ -2207,14 +2208,35 @@ void main() {
      * Saves the current application state to local storage.
      */
     save() {
-        try {
-            // Save state
-            const data = {
-                state: this.state
-            };
-            localStorage.setItem(this.storageKey, JSON.stringify(data));
-        } catch (e) {
-            console.warn('Failed to save configuration:', e);
+        // Debounce localStorage writes to avoid hammering storage during rapid
+        // slider drags.  This prevents the 'storage' event from firing in other
+        // windows on every single oninput tick, which was causing cascade
+        // resize+toggle re-triggers.
+        if (this._saveTimer) clearTimeout(this._saveTimer);
+        this._saveTimer = setTimeout(() => {
+            this._saveTimer = null;
+            try {
+                const data = { state: this.state };
+                localStorage.setItem(this.storageKey, JSON.stringify(data));
+            } catch (e) {
+                console.warn('Failed to save configuration:', e);
+            }
+        }, 150);
+    }
+
+    /**
+     * Flushes any pending debounced save immediately (e.g. on beforeunload).
+     */
+    saveImmediate() {
+        if (this._saveTimer) {
+            clearTimeout(this._saveTimer);
+            this._saveTimer = null;
+            try {
+                const data = { state: this.state };
+                localStorage.setItem(this.storageKey, JSON.stringify(data));
+            } catch (e) {
+                console.warn('Failed to save configuration:', e);
+            }
         }
     }
 

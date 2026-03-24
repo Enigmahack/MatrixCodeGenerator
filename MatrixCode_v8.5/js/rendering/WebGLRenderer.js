@@ -252,11 +252,11 @@ class WebGLRenderer {
         this._copyUniforms = { u_texture: 0 };
         this._copyTextures = { 0: null };
         this._copyBlend = { src: 0, dst: 0, eq: 0 };
-        // Texture binding variants (slots 0-4, keyed by string for for...in iteration)
-        this._mainCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
-        this._refrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
-        this._echoRefrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
-        this._echoCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null };
+        // Texture binding variants (slots 0-6, keyed by string for for...in iteration)
+        this._mainCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+        this._refrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+        this._echoRefrTextures = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+        this._echoCompTextures = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
         this._echoRenderTextures = { 1: null, 3: null, 4: null };
         this._emptyTextures = {};
     }
@@ -571,14 +571,14 @@ class WebGLRenderer {
                 uniform vec2 u_screenOrigin;
                 uniform vec2 u_screenStep;
                 uniform vec2 u_cellPitch;
-                uniform vec2 u_blockOffset; 
+                uniform vec2 u_blockOffset;
                 uniform vec2 u_userBlockOffset;
                 uniform vec2 u_resolution;
                 uniform vec2 u_offset;
                 uniform vec2 u_sourceGridOffset;
                 uniform vec2 u_sampleOffset;
                 uniform int u_mode; // 0 = Generate, 1 = Composite, 2 = Pure Blit
-                uniform ivec4 u_layerOrder; 
+                uniform ivec4 u_layerOrder;
 
                 uniform float u_thickness;
                 uniform vec3 u_color;
@@ -616,6 +616,15 @@ class WebGLRenderer {
                 uniform float u_varianceCoverage;
                 uniform float u_varianceDirection;
                 uniform float u_singleBlockFill;
+
+                // GPU Glyph Lookup uniforms
+                uniform highp usampler2D u_charIndexGrid;   // R16UI: per-cell atlas glyph IDs
+                uniform sampler2D u_atlasTexture;            // glyph atlas (white on transparent)
+                uniform float u_atlasCols;                   // atlas grid columns
+                uniform float u_atlasCellSize;               // atlas cell size in pixels
+                uniform vec2 u_atlasSize;                    // atlas canvas dimensions
+                uniform vec2 u_gridDims;                     // [cols, rows] of character grid
+                uniform vec2 u_screenCellSize;               // (cellWidth*scale, cellHeight*scale) for atlas mapping
 
                 out vec4 fragColor;
 
@@ -671,6 +680,36 @@ class WebGLRenderer {
                     float angle = shift * 6.283185; // Map [-1..1] to [-2PI..2PI]
                     float cosAngle = cos(angle);
                     return color * cosAngle + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - cosAngle);
+                }
+
+                // GPU Glyph Lookup: sample glyph alpha from atlas via charIndex data texture.
+                // suv is in source-grid UV space: x=[0,1] left-to-right, y=[0,1] bottom-to-top
+                float sampleGlyphLuma(vec2 suv) {
+                    vec2 pixelPos = vec2(suv.x * u_resolution.x, (1.0 - suv.y) * u_resolution.y);
+                    vec2 charCell = (pixelPos - u_screenOrigin) / u_screenStep;
+
+                    if (charCell.x < -0.5 || charCell.x >= u_gridDims.x + 0.5 ||
+                        charCell.y < -0.5 || charCell.y >= u_gridDims.y + 0.5) return 0.0;
+
+                    ivec2 cell = ivec2(clamp(charCell, vec2(0.0), u_gridDims - 1.0));
+                    uint glyphId = texelFetch(u_charIndexGrid, cell, 0).r;
+                    if (glyphId >= 65535u) return 0.0;
+
+                    float atlasCol = mod(float(glyphId), u_atlasCols);
+                    float atlasRow = floor(float(glyphId) / u_atlasCols);
+                    vec2 cellFrac = fract(charCell);
+                    // Map screen cell to atlas: the old sourceGrid drew characters at
+                    // atlas size (cellSize) through a stretch transform. One screen pixel
+                    // = 1/stretch atlas pixels. Match this by centering the screen cell
+                    // within the atlas cell at 1:1 pixel ratio (pre-stretch).
+                    // u_screenCellSize = (cellWidth*scale, cellHeight*scale) = screen cell
+                    // size without stretch, matching how atlas characters were drawn.
+                    vec2 uvBase = vec2(atlasCol, atlasRow) * u_atlasCellSize;
+                    vec2 atlasCenter = uvBase + u_atlasCellSize * 0.5;
+                    vec2 atlasOffset = (cellFrac - 0.5) * u_screenCellSize;
+                    vec2 uv = (atlasCenter + atlasOffset) / u_atlasSize;
+
+                    return texture(u_atlasTexture, uv).a;
                 }
 
                 void main() {
@@ -827,7 +866,7 @@ class WebGLRenderer {
                                     vec2 srUV_ = rUV_ + (u_sourceGridOffset + u_sampleOffset) / u_resolution; \
                                     srUV_ = (srUV_ - 0.5) / u_refractionMaskZoom + 0.5; \
                                     if (srUV_.x>=0.0 && srUV_.x<=1.0 && srUV_.y>=0.0 && srUV_.y<=1.0) { \
-                                        float luma_ = texture(u_sourceGrid, srUV_).r; \
+                                        float luma_ = sampleGlyphLuma(srUV_); \
                                         float shade3D_ = 1.0; \
                                         if (u_refraction3DEnabled && refrWidth > 0.001) { \
                                             float perpNorm_ = clamp((minD - refrOffPx) / refrWidth, -1.0, 1.0); \
@@ -892,7 +931,7 @@ class WebGLRenderer {
                                         vec2 fillUV = v_uv + (u_sourceGridOffset + u_sampleOffset) / u_resolution;
                                         fillUV = (fillUV - 0.5) / u_refractionMaskZoom + 0.5;
                                         if (fillUV.x >= 0.0 && fillUV.x <= 1.0 && fillUV.y >= 0.0 && fillUV.y <= 1.0) {
-                                            float luma = texture(u_sourceGrid, fillUV).r;
+                                            float luma = sampleGlyphLuma(fillUV);
                                             vec3 tc = applyHueShift(u_color, u_tintOffset);
                                             vec3 fc = boostSaturation(tc * luma * u_refractionBrightness, u_refractionSaturation);
                                             resultColor = mix(resultColor, fc, bell);
@@ -1037,6 +1076,14 @@ class WebGLRenderer {
 
             this.lineProgram = this._createProgram(lineVS, lineFS);
 
+            // Pin integer sampler uniforms immediately so they never default to unit 0
+            // (which holds a float texture, causing type mismatch errors)
+            if (this.lineProgram) {
+                this.gl.useProgram(this.lineProgram);
+                const loc = this._u(this.lineProgram, 'u_charIndexGrid');
+                if (loc) this.gl.uniform1i(loc, 5); // Permanently assign to TEXTURE5
+            }
+
             // --- MATRIX SHADERS (SPLIT 2D/3D) ---
             
             const matrixVS_Common = `#version 300 es
@@ -1082,7 +1129,8 @@ class WebGLRenderer {
                 uniform float u_mirror;
                 uniform float u_dissolveEnabled;
                 uniform float u_dissolveScale;
-    
+                uniform vec2 u_cellScale;
+
                 void main() {
                     // Optimized Effect Passing
                     v_glimmerFlicker = a_glimmerFlicker;
@@ -1100,8 +1148,10 @@ class WebGLRenderer {
                     // Position Calculation (2D)
                     vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
                     vec2 worldPos = a_pos + centerPos2D;
-                    
-                    v_cellPos = floor(a_pos / u_cellSize);
+
+                    // a_pos = (col*cellWidth + cellWidth/2, row*cellHeight + cellHeight/2)
+                    // u_cellSize * u_cellScale = (cellWidth, cellHeight)
+                    v_cellPos = floor(a_pos / (u_cellSize * u_cellScale));
                     
                     // Mirror/Stretch
                     vec2 gridCenter = u_gridSize * 0.5;
@@ -1171,9 +1221,20 @@ class WebGLRenderer {
                 in float v_shapeID;
                 
                 uniform sampler2D u_texture;
-                uniform sampler2D u_shadowMask; 
-                uniform sampler2D u_glimmerNoise; 
-                
+                uniform sampler2D u_shadowMask;
+                uniform sampler2D u_glimmerNoise;
+
+                // Shadow World GPU Blending
+                uniform highp usampler2D u_shadowCharTex;    // R16UI: shadow char atlas IDs
+                uniform sampler2D u_shadowFadeTex;            // RG: [sFade, oFade]
+                uniform sampler2D u_shadowColorTex;           // RGBA: shadow colors
+                uniform sampler2D u_shadowAtlasTex;           // shared glyph atlas for shadow chars
+                uniform vec2 u_gridDimsChar;                  // [cols, rows]
+                uniform float u_shadowEnabled;                // 1.0 when shadow textures valid
+                uniform float u_shadowAtlasCols;              // shared atlas columns
+                uniform float u_shadowAtlasCellSize;          // shared atlas cell size
+                uniform vec2 u_shadowAtlasSize;               // shared atlas dimensions
+
                 uniform float u_time;
                 uniform float u_dissolveEnabled; 
                 uniform float u_dissolveScale;
@@ -1283,19 +1344,42 @@ class WebGLRenderer {
                         }
                     }
     
-                    if (useMix >= 5.0) {
-                        // DUAL World Mode (Shadow Transition Overlap)
-                        float originalBaseAlpha = baseColor.a; // OW Combined Alpha (Sim * Fade)
-                        
-                        // Use v_glow as the NW Alpha (CPU puts sg.alpha * sFade there)
-                        float nwA = v_glow; 
-                        
+                    if (useMix >= 5.0 && u_shadowEnabled > 0.5) {
+                        // GPU Shadow Blending: read fade/color/char from textures
+                        vec2 cellUV = (v_cellPos + 0.5) / u_gridDimsChar;
+                        vec2 fadeData = texture(u_shadowFadeTex, cellUV).rg;
+                        float sFade = fadeData.r;
+                        float oFade = fadeData.g;
+
+                        // Shadow character from shared glyph atlas
+                        ivec2 cellCoord = ivec2(v_cellPos);
+                        uint shadowGlyphId = texelFetch(u_shadowCharTex, cellCoord, 0).r;
+                        float tex2 = 0.0;
+                        if (shadowGlyphId < 65535u) {
+                            float sc2 = mod(float(shadowGlyphId), u_shadowAtlasCols);
+                            float sr2 = floor(float(shadowGlyphId) / u_shadowAtlasCols);
+                            vec2 sUvBase = vec2(sc2, sr2) * u_shadowAtlasCellSize;
+                            vec2 sUv = (sUvBase + (v_cellUV * u_shadowAtlasCellSize)) / u_shadowAtlasSize;
+                            tex2 = texture(u_shadowAtlasTex, sUv).a;
+                        }
+
+                        // Shadow color from texture
+                        vec4 shadowColor = texture(u_shadowColorTex, cellUV);
+
+                        // Blend colors
+                        baseColor.rgb = mix(baseColor.rgb, shadowColor.rgb, sFade);
+
+                        float owA = tex1 * oFade;
+                        finalAlpha = owA + tex2 * sFade;
+                        baseColor.a = 1.0;
+                    } else if (useMix >= 5.0) {
+                        // Fallback: CPU-packed dual world mode (shadow textures not available)
+                        float originalBaseAlpha = baseColor.a;
+                        float nwA = v_glow;
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
-                        
-                        // Weighted average crossfade: oFade+sFade=1 guarantees sum <= 1
                         finalAlpha = owA + tex2 * nwA;
-                        baseColor.a = 1.0; 
+                        baseColor.a = 1.0;
                     } else if (useMix >= 4.0) {
                         // Overlay Mode (Tracers/Effects)
                         // Use baseColor so tracers follow Stream Color.
@@ -1347,8 +1431,19 @@ class WebGLRenderer {
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger).
-                    if (useMix >= 5.0) {
-                        // Dual-world mode: v_glow is nwA, but v_glimmerAlpha carries shadow world glow.
+                    if (useMix >= 5.0 && u_shadowEnabled > 0.5) {
+                        // GPU shadow: read shadow glow from shadowColor texture alpha channel
+                        vec2 glowCellUV = (v_cellPos + 0.5) / u_gridDimsChar;
+                        vec2 glowFadeData = texture(u_shadowFadeTex, glowCellUV).rg;
+                        float swGlowFactor = texture(u_shadowColorTex, glowCellUV).a * glowFadeData.r;
+                        if (swGlowFactor > 0.0) {
+                            if (glassMask <= 0.001) {
+                                swGlowFactor *= (1.0 - shadow);
+                            }
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                        }
+                    } else if (useMix >= 5.0) {
+                        // Fallback: CPU-packed shadow glow via v_glimmerAlpha
                         if (v_glimmerAlpha > 0.0) {
                             float swGlowFactor = v_glimmerAlpha;
                             if (glassMask <= 0.001) {
@@ -1392,6 +1487,13 @@ class WebGLRenderer {
             
             this.program2D = this._createProgram(matrixVS2D, matrixFS);
             this.program = this.program2D; // Default fallback
+
+            // Pin integer sampler uniform immediately so it never defaults to unit 0
+            if (this.program2D) {
+                this.gl.useProgram(this.program2D);
+                const loc = this._u(this.program2D, 'u_shadowCharTex');
+                if (loc) this.gl.uniform1i(loc, 3); // Permanently assign to TEXTURE3
+            }
     
             // Keep existing Bloom/Color programs
             const bloomVS = `#version 300 es
@@ -1559,6 +1661,29 @@ class WebGLRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
         }
 
+        // 1x1 R16UI dummy texture for usampler2D slots (value=65535 → "no glyph")
+        // Prevents "Two textures of different types use the same sampler location" errors
+        // when integer samplers default to unit 0 which holds a float texture.
+        this.blackIntTexture = this.gl.createTexture();
+        if (this.blackIntTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, 1, 1, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, new Uint16Array([65535]));
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
+
+        // Pre-bind blackIntTexture to the slots used by usampler2D uniforms globally.
+        // This ensures that even before real data arrives, these slots have R16UI textures.
+        if (this.blackIntTexture) {
+            this.gl.activeTexture(this.gl.TEXTURE3); // matrixFS u_shadowCharTex slot
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+            this.gl.activeTexture(this.gl.TEXTURE5); // lineFS u_charIndexGrid slot
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+            this.gl.activeTexture(this.gl.TEXTURE0); // Restore default
+        }
+
         // Ring buffer of occupancy snapshots for GPU echo
         this.echoOccupancyHistory = [];
         this._echoSnapPool = [];
@@ -1576,6 +1701,47 @@ class WebGLRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         }
         this.lastSourceGridSeed = -1;
+
+        // GPU Glyph Lookup: R16UI texture of per-cell atlas glyph IDs
+        this.charIndexTexture = this.gl.createTexture();
+        if (this.charIndexTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.charIndexTexture);
+            // Initialize with 1x1 R16UI so the texture is valid for usampler2D binding before real data arrives
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, 1, 1, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, new Uint16Array([65535]));
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
+        this.lastCharIndexCols = 0;
+        this.lastCharIndexRows = 0;
+        this.lastCharIndexSeed = -1;
+
+        // Shadow World GPU Blending textures
+        const createNearestTexture = () => {
+            const tex = this.gl.createTexture();
+            if (tex) {
+                this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            }
+            return tex;
+        };
+        this.shadowFadeTexture = createNearestTexture();     // RG8: [sFade, oFade] per cell
+        this.shadowColorTexture = createNearestTexture();    // RGBA8: shadow world colors
+        this.shadowCharIndexTexture = createNearestTexture(); // R16UI: shadow world glyph IDs
+        // Initialize R16UI texture with 1x1 so it's valid for usampler2D binding
+        if (this.shadowCharIndexTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowCharIndexTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, 1, 1, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, new Uint16Array([65535]));
+        }
+        this._shadowFadeBuffer = null;
+        this._shadowColorBuffer = null;
+        this._shadowCharIndexArray = null;
+        this._lastShadowCols = 0;
+        this._lastShadowRows = 0;
 
         // Initialize VAO for line/glass rendering (Mode 0, 1, 2)
         this.vaoLine = this.gl.createVertexArray();
@@ -1898,7 +2064,13 @@ class WebGLRenderer {
             u_logicGrid: 1
         };
 
-        const textures = { 1: this.logicGridTexture };
+        const textures = {
+            1: this.logicGridTexture,
+            5: this.blackIntTexture,  // Bind R16UI dummy to usampler2D u_charIndexGrid slot to prevent type mismatch
+            6: this.blackTexture      // Bind dummy to sampler2D u_atlasTexture slot
+        };
+        uniforms.u_charIndexGrid = 5;
+        uniforms.u_atlasTexture = 6;
 
         this._drawFullscreenPass(this.lineProgram, this.shadowMaskFbo, uniforms, textures, { src: this.gl.ONE, dst: this.gl.ONE });
         
@@ -1946,7 +2118,7 @@ class WebGLRenderer {
 
             if (typeof value === 'number') {
                 // Correctly dispatch based on shader type
-                if (type === this.gl.INT || type === this.gl.BOOL || type === this.gl.SAMPLER_2D) {
+                if (type === this.gl.INT || type === this.gl.BOOL || type === this.gl.SAMPLER_2D || type === this.gl.UNSIGNED_INT_SAMPLER_2D || type === this.gl.INT_SAMPLER_2D) {
                     this.gl.uniform1i(loc, Math.floor(value));
                 } else {
                     this.gl.uniform1f(loc, value);
@@ -2106,6 +2278,13 @@ class WebGLRenderer {
             warmed++;
         };
 
+        // Bind R16UI dummy texture to slot 5 for lineProgram's usampler2D u_charIndexGrid
+        // to prevent "Two textures of different types" errors during warmup draws
+        if (this.blackIntTexture) {
+            gl.activeTexture(gl.TEXTURE5);
+            gl.bindTexture(gl.TEXTURE_2D, this.blackIntTexture);
+        }
+
         // 1. lineProgram + vaoLine — quantized line gfx passes
         if (this.lineProgram && this.vaoLine) {
             // Pass 2A: composite (no blend)
@@ -2144,6 +2323,12 @@ class WebGLRenderer {
         // 5. lineProgram + vaoLine + additive (shadow mask generation)
         if (this.lineProgram && this.vaoLine) {
             warm(this.lineProgram, this.vaoLine, true, gl.ONE, gl.ONE, false);
+        }
+
+        // Bind R16UI dummy texture to slot 3 for program2D's usampler2D u_shadowCharTex
+        if (this.blackIntTexture) {
+            gl.activeTexture(gl.TEXTURE3);
+            gl.bindTexture(gl.TEXTURE_2D, this.blackIntTexture);
         }
 
         // 6. program2D + vao — main falling-code instanced draw (runs every frame,
@@ -2259,16 +2444,20 @@ class WebGLRenderer {
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
 
-        // Upload Source Grid Texture (Characters)
-        if (fx.gridCacheCanvas) {
-            // Force upload if seed changed or if it's the first time
-            if (fx.lastGridSeed !== this.lastSourceGridSeed || this.lastSourceGridSeed === -1) {
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.sourceGridTexture);
-                this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fx.gridCacheCanvas);
-                this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
-                this.lastSourceGridSeed = fx.lastGridSeed;
+        // Upload GPU Glyph Lookup: charIndex R16UI texture
+        const charArr = fx._charIndexArray;
+        if (charArr && fx.lastGridSeed !== this.lastCharIndexSeed) {
+            const ciCols = fx.g.cols, ciRows = fx.g.rows;
+            this.gl.activeTexture(this.gl.TEXTURE7); // Use scratch unit for uploads to avoid polluting sampler-bound units
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.charIndexTexture);
+            if (ciCols !== this.lastCharIndexCols || ciRows !== this.lastCharIndexRows) {
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, ciCols, ciRows, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, charArr);
+                this.lastCharIndexCols = ciCols;
+                this.lastCharIndexRows = ciRows;
+            } else {
+                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, ciCols, ciRows, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, charArr);
             }
+            this.lastCharIndexSeed = fx.lastGridSeed;
         }
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
 
@@ -2300,6 +2489,17 @@ class WebGLRenderer {
         sharedUniforms.u_logicGrid = 1;
         sharedUniforms.u_shadowMask = 3;
         sharedUniforms.u_sourceGrid = 4;
+        // GPU Glyph Lookup uniforms
+        sharedUniforms.u_charIndexGrid = 5;
+        sharedUniforms.u_atlasTexture = 6;
+        const glyphAtlas = QuantizedBaseEffect.sharedAtlas;
+        if (glyphAtlas) {
+            sharedUniforms.u_atlasCols = glyphAtlas._lastCols;
+            sharedUniforms.u_atlasCellSize = glyphAtlas.cellSize;
+            sharedUniforms.u_atlasSize = [glyphAtlas.atlasWidth, glyphAtlas.atlasHeight];
+        }
+        sharedUniforms.u_gridDims = [fx.g.cols, fx.g.rows];
+        sharedUniforms.u_screenCellSize = [d.cellWidth * scale, d.cellHeight * scale];
         sharedUniforms.u_intensity = fxState.intensity;
         sharedUniforms.u_glow = fxState.glow;
         sharedUniforms.u_thickness = fxState.thickness;
@@ -2322,6 +2522,30 @@ class WebGLRenderer {
         commonTextures[1] = this.logicGridTexture;
         commonTextures[3] = this.shadowMaskTex;
         commonTextures[4] = this.sourceGridTexture;
+        commonTextures[5] = this.charIndexTexture;
+        // Upload shared glyph atlas to GL texture for GPU glyph lookup
+        if (glyphAtlas && glyphAtlas.canvas) {
+            this.gl.activeTexture(this.gl.TEXTURE7); // Scratch unit for uploads
+            if (!this._sharedAtlasGLTexture) {
+                this._sharedAtlasGLTexture = this.gl.createTexture();
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this._sharedAtlasGLTexture);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+                this._sharedAtlasGeneration = -1;
+            }
+            // Re-upload if atlas was rebuilt (needsFullUpdate) or if the palette/font changed
+            const atlasGen = glyphAtlas.currentPalette;
+            if (atlasGen !== this._sharedAtlasGeneration || glyphAtlas.needsFullUpdate || glyphAtlas.dirtyRects.length > 0) {
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this._sharedAtlasGLTexture);
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, glyphAtlas.canvas);
+                this._sharedAtlasGeneration = atlasGen;
+            }
+            commonTextures[6] = this._sharedAtlasGLTexture;
+        } else {
+            commonTextures[6] = this.blackTexture;
+        }
 
         // --- ECHO STATE: Resolve snapshot ring buffer before any passes ---
         // This must happen early so echo pass decisions are made before GPU work begins.
@@ -2753,12 +2977,12 @@ class WebGLRenderer {
                 const ov = ovActive[i];
                 if (ov === 5) {
                     m16[u16Off + 0] = mapChar(gChars[i]);
-                    
+
                     // Blend Colors for Shadow World Transition
                     const c1 = gColors[i];
                     const c2 = ovColors[i];
-                    const sFade = grid.overrideGlows[i]; 
-                    
+                    const sFade = grid.overrideGlows[i];
+
                     if (sFade > 0.001) {
                         const r1 = c1 & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = (c1 >> 16) & 0xFF;
                         const r2 = c2 & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = (c2 >> 16) & 0xFF;
@@ -2772,11 +2996,11 @@ class WebGLRenderer {
                     }
 
                     mF32[baseOff + 2] = gAlphas[i] * ovAlphas[i];
-                    mF32[baseOff + 3] = sFade; 
-                    
+                    mF32[baseOff + 3] = sFade;
+
                     const nwRotMix = (grid.overrideMix[i] || 0.0);
                     m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : mapChar(ovChars[i]);
-                    mF32[baseOff + 4] = 5.0 + nwRotMix; 
+                    mF32[baseOff + 4] = 5.0 + nwRotMix;
                     mU8[u8Off + 20] = gDecays[i];
                     m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
                 } else if (ov === 2) {
@@ -2864,6 +3088,7 @@ class WebGLRenderer {
         }
 
         if (atlas.hasChanges) {
+             this.gl.activeTexture(this.gl.TEXTURE7); // Scratch unit for upload
              this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
              this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
              atlas.resetChanges();
@@ -2873,6 +3098,102 @@ class WebGLRenderer {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
 
+        // --- SHADOW WORLD: CPU-packed path (GPU texture upload disabled) ---
+        // Shadow data is packed into the instance buffer via _setOverride + ov=5 packing above.
+        // The shader uses the CPU fallback path (u_shadowEnabled=0) with getProcessedAlpha().
+        this._hasShadowTextures = false;
+        if (false) { // GPU shadow texture upload disabled — kept for future re-enablement
+            const sh = fx.shadowController;
+            const sg = fx.shadowGrid;
+            if (sh.shadowFade && sh.activeIndices && sh.activeIndices.size > 0) {
+                const sCols = grid.cols, sRows = grid.rows, sTotal = sCols * sRows;
+                this._hasShadowTextures = true;
+                gl.activeTexture(gl.TEXTURE7);
+                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+                // Shadow fade texture (RG8: R=sFade, G=oFade)
+                if (!this._shadowFadeBuffer || this._shadowFadeBuffer.length !== sTotal * 2) {
+                    this._shadowFadeBuffer = new Uint8Array(sTotal * 2);
+                }
+                const fb = this._shadowFadeBuffer;
+                const sf = sh.shadowFade, of = sh.oldWorldFade;
+                fb.fill(0);
+                for (const si of sh.activeIndices) {
+                    fb[si * 2] = (sf[si] * 255) | 0;
+                    fb[si * 2 + 1] = (of[si] * 255) | 0;
+                }
+                gl.bindTexture(gl.TEXTURE_2D, this.shadowFadeTexture);
+                if (sCols !== this._lastShadowCols || sRows !== this._lastShadowRows) {
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, sCols, sRows, 0, gl.RG, gl.UNSIGNED_BYTE, fb);
+                    this._lastShadowCols = sCols;
+                    this._lastShadowRows = sRows;
+                } else {
+                    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sCols, sRows, gl.RG, gl.UNSIGNED_BYTE, fb);
+                }
+
+                // Shadow color texture (RGBA8)
+                if (!this._shadowColorBuffer || this._shadowColorBuffer.length !== sTotal * 4) {
+                    this._shadowColorBuffer = new Uint8Array(sTotal * 4);
+                }
+                const cb = this._shadowColorBuffer;
+                const sc = sg.colors;
+                const sgGlows = sg.glows;
+                const sgAlphas = sg.alphas;
+                cb.fill(0);
+                for (const si of sh.activeIndices) {
+                    const c = sc[si];
+                    cb[si * 4] = c & 0xFF;
+                    cb[si * 4 + 1] = (c >> 8) & 0xFF;
+                    cb[si * 4 + 2] = (c >> 16) & 0xFF;
+                    cb[si * 4 + 3] = sgGlows ? Math.min(255, (sgGlows[si] * (sgAlphas ? sgAlphas[si] : 1.0) * 255) | 0) : 0;
+                }
+                gl.bindTexture(gl.TEXTURE_2D, this.shadowColorTexture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sCols, sRows, 0, gl.RGBA, gl.UNSIGNED_BYTE, cb);
+
+                // Shadow char index texture (R16UI)
+                if (!this._shadowCharIndexArray || this._shadowCharIndexArray.length !== sTotal) {
+                    this._shadowCharIndexArray = new Uint16Array(sTotal);
+                }
+                const sca = this._shadowCharIndexArray;
+                const sChars = sg.chars;
+                const sharedAtlas = QuantizedBaseEffect.sharedAtlas;
+                const cidMap = sharedAtlas ? sharedAtlas.codeToId : null;
+                sca.fill(65535);
+                if (cidMap) {
+                    for (const si of sh.activeIndices) {
+                        let id = cidMap[sChars[si]];
+                        if (id < 0 && sharedAtlas) {
+                            const rect = sharedAtlas.addChar(String.fromCharCode(sChars[si]));
+                            id = rect ? rect.id : 65535;
+                        }
+                        sca[si] = (id >= 0) ? id : 65535;
+                    }
+                }
+                gl.bindTexture(gl.TEXTURE_2D, this.shadowCharIndexTexture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, sCols, sRows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, sca);
+
+                // Ensure shared glyph atlas GL texture is ready for matrixFS shadow char lookup
+                const sa = QuantizedBaseEffect.sharedAtlas;
+                if (sa && sa.canvas) {
+                    if (!this._sharedAtlasGLTexture) {
+                        this._sharedAtlasGLTexture = gl.createTexture();
+                        gl.bindTexture(gl.TEXTURE_2D, this._sharedAtlasGLTexture);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                        this._sharedAtlasGeneration = -1;
+                    }
+                    const saGen = sa.currentPalette;
+                    if (saGen !== this._sharedAtlasGeneration || sa.needsFullUpdate || (sa.dirtyRects && sa.dirtyRects.length > 0)) {
+                        gl.bindTexture(gl.TEXTURE_2D, this._sharedAtlasGLTexture);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sa.canvas);
+                        this._sharedAtlasGeneration = saGen;
+                    }
+                }
+                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); // Restore default alignment
+            }
+        }
 
         // --- SHADOW MASK PASS ---
         // Render Shadow Masks from Effects (Generic)
@@ -3182,7 +3503,26 @@ class WebGLRenderer {
             this.gl.activeTexture(this.gl.TEXTURE2);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
             this.gl.uniform1i(this._u(activeProgram, 'u_glimmerNoise'), 2);
-            
+
+            // Shadow World: CPU-packed fallback path (u_shadowEnabled=0) — shader uses getProcessedAlpha
+            // GPU shadow textures disabled; all shadow data packed into instance buffer via _setOverride
+            {
+                this.gl.uniform1f(this._u(activeProgram, 'u_shadowEnabled'), 0.0);
+                // Bind dummy textures to ALL shadow slots to prevent type mismatch from stale uniform values
+                this.gl.activeTexture(this.gl.TEXTURE3);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);  // R16UI for usampler2D
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowCharTex'), 3);
+                this.gl.activeTexture(this.gl.TEXTURE4);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowFadeTex'), 4);
+                this.gl.activeTexture(this.gl.TEXTURE5);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowColorTex'), 5);
+                this.gl.activeTexture(this.gl.TEXTURE6);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowAtlasTex'), 6);
+            }
+
             this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
             this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
             this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), 1);
@@ -3238,7 +3578,7 @@ class WebGLRenderer {
             this._drawFullscreenTexture(currentTex, 1.0, 0);
         }
 
-        // Cleanup: Unbind all textures to prevent feedback in next frame
+        // Cleanup: Unbind all textures to prevent feedback in next frame (slots 0-7 covers both passes)
         for (let i = 0; i < 8; i++) {
             this.gl.activeTexture(this.gl.TEXTURE0 + i);
             this.gl.bindTexture(this.gl.TEXTURE_2D, null);

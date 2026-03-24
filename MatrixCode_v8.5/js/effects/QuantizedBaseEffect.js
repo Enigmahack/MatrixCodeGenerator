@@ -1641,7 +1641,96 @@ class QuantizedBaseEffect extends AbstractEffect {
         if (!this.layout) {
             this.renderer._computeLayoutOnly(this, w, h, s, d);
         }
-        
+
+        // GPU glyph lookup path: build a Uint16Array of atlas glyph IDs
+        // instead of drawing 100k+ drawImage calls to a canvas.
+        this._buildCharIndexData(w, h, s, d);
+    }
+
+    _buildCharIndexData(w, h, s, d) {
+        const rotatorCycle = d.rotatorCycleFrames || 20;
+        const timeSeed = Math.floor(this.animFrame / rotatorCycle);
+        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
+        this.lastGridSeed = timeSeed;
+        this._gridCacheDirty = false;
+
+        if (!QuantizedBaseEffect.sharedAtlas) {
+            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+        }
+        const atlas = QuantizedBaseEffect.sharedAtlas;
+        atlas.update();
+
+        const grid = this.g;
+        const cols = grid.cols, rows = grid.rows;
+        const total = cols * rows;
+
+        if (!this._charIndexArray || this._charIndexArray.length !== total) {
+            this._charIndexArray = new Uint16Array(total);
+        }
+        const arr = this._charIndexArray;
+        const codeToId = atlas.codeToId;
+
+        const shadowGrid = this.shadowGrid;
+        const distW = this.renderer._distMapWidth;
+        const distH = this.renderer._distMapHeight;
+        const l = this.layout;
+        const chars = grid.chars;
+        const shadowChars = shadowGrid ? shadowGrid.chars : null;
+        const oActive = grid.overrideActive;
+        const oChars = grid.overrideChars;
+        const eActive = grid.effectActive;
+        const srGrid = this.shadowRevealGrid;
+        const rotatorOffsets = grid.rotatorOffsets;
+        const fontData = (d.activeFonts && d.activeFonts[0]) || { chars: "01" };
+        const charSet = fontData.chars;
+        const charSetLen = charSet.length;
+
+        for (let y = 0; y < rows; y++) {
+            const rowOff = y * cols;
+            const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
+            const isByValid = (by >= 0 && by < distH);
+            const bRowOff = isByValid ? by * distW : -1;
+
+            for (let x = 0; x < cols; x++) {
+                const i = rowOff + x;
+                let charCode = 0;
+
+                if (isByValid) {
+                    const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
+                    if (bx >= 0 && bx < distW) {
+                        if (srGrid && srGrid[bRowOff + bx] === 1) {
+                            if (shadowChars) charCode = shadowChars[i];
+                        } else {
+                            if (eActive[i] === 3) eActive[i] = 0;
+                        }
+                    }
+                }
+
+                if (charCode <= 32) {
+                    if (oActive && oActive[i] > 0) charCode = oChars[i];
+                    else charCode = chars[i];
+                }
+
+                if (charCode <= 32) {
+                    const hashIdx = rotatorOffsets ? rotatorOffsets[i] : (i % 256);
+                    charCode = charSet.charCodeAt(Math.floor((hashIdx / 256) * charSetLen));
+                }
+
+                let id = codeToId[charCode];
+                if (id < 0) {
+                    const rect = atlas.addChar(String.fromCharCode(charCode));
+                    id = rect ? rect.id : 65535;
+                }
+                arr[i] = id;
+            }
+        }
+    }
+
+    _updateGridCacheLegacy(w, h, s, d) {
+        if (!this.layout) {
+            this.renderer._computeLayoutOnly(this, w, h, s, d);
+        }
+
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
         if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
@@ -1651,7 +1740,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const ctx = this.gridCacheCtx;
         ctx.clearRect(0, 0, w, h);
 
-        // Ensure shared Atlas is ready and using current font settings
         if (!QuantizedBaseEffect.sharedAtlas) {
             QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
         }
@@ -1668,12 +1756,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cols = grid.cols;
         const rows = grid.rows;
         const chars = grid.chars;
-        
+
         const activeFonts = d.activeFonts;
         const fontData = activeFonts[0] || { chars: "01" };
         const charSet = fontData.chars;
         const charSetLen = charSet.length;
-        
+
         ctx.save();
         ctx.translate(screenOriginX, screenOriginY);
         if (s.stretchX !== 1 || s.stretchY !== 1) {
@@ -1684,8 +1772,6 @@ class QuantizedBaseEffect extends AbstractEffect {
         const cellH = d.cellHeight;
         const padding = 5;
 
-        // O(1) Performance Optimization: Move static calculations outside the hot loops.
-        // We also replace expensive Math.sin hashing with fast lookups into rotatorOffsets.
         const rotatorOffsets = grid.rotatorOffsets;
         const shadowChars = shadowGrid ? shadowGrid.chars : null;
         const oActive = grid.overrideActive;
@@ -1697,8 +1783,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const cy = (y + 0.5) * cellH;
             const isInsideY = (y >= 0 && y < rows);
             const rowOff = y * cols;
-            
-            // Logic block Y mapping (O(1) outside X loop)
+
             const by = isInsideY ? Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY) : -1;
             const isByValid = (by >= 0 && by < distH);
             const bRowOff = isByValid ? by * distW : -1;
@@ -1706,21 +1791,18 @@ class QuantizedBaseEffect extends AbstractEffect {
             for (let x = -padding; x < cols + padding; x++) {
                 let charCode = 0;
                 let i = -1;
-                
+
                 const isInsideGrid = isInsideY && (x >= 0 && x < cols);
-                
+
                 if (isInsideGrid) {
                     i = rowOff + x;
-                    
-                    // Sparse logic-to-render check
+
                     if (isByValid) {
                         const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
                         if (bx >= 0 && bx < distW) {
                             if (srGrid && srGrid[bRowOff + bx] === 1) {
-                                // Inside Block: Shadow Logic
                                 if (shadowChars) charCode = shadowChars[i];
                             } else {
-                                // Outside Block: Cleanup stale shadow status
                                 if (eActive[i] === 3) eActive[i] = 0;
                             }
                         }
@@ -1731,26 +1813,22 @@ class QuantizedBaseEffect extends AbstractEffect {
                         else charCode = chars[i];
                     }
                 }
-                
-                // --- FAST GHOST CHARACTER HASHING ---
-                // If cell is empty, generate a ghost character using pre-calculated offsets.
-                // This eliminates Math.sin calls which were previously locking the CPU.
+
                 if (charCode <= 32) {
                     const hashIdx = (i !== -1) ? (rotatorOffsets ? rotatorOffsets[i] : (i % 256)) : ((y * 13 + x * 7 + timeSeed) % 256);
                     const hashNorm = hashIdx / 256;
                     charCode = charSet.charCodeAt(Math.floor(hashNorm * charSetLen));
                 }
-                
+
                 const cx = (x + 0.5) * cellW;
                 const rect = atlas.getByCode(charCode);
                 if (rect) {
-                    // Draw from Atlas with middle/center alignment
                     ctx.drawImage(atlas.canvas, rect.x, rect.y, rect.w, rect.h,
                                   cx - rect.w * 0.5, cy - rect.h * 0.5, rect.w, rect.h);
                 }
             }
         }
-        
+
         ctx.restore();
     }
 

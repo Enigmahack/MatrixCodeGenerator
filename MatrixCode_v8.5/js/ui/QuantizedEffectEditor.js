@@ -422,6 +422,8 @@ class QuantizedEffectEditor {
     }
 
     toggle(isActive) {
+        // Guard: skip if already in the requested state to prevent re-triggering effects
+        if (this.active === isActive) return;
         this._log("QuantizedEffectEditor: toggle", isActive);
         this.active = isActive;
 

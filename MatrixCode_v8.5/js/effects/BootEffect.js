@@ -4,7 +4,7 @@ class BootEffect extends AbstractEffect {
         this.name = "BootSequence";
         this.active = false;
         this.startTime = 0;
-        this.durationSeconds = 3.5; 
+        this.durationSeconds = 4.2; 
     }
 
     trigger(force = false) {
@@ -25,7 +25,7 @@ uniform sampler2D uTexture;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform vec2 uMouse;
-uniform float uParameter; // 0.0 to 1.0 over 3.5s
+uniform float uParameter; // 0.0 to 1.0 over duration
 uniform float uGlobalBrightness;
 varying vec2 vTexCoord;
 
@@ -48,70 +48,84 @@ float sdRoundedBox(vec2 p, vec2 b, float r) {
 
 // CRT Tube frame vignette
 float crtFrame(vec2 uv, float margin, float softness) {
-    // Subtle corner rounding for the CRT tube feel
     vec2 p = uv * 2.0 - 1.0;
     float r = 0.05;
     float d = sdRoundedBox(p, vec2(1.0 - margin), r);
     return 1.0 - smoothstep(0.0, softness, d);
 }
 
-float smoothstep_custom(float edge0, float edge1, float x) {
-    x = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
-    return x * x * (3.0 - 2.0 * x);
-}
-
-// Minimal Jitter: Moreso straight but retains organic "CRT" character
-float jaggedCheck(float coord, float target, float jitterAmount, float scale) {
-    float jitter = (noise(coord * scale + uTime * 0.05) - 0.5) * jitterAmount;
+// Smooth CRT-style warp to prevent frame-alternating flicker
+float smoothJitter(float coord, float target, float amount, float scale) {
+    float jitter = (noise(coord * scale + uTime * 0.5) - 0.5) * amount;
     return target + jitter;
 }
 
-// Colors from MainBoot.png
+// Colors from Matrix Boot aesthetic
 const vec3 bootCyan = vec3(0.0, 0.65, 0.85); 
 const vec3 bootWhite = vec3(0.85, 0.95, 1.0);
 
-// Optimized scene logic based on MainBoot.png aesthetic
-vec3 getScannerScene(int pattern, vec2 uv, float expansion) {
+// Generative Scene Logic
+vec3 getScannerScene(int pattern, vec2 uv, float t) {
     vec3 col = bootWhite;
-    float jitter = 0.0015;
+    float jitter = 0.008; // Gentle smooth jitter
     
-    // Pattern 0: Horizontal Split (Matches MainBoot.png)
-    if (pattern == 0 || pattern == 7) {
-        float split = jaggedCheck(uv.x, 0.45, jitter, 80.0);
-        // Fuzzy transition between the cyan top and white bottom
-        float mask = smoothstep(split, split + 0.02, uv.y);
-        col = mix(bootWhite, bootCyan, mask);
+    // Pattern 0: Horizontal Split (Cyan Top)
+    if (pattern == 0) {
+        float split = smoothJitter(uv.x, 0.5, jitter, 40.0);
+        col = (uv.y > split) ? bootCyan : bootWhite;
     }
-    // Pattern 1: Vertical Band
+    // Pattern 1: Horizontal Split (White Top)
     else if (pattern == 1) {
-        float width = 0.12 + (expansion * 0.1); 
-        float left = jaggedCheck(uv.y, 0.5 - width, jitter, 120.0);
-        float right = jaggedCheck(uv.y, 0.5 + width, jitter, 120.0);
+        float split = smoothJitter(uv.x, 0.5, jitter, 40.0);
+        col = (uv.y > split) ? bootWhite : bootCyan;
+    }
+    // Pattern 2: Vertical Band Cyan
+    else if (pattern == 2) {
+        float width = 0.15 + (noise(uTime * 0.2) - 0.5) * 0.1;
+        float left = smoothJitter(uv.y, 0.5 - width, jitter, 60.0);
+        float right = smoothJitter(uv.y, 0.5 + width, jitter, 60.0);
         col = (uv.x > left && uv.x < right) ? bootCyan : bootWhite;
     }
-    // Pattern 2: Triple Split
-    else if (pattern == 2) {
-        float j1 = jaggedCheck(uv.x, 0.33, jitter, 100.0);
-        float j2 = jaggedCheck(uv.x, 0.66, jitter, 100.0);
+    // Pattern 3: Horizontal Band Cyan
+    else if (pattern == 3) {
+        float height = 0.15 + (noise(uTime * 0.2 + 10.0) - 0.5) * 0.1;
+        float top = smoothJitter(uv.x, 0.5 + height, jitter, 60.0);
+        float bot = smoothJitter(uv.x, 0.5 - height, jitter, 60.0);
+        col = (uv.y > bot && uv.y < top) ? bootCyan : bootWhite;
+    }
+    // Pattern 4: Triple Horizontal
+    else if (pattern == 4) {
+        float j1 = smoothJitter(uv.x, 0.33, jitter, 50.0);
+        float j2 = smoothJitter(uv.x, 0.66, jitter, 50.0);
         if (uv.y > j2) col = bootCyan;
         else if (uv.y > j1) col = bootWhite;
         else col = bootCyan;
     }
-    // Pattern 3: Horizontal Middle Band
-    else if (pattern == 3) {
-        float height = 0.15 + (expansion * 0.1);
-        float top = jaggedCheck(uv.x, 0.5 + height, jitter, 110.0);
-        float bot = jaggedCheck(uv.x, 0.5 - height, jitter, 110.0);
-        col = (uv.y > bot && uv.y < top) ? bootCyan : bootWhite;
+    // Pattern 5: Top Band Cyan
+    else if (pattern == 5) {
+        float split = smoothJitter(uv.x, 0.2, jitter, 40.0);
+        col = (uv.y > 1.0 - split) ? bootCyan : bootWhite;
     }
-    // Pattern 6: Heavy Top
+    // Pattern 6: Full Cyan
     else if (pattern == 6) {
-        float split = jaggedCheck(uv.x, 0.25 - (expansion * 0.15), jitter, 100.0);
-        col = (uv.y > split) ? bootCyan : bootWhite;
+        col = bootCyan;
     }
-    // Pure screens
-    else if (pattern >= 8) {
-        col = (pattern == 9) ? bootWhite : bootCyan;
+    // Pattern 7: Full White
+    else if (pattern == 7) {
+        col = bootWhite;
+    }
+    // Pattern 8: Vertical Split (Cyan Left)
+    else if (pattern == 8) {
+        float split = smoothJitter(uv.y, 0.5, jitter, 40.0);
+        col = (uv.x < split) ? bootCyan : bootWhite;
+    }
+    // Pattern 9: Quad Split
+    else if (pattern == 9) {
+        float hSplit = smoothJitter(uv.x, 0.5, jitter, 30.0);
+        float vSplit = smoothJitter(uv.y, 0.5, jitter, 30.0);
+        bool h = uv.y > hSplit;
+        bool v = uv.x > vSplit;
+        col = (h == v) ? bootCyan : bootWhite;
     }
     
     return col;
@@ -120,89 +134,86 @@ vec3 getScannerScene(int pattern, vec2 uv, float expansion) {
 void main() {
     vec4 codeColor = texture2D(uTexture, vTexCoord);
     vec2 uv = vTexCoord;
-    
-    vec2 p = uv * 2.0 - 1.0;
     float aspect = uResolution.x / uResolution.y;
-    p.x *= aspect;
+    vec2 p = (uv * 2.0 - 1.0) * vec2(aspect, 1.0);
 
-    vec4 finalColor = vec4(0.0, 0.0, 0.0, 1.0); 
-    
-    // Brightness application
+    vec3 finalColor = vec3(0.0); 
     float gb = (uGlobalBrightness <= 0.0) ? 1.0 : uGlobalBrightness;
 
-    vec3 whiteLayer = vec3(0.0);
-    float whiteAlpha = 0.0;
-    float jitter = 0.0015;
-    
-    if (uParameter < 0.45) {
-        // --- INITIAL DOT/BOX EXPANSION ---
-        if (uParameter > 0.15) {
-            float t_dot = smoothstep_custom(0.15, 0.25, uParameter);
-            float t_v_stretch = smoothstep_custom(0.25, 0.35, uParameter);
-            float t_h_stretch = smoothstep_custom(0.35, 0.45, uParameter);
+    float alpha = 0.0;
+    vec3 layerCol = vec3(0.0);
 
-            float line_thickness = 0.008; 
-            float current_radius = line_thickness * t_dot;
-            float added_height = mix(0.0, 2.0, t_v_stretch * t_v_stretch);
-            float added_width = mix(0.0, 2.0 * aspect, t_h_stretch * t_h_stretch);
-            float active_radius = mix(current_radius, 0.0, t_h_stretch);
-            
-            float d = sdRoundedBox(p, vec2(added_width, added_height), active_radius);
-            whiteAlpha = max(1.0 - smoothstep(0.0, 0.015, d), 1.0 - smoothstep(0.0, 0.0005, d));
-            whiteLayer = bootWhite * gb; 
-        }
-    } else if (uParameter < 0.80) {
-        // --- VARIETY SCENES (45% to 80%) ---
-        float t_variety = (uParameter - 0.45) / 0.35;
-        float cycle_count = 12.0; 
-        float raw_cycle = t_variety * cycle_count;
-        float cycle_index = floor(raw_cycle);
+    if (uParameter < 0.3) {
+        // --- EXPANSION PHASE (0% to 30%) ---
+        float t = uParameter / 0.3;
+        
+        // Dot -> Vertical Line -> Box
+        float t_dot = smoothstep(0.0, 0.2, t);
+        float t_v_stretch = smoothstep(0.2, 0.6, t);
+        float t_h_stretch = smoothstep(0.6, 1.0, t);
+
+        float size_v = mix(0.005, 1.1, t_v_stretch * t_v_stretch);
+        float size_h = mix(0.005, 1.1 * aspect, t_h_stretch * t_h_stretch);
+        
+        float d = sdRoundedBox(p, vec2(size_h, size_v), 0.005);
+        float glow = exp(-max(0.0, d) * 20.0);
+        float mask = 1.0 - smoothstep(0.0, 0.01, d);
+        
+        alpha = max(mask, glow * 0.5);
+        layerCol = mix(bootCyan, bootWhite, t_h_stretch) * gb;
+
+    } else if (uParameter < 0.85) {
+        // --- GENERATIVE VARIETY (30% to 85%) ---
+        float t_variety = (uParameter - 0.3) / 0.55;
+        
+        // Rhythmic smooth crossfading
+        float cycle_speed = 8.0; 
+        float raw_cycle = t_variety * cycle_speed; 
+        float cycle_idx = floor(raw_cycle);
         float cycle_frac = fract(raw_cycle);
         
-        float expansion = smoothstep(0.85, 1.0, cycle_frac);
-        float rnd = random(cycle_index + 456.78); 
-        int pattern = int(rnd * 10.0); 
+        int pattern1 = int(random(cycle_idx + 123.456) * 10.0);
+        int pattern2 = int(random(cycle_idx + 1.0 + 123.456) * 10.0);
         
-        whiteLayer = getScannerScene(pattern, uv, expansion) * gb;
-        whiteAlpha = 1.0; 
-    } else {
-        // --- FINAL VERTICAL WIPE (80% to 100%) ---
-        float t_final = (uParameter - 0.80) / 0.20;
-        float split = jaggedCheck(uv.y, t_final, jitter, 100.0); 
-        whiteLayer = (uv.x < split) ? (bootCyan * gb) : (bootWhite * gb);
-        whiteAlpha = 1.0; 
+        vec3 scene1 = getScannerScene(pattern1, uv, uTime);
+        vec3 scene2 = getScannerScene(pattern2, uv, uTime);
+        
+        // Smooth crossfade during the last 40% of each cycle
+        float fade = smoothstep(0.6, 1.0, cycle_frac);
+        layerCol = mix(scene1, scene2, fade) * gb;
+        
+        // Subtle scanline for texture, no flickering
+        float scanline = sin(uv.y * uResolution.y * 1.5) * 0.03 + 0.97;
+        layerCol *= scanline;
+        
+        alpha = 1.0;
 
-        // Very tight fade-out in the last few frames
-        float fade_out = smoothstep(0.96, 1.0, uParameter);
-        whiteAlpha *= (1.0 - fade_out);
+    } else {
+        // --- FINAL HOLD & FADE (85% to 100%) ---
+        // Keep the last generated scene
+        float cycle_idx = floor(8.0);
+        int pattern = int(random(cycle_idx + 123.456) * 10.0);
+        layerCol = getScannerScene(pattern, uv, uTime) * gb;
+        
+        float scanline = sin(uv.y * uResolution.y * 1.5) * 0.03 + 0.97;
+        layerCol *= scanline;
+        
+        alpha = 1.0;
     }
 
-    // --- CRT BEAM INCONSISTENCY ---
-    float lineId = floor(uv.y * (uResolution.y / 2.0));
-    float beamNoise = noise(uv.x * 3.5 + random(lineId) * 100.0);
-    float beamFade = mix(0.94, 1.0, smoothstep(0.1, 0.25, beamNoise));
-    float lineMargin = 0.001 * random(lineId + 0.5);
-    float beamEdges = smoothstep(0.0, lineMargin, uv.x) * smoothstep(1.0, 1.0 - lineMargin, uv.x);
-    whiteLayer *= beamFade * beamEdges;
+    // Global fade out over the last 15% to reveal background code
+    float global_fade = smoothstep(0.85, 1.0, uParameter);
+    alpha *= (1.0 - global_fade);
 
-    // --- COMPOSITE ---
-    
-    // Black CRT Frame (Vignette)
-    float border = crtFrame(uv, 0.005, 0.02); 
-    whiteAlpha *= border;
+    // --- CRT EFFECTS ---
+    float vignette = crtFrame(uv, 0.0, 0.05);
+    alpha *= vignette;
 
-    // Foundational Background Logic:
-    // 1. Black during expansion.
-    // 2. Solid colored background during variety (hiding code).
-    // 3. Falling code revealed ONLY at the very end.
-    
-    vec3 voidBackground = (uParameter < 0.45) ? vec3(0.0) : (bootWhite * gb);
-    float codeReveal = smoothstep(0.96, 1.0, uParameter);
-    vec3 finalBackground = mix(voidBackground, codeColor.rgb, codeReveal);
-    
-    finalColor.rgb = mix(finalBackground, whiteLayer, whiteAlpha);
+    // Composite
+    vec3 background = (uParameter < 0.3) ? vec3(0.0) : codeColor.rgb;
+    finalColor = mix(background, layerCol, alpha);
 
-    gl_FragColor = vec4(finalColor.rgb, 1.0);
+    gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
     }
