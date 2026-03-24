@@ -96,7 +96,7 @@ class QuantizedSequenceGeneratorV2 {
             'LineGfxTintOffset', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
-            'PerimeterEchoEnabled', 'SingleLayerMode'
+            'PerimeterEchoEnabled', 'SingleLayerMode', 'LayerCount'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -161,11 +161,12 @@ class QuantizedSequenceGeneratorV2 {
         this.behaviorState.pausePattern = this._generateDistinctPattern(this.behaviorState.pattern);
 
         const quadrantCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
-        const _maxLayer = Math.min(this._getConfig('LayerCount') ?? 0, 1);
+        const _maxLayer = this._getMaxLayer();
         const _baseLife = 4 + Math.floor(Math.random() * 3);
         this.behaviorState.layerDirs = {};
         this.behaviorState.layerDirLife = {};
-        for (let l = 0; l <= _maxLayer + 1; l++) {
+        const _minLayer = this._getMinLayer();
+        for (let l = _minLayer; l <= _maxLayer; l++) {
             this.behaviorState.layerDirs[l] = this._pickLayerDirs(quadrantCount);
             this.behaviorState.layerDirLife[l] = _baseLife + l;
         }
@@ -196,9 +197,10 @@ class QuantizedSequenceGeneratorV2 {
         
         const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
 
+        const minL = this._getMinLayer();
         const maxL = this._getMaxLayer();
-        const isOccupiedAny = (bx, by) => {
-            for (let l = 0; l <= maxL; l++) {
+        for (let l = minL; l <= maxL; l++) {
+
                 if (this._isOccupied(bx, by, l)) return true;
             }
             return false;
@@ -244,8 +246,9 @@ class QuantizedSequenceGeneratorV2 {
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
                 const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 5;
 
+                const needsEdge = spawnFromPerimeter || (behavior && behavior.growth === 'edge');
                 let outsideInfo = null;
-                if (spawnFromPerimeter) {
+                if (needsEdge) {
                     outsideInfo = gen._getOutsideMap();
                 }
 
@@ -260,7 +263,7 @@ class QuantizedSequenceGeneratorV2 {
 
                     // Option: Spawn from ANY perimeter block
                     let onOuterPerimeter = false;
-                    if (spawnFromPerimeter && outsideInfo) {
+                    if (needsEdge && outsideInfo) {
                         const { outsideMap, getIdx } = outsideInfo;
                         // Check if any neighbor of this block is in the outsideMap
                         const neighbors = [];
@@ -413,7 +416,7 @@ class QuantizedSequenceGeneratorV2 {
             if (!gen._getConfig('SpreadingNudgeEnabled')) return;
             const startDelay = gen._getConfig('SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
-            const allowed = gen._getAllowedDirs(targetLayer);
+            const allowed = gen._getAllowedDirs(layer);
 
             // State Initialization
             if (!s[`spreadingNudgeNextDist_${layer}`]) {
@@ -485,7 +488,7 @@ class QuantizedSequenceGeneratorV2 {
                     if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
                         for (const dir of arm.perp) {
                             if (activePerpStrips >= maxInstances) break;
-                            const strip = gen._createStrip(targetLayer, dir, ax, ay);
+                            const strip = gen._createStrip(layer, dir, ax, ay);
                             strip.isNudge = false;
                             strip.bypassOccupancy = true;
                             strip.growCount = 0;
@@ -496,7 +499,7 @@ class QuantizedSequenceGeneratorV2 {
                                 const mirY = arm.vert ? s.scy - (ay - s.scy) : ay;
                                 const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
                                 s[`spreadingNudgeSymmetryQueue_${layer}`].push({
-                                    x: mirX, y: mirY, layer: targetLayer, dir: mirDir,
+                                    x: mirX, y: mirY, layer: layer, dir: mirDir,
                                     isNudge: false, bypassOccupancy: true,
                                     stepToSpawn: s.step + 1 + Math.floor(Math.random() * 3)
                                 });
@@ -509,7 +512,7 @@ class QuantizedSequenceGeneratorV2 {
                     s[`spreadingNudgeNextSpawnStep_${layer}`][arm.key] = s.step + delay;
                 }
             }
-        });
+        }, { enabled: gen._getConfig('SpreadingNudgeEnabled') ?? false, type: gen._getConfig('SpreadingNudgeBehaviorType') ?? 'pool', growth: gen._getConfig('SpreadingNudgeGrowthMode') ?? 'edge', bias: gen._getConfig('SpreadingNudgeSpawnBias') ?? 'single', label: 'Spreading Nudge' });
 
         // ── Shove Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s, behavior, layer) {
@@ -517,7 +520,7 @@ class QuantizedSequenceGeneratorV2 {
             const startDelay = gen._getConfig('ShoveFillStartDelay') ?? 20;
             const fillRate   = Math.max(1, gen._getConfig('ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
-            const allowed = gen._getAllowedDirs(targetLayer);
+            const allowed = gen._getAllowedDirs(layer);
             const allowAsymmetry = !!gen._getConfig('AllowAsymmetry');
             const bs    = gen._getBlockSize();
             const halfW = Math.floor(gen.cols / bs.w / 2);
@@ -573,23 +576,24 @@ class QuantizedSequenceGeneratorV2 {
                     const bp = lp - step;
                     if (isEW) {
                         // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
-                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, targetLayer, true) });
-                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, targetLayer, true) });
+                        gen.actionBuffer.push({ layer: layer, fn: () => gen._spawnBlock(lp, strip.perpStart, 1, rangeSize, layer, true) });
+                        gen.actionBuffer.push({ layer: layer, fn: () => gen._spawnBlock(bp, strip.perpStart, 1, rangeSize, layer, true) });
                     } else {
                         // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
-                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, targetLayer, true) });
-                        gen.actionBuffer.push({ layer: targetLayer, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, targetLayer, true) });
+                        gen.actionBuffer.push({ layer: layer, fn: () => gen._spawnBlock(strip.perpStart, lp, rangeSize, 1, layer, true) });
+                        gen.actionBuffer.push({ layer: layer, fn: () => gen._spawnBlock(strip.perpStart, bp, rangeSize, 1, layer, true) });
                     }
 
                     strip.leadPos += step;
                 }
             }
-        });
+        }, { enabled: gen._getConfig('ShoveFillEnabled') ?? false, type: gen._getConfig('ShoveFillBehaviorType') ?? 'pool', growth: gen._getConfig('ShoveFillGrowthMode') ?? 'edge', bias: gen._getConfig('ShoveFillSpawnBias') ?? 'single', label: 'Shove Fill' });
 
         this.registerBehavior('hole_filler', function(s, behavior, layer) {
             if (!gen._getConfig('HoleFillerEnabled')) return;
+            const startDelay = gen._getConfig('HoleFillerStartDelay') ?? 0;
             const fillRate = Math.max(1, gen._getConfig('HoleFillerRate') ?? 1);
-            if (s.step % fillRate !== 0) return;
+            if (s.step < startDelay || s.step % fillRate !== 0) return;
             const w = gen.logicGridW, h = gen.logicGridH;
             const grid = gen.layerGrids[layer];
             if (!grid) return;
@@ -665,13 +669,58 @@ class QuantizedSequenceGeneratorV2 {
                     }
                 }
             }
-        });
+        }, { enabled: true, type: gen._getConfig('HoleFillerBehaviorType') ?? 'pool', growth: gen._getConfig('HoleFillerGrowthMode') ?? 'edge', bias: gen._getConfig('HoleFillerSpawnBias') ?? 'single', label: 'Aggressive Hole Filler' });
+
+        // Main Nudge: expand along spines (spine mode) or from outermost perimeter blocks (edge mode)
+        this.registerBehavior('main_nudge', function(s, behavior, layer) {
+            const startDelay = gen._getConfig('NudgeStartDelay') ?? 2;
+            if (s.step < startDelay) return;
+
+            const nudgeChance = gen._getConfig('NudgeChance') ?? 0.8;
+            if (Math.random() > nudgeChance) return;
+
+            if (behavior && behavior.growth === 'edge' && s.outsideInfo) {
+                const { outsideMap, getIdx, scanMinX, scanMaxX, scanMinY, scanMaxY } = s.outsideInfo;
+                const perimBlocks = gen.activeBlocks.filter(b => {
+                    if (b.layer !== 1) return false;
+                    const neighbors = [];
+                    for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
+                    for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
+                    return neighbors.some(n => {
+                        if (n.x < scanMinX || n.x > scanMaxX || n.y < scanMinY || n.y > scanMaxY) return false;
+                        return outsideMap[getIdx(n.x, n.y)] === 1;
+                    });
+                });
+                if (perimBlocks.length === 0) return;
+                const pick = perimBlocks[Math.floor(Math.random() * perimBlocks.length)];
+                const ox = (pick.x + Math.floor(pick.w / 2)) - s.scx;
+                const oy = (pick.y + Math.floor(pick.h / 2)) - s.scy;
+                const { bw, bh } = gen._calcBlockSize({ originX: ox, originY: oy, direction: 'N' }, s.fillRatio);
+                gen._attemptNudgeGrowthWithParams(1, bw, bh, ox, oy);
+            } else {
+                const { bw, bh } = gen._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
+                gen._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+            }
+        }, { enabled: gen._getConfig('NudgeEnabled') !== false, type: gen._getConfig('NudgeBehaviorType') ?? 'pool', growth: gen._getConfig('NudgeGrowthMode') ?? 'spine', bias: gen._getConfig('NudgeSpawnBias') ?? 'single', label: 'Main Nudge' });
     }
 
     _getMaxLayer() {
+        const singleMode = this._getConfig('SingleLayerMode');
+        // If Single Layer Mode is on, we strictly only use Layer 1 (Promotion is enabled)
+        if (singleMode) return 1;
+
         let val = this._getConfig('LayerCount');
-        let maxLayer = (val === undefined || val === null) ? 0 : val - 1;
-        return Math.max(0, Math.min(maxLayer, 1));
+        // If LayerCount is explicitly 1, we only want Layer 0.
+        // If LayerCount is missing or 2, we default to 2 layers (maxLayer 1).
+        if (val === 1) return 0;
+        
+        // Default to 2 layers (maxLayer 1)
+        return 1;
+    }
+
+    _getMinLayer() {
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        return usePromotion ? 1 : 0;
     }
 
     _getBiasedDirections() {
@@ -849,6 +898,9 @@ class QuantizedSequenceGeneratorV2 {
         this.growthPool.set(id, {
             fn,
             enabled: options.enabled ?? true,
+            type: options.type ?? 'pool',
+            growth: options.growth ?? 'edge',
+            bias: options.bias ?? 'single',
             label: options.label ?? id
         });
     }
@@ -892,7 +944,7 @@ class QuantizedSequenceGeneratorV2 {
     _generateSeedSchedule(scx, scy) {
         const schedule = {};
         const dirs = ['N', 'S', 'E', 'W'];
-        const maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
+        const maxLayer = this._getMaxLayer();
 
         // Compute per-direction boost based on canvas aspect ratio
         const baseBoost = this._getConfig('SpineBoost') ?? 4;
@@ -954,7 +1006,11 @@ class QuantizedSequenceGeneratorV2 {
         if (!s.dirPools) s.dirPools = { 0: [], 1: [] };
         if (!s.lastLayerDirs) s.lastLayerDirs = { 0: null, 1: null };
 
-        for (let l = 0; l <= 1; l++) {
+        const minL = this._getMinLayer();
+        const minL = this._getMinLayer();
+        const maxL = this._getMaxLayer();
+        for (let l = minL; l <= maxL; l++) {
+
             // Pick a random count for this step within the allowed range
             let count = (minCount === maxCount) ? minCount : Math.floor(Math.random() * (maxCount - minCount + 1)) + minCount;
             
@@ -1454,7 +1510,7 @@ class QuantizedSequenceGeneratorV2 {
         const bucketSize = Math.max(1, this._getConfig('InsideOutBucketSize') ?? 3);
         const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
         const edgeBuf = 2;
-        const maxLayer = Math.min(1, this._getConfig('LayerCount') ?? 0);
+        const maxLayer = this._getMaxLayer();
 
         if (!s.insideOutProgression) s.insideOutProgression = {};
 
@@ -1980,9 +2036,11 @@ class QuantizedSequenceGeneratorV2 {
         this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
 
-        // One-time per step calculation of outsideInfo if SpawnFromPerimeter is enabled
+        // One-time per step calculation of outsideInfo if SpawnFromPerimeter is enabled or any edge-mode behavior is active
         s.outsideInfo = null;
-        if (this._getConfig('SpawnFromPerimeter')) {
+        const _needsOutside = !!this._getConfig('SpawnFromPerimeter') ||
+            [...this.growthPool.values()].some(b => b.enabled && b.growth === 'edge');
+        if (_needsOutside) {
             s.outsideInfo = this._getOutsideMap();
         }
 
@@ -2014,10 +2072,9 @@ class QuantizedSequenceGeneratorV2 {
 
         if (this.activeBlocks.length === 0) {
             const ox = s.scx ?? 0, oy = s.scy ?? 0;
-            const maxLayer = this._getMaxLayer();
-            const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
-            for (let l = 0; l <= maxLayer; l++) {
-                if (usePromotion && l !== 1) continue;
+            const minL = this._getMinLayer();
+            const maxL = this._getMaxLayer();
+            for (let l = minL; l <= maxL; l++) {
                 this._spawnBlock(ox, oy, 1, 1, l, false, 'reseed');
             }
         }
@@ -2028,18 +2085,6 @@ class QuantizedSequenceGeneratorV2 {
             this._seedStrips(s);
         }
 
-        // PERMANENT CORE BEHAVIOR: Main Nudge Growth
-        if (this._getConfig('NudgeEnabled') !== false) {
-            const nudgeStartDelay = this._getConfig('NudgeStartDelay') ?? 2;
-            if (s.step >= nudgeStartDelay) {
-                const nudgeChance = this._getConfig('NudgeChance') ?? 0.8;
-                if (Math.random() <= nudgeChance) {
-                    const { bw, bh } = this._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-                    this._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
-                }
-            }
-        }
-
         if (this._getConfig('SpinesFirstEnabled') !== false) {
             this._tickStrips(s);
         }
@@ -2047,11 +2092,12 @@ class QuantizedSequenceGeneratorV2 {
 
         const quota = this._getConfig('SimultaneousSpawns') || 1;
         const poolBehaviors = [];
+        const minL = this._getMinLayer();
         const maxL = this._getMaxLayer();
         for (const b of this.growthPool.values()) {
             if (b.fn && b.enabled) {
                 if (b.type === 'core') {
-                    for (let l = 0; l <= maxL; l++) {
+                    for (let l = minL; l <= maxL; l++) {
                         b.fn.call(this, s, b, l);
                     }
                 } else {
@@ -2064,7 +2110,7 @@ class QuantizedSequenceGeneratorV2 {
             const dynamicQuota = Math.max(1, Math.floor(quota * (qCount / 4)));
             for (let q = 0; q < dynamicQuota; q++) {
                 const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
-                for (let l = 0; l <= maxL; l++) {
+                for (let l = minL; l <= maxL; l++) {
                     b.fn.call(this, s, b, l);
                 }
             }
@@ -2077,10 +2123,9 @@ class QuantizedSequenceGeneratorV2 {
         if (isRandomStart) return this.currentStepOps; // Don't seed Step 0 if random
 
         const s = this.behaviorState;
-        const maxLayer = this._getMaxLayer();
-        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
-        for (let l = 0; l <= maxLayer; l++) {
-            if (usePromotion && l !== 1) continue;
+        const minL = this._getMinLayer();
+        const maxL = this._getMaxLayer();
+        for (let l = minL; l <= maxL; l++) {
             this._spawnBlock(s.scx, s.scy, 1, 1, l, true);
         }
         return this.currentStepOps;

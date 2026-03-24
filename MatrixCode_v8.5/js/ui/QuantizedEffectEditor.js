@@ -385,8 +385,7 @@ class QuantizedEffectEditor {
             qEffects.forEach(name => {
                 const eff = this.registry.get(name);
                 if (eff) {
-                    eff.active = false;
-                    if (eff.state) eff.state = 'IDLE'; 
+                    eff.stop();
                     if (eff.g) eff.g.clearAllOverrides();
                 }
             });

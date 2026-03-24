@@ -44,97 +44,103 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Fine-Tuning', sub_header: 'Color & Blending', id: 'LineGfxTintOffset', type: 'range', label: 'Hue Shift', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts.", tags: ['hue', 'tint', 'color'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxAdditiveStrength', type: 'range', label: 'Blend Strength', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: "Controls how strongly the lines add to the underlying character color.", tags: ['blend', 'mix'] },
 
+    { sub: 'Line Fine-Tuning', sub_header: 'Perimeter Echo', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Enable Perimeter Echo', tier: 'basic', description: "Replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
+    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelay', type: 'range', label: 'Echo Delay', min: 1, max: 8, step: 1, tier: 'basic', description: "How many steps behind the perimeter the echo follows.", tags: ['delay', 'echo', 'steps'] },
+    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelayFadeAmount', type: 'range', label: 'Echo Fade', min: 0, max: 100, step: 1, unit: '%', tier: 'basic', description: "Brightness reduction for the echo. 0% is full brightness, 100% effectively hides it.", tags: ['delay', 'echo', 'fade', 'brightness'] },
+
     { sub: 'Line Fine-Tuning', sub_header: 'Position & Sampling', id: 'LineGfxSampleOffsetX', type: 'range', label: 'Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: "Shifts where the line samples character brightness horizontally.", tags: ['shift', 'sample'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxSampleOffsetY', type: 'range', label: 'Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: "Shifts where the line samples character brightness vertically.", tags: ['shift', 'sample'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxMaskSoftness', type: 'range', label: 'Line Softness', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Softens the character highlights for a smoother, antialiased look within the lines.", tags: ['blur', 'soft', 'smooth'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetX', type: 'range', label: 'Line X Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetY', type: 'range', label: 'Line Y Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
 
-    // Block Behavior — layer, echo, and transition settings
-    { sub: 'Block Behavior', id: 'SingleLayerMode', type: 'checkbox', label: 'Single Layer Mode', tier: 'basic', description: "Simplified mode that uses only Layer 1 with no Layer 0 promotion.", tags: ['layer', 'simple', 'single'] },
-    { sub: 'Block Behavior', id: 'SpawnFromPerimeter', type: 'checkbox', label: 'Spawn From Perimeter', tier: 'basic', description: "Allows all sub-behaviors to spawn from the outermost perimeter, bypassing standard connectivity preconditions.", tags: ['growth', 'perimeter', 'spawn'] },
-    { sub: 'Block Behavior', sub_header: 'Block Sizing', id: 'BlockSizeBias', type: 'range', label: 'Block Size Bias', min: 1, max: 20, step: 1, tier: 'basic', transform: v => v === 1 ? '1×1' : '≤' + v, description: "Maximum cluster area for generated blocks. 1 = single-cell blocks only, higher values allow larger multi-cell clusters.", tags: ['size', 'cluster', 'area'] },
-    { sub: 'Block Behavior', id: 'BlockShapeBias', type: 'range', label: 'Bias', min: 1, max: 5, step: 1, tier: 'basic', transform: v => ['Skinny', 'Thin', 'Mixed', 'Stubby', 'Wide'][v - 1], description: "Skinny: long 1-wide blocks. Thin: narrow blocks. Mixed: even random distribution. Stubby: slightly wider blocks. Wide: squarish blocks.", tags: ['shape', 'aspect', 'ratio'] },
-    { sub: 'Block Behavior', sub_header: 'Perimeter Echo', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Enable Perimeter Echo', tier: 'basic', description: "Replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
-    { sub: 'Block Behavior', id: 'EchoGfxDelay', type: 'range', label: 'Echo Delay', min: 1, max: 8, step: 1, tier: 'basic', description: "How many steps behind the perimeter the echo follows.", tags: ['delay', 'echo', 'steps'] },
-    { sub: 'Block Behavior', id: 'EchoGfxDelayFadeAmount', type: 'range', label: 'Echo Fade', min: 0, max: 100, step: 1, unit: '%', tier: 'basic', description: "Brightness reduction for the echo. 0% is full brightness, 100% effectively hides it.", tags: ['delay', 'echo', 'fade', 'brightness'] },
-    { sub: 'Block Behavior', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Transition Speed', min: 0, max: 2, step: 0.1, unit: 's', tier: 'advanced', description: "Crossfade duration when blocks are added or removed.", tags: ['fade', 'speed', 'transition'] },
+    // V2 Generator (Block Behavior) — layer, echo, and transition settings
+    { sub: 'V2 Generator (Block Behavior)', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
+    { sub: 'V2 Generator (Block Behavior)', id: 'SingleLayerMode', type: 'checkbox', label: 'Single Layer Mode', tier: 'basic', description: "Simplified mode that uses only Layer 1 with no Layer 0 promotion.", tags: ['layer', 'simple', 'single'] },
+    { sub: 'V2 Generator (Block Behavior)', id: 'LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, dep: '!SingleLayerMode', tier: 'advanced', description: "Number of layers to generate (1 layer = base only, 2 layers = base + detail layer).", tags: ['depth', 'complexity'] },
+    { sub: 'V2 Generator (Block Behavior)', sub_header: 'Block Sizing', id: 'BlockSizeBias', type: 'range', label: 'Block Size Bias', min: 1, max: 20, step: 1, tier: 'basic', transform: v => v === 1 ? '1×1' : '≤' + v, description: "Maximum cluster area for generated blocks. 1 = single-cell blocks only, higher values allow larger multi-cell clusters.", tags: ['size', 'cluster', 'area'] },
+    { sub: 'V2 Generator (Block Behavior)', id: 'BlockShapeBias', type: 'range', label: 'Bias', min: 1, max: 5, step: 1, tier: 'basic', transform: v => ['Skinny', 'Thin', 'Mixed', 'Stubby', 'Wide'][v - 1], description: "Skinny: long 1-wide blocks. Thin: narrow blocks. Mixed: even random distribution. Stubby: slightly wider blocks. Wide: squarish blocks.", tags: ['shape', 'aspect', 'ratio'] },
+    { sub: 'V2 Generator (Block Behavior)', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Transition Speed', min: 0, max: 2, step: 0.1, unit: 's', tier: 'advanced', description: "Crossfade duration when blocks are added or removed.", tags: ['fade', 'speed', 'transition'] },
 
-    { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
-    { sub: 'V2 Generator', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
+    { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
     { sub: 'V2 Generator', id: 'SpineBoost', type: 'range', label: 'Spine Burst', min: 1, max: 10, step: 1, unit: 'steps', dep: 'SpinesFirstEnabled', tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
     { sub: 'V2 Generator', id: 'SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] },
-    { sub: 'V2 Generator', id: 'LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, tier: 'advanced', description: "Number of layers to generate (1 layer = base only, 2 layers = base + detail layer).", tags: ['depth', 'complexity'] },
     { sub: 'V2 Generator', id: 'GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
     { sub: 'V2 Generator', id: 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
     { sub: 'V2 Generator', id: 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] },
     
+    { sub: 'V2 Generator', sub_header: 'Perimeter Spawning', id: 'SpawnFromPerimeter', type: 'checkbox', label: 'Spawn From Perimeter', tier: 'basic', description: "Allows all sub-behaviors to spawn from the outermost perimeter, bypassing standard connectivity preconditions.", tags: ['growth', 'perimeter', 'spawn'] },
+    { sub: 'V2 Generator', id: 'BlockSpawnerEnabled', type: 'checkbox', label: 'Enable Spawner', tier: 'advanced', description: "Randomly spawns and despawns blocks outside the main edge.", tags: ['spawn', 'despawn'] },
+    { sub: 'V2 Generator', id: 'BlockSpawnerBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerCount', type: 'range', label: 'Max Spawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnCount', type: 'range', label: 'Max Despawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+
+    
     { sub: 'V2 Generator', sub_header: 'Size Scaling', id: 'FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] },
     { sub: 'V2 Generator', id: 'MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, tier: 'advanced', description: "Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).", tags: ['size', 'large'] },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Main Nudge Growth', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'NudgeStartDelay', type: 'range', label: 'Nudge Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Main Nudge Growth', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced' },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Block Spawner/Despawner', id: 'BlockSpawnerEnabled', type: 'checkbox', label: 'Enable Spawner', tier: 'advanced', description: "Randomly spawns and despawns blocks outside the main edge.", tags: ['spawn', 'despawn'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerCount', type: 'range', label: 'Max Spawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockSpawnerDespawnCount', type: 'range', label: 'Max Despawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Spreading Nudge', id: 'SpreadingNudgeEnabled', type: 'checkbox', label: 'Enable Spreading Nudge', tier: 'advanced', description: "Sends 'nudges' outward along the spines.", tags: ['nudge', 'spine'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeMaxInstances', type: 'range', label: 'Max Nudge Instances', min: 1, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeRange', type: 'range', label: 'Nudge Spread Range', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSymmetry', type: 'checkbox', label: 'Enforce Symmetry', dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Spreading Nudge', id: 'SpreadingNudgeEnabled', type: 'checkbox', label: 'Enable Spreading Nudge', tier: 'advanced', description: "Sends 'nudges' outward along the spines.", tags: ['nudge', 'spine'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeMaxInstances', type: 'range', label: 'Max Nudge Instances', min: 1, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeRange', type: 'range', label: 'Nudge Spread Range', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'SpreadingNudgeSymmetry', type: 'checkbox', label: 'Enforce Symmetry', dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Shove Fill', id: 'ShoveFillEnabled', type: 'checkbox', label: 'Enable Shove Fill', tier: 'advanced', description: "Fills large blocks aggressively.", tags: ['fill', 'shove'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Shove Fill', id: 'ShoveFillEnabled', type: 'checkbox', label: 'Enable Shove Fill', tier: 'advanced', description: "Fills large blocks aggressively.", tags: ['fill', 'shove'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
-
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
     
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Block Thicken', id: 'BlockThickenEnabled', type: 'checkbox', label: 'Enable Block Thicken', tier: 'advanced', description: "Selects a random axis line and thickens blocks along it by adding adjacent blocks.", tags: ['thicken', 'grow', 'widen'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenSpawnChance', type: 'range', label: 'Spawn Chance (%)', min: 1, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'BlockThickenSpawnFrequency', type: 'range', label: 'Spawn Frequency', min: 1, max: 50, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced', description: "Steps between spawn attempts. 1 = every step, 10 = once every 10 steps." },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Block Thicken', id: 'BlockThickenEnabled', type: 'checkbox', label: 'Enable Block Thicken', tier: 'advanced', description: "Selects a random axis line and thickens blocks along it by adding adjacent blocks.", tags: ['thicken', 'grow', 'widen'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnChance', type: 'range', label: 'Spawn Chance (%)', min: 1, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnFrequency', type: 'range', label: 'Spawn Frequency', min: 1, max: 50, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced', description: "Steps between spawn attempts. 1 = every step, 10 = once every 10 steps." },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Inside Out Expansion', id: 'InsideOutEnabled', type: 'checkbox', label: 'Enable Inside Out Expansion', tier: 'advanced', description: "Starts a secondary expansion from the inside after a delay.", tags: ['expand', 'inside'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps Between Buckets', min: 1, max: 20, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Inside Out Expansion', id: 'InsideOutEnabled', type: 'checkbox', label: 'Enable Inside Out Expansion', tier: 'advanced', description: "Starts a secondary expansion from the inside after a delay.", tags: ['expand', 'inside'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps Between Buckets', min: 1, max: 20, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
 
-    { sub: 'V2 Generator (Sub-Behaviors)', sub_header: 'Axis Shift', id: 'AxisShiftEnabled', type: 'checkbox', label: 'Enable Axis Shift', tier: 'advanced', description: "Treats newly placed lines of blocks as sub-axes, spawning growth in all directions from them exactly like the main spawn axis.", tags: ['axis', 'shift', 'spawn', 'fractal'] },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftRate', type: 'range', label: 'Check Rate', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Steps between attempts to create new sub-axes." },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftMaxAxes', type: 'range', label: 'Max Sub-Axes', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Maximum number of sub-axes that can be active." },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Minimum number of blocks a strip must have grown before it qualifies as a sub-axis." },
-    { sub: 'V2 Generator (Sub-Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "How many spine-like strips will be spawned from the new origin." },
+    { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Axis Shift', id: 'AxisShiftEnabled', type: 'checkbox', label: 'Enable Axis Shift', tier: 'advanced', description: "Treats newly placed lines of blocks as sub-axes, spawning growth in all directions from them exactly like the main spawn axis.", tags: ['axis', 'shift', 'spawn', 'fractal'] },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftRate', type: 'range', label: 'Check Rate', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Steps between attempts to create new sub-axes." },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMaxAxes', type: 'range', label: 'Max Sub-Axes', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Maximum number of sub-axes that can be active." },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Minimum number of blocks a strip must have grown before it qualifies as a sub-axis." },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "How many spine-like strips will be spawned from the new origin." },
 
-    { sub: 'V2 Generator (Logic)', sub_header: 'Logic & Behaviors', id: 'BehaviorPool', type: 'sortable_list', label: 'Behavior Pool', tier: 'advanced', tags: ['logic', 'stack'] },
+    { sub: 'V2 Generator (Logic)', id: 'BehaviorPool', type: 'sortable_list', label: 'Behavior Pool', tier: 'advanced', tags: ['logic', 'stack'] },
 ];
 
 // Pre-built Set for O(1) inheritable-setting lookups (avoids O(n) .some() per getConfig call)
@@ -160,7 +166,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         ...(prefix !== 'quantizedGenerateV2' ? [
             { cat: 'Effects', type: 'accordion_subheader', label: 'Procedural', dep: [effectDep, prefix + "Enabled"] },
             { cat: 'Effects', id: prefix + "GeneratorTakeover", type: 'checkbox', label: 'Continue with Generator', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When the animation reaches the last step, the Block Generator will take over and continue growing the effect procedurally.", tags: ['procedural', 'endless'] },
-            { cat: 'Effects', id: prefix + "RandomStart", type: 'checkbox', label: 'Random Start Location', dep: [effectDep, prefix + "Enabled", prefix + "GeneratorTakeover"], tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen instead of the screen center.', tags: ['random', 'position'] },
         ] : []),
 
         { cat: 'Effects', id: prefix + "OverrideDefaults", type: 'checkbox', label: 'Override Defaults', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "When enabled, you can customize the individual look of this effect. Otherwise, it will inherit from 'Quantized Defaults'.", tags: ['custom', 'unique'] },
@@ -170,6 +175,7 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
     const visualSettings = [];
     const behaviorSettings = [];
     const generatorSettings = [];
+    const spawnSettings = [];
 
     QuantizedInheritableSettings.forEach(s => {
         const isV2Generator = s.sub.startsWith('V2 Generator');
@@ -190,7 +196,9 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         }
         override.dep = deps;
 
-        if (isV2Generator) {
+        if (s.sub === 'V2 Generator (Spawn Behaviors)') {
+            spawnSettings.push(override);
+        } else if (isV2Generator) {
             generatorSettings.push(override);
         } else if (s.sub === 'Block Interior' || s.sub === 'Line Appearance' || s.sub === 'Line Fine-Tuning') {
             visualSettings.push(override);
@@ -255,9 +263,30 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
 
         settings.push({ cat: 'Effects', type: 'sub_accordion', label: 'Generator Settings', dep: genDep });
         let currentGenSub = '';
+
         generatorSettings.forEach(s => {
              if (s.sub !== currentGenSub) {
                 currentGenSub = s.sub;
+            }
+            if (s.sub_header) {
+                 settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: genDep });
+            }
+            settings.push(s);
+        });
+        
+        settings.push({ cat: 'Effects', type: 'end_group' });
+    }
+
+    // Spawn Behaviors (Sub-Accordion) under Behavior, below Generator Settings
+    if (spawnSettings.length > 0) {
+        const genDep = [...overrideDep];
+        if (prefix !== 'quantizedGenerateV2') genDep.push(prefix + "GeneratorTakeover");
+
+        settings.push({ cat: 'Effects', type: 'sub_accordion', label: 'Spawn Behaviors', dep: genDep });
+        let currentSpawnSub = '';
+        spawnSettings.forEach(s => {
+             if (s.sub !== currentSpawnSub) {
+                currentSpawnSub = s.sub;
             }
             if (s.sub_header) {
                  settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: genDep });
@@ -568,7 +597,7 @@ const ConfigTemplate = [
     ...(() => {
         const defaults = [];
         const defPrefix = 'quantizedDefault';
-        QuantizedInheritableSettings.filter(s => s.sub === 'Block Behavior' || s.sub === 'Block Interior' || s.sub === 'Line Appearance').forEach(s => {
+        QuantizedInheritableSettings.filter(s => s.sub === 'V2 Generator (Block Behavior)' || s.sub === 'Block Interior' || s.sub === 'Line Appearance').forEach(s => {
             if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: '!_activeEffectOverrideDefaults' });
             const setting = { ...s };
             setting.cat = 'Effects';

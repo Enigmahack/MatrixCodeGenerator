@@ -295,7 +295,8 @@ class ConfigurationManager {
             "quantizedPulseLineGfxSampleOffsetY": null,
             "quantizedPulseLineGfxPersistence": null,
             
-            "quantizedDefaultShadowWorldFadeSpeed": 0.5,
+            "quantizedDefaultShadowWorldFadeSpeed": 0.1,
+            "quantizedDefaultLayerCount": 2,
             "quantizedDefaultSingleLayerMode": false,
             "quantizedDefaultSingleLayerModeRetainState": false,
             "quantizedDefaultSpawnFromPerimeter": false,
@@ -802,6 +803,7 @@ class ConfigurationManager {
             'GlassRefractionMaskZoom',
             'GlassRefraction3DEnabled', 'GlassRefraction3DStrength',
             'ShadowWorldFadeSpeed',
+            'LayerCount',
             'PerimeterEchoEnabled',
             'EchoGfxDelay', 'EchoGfxDelayFadeAmount', 'EchoGfxThickness', 'EchoGfxBrightness', 'EchoGfxOpacity', 'EchoGfxIntensity', 'EchoGfxColor', 'EchoGfxSaturation', 'EchoGfxGlow',
             'EchoGfxSampleOffsetX', 'EchoGfxSampleOffsetY', 'EchoGfxOffsetX', 'EchoGfxOffsetY'

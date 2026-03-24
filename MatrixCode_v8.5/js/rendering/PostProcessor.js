@@ -816,5 +816,8 @@ class PostProcessor {
         }
 
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+
+        // Cleanup: Unbind texture to avoid feedback loops in subsequent passes
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 }

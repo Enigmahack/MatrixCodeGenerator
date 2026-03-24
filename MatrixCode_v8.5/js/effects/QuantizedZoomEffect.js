@@ -36,7 +36,6 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 
     getConfig(key) {
-        if (key === 'LayerCount') return 2;
         if (key === 'GeneratorTakeover') return false;
         if (key === 'ManualSeedOnly') return false; // Enable base-class automatic seeding for the tap position
 
@@ -59,6 +58,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             }
         }
 
+        // Restore brightness if we were in the middle of a zoom
+        if (this._savedBrightness !== null) {
+            this.c.state.brightness = this._savedBrightness;
+            // Keep _savedBrightness for the new run below
+        }
+
         this.spawnX = spawnPosition && typeof spawnPosition.x === 'number' ? spawnPosition.x : window.innerWidth / 2;
         this.spawnY = spawnPosition && typeof spawnPosition.y === 'number' ? spawnPosition.y : window.innerHeight / 2;
 
@@ -68,12 +73,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._smoothedZoom = 0.25;
         this._zoomOpacity = 1.0;
         
-        // If re-triggering while already dimmed, restore original first before re-saving
-        if (this._savedBrightness !== null) {
-            this.c.state.brightness = this._savedBrightness;
-        } else {
-            this._savedBrightness = this.c.state.brightness ?? 1.0;
-        }
+        // Save current brightness (which might have been restored above or changed by user)
+        this._savedBrightness = this.c.state.brightness ?? 1.0;
         
         this._fadingOut = false;
         this._fadeOutProgress = 0;

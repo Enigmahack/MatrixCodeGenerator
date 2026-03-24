@@ -1977,6 +1977,13 @@ class WebGLRenderer {
 
         // 7. Standard Cleanup (Internal State)
         this.gl.bindVertexArray(null);
+
+        // Explicitly unbind textures bound in this pass to prevent feedback loops in subsequent passes
+        for (const unit in textures) {
+            const slot = unit | 0;
+            this.gl.activeTexture(this.gl.TEXTURE0 + slot);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        }
     }
 
     preallocate(gw, gh, sourceCanvas = null) {
@@ -2571,7 +2578,11 @@ class WebGLRenderer {
 
                 this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
                 this.gl.bindVertexArray(null);
-            }    render(frame) {
+
+                // Cleanup: Unbind texture
+                this.gl.activeTexture(this.gl.TEXTURE0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                }    render(frame) {
         if (!this.posBuffer || this.fboWidth === 0) return; 
         
         const { state: s, derived: d } = this.config;
