@@ -32,7 +32,8 @@
       "Bash(node -c MatrixCode_v8.5/js/rendering/WebGLRenderer.js 2>&1 && node -c MatrixCode_v8.5/js/rendering/PostProcessor.js 2>&1)",
       "Bash(node -c MatrixCode_v8.5/js/rendering/WebGLRenderer.js 2>&1 && node -c MatrixCode_v8.5/js/rendering/PostProcessor.js 2>&1 && echo \"OK\")",
       "Bash(node:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(xxd:*)"
     ]
   }
 }

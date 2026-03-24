@@ -521,7 +521,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         // 4. Pre-warm GlyphAtlas (font texture)
         if (typeof GlyphAtlas !== 'undefined') {
             if (!QuantizedBaseEffect.sharedAtlas) {
-                QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+                const fontData = (d.activeFonts && d.activeFonts[0]) || { name: null, chars: null };
+                QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c, fontData.name, fontData.chars, 'SHARED');
             }
             QuantizedBaseEffect.sharedAtlas.update();
         }
@@ -541,6 +542,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             const endTime = performance.now();
             console.log(`[QuantizedBaseEffect] preallocate took ${(endTime - startTime).toFixed(2)}ms`);
         }
+
     }
 
     _initLogicGrid() {
@@ -1650,12 +1652,13 @@ class QuantizedBaseEffect extends AbstractEffect {
     _buildCharIndexData(w, h, s, d) {
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
+        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty && QuantizedBaseEffect.sharedAtlas) return;
         this.lastGridSeed = timeSeed;
         this._gridCacheDirty = false;
 
         if (!QuantizedBaseEffect.sharedAtlas) {
-            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+            const fontData = (d.activeFonts && d.activeFonts[0]) || { name: null, chars: null };
+            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c, fontData.name, fontData.chars, 'SHARED');
         }
         const atlas = QuantizedBaseEffect.sharedAtlas;
         atlas.update();
@@ -1733,7 +1736,7 @@ class QuantizedBaseEffect extends AbstractEffect {
 
         const rotatorCycle = d.rotatorCycleFrames || 20;
         const timeSeed = Math.floor(this.animFrame / rotatorCycle);
-        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty) return;
+        if (timeSeed === this.lastGridSeed && !this._gridCacheDirty && QuantizedBaseEffect.sharedAtlas) return;
         this.lastGridSeed = timeSeed;
         this._gridCacheDirty = false;
 
@@ -1741,7 +1744,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.clearRect(0, 0, w, h);
 
         if (!QuantizedBaseEffect.sharedAtlas) {
-            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c);
+            const fontData = (d.activeFonts && d.activeFonts[0]) || { name: null, chars: null };
+            QuantizedBaseEffect.sharedAtlas = new GlyphAtlas(this.c, fontData.name, fontData.chars, 'SHARED');
         }
         const atlas = QuantizedBaseEffect.sharedAtlas;
         atlas.update();

@@ -3,10 +3,11 @@
 // =========================================================================
 
 class GlyphAtlas {
-    constructor(config, fontName = null, customChars = null) {
+    constructor(config, fontName = null, customChars = null, debugLabel = null) {
         this.config = config;
         this.fontName = fontName;
         this.customChars = customChars;
+        this._debugLabel = debugLabel || (fontName ? `atlas-${fontName}` : 'atlas-unnamed');
 
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { alpha: true, willReadFrequently: true });
@@ -97,8 +98,12 @@ class GlyphAtlas {
         // If font isn't ready, we force a retry next frame, but we TRY to render anyway (Canvas fallback)
         if (!isFontReady) {
             this.needsUpdate = true;
-            // console.warn(`[GlyphAtlas] Font ${fontBase} not ready. Rendering with fallback.`);
+            console.warn(`[GlyphAtlas:${this._debugLabel}] Font NOT ready: "${fontBase}" | fontName=${this.fontName}`);
         } else {
+            if (this._debugFontLogged !== fontBase) {
+                console.log(`[GlyphAtlas:${this._debugLabel}] Font READY: "${fontBase}" | fontName=${this.fontName} | chars=${this.usedChars.length}`);
+                this._debugFontLogged = fontBase;
+            }
             this.needsUpdate = false;
         }
 
@@ -222,7 +227,7 @@ class GlyphAtlas {
      */
     addChar(char) {
         if (!this.valid) return null;
-        
+
         // Safety: Check if already exists to prevent duplicates
         if (this.charMap.has(char)) {
             const rect = this.charMap.get(char);
@@ -230,18 +235,24 @@ class GlyphAtlas {
             if (code < 65536) this.codeToId[code] = rect.id;
             return rect;
         }
-        
+
         // Check if supported first
-        const checkFont = this.currentFont.replace(/\d+px/, '16px'); 
+        const checkFont = this.currentFont.replace(/\d+px/, '16px');
         const sig = this._getCharSignature(checkFont, char);
         const emptySig = this._getCharSignature(checkFont, '\uFFFF');
-        
+
         if (!sig || sig === emptySig) {
             // Unsupported, do not add
+            if (!this._debugRejected) this._debugRejected = 0;
+            this._debugRejected++;
+            if (this._debugRejected <= 5) console.warn(`[GlyphAtlas:${this._debugLabel}] REJECTED char "${char}" (0x${char.charCodeAt(0).toString(16)}) font=${this.currentFont}`);
             return null;
         }
-        
+
         this.usedChars.push(char);
+        if (!this._debugAdded) this._debugAdded = 0;
+        this._debugAdded++;
+        if (this._debugAdded <= 3) console.log(`[GlyphAtlas:${this._debugLabel}] ADDED char "${char}" (0x${char.charCodeAt(0).toString(16)}) total=${this.usedChars.length} font=${this.currentFont}`);
         
         if (this.usedChars.length > this.capacity) {
             this._expandAtlas();

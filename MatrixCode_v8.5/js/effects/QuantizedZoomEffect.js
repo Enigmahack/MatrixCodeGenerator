@@ -69,10 +69,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         if (!super.trigger(force, spawnPosition)) return false;
 
-        this.zoomScale = 0.25;
-        this._smoothedZoom = 0.25;
+        const noZoom = (this.c.state.quantizedZoomMaxScale ?? 1.5) === 0;
+        this.zoomScale = noZoom ? 1.0 : 0.25;
+        this._smoothedZoom = noZoom ? 1.0 : 0.25;
         this._zoomOpacity = 1.0;
-        
+
         // Save current brightness (which might have been restored above or changed by user)
         this._savedBrightness = this.c.state.brightness ?? 1.0;
         
@@ -372,9 +373,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         // Derive zoom scale, opacity, and code brightness from fill ratio
         if (this._stripsCaptured) {
-            const minScale = 0.25;
-            const maxScale = s.quantizedZoomMaxScale || 1.5;
+            const maxScale = s.quantizedZoomMaxScale ?? 1.5;
+            const noZoom = maxScale === 0;
+            const minScale = noZoom ? 1.0 : 0.25;
+            const effectiveMax = noZoom ? 1.0 : maxScale;
             const baseOpacity = s.quantizedZoomOpacity ?? 1.0;
+            const bgBright = (s.quantizedZoomBackgroundBrightness ?? 100) / 100;
 
             // Compute fill ratio from shadowRevealGrid
             const srGrid = this.shadowRevealGrid;
@@ -392,13 +396,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             const fadeT = Math.pow(fillRatio, 8);
             this._zoomOpacity = baseOpacity * (1.0 - fadeT);
 
-            // Brightness: starts at full, dims as fill progresses
-            const minBrightness = 0.05;
-            const dimFactor = 1.0 - fillRatio * (1.0 - minBrightness);
+            // Brightness: dims toward bgBright floor as fill progresses
+            const dimFactor = 1.0 - fillRatio * (1.0 - bgBright);
             s.brightness = this._savedBrightness * dimFactor;
 
             // Target zoom from fill ratio, EMA-smoothed for continuous motion
-            const targetZoom = minScale + ((maxScale - minScale) * fillRatio);
+            const targetZoom = noZoom ? 1.0 : minScale + ((effectiveMax - minScale) * fillRatio);
             this._smoothedZoom += (targetZoom - this._smoothedZoom) * 0.08;
             this.zoomScale = this._smoothedZoom;
         }

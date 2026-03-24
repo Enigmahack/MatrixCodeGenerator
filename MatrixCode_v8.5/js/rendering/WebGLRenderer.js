@@ -923,10 +923,11 @@ class WebGLRenderer {
                                         bool occE = getLayerVal(nbE, u_layerOrder.x) > 0.01 || getLayerVal(nbE, u_layerOrder.y) > 0.01;
                                         bool occN = getLayerVal(nbN, u_layerOrder.x) > 0.01 || getLayerVal(nbN, u_layerOrder.y) > 0.01;
                                         bool occS = getLayerVal(nbS, u_layerOrder.x) > 0.01 || getLayerVal(nbS, u_layerOrder.y) > 0.01;
-                                        float edgeFade = (occW ? 1.0 : smoothstep(0.0, 0.15, f.x))
-                                                       * (occE ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.x))
-                                                       * (occN ? 1.0 : smoothstep(0.0, 0.15, f.y))
-                                                       * (occS ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.y));
+                                        float fadeD = (u_screenStep.x * 0.1 * u_thickness) * 0.5 + 0.001;
+                                        float edgeFade = (occW ? 1.0 : smoothstep(0.0, fadeD, f.x * u_cellPitch.x * u_screenStep.x))
+                                                       * (occE ? 1.0 : smoothstep(0.0, fadeD, (1.0 - f.x) * u_cellPitch.x * u_screenStep.x))
+                                                       * (occN ? 1.0 : smoothstep(0.0, fadeD, f.y * u_cellPitch.y * u_screenStep.y))
+                                                       * (occS ? 1.0 : smoothstep(0.0, fadeD, (1.0 - f.y) * u_cellPitch.y * u_screenStep.y));
                                         float bell = fillAlpha * u_refractionOpacity * edgeFade;
                                         vec2 fillUV = v_uv + (u_sourceGridOffset + u_sampleOffset) / u_resolution;
                                         fillUV = (fillUV - 0.5) / u_refractionMaskZoom + 0.5;
@@ -1056,16 +1057,21 @@ class WebGLRenderer {
                                 if (nsE || ewE) fillVal = max(fillVal, bL1);
                             }
                             if (fillVal > 0.01) {
+                                normalMax = max(normalMax, fillVal);
                                 vec2 f = fract(logicPos);
-                                bool occW = getLayerVal(nbW, L0) > 0.01 || getLayerVal(nbW, L1) > 0.01;
-                                bool occE = getLayerVal(nbE, L0) > 0.01 || getLayerVal(nbE, L1) > 0.01;
-                                bool occN = getLayerVal(nbN, L0) > 0.01 || getLayerVal(nbN, L1) > 0.01;
-                                bool occS = getLayerVal(nbS, L0) > 0.01 || getLayerVal(nbS, L1) > 0.01;
-                                float edgeFade = (occW ? 1.0 : smoothstep(0.0, 0.15, f.x))
-                                               * (occE ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.x))
-                                               * (occN ? 1.0 : smoothstep(0.0, 0.15, f.y))
-                                               * (occS ? 1.0 : smoothstep(0.0, 0.15, 1.0 - f.y));
-                                normalMax = max(normalMax, fillVal * edgeFade);
+                                float occNf = step(0.01, max(getLayerVal(nbN, L0), getLayerVal(nbN, L1)));
+                                float occSf = step(0.01, max(getLayerVal(nbS, L0), getLayerVal(nbS, L1)));
+                                float occWf = step(0.01, max(getLayerVal(nbW, L0), getLayerVal(nbW, L1)));
+                                float occEf = step(0.01, max(getLayerVal(nbE, L0), getLayerVal(nbE, L1)));
+                                float dN = f.y * u_cellPitch.y * u_screenStep.y;
+                                float dS = (1.0 - f.y) * u_cellPitch.y * u_screenStep.y;
+                                float dW = f.x * u_cellPitch.x * u_screenStep.x;
+                                float dE = (1.0 - f.x) * u_cellPitch.x * u_screenStep.x;
+                                float lineN = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, dN), exp(-dN * u_glowFalloff) * 2.0) * fillVal;
+                                float lineS = max(1.0 - smoothstep(halfThickX - sX, halfThickX + sX + 0.001, dS), exp(-dS * u_glowFalloff) * 2.0) * fillVal;
+                                float lineW = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, dW), exp(-dW * u_glowFalloff) * 2.0) * fillVal;
+                                float lineE = max(1.0 - smoothstep(halfThickY - sY, halfThickY + sY + 0.001, dE), exp(-dE * u_glowFalloff) * 2.0) * fillVal;
+                                normalMax = max(normalMax, max(max(lineN * occNf, lineS * occSf), max(lineW * occWf, lineE * occEf)));
                             }
                         }
                     }
@@ -1785,7 +1791,15 @@ class WebGLRenderer {
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
     }
 
-    handleFontChange() { this.glyphAtlases.clear(); this.needsAtlasUpdate = true; }
+    handleFontChange() {
+        this.glyphAtlases.clear();
+        this.needsAtlasUpdate = true;
+        // Also invalidate the shared quantized atlas so it rebuilds with the new font
+        if (typeof QuantizedBaseEffect !== 'undefined') {
+            QuantizedBaseEffect.sharedAtlas = null;
+            this._sharedAtlasGeneration = -1;
+        }
+    }
     handleAppearanceChange() { this.needsAtlasUpdate = true; }
     updateSmoothing() { 
         const s = this.config.state.smoothingEnabled ? this.config.state.smoothingAmount : 0; 
@@ -2217,8 +2231,8 @@ class WebGLRenderer {
         const log = this.config && this.config.state.logErrors;
 
         const targetFbo = this.fboA;
-        if (!targetFbo) {
-            if (log) console.warn('[WebGLRenderer] warmUpGPU: fboA not ready, skipping');
+        if (!targetFbo || !this.fboWidth || !this.fboHeight) {
+            if (log) console.warn('[WebGLRenderer] warmUpGPU: FBOs not ready, skipping');
             return;
         }
 
@@ -2541,6 +2555,10 @@ class WebGLRenderer {
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this._sharedAtlasGLTexture);
                 this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, glyphAtlas.canvas);
                 this._sharedAtlasGeneration = atlasGen;
+                if (!this._debugAtlasUploaded) {
+                    console.log(`[WebGLRenderer] Shared atlas uploaded to GPU: ${glyphAtlas.canvas.width}x${glyphAtlas.canvas.height} chars=${glyphAtlas.usedChars.length} font=${glyphAtlas.currentFont}`);
+                    this._debugAtlasUploaded = true;
+                }
             }
             commonTextures[6] = this._sharedAtlasGLTexture;
         } else {
@@ -2832,7 +2850,7 @@ class WebGLRenderer {
 
         let atlas = this.glyphAtlases.get(font.name);
         if (!atlas) {
-            atlas = new GlyphAtlas(this.config, font.name, font.chars);
+            atlas = new GlyphAtlas(this.config, font.name, font.chars, 'MAIN');
             this.glyphAtlases.set(font.name, atlas);
         } else {
             atlas.fontName = font.name; 

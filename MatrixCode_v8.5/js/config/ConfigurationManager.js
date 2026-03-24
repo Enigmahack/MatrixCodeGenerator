@@ -500,6 +500,7 @@ class ConfigurationManager {
             "quantizedZoomZoomEnabled": true,
             "quantizedZoomZoomRate": 1,
             "quantizedZoomMaxScale": 1.5,
+            "quantizedZoomBackgroundBrightness": 100,
             "quantizedZoomOpacity": 1.0,
             "quantizedZoomDelay": 0,
             "quantizedZoomHoldSeconds": 2,
