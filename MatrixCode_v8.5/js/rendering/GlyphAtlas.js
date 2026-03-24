@@ -98,10 +98,10 @@ class GlyphAtlas {
         // If font isn't ready, we force a retry next frame, but we TRY to render anyway (Canvas fallback)
         if (!isFontReady) {
             this.needsUpdate = true;
-            console.warn(`[GlyphAtlas:${this._debugLabel}] Font NOT ready: "${fontBase}" | fontName=${this.fontName}`);
+            if (this.config.state.logErrors) console.warn(`[GlyphAtlas:${this._debugLabel}] Font NOT ready: "${fontBase}" | fontName=${this.fontName}`);
         } else {
             if (this._debugFontLogged !== fontBase) {
-                console.log(`[GlyphAtlas:${this._debugLabel}] Font READY: "${fontBase}" | fontName=${this.fontName} | chars=${this.usedChars.length}`);
+                if (this.config.state.logErrors) console.log(`[GlyphAtlas:${this._debugLabel}] Font READY: "${fontBase}" | fontName=${this.fontName} | chars=${this.usedChars.length}`);
                 this._debugFontLogged = fontBase;
             }
             this.needsUpdate = false;
@@ -245,14 +245,14 @@ class GlyphAtlas {
             // Unsupported, do not add
             if (!this._debugRejected) this._debugRejected = 0;
             this._debugRejected++;
-            if (this._debugRejected <= 5) console.warn(`[GlyphAtlas:${this._debugLabel}] REJECTED char "${char}" (0x${char.charCodeAt(0).toString(16)}) font=${this.currentFont}`);
+            if (this._debugRejected <= 5 && this.config.state.logErrors) console.warn(`[GlyphAtlas:${this._debugLabel}] REJECTED char "${char}" (0x${char.charCodeAt(0).toString(16)}) font=${this.currentFont}`);
             return null;
         }
 
         this.usedChars.push(char);
         if (!this._debugAdded) this._debugAdded = 0;
         this._debugAdded++;
-        if (this._debugAdded <= 3) console.log(`[GlyphAtlas:${this._debugLabel}] ADDED char "${char}" (0x${char.charCodeAt(0).toString(16)}) total=${this.usedChars.length} font=${this.currentFont}`);
+        if (this._debugAdded <= 3 && this.config.state.logErrors) console.log(`[GlyphAtlas:${this._debugLabel}] ADDED char "${char}" (0x${char.charCodeAt(0).toString(16)}) total=${this.usedChars.length} font=${this.currentFont}`);
         
         if (this.usedChars.length > this.capacity) {
             this._expandAtlas();

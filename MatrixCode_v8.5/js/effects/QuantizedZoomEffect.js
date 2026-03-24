@@ -17,6 +17,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.spawnX = 0;
         this.spawnY = 0;
         this._zoomOpacity = 1.0;
+        this._zoomBgBrightness = 1.0; // Strip background brightness multiplier
         this._savedBrightness = null; // Original brightness to restore on terminate
         this._fadingOut = false;      // True once base lifecycle ends; drives a timed fade-out
         this._fadeOutProgress = 0;    // 0→1 fade-out interpolant
@@ -73,6 +74,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.zoomScale = noZoom ? 1.0 : 0.25;
         this._smoothedZoom = noZoom ? 1.0 : 0.25;
         this._zoomOpacity = 1.0;
+        this._zoomBgBrightness = 1.0;
 
         // Save current brightness (which might have been restored above or changed by user)
         this._savedBrightness = this.c.state.brightness ?? 1.0;
@@ -327,12 +329,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             // Zoom opacity fades to zero
             this._zoomOpacity *= (1.0 - fo);
 
-            // Brightness restores toward saved value
-            s.brightness += (this._savedBrightness - s.brightness) * Math.min(1.0, this._fadeOutProgress * 2.0);
-
             // Once complete, do final termination
             if (this._fadeOutProgress >= 1.0) {
-                s.brightness = this._savedBrightness;
                 this._savedBrightness = null;
                 this._fadingOut = false;
                 super._terminate();
@@ -396,9 +394,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             const fadeT = Math.pow(fillRatio, 8);
             this._zoomOpacity = baseOpacity * (1.0 - fadeT);
 
-            // Brightness: dims toward bgBright floor as fill progresses
-            const dimFactor = 1.0 - fillRatio * (1.0 - bgBright);
-            s.brightness = this._savedBrightness * dimFactor;
+            // Background strip brightness: direct multiplier from config (0%=invisible, 100%=full)
+            this._zoomBgBrightness = bgBright;
 
             // Target zoom from fill ratio, EMA-smoothed for continuous motion
             const targetZoom = noZoom ? 1.0 : minScale + ((effectiveMax - minScale) * fillRatio);
@@ -495,8 +492,10 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         if (!hasClip) { ctx.restore(); return; }
         ctx.clip();
 
-        // Draw zoomed + tiled strip-based background within the clip
-        ctx.globalAlpha = this._zoomOpacity;
+        // Draw zoomed + tiled strip-based background within the clip.
+        // Apply brightness as a multiplier on tile opacity so only the strip
+        // background is affected — NOT the WebGL lines underneath.
+        ctx.globalAlpha = this._zoomOpacity * this._zoomBgBrightness;
 
         const sx = this.spawnX;
         const sy = this.spawnY;

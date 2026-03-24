@@ -1798,6 +1798,7 @@ class WebGLRenderer {
         if (typeof QuantizedBaseEffect !== 'undefined') {
             QuantizedBaseEffect.sharedAtlas = null;
             this._sharedAtlasGeneration = -1;
+            console.log('[WebGLRenderer] handleFontChange: shared atlas invalidated, will rebuild on next frame');
         }
     }
     handleAppearanceChange() { this.needsAtlasUpdate = true; }
