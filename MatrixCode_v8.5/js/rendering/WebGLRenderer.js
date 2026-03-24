@@ -812,7 +812,7 @@ class WebGLRenderer {
                             float refrOffPx = u_refractionOffset * cellSize;
                             vec3 tintedColor = applyHueShift(u_color, u_tintOffset);
 
-                            #define APPLY_REFR(minD, reflP_, edgeA_, brightness_) \
+                            #define APPLY_REFR(minD, reflP_, edgeA_, brightness_, var_) \
                             { \
                                 float refrBell_ = max(1.0 - smoothstep(0.0, max(refrWidth,0.0001), abs(minD - refrOffPx)), 0.0) * edgeA_ * u_refractionOpacity; \
                                 if (refrBell_ > 0.001) { \
@@ -836,7 +836,7 @@ class WebGLRenderer {
                                         } \
                                         vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_) * shade3D_, u_refractionSaturation); \
                                         resultColor = mix(resultColor, rc_ + rc_ * (u_refractionGlow * refrBell_), refrBell_); \
-                                        refrAlpha = max(refrAlpha, refrBell_ * luma_); \
+                                        refrAlpha = max(refrAlpha, refrBell_ * luma_ * var_); \
                                     } \
                                 } \
                             }
@@ -844,12 +844,12 @@ class WebGLRenderer {
                             // Layer 0: full brightness
                             if (edgeAlphaA > 0.0 && minDistA < 1.0e9) {
                                 float var = getVariance(bestEdgeIA, bestTypeA);
-                                APPLY_REFR(minDistA, reflPA, edgeAlphaA, u_refractionBrightness * var)
+                                APPLY_REFR(minDistA, reflPA, edgeAlphaA, u_refractionBrightness * var, var)
                             }
                             // Layer 1: brightness reduced by 0.3 when layer 0 is on the occupied side
                             if (edgeAlphaB > 0.0 && minDistB < 1.0e9) {
                                 float var = getVariance(bestEdgeIB, bestTypeB);
-                                APPLY_REFR(minDistB, reflPB, edgeAlphaB, max(u_refractionBrightness + brightDeltaB, 0.0) * var)
+                                APPLY_REFR(minDistB, reflPB, edgeAlphaB, max(u_refractionBrightness + brightDeltaB, 0.0) * var, var)
                             }
 
                             #undef APPLY_REFR

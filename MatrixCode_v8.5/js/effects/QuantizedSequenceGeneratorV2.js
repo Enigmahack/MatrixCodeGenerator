@@ -611,13 +611,6 @@ class QuantizedSequenceGeneratorV2 {
             let minY = (q === 0 || q === 1) ? -yVis : 0;
             let maxY = (q === 0 || q === 1) ? 0 : yVis;
 
-            const scanMinX = -xVis, scanMaxX = xVis;
-            const scanMinY = -yVis, scanMaxY = yVis;
-            const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
-            const outsideMap = gen._getBuffer('hfOutside', scanW * scanH, Uint8Array);
-            outsideMap.fill(0);
-            const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
-
             const maxL = gen._getMaxLayer();
             const isOccupiedAny = (bx, by) => {
                 for (let l = 0; l <= maxL; l++) {
@@ -626,32 +619,18 @@ class QuantizedSequenceGeneratorV2 {
                 return false;
             };
 
-            const queue = gen._getBuffer('hfQueue', scanW * scanH, Int32Array);
-            let head = 0, tail = 0;
-
-            const add = (bx, by) => {
-                if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
-                const idx = getIdx(bx, by);
-                if (outsideMap[idx] === 0 && !isOccupiedAny(bx, by)) {
-                    outsideMap[idx] = 1;
-                    queue[tail++] = idx;
-                }
-            };
-
-            for (let bx = scanMinX; bx <= scanMaxX; bx++) { add(bx, scanMinY); add(bx, scanMaxY); }
-            for (let by = scanMinY; by <= scanMaxY; by++) { add(scanMinX, by); add(scanMaxX, by); }
-
-            while (head < tail) {
-                const idx = queue[head++];
-                const bx = scanMinX + (idx % scanW);
-                const by = scanMinY + Math.floor(idx / scanW);
-                add(bx + 1, by); add(bx - 1, by); add(bx, by + 1); add(bx, by - 1);
+            if (!s.outsideInfo) {
+                s.outsideInfo = gen._getOutsideMap();
             }
+            const { outsideMap, getIdx } = s.outsideInfo;
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
                     if (!gen._isOccupied(bx, by, layer)) {
-                        const isEnclosed = (outsideMap[getIdx(bx, by)] === 0);
+                        let isEnclosed = false;
+                        if (bx >= s.outsideInfo.scanMinX && bx <= s.outsideInfo.scanMaxX && by >= s.outsideInfo.scanMinY && by <= s.outsideInfo.scanMaxY) {
+                            isEnclosed = (outsideMap[getIdx(bx, by)] === 0);
+                        }
                         
                         // Also check for "Small Gaps" (3 or 4 cardinal neighbors are full on any layer)
                         let neighborCount = 0;
@@ -2039,6 +2018,7 @@ class QuantizedSequenceGeneratorV2 {
         // One-time per step calculation of outsideInfo if SpawnFromPerimeter is enabled or any edge-mode behavior is active
         s.outsideInfo = null;
         const _needsOutside = !!this._getConfig('SpawnFromPerimeter') ||
+            !!this._getConfig('HoleFillerEnabled') ||
             [...this.growthPool.values()].some(b => b.enabled && b.growth === 'edge');
         if (_needsOutside) {
             s.outsideInfo = this._getOutsideMap();

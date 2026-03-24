@@ -4868,13 +4868,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             let minY = (q === 0 || q === 1) ? -yVis : 0;
             let maxY = (q === 0 || q === 1) ? 0 : yVis;
 
-            const scanMinX = -xVis, scanMaxX = xVis;
-            const scanMinY = -yVis, scanMaxY = yVis;
-            const scanW = scanMaxX - scanMinX + 1, scanH = scanMaxY - scanMinY + 1;
-            const outsideMap = this._getBuffer('hfOutside', scanW * scanH, Uint8Array);
-            outsideMap.fill(0);
-            const getIdx = (bx, by) => (by - scanMinY) * scanW + (bx - scanMinX);
-
             const maxLayerCheck = this._getMaxLayer();
             const isOccupiedAny = (bx, by) => {
                 for (let l = 0; l <= maxLayerCheck; l++) {
@@ -4883,33 +4876,22 @@ class QuantizedBaseEffect extends AbstractEffect {
                 return false;
             };
 
-            const queue = this._getBuffer('hfQueue', scanW * scanH, Int32Array);
-            let head = 0, tail = 0;
-
-            const add = (bx, by) => {
-                if (bx < scanMinX || bx > scanMaxX || by < scanMinY || by > scanMaxY) return;
-                const idx = getIdx(bx, by);
-                if (outsideMap[idx] === 0 && !isOccupiedAny(bx, by)) {
-                    outsideMap[idx] = 1;
-                    queue[tail++] = idx;
-                }
-            };
-
-            for (let bx = scanMinX; bx <= scanMaxX; bx++) { add(bx, scanMinY); add(bx, scanMaxY); }
-            for (let by = scanMinY; by <= scanMaxY; by++) { add(scanMinX, by); add(scanMaxX, by); }
-
-            while (head < tail) {
-                const idx = queue[head++];
-                const bx = scanMinX + (idx % scanW);
-                const by = scanMinY + Math.floor(idx / scanW);
-                add(bx + 1, by); add(bx - 1, by); add(bx, by + 1); add(bx, by - 1);
+            // Use the globally computed outside map for this step
+            if (!s.outsideMap) {
+                s.outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
             }
 
             for (let by = minY; by <= maxY; by++) {
                 for (let bx = minX; bx <= maxX; bx++) {
                     if (!this._isOccupied(bx, by, layer)) {
-                        const isEnclosed = outsideMap[getIdx(bx, by)] === 0;
-                        
+                        const gx = this._gridCX + bx;
+                        const gy = this._gridCY + by;
+
+                        let isEnclosed = false;
+                        if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
+                            isEnclosed = s.outsideMap[gy * w + gx] === 0;
+                        }
+
                         // Also check for "Small Gaps" (3 or 4 cardinal neighbors are full on any layer)
                         let neighborCount = 0;
                         if (isOccupiedAny(bx - 1, by)) neighborCount++;
@@ -4927,7 +4909,6 @@ class QuantizedBaseEffect extends AbstractEffect {
                 }
             }
         }, { enabled: true, type: this._getGenConfig('HoleFillerBehaviorType') ?? 'pool', growth: this._getGenConfig('HoleFillerGrowthMode') ?? 'edge', bias: this._getGenConfig('HoleFillerSpawnBias') ?? 'single', label: 'Aggressive Hole Filler' });
-
         // ── Axis Shift ───────────────────────────────────────────────────────
         // Treats newly placed lines of blocks as sub-axes, spawning strips
         // in all 4 directions from a point along the line — exactly like the
@@ -5704,6 +5685,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         // One-time per step calculation of outsideMap if SpawnFromPerimeter is enabled or any edge-mode behavior is active
         s.outsideMap = null;
         const _needsOutside = !!this.getConfig('SpawnFromPerimeter') ||
+            !!this._getGenConfig('HoleFillerEnabled') ||
             [...this.growthPool.values()].some(b => b.enabled && b.growth === 'edge');
         if (_needsOutside) {
             s.outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
