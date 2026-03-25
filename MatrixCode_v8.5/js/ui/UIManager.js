@@ -1681,7 +1681,7 @@ class UIManager {
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator', true)) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu', true)) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman', true)) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
-        if(action === 'stopAllEffects') { this.disableAllPeriodicEffects(); this.notifications.show('All automated effects disabled', 'info'); }
+        if(action === 'stopAllEffects') { this.disableAllPeriodicEffects(); this.notifications.show('Disabled All Periodic Effects', 'info'); }
         if(action === 'unloadAllShaders') { this._unloadAllShaders(); }
     }
 
@@ -1690,7 +1690,7 @@ class UIManager {
      */
     disableAllPeriodicEffects() {
         // Stop any currently running effects
-        this.effects.registry.forEach(fx => {
+        this.effects.effects.forEach(fx => {
             if (fx.active) fx.stop();
         });
 

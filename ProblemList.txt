@@ -1,9 +1,13 @@
-Todo 
-- Review the Configuration Saving/Loading to ensure all settings are considered/applied, and that individual configuration names are also exported/imported with the JSON. 
+Todo:
 
 Behaviours: 
 
 Visuals: 
 - Boot Effect doesn't look right. Refine. (The bluish/white boot animation only)
 - Fix animation for quantized Retract. 
-
+- Adjust behaviors slightly so they don't quite overlap in terms of what they do. 
+- Remove the spine-default-always-on growth by default. 
+- Color Blend no longer works in trilogy effects
+- Color Writing does not work in Deja Vu
+- Enabling Star Power appears to cause issues with gaps in code streams when Glow Blocks are enabled. (horizontal gaps with the occasional flickers within them, or there are streams of the same character repeated over and over, like rotators is disabled/broken, Rainbow Streams works as expected) 
+- When glow blocks is disabled, hide all settings
