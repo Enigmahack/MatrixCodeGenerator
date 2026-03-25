@@ -239,10 +239,24 @@ class WorkerSimulationSystem {
         const age = grid.ages[idx];
         const type = grid.types[idx];
         const baseType = type & CELL_TYPE_MASK;
-        const isTracer = (baseType === CELL_TYPE.TRACER || baseType === CELL_TYPE.ROTATOR);
+        const isTracer = (baseType === CELL_TYPE_TRACER || baseType === CELL_TYPE.ROTATOR);
 
         if (decay < 2 && isTracer) {
-            const ratio = this._getColorRatio(age, s);
+            const attack = s.tracerAttackFrames;
+            const hold = s.tracerHoldFrames;
+            const release = s.tracerReleaseFrames;
+            const activeAge = age - 1;
+
+            let ratio = 0;
+            if (isGradual) {
+                // Immediately blend to stream color after attack+hold
+                if (activeAge > attack + hold) {
+                    ratio = 1.0;
+                }
+            } else {
+                ratio = this._getColorRatio(age, s);
+            }
+
             if (ratio >= 1.0) {
                 grid.colors[idx] = grid.baseColors[idx];
                 grid.glows[idx] = 0; 
@@ -259,14 +273,32 @@ class WorkerSimulationSystem {
                 const mB = (tB + (bB - tB) * ratio) | 0;
                 
                 grid.colors[idx] = (0xFF000000 | (mB << 16) | (mG << 8) | mR);
-                grid.glows[idx] = s.tracerGlow * (1.0 - ratio);
+                
+                if (isGradual) {
+                    grid.glows[idx] = 0;
+                } else {
+                    grid.glows[idx] = s.tracerGlow * (1.0 - ratio);
+                }
             } else {
                 grid.colors[idx] = d.tracerColorUint32;
                 grid.glows[idx] = s.tracerGlow;
             }
         }
 
+        // Handle Rotator
+        // Allow rotator to finish its transition (mix > 0) even if subsequently disabled
         if ((s.rotatorEnabled || grid.mix[idx] > 0) && baseType === CELL_TYPE.ROTATOR) this._handleRotator(idx, frame, s, d);
+
+        // Handle Dynamic Colors (Effects)
+        if (grid.complexStyles.has(idx)) {
+            const style = grid.complexStyles.get(idx);
+            if (style.cycle) {
+                const newHue = Math.abs((style.h + (style.speed || 1.0)) % 360);
+                style.h = newHue; 
+                const rgb = Utils.hslToRgb(newHue, style.s, style.l);
+                grid.colors[idx] = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
+            }
+        }
 
         if (decay >= 2) {
             grid.colors[idx] = grid.baseColors[idx];

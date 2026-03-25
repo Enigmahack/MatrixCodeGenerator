@@ -416,6 +416,7 @@ class PulseEffect extends AbstractEffect {
             if (isGap && !s.pulsePreserveSpaces) {
                 charCode = this.snap.fillChars[i];
                 fontIdx = this.snap.fillFonts[i];
+                color = d.streamColorUint32; // Use stream color for filled gaps
             }
 
             // 2. BACKGROUND (Dimmed)

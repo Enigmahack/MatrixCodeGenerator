@@ -223,7 +223,7 @@ void main() {
                     let color = tracerColor;
 
                     if (randomizeColors) {
-                        const h = (hash % 360);
+                        const h = Math.abs(hash % 360);
                         const rgb = Utils.hslToRgb(h, 90, 70);
                         color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
                     }

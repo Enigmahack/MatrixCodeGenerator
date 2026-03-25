@@ -547,13 +547,9 @@ class SimulationSystem {
             const activeAge = age - 1;
             
             if (isGradual && !isUpward) {
-                // Gradual Fade: Linearly interpolate over a long distance (e.g. 45 chars/frames)
-                // Starts fading immediately after attack+hold
-                const fadeStart = attack + hold;
-                const fadeLen = 45.0; 
-                
-                if (activeAge > fadeStart) {
-                    ratio = Math.min(1.0, (activeAge - fadeStart) / fadeLen);
+                // Immediately blend to stream color after attack+hold
+                if (activeAge > attack + hold) {
+                    ratio = 1.0;
                 }
             } else {
                 // Standard Logic
@@ -606,7 +602,7 @@ class SimulationSystem {
         if (grid.complexStyles.has(idx)) {
             const style = grid.complexStyles.get(idx);
             if (style.cycle) {
-                const newHue = (style.h + style.speed) % 360;
+                const newHue = Math.abs((style.h + style.speed) % 360);
                 style.h = newHue; 
                 const rgb = Utils.hslToRgb(newHue, style.s, style.l);
                 grid.colors[idx] = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
