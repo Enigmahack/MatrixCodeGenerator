@@ -1230,6 +1230,94 @@ class _QuantizedProceduralEngine {
         return false;
     }
 
+    _snapToEdges() {
+        const r = this._lastCoverageRect;
+        if (!r) return;
+        const { startX, endX, startY, endY } = r;
+        const visW = endX - startX;
+        const visH = endY - startY;
+        if (visW <= 0 || visH <= 0) return;
+
+        const w = this.logicGridW, h = this.logicGridH;
+        const rg = this.renderGrid;
+        if (!rg) return;
+
+        const threshold = 0.6;
+        const maxInward = 3;
+        const layer = 0;
+        const cx = this._gridCX, cy = this._gridCY;
+
+        const isEmpty = (gx, gy) => {
+            if (gx < 0 || gx >= w || gy < 0 || gy >= h) return false;
+            return rg[gy * w + gx] === -1;
+        };
+
+        const fillCell = (gx, gy) => {
+            const relX = gx - cx, relY = gy - cy;
+            this._spawnBlock(relX, relY, 1, 1, layer, false, 0, true, true, true, false, true);
+        };
+
+        // North edge, sweeping inward (increasing y)
+        for (let d = 0; d < maxInward; d++) {
+            const gy = startY + d;
+            if (gy >= endY) break;
+            let filled = 0, total = 0;
+            for (let gx = startX; gx < endX; gx++) {
+                total++;
+                if (!isEmpty(gx, gy)) filled++;
+            }
+            if (total === 0 || filled / total < threshold) break;
+            for (let gx = startX; gx < endX; gx++) {
+                if (isEmpty(gx, gy)) fillCell(gx, gy);
+            }
+        }
+
+        // South edge, sweeping inward (decreasing y)
+        for (let d = 0; d < maxInward; d++) {
+            const gy = endY - 1 - d;
+            if (gy < startY) break;
+            let filled = 0, total = 0;
+            for (let gx = startX; gx < endX; gx++) {
+                total++;
+                if (!isEmpty(gx, gy)) filled++;
+            }
+            if (total === 0 || filled / total < threshold) break;
+            for (let gx = startX; gx < endX; gx++) {
+                if (isEmpty(gx, gy)) fillCell(gx, gy);
+            }
+        }
+
+        // West edge, sweeping inward (increasing x)
+        for (let d = 0; d < maxInward; d++) {
+            const gx = startX + d;
+            if (gx >= endX) break;
+            let filled = 0, total = 0;
+            for (let gy = startY; gy < endY; gy++) {
+                total++;
+                if (!isEmpty(gx, gy)) filled++;
+            }
+            if (total === 0 || filled / total < threshold) break;
+            for (let gy = startY; gy < endY; gy++) {
+                if (isEmpty(gx, gy)) fillCell(gx, gy);
+            }
+        }
+
+        // East edge, sweeping inward (decreasing x)
+        for (let d = 0; d < maxInward; d++) {
+            const gx = endX - 1 - d;
+            if (gx < startX) break;
+            let filled = 0, total = 0;
+            for (let gy = startY; gy < endY; gy++) {
+                total++;
+                if (!isEmpty(gx, gy)) filled++;
+            }
+            if (total === 0 || filled / total < threshold) break;
+            for (let gy = startY; gy < endY; gy++) {
+                if (isEmpty(gx, gy)) fillCell(gx, gy);
+            }
+        }
+    }
+
     _getBiasedCoordinate(minL, maxL, size, pStatus, axis) {
         const centerReached = (axis === 'X') ? (pStatus.E && pStatus.W) : (pStatus.N && pStatus.S);
         if (!centerReached && Math.random() < 0.8) {
@@ -2271,10 +2359,11 @@ class _QuantizedProceduralEngine {
         }, { enabled: this._getGenConfig('BlockThickenEnabled') ?? false, type: this._getGenConfig('BlockThickenBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockThickenGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockThickenSpawnBias') ?? 'single', label: 'Block Thicken' });
 
         this.registerBehavior('hole_filler', function(s, behavior, layer) {
-            if (!this._getGenConfig('HoleFillerEnabled')) return;
+            const highFill = (s.fillRatio || 0) > 0.90;
+            if (!highFill && !this._getGenConfig('HoleFillerEnabled')) return;
             const startDelay = this._getGenConfig('HoleFillerStartDelay') ?? 0;
             const fillRate = Math.max(1, this._getGenConfig('HoleFillerRate') ?? 1);
-            if (s.step < startDelay || s.step % fillRate !== 0) return;
+            if (!highFill && (s.step < startDelay || s.step % fillRate !== 0)) return;
             const w = this.logicGridW, h = this.logicGridH;
             const grid = this.layerGrids[layer];
             if (!grid) return;
@@ -2887,12 +2976,30 @@ class _QuantizedProceduralEngine {
         const visW = Math.max(1, Math.floor(this.g.cols / bs.w)), visH = Math.max(1, Math.floor(this.g.rows / bs.h));
         const halfW = Math.floor(visW / 2), halfH = Math.floor(visH / 2);
         const totalCells = visW * visH;
-        let filledCells = 0;
+
+        // Use a bitmap to avoid double-counting cells occupied on multiple layers
+        if (!this._fillBitmap || this._fillBitmap.length < totalCells) {
+            this._fillBitmap = new Uint8Array(totalCells);
+        }
+        this._fillBitmap.fill(0);
+
         for (const b of this.activeBlocks) {
             const bx1 = Math.max(-halfW, b.x), bx2 = Math.min(halfW - 1, b.x + b.w - 1);
             const by1 = Math.max(-halfH, b.y), by2 = Math.min(halfH - 1, b.y + b.h - 1);
-            if (bx2 >= bx1 && by2 >= by1) filledCells += (bx2 - bx1 + 1) * (by2 - by1 + 1);
+            if (bx2 < bx1 || by2 < by1) continue;
+            for (let by = by1; by <= by2; by++) {
+                const rowOff = (by + halfH) * visW;
+                for (let bx = bx1; bx <= bx2; bx++) {
+                    this._fillBitmap[rowOff + (bx + halfW)] = 1;
+                }
+            }
         }
+
+        let filledCells = 0;
+        for (let i = 0; i < totalCells; i++) {
+            if (this._fillBitmap[i]) filledCells++;
+        }
+
         s.fillRatio = Math.min(1, filledCells / totalCells);
         this.behaviorState.fillRatio = s.fillRatio;
     }
@@ -3151,6 +3258,17 @@ class _QuantizedProceduralEngine {
         // INCREMENT AGE OF ALL ACTIVE BLOCKS
         for (const b of this.activeBlocks) b.stepAge = (b.stepAge || 0) + 1;
 
+        // Promote hole_filler to core behavior at high fill ratios so it runs every step
+        const hf = this.growthPool.get('hole_filler');
+        if (hf) {
+            if ((s.fillRatio || 0) > 0.90) {
+                hf.type = 'core';
+                hf.enabled = true;
+            } else {
+                hf.type = this._getGenConfig('HoleFillerBehaviorType') ?? 'pool';
+            }
+        }
+
         const quota = this.getConfig('SimultaneousSpawns') || 1;
         if (!this._enabledPoolBehaviorsBuf) this._enabledPoolBehaviorsBuf = [];
         const poolBehaviors = this._enabledPoolBehaviorsBuf;
@@ -3182,9 +3300,11 @@ class _QuantizedProceduralEngine {
         }
 
         this._processIntents();
+        if (this._visibleFillRatio >= 0.5) this._snapToEdges();
         s.step++;
         this._updateRenderGridLogic();
-        if (s.fillRatio > 0.98 && this.strips.size === 0) this.expansionComplete = true;
+        this._updateVisibleEmptyCount();
+        if (this._isCanvasFullyCovered()) this.expansionComplete = true;
     }
 
     _isOccupied(x, y, layer) {

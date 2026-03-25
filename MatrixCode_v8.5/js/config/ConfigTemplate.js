@@ -326,7 +326,6 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: 'Brightness of the persistence trails left by moving characters.', tags: ['ghost', 'trail', 'bright'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, tier: 'advanced', description: "The maximum alpha (transparency) for characters. Default is 0.99.", tags: ['transparency', 'alpha', 'see-through'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Global', type: 'accordion_subheader', label: 'Quick Presets' },
-    { cat: 'Global', id: 'skipIntro', type: 'checkbox', label: 'Skip Intro', tier: 'basic', description: "Bypasses the loading screen transition and boot sequence on startup, starting the code as soon as it is ready to render.", tags: ['fast', 'skip', 'intro', 'boot', 'loading'] },
     { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for lower-end hardware. Disables: Bloom, Post-Process, Dissolve, Deterioration, Line Variance, Refraction. Sets 0.75x resolution, pauses when hidden/idle, and reduces spawn rate. All settings are restored when turned off.", tier: 'basic', tags: ['fast', 'lag', 'optimize', 'low', 'performance'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Global FX' },

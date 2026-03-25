@@ -27,14 +27,15 @@ class CharacterSelectorModal {
         this._refreshFontList();
         
         const currentFamily = this.config.get('fontFamily');
-        const isKnown = this.fonts.loadedFonts.some(f => f.name === currentFamily) || currentFamily === 'MatrixEmbedded';
-        this.currentFont = isKnown ? currentFamily : 'MatrixEmbedded';
-        
+        const isKnown = this.fonts.loadedFonts.some(f => f.name === currentFamily);
+        const fallback = this.fonts.loadedFonts.length > 0 ? this.fonts.loadedFonts[0].name : 'MatrixEmbedded';
+        this.currentFont = isKnown ? currentFamily : fallback;
+
         if (this.dom.fontSelect.querySelector(`option[value="${this.currentFont}"]`)) {
             this.dom.fontSelect.value = this.currentFont;
         } else {
-             this.currentFont = 'MatrixEmbedded';
-             this.dom.fontSelect.value = 'MatrixEmbedded';
+             this.currentFont = fallback;
+             this.dom.fontSelect.value = fallback;
         }
 
         this._loadFontSettings(this.currentFont);
@@ -154,8 +155,7 @@ class CharacterSelectorModal {
     _refreshFontList() {
         this.fontSelect.innerHTML = '';
         const fonts = [
-            { name: 'MatrixEmbedded', display: 'Matrix Custom Code (Default)' },
-            ...this.fonts.loadedFonts.filter(f => !f.isEmbedded)
+            ...this.fonts.loadedFonts
         ];
         fonts.forEach(f => {
             const opt = document.createElement('option');

@@ -97,13 +97,6 @@ class MatrixKernel {
         // Increased delay to 500ms for Safari stability
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Hide loading overlay immediately when Skip Intro is enabled,
-        // before any heavy init work makes it visible for frames.
-        if (this.config.get('skipIntro')) {
-            const overlay = document.getElementById('loadingOverlay');
-            if (overlay) overlay.style.display = 'none';
-        }
-
         // Ensure canvas has dimensions before context acquisition
         const mainCanvas = document.getElementById('matrixCanvas');
         if (mainCanvas) {
@@ -138,11 +131,7 @@ class MatrixKernel {
         await this._chunkedPreallocate();
 
         // Preallocation complete — transition loading screen and start loop
-        if (this.config.get('skipIntro')) {
-            this._removeLoadingScreen();
-        } else {
-            this._transitionLoadingScreen();
-        }
+        this._transitionLoadingScreen();
 
         requestAnimationFrame(this._boundLoop);
 
@@ -166,8 +155,8 @@ class MatrixKernel {
             }
         });
 
-        // Trigger Boot Sequence on startup if enabled (skip when Skip Intro is on)
-        if (this.config.get('bootSequenceEnabled') && !this.config.get('skipIntro')) {
+        // Trigger Boot Sequence on startup if enabled
+        if (this.config.get('bootSequenceEnabled')) {
             // Short delay to ensure everything is ready
             setTimeout(() => {
                 this.effectRegistry.trigger('BootSequence');
@@ -639,10 +628,7 @@ class MatrixKernel {
     async _chunkedPreallocate() {
         const overlay = document.getElementById('loadingOverlay');
 
-        // Skip Intro: hide the overlay immediately so "The Matrix Has You" is never visible
-        if (this.config.get('skipIntro')) {
-            if (overlay) overlay.style.display = 'none';
-        } else if (overlay) {
+        if (overlay) {
             // Tint loading screen to match the user's configured stream color
             const streamColor = this.config.state.streamColor || '#65d778';
             overlay.style.color = streamColor;
@@ -806,17 +792,6 @@ class MatrixKernel {
             count = (count + 1) % 4;
             dotsEl.textContent = '.'.repeat(count);
         }, 400);
-    }
-
-    /**
-     * Immediately removes the loading screen without any transition.
-     * Used when Skip Intro is enabled.
-     * @private
-     */
-    _removeLoadingScreen() {
-        clearInterval(this._dotsInterval);
-        const overlay = document.getElementById('loadingOverlay');
-        if (overlay) overlay.remove();
     }
 
     /**

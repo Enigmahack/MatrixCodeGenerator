@@ -16,6 +16,7 @@ class FontManager {
     this.loadedFonts = [];     // { name, display, isEmbedded, mimeType?, data? }
     this.subscribers = [];
     this.embeddedFontName = 'MatrixEmbedded';
+    this.resurrectedFontName = 'MatrixResurrected';
 
     // Internal: promises to prevent duplicate loads per face
     this._facePromises = new Map(); // key: fontName -> Promise<void>
@@ -37,7 +38,7 @@ class FontManager {
     // Check if the current font family is actually available
     if (key === 'fontFamily' || key === 'ALL') {
         const currentFont = this.config.get('fontFamily');
-        const isDefault = currentFont === 'MatrixEmbedded';
+        const isDefault = currentFont === 'MatrixEmbedded' || currentFont === 'MatrixResurrected';
         const isLoaded = this.loadedFonts.some(f => f.name === currentFont);
         
         if (!isDefault && !isLoaded) {
@@ -46,10 +47,13 @@ class FontManager {
     }
   }
 
-  /** Initialize: inject embedded font (if present) + open DB + load stored fonts. */
+  /** Initialize: inject embedded fonts (if present) + open DB + load stored fonts. */
   async init() {
     if (typeof DEFAULT_FONT_DATA === 'string' && DEFAULT_FONT_DATA.length > 50) {
       await this.injectEmbeddedFont();
+    }
+    if (typeof RESURRECTED_FONT_DATA === 'string' && RESURRECTED_FONT_DATA.length > 50) {
+      await this._injectResurrectedFont();
     }
     try {
       await this._openDB();
@@ -105,7 +109,7 @@ class FontManager {
     if (ok) {
       this.loadedFonts.push({
         name: this.embeddedFontName,
-        display: 'The Matrix Custom Code',
+        display: 'Matrix Trilogy',
         isEmbedded: true
       });
 
@@ -121,6 +125,41 @@ class FontManager {
       }
     } else {
         this.notifications.show('Failed to load embedded font', 'error');
+    }
+  }
+
+  /**
+   * Inject the embedded Matrix Resurrected font if not yet loaded.
+   */
+  async _injectResurrectedFont() {
+    const isFontInjected = this.loadedFonts.some(f => f.name === this.resurrectedFontName);
+    if (isFontInjected) return;
+
+    const ok = await this._registerFontFace({
+      name: this.resurrectedFontName,
+      sourceUrl: RESURRECTED_FONT_DATA,
+      formatHint: "format('woff2')",
+      canvasPx: this._defaultCanvasPx
+    });
+
+    if (ok) {
+      this.loadedFonts.push({
+        name: this.resurrectedFontName,
+        display: 'Matrix Resurrected',
+        isEmbedded: true
+      });
+
+      const settings = { ...this.config.get('fontSettings') };
+      if (!settings[this.resurrectedFontName]) {
+        settings[this.resurrectedFontName] = {
+          active: true,
+          useCustomChars: false,
+          customCharacters: ""
+        };
+        this.config.set('fontSettings', settings);
+      }
+    } else {
+      this.notifications.show('Failed to load Matrix Resurrected font', 'error');
     }
   }
 

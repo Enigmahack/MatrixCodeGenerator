@@ -1,6 +1,4 @@
 Todo 
-- Have a 'snap to edge' feature where if a block is placed within 1 block of the external edge, it is automatically snapped as complete so there won't be a single block holding up the finished method. 
-
 - Review the Configuration Saving/Loading to ensure all settings are considered/applied, and that individual configuration names are also exported/imported with the JSON. 
 
 Behaviours: 

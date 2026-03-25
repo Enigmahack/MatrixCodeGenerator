@@ -34,7 +34,8 @@
       "Bash(node:*)",
       "Bash(mv:*)",
       "Bash(xxd:*)",
-      "Bash(/tmp/procedural_header.js:*)"
+      "Bash(/tmp/procedural_header.js:*)",
+      "Bash(base64:*)"
     ]
   }
 }
