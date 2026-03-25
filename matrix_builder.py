@@ -30,27 +30,23 @@ CODE_MAP = {
     'PulseEffect': 'js/effects/PulseEffect.js',
     'MiniPulseEffect': 'js/effects/MiniPulseEffect.js',
     'DejaVuEffect': 'js/effects/DejaVuEffect.js',
-    'FirewallEffect': 'js/effects/FirewallEffect.js',
     'SupermanEffect': 'js/effects/SupermanEffect.js',
     'ClearPulseEffect': 'js/effects/ClearPulseEffect.js',
     'BootEffect': 'js/effects/BootEffect.js',
     'CrashEffect': 'js/effects/CrashEffect.js',
-    'ReverseEffect': 'js/effects/ReverseEffect.js',
     'QuantizedBaseEffect': 'js/effects/QuantizedBaseEffect.js',
+    'QuantizedProceduralEngine': 'js/effects/QuantizedProceduralEngine.js',
     'QuantizedPulseEffect': 'js/effects/QuantizedPulseEffect.js',
     'QuantizedAddEffect': 'js/effects/QuantizedAddEffect.js',
     'QuantizedRetractEffect': 'js/effects/QuantizedRetractEffect.js',
     'QuantizedClimbEffect': 'js/effects/QuantizedClimbEffect.js',
     'QuantizedZoomEffect': 'js/effects/QuantizedZoomEffect.js',
-    'QuantizedBlockBuilder': 'js/effects/QuantizedBlockBuilder.js',
     'QuantizedBlockGeneration': 'js/effects/QuantizedBlockGeneration.js',
     'QuantizedPatterns': 'js/effects/QuantizedPatterns.js',
     'QuantizedRenderer': 'js/effects/QuantizedRenderer.js',
     'QuantizedSequence': 'js/effects/QuantizedSequence.js',
-    'QuantizedSequenceGenerator': 'js/effects/QuantizedSequenceGenerator.js',
     'QuantizedSequenceGeneratorV2': 'js/effects/QuantizedSequenceGeneratorV2.js',
     'QuantizedShadow': 'js/effects/QuantizedShadow.js',
-    'QuantizedWorker': 'js/effects/QuantizedWorker.js',
     'QuantizedBFSWorker': 'js/effects/QuantizedBFSWorker.js',
     'NotificationManager': 'js/ui/NotificationManager.js',
     'FontManager': 'js/ui/FontManager.js',
@@ -69,7 +65,8 @@ FORCED_FIRST = [
     'js/data/CellGrid.js',
     'js/effects/EffectRegistry.js',
     'js/config/ConfigTemplate.js',
-    'js/effects/QuantizedBaseEffect.js'
+    'js/effects/QuantizedBaseEffect.js',
+    'js/effects/QuantizedProceduralEngine.js'
 ]
 
 FORCED_LAST = [
