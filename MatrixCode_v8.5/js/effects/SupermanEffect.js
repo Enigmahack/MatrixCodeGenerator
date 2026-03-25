@@ -9,17 +9,20 @@ class SupermanEffect extends AbstractEffect {
                 this.spawnX = 0;
             }
 
-            trigger(force = false) { 
-                if(this.active) return false; 
-                this.active = true; 
-                this.timer = this.c.state.supermanDurationSeconds * 60; 
+            trigger(force = false) {
+                if(this.active && !force) return false;
+
+                const isEnabled = this.c.get('supermanEnabled');
+                if (!isEnabled && !force) return false;
+
+                this.active = true;
+                this.timer = this.c.state.supermanDurationSeconds * 60;
                 this.flickerTimer = 0;
                 this.spawnX = 0;
                 this.afterimages.clear();
                 this._generateBolt();
-                return true; 
+                return true;
             }
-
             stop() {
                 this.active = false;
                 this.lightningPath.clear();

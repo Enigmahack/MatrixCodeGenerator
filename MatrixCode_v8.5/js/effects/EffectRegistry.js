@@ -183,7 +183,7 @@ class EffectRegistry {
         return false;
     }
 
-    trigger(name, ...args) {
+    trigger(name, force = false, ...args) {
         const fx = this.effects.find(e => e.name === name);
         if (!fx) return false;
 
@@ -212,11 +212,11 @@ class EffectRegistry {
         const logEnabled = this.config.get('logEffects');
         if (logEnabled) {
             const startTime = performance.now();
-            result = fx.trigger(...args);
+            result = fx.trigger(force, ...args);
             const endTime = performance.now();
-            console.log(`[EffectRegistry] Triggered ${name} in ${(endTime - startTime).toFixed(2)}ms`);
+            console.log(`[EffectRegistry] Triggered ${name} (force=${force}) in ${(endTime - startTime).toFixed(2)}ms`);
         } else {
-            result = fx.trigger(...args);
+            result = fx.trigger(force, ...args);
         }
         if (result) {
             this.grid.overrideOwner = fx;

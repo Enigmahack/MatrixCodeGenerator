@@ -10,6 +10,10 @@ class MiniPulseEffect extends AbstractEffect {
 
     trigger(force = false) {
         if (this.active && !force) return false;
+
+        const isEnabled = this.c.get('miniPulseEnabled');
+        if (!isEnabled && !force) return false;
+
         this.active = true;
         this.sessionTimer = this.c.state.miniPulseDurationSeconds * 60;
         this.pulses = [];

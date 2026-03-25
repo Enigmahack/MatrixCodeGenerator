@@ -31,7 +31,73 @@ class PulseEffect extends AbstractEffect {
     }
     
     trigger(force = false) {
-        // ... rest of method ...
+        if (this.active && !force) return false;
+
+        const s = this._getEffectiveState();
+        if (!s.pulseEnabled && !force) return false;
+
+        const d = this.c.derived;
+        this.active = true;
+        this.radius = 0;
+        this.spawnedCount = 0;
+        this.spawnCooldown = 0;
+        this.chunks = [];
+        this.frameAccumulator = 0;
+
+        if (s.pulseInstantStart) {
+            this.state = 'EXPANDING';
+            this.timer = 0;
+        } else {
+            this.state = 'WAITING';
+            this.timer = Math.round(s.pulseDelaySeconds * 60);
+        }
+
+        if (s.pulseRandomPosition) {
+            this.origin = {
+                x: Math.random() * this.g.cols,
+                y: Math.random() * this.g.rows
+            };
+        } else {
+            this.origin = {
+                x: this.g.cols / 2,
+                y: this.g.rows / 2
+            };
+        }
+
+        // Snap to center if close
+        const centerX = this.g.cols / 2;
+        const centerY = this.g.rows / 2;
+        if (Math.abs(this.origin.x - centerX) < this.g.cols * 0.1 &&
+            Math.abs(this.origin.y - centerY) < this.g.rows * 0.1) {
+            this.origin.x = centerX;
+            this.origin.y = centerY;
+        }
+
+        // Snapshot current grid state
+        const total = this.g.cols * this.g.rows;
+        this.snap = {
+            chars: new Uint16Array(this.g.chars),
+            colors: new Uint32Array(this.g.colors),
+            alphas: new Float32Array(this.g.alphas),
+            fontIndices: new Uint8Array(this.g.fontIndices),
+            tracers: new Uint8Array(total),
+            fillChars: new Uint16Array(total),
+            fillFonts: new Uint8Array(total)
+        };
+
+        const activeFonts = d.activeFonts;
+        for (let i = 0; i < total; i++) {
+            const type = this.g.types[i] & Utils.CELL_TYPE_MASK;
+            if (type === Utils.CELL_TYPE.TRACER || type === Utils.CELL_TYPE.ROTATOR) {
+                this.snap.tracers[i] = 1;
+            }
+            const fontIdx = this.g.fontIndices[i];
+            const charSet = (activeFonts[fontIdx] || activeFonts[0]).chars;
+            this.snap.fillChars[i] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
+            this.snap.fillFonts[i] = fontIdx;
+        }
+
+        return true;
     }
 
     stop() {

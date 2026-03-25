@@ -56,6 +56,9 @@ class CrashEffect extends AbstractEffect {
     trigger(force = false) {
         if (this.active && !force) return false;
 
+        const isEnabled = this.c.get('crashEnabled');
+        if (!isEnabled && !force) return false;
+
         // Snapshot for Deja Vu bars to respect spaces
         this.snap = {
             alphas: new Float32Array(this.g.alphas),

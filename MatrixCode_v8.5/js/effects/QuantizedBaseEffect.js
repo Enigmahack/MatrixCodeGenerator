@@ -833,16 +833,22 @@ class QuantizedBaseEffect extends AbstractEffect {
         const logEnabled = this.c.state.logErrors;
         if (logEnabled) startTime = performance.now();
 
+        if (this.active && !force) {
+            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
+            return false;
+        }
+
+        const isEnabled = this.getConfig('Enabled');
+        if (!isEnabled && !force) {
+            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (disabled and not forced)`);
+            return false;
+        }
+
         // Safety net: if chunked preallocation didn't complete (e.g. race condition),
         // force it now synchronously so the first frame doesn't hang.
         if (!QuantizedBaseEffect._preallocated && this.g && this.g.cols) {
             if (logEnabled) console.warn('[QuantizedBaseEffect] Preallocation missed — running synchronously in trigger()');
             this.preallocate();
-        }
-
-        if (this.active && !force) {
-            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
-            return false;
         }
 
         // Ensure shared canvases are synced and properly initialized for this instance.

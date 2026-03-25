@@ -13,16 +13,19 @@ class DejaVuEffect extends AbstractEffect {
         this.horizGlitch = { active: false, timer: 0, rows: [], shift: 0, flash: false };
     }
     
-    trigger(durationSeconds = null) { 
-        if(this.active) return false; 
-        this.active = true; 
-        
-        // Handle case where durationSeconds might be a boolean (e.g. true from UI/Keybinds)
+    trigger(force = false, durationSeconds = null) {
+        if (this.active && !force) return false;
+
+        const isEnabled = this.c.get('dejaVuEnabled');
+        if (!isEnabled && !force) return false;
+
+        this.active = true;
+
+        // Handle case where durationSeconds might be a boolean (legacy) or passed as second arg
         let seconds = (typeof durationSeconds === 'number') ? durationSeconds : this.c.state.dejaVuDurationSeconds;
         if (!seconds || seconds === true) seconds = 5; // Final fallback
 
-        this.timer = Math.round(seconds * 60); 
-
+        this.timer = Math.round(seconds * 60);
         // Safety: ensure timer is at least 300 frames (5s) if somehow misconfigured
         if (this.timer < 60) this.timer = 300;
         

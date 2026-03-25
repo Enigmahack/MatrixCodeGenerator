@@ -10,6 +10,9 @@ class BootEffect extends AbstractEffect {
     trigger(force = false) {
         if (this.active && !force) return false;
 
+        const isEnabled = this.c.get('bootSequenceEnabled');
+        if (!isEnabled && !force) return false;
+
         // Request slot from orchestrator
         this.shaderSlot = this.r.requestShaderSlot(this, this._getShaderSource(), 0.0);
 
