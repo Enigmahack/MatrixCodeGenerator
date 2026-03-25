@@ -16,6 +16,12 @@ class MiniPulseEffect extends AbstractEffect {
         return true;
     }
 
+    stop() {
+        this.active = false;
+        this.pulses = [];
+        this.renderPulses = [];
+    }
+
     update() {
         const s = this.c.state;
         const d = this.c.derived;

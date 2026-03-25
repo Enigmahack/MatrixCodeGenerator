@@ -90,6 +90,13 @@ void main() {
         this.r.releaseShaderSlot(this);
         this.shaderSlot = null;
     }
+
+    stop() {
+        this.active = false;
+        this.bars = [];
+        this.map = null;
+        this._disableShader();
+    }
     
     update() {
         if(!this.active) return;

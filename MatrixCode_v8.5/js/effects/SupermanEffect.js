@@ -20,6 +20,12 @@ class SupermanEffect extends AbstractEffect {
                 return true; 
             }
 
+            stop() {
+                this.active = false;
+                this.lightningPath.clear();
+                this.afterimages.clear();
+            }
+
             update() {
                 const s = this.c.state;
                 

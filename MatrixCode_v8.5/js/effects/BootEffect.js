@@ -18,6 +18,36 @@ class BootEffect extends AbstractEffect {
         return true;
     }
 
+    stop() {
+        this.active = false;
+        if (this.shaderSlot) {
+            this.r.releaseShaderSlot(this);
+            this.shaderSlot = null;
+        }
+    }
+
+    update() {
+        if (!this.active) return;
+        const elapsedTime = (performance.now() - this.startTime) / 1000;
+        let progress = elapsedTime / this.durationSeconds;
+
+        if (progress >= 1.0) {
+            this.active = false;
+            if (this.shaderSlot) {
+                this.r.releaseShaderSlot(this);
+                this.shaderSlot = null;
+            }
+            if (this.c.get('runBothInOrder') && this.c.get('crashEnabled') && this.r) {
+                this.r.trigger('CrashSequence');
+            }
+            return;
+        }
+
+        if (this.shaderSlot) {
+            this.c.set(this.shaderSlot.param, progress);
+        }
+    }
+
     _getShaderSource() {
         return `
 precision mediump float;
@@ -216,28 +246,6 @@ void main() {
     gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
-    }
-
-    update() {
-        if (!this.active) return;
-        const elapsedTime = (performance.now() - this.startTime) / 1000;
-        let progress = elapsedTime / this.durationSeconds;
-
-        if (progress >= 1.0) {
-            this.active = false;
-            if (this.shaderSlot) {
-                this.r.releaseShaderSlot(this);
-                this.shaderSlot = null;
-            }
-            if (this.c.get('runBothInOrder') && this.r) {
-                this.r.trigger('CrashSequence');
-            }
-            return;
-        }
-
-        if (this.shaderSlot) {
-            this.c.set(this.shaderSlot.param, progress);
-        }
     }
 
 }

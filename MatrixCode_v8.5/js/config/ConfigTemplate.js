@@ -548,6 +548,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'sub_accordion', label: 'Boot/Crash' },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Boot Sequence' },
     { cat: 'Effects', id: 'bootSequenceEnabled', type: 'checkbox', label: 'Start Code with Boot', tier: 'basic', tags: ['intro', 'start'] },
+    { cat: 'Effects', id: 'runBothInOrder', type: 'checkbox', label: 'Sequence Boot & Crash', tier: 'advanced', description: 'Triggers the Crash sequence automatically after the Boot sequence finishes.', tags: ['flow', 'combo'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn', tier: 'basic', tags: ['intro', 'start', 'action'] },
 
     { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
@@ -639,6 +640,9 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'container', id: 'dynamicShaderControls', dep: 'shaderEnabled' },
     { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Global Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', tier: 'advanced', tags: ['amount', 'power'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
+    { cat: 'Effects', type: 'end_group' }, 
+    { cat: 'Effects', type: 'end_group' },
+    { cat: 'Effects', type: 'button', label: 'Disable All Periodic Effects', action: 'stopAllEffects', class: 'btn-danger', tier: 'basic', description: 'Immediately stops and disables all automated/periodic visual effects across Trilogy and Resurrections.', tags: ['stop', 'all', 'reset', 'kill'] },
 
     // 5. DEBUG TAB
     { cat: 'Debug', type: 'accordion_header', label: 'General' },

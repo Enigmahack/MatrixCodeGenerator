@@ -102,76 +102,23 @@ class CrashEffect extends AbstractEffect {
     }
 
     _getShaderSource() {
-        // Get Stream Color for the Splash
-        const colorStr = this.c.derived.streamColorStr || this.c.defaults.streamColor;
-        const rgb = Utils.hexToRgb(colorStr);
-        const vec3Color = `vec3(${rgb.r/255.0}, ${rgb.g/255.0}, ${rgb.b/255.0})`;
-
-        return `
-precision mediump float;
-uniform sampler2D uTexture;
-uniform vec2 uResolution;
-uniform float uTime;
-uniform vec2 uMouse;
-uniform float uParameter; 
-varying vec2 vTexCoord;
-
-// --- UTILS ---
-float random(float n) { return fract(sin(n) * 43758.5453123); }
-float rect(vec2 uv, vec2 pos, vec2 size) {
-    vec2 d = abs(uv - pos) - size;
-    return 1.0 - step(0.0, max(d.x, d.y));
-}
-float scannerSheet(vec2 uv, vec2 center, vec2 size, float blur, int axis) {
-    vec2 pos = uv - center;
-    vec2 d = abs(pos) - size;
-    float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-    return 1.0 - smoothstep(0.0, blur, dist);
-}
-
-void main() {
-    vec2 uv = vTexCoord;
-    float phase_idx = floor(uParameter + 0.001);
-    float progress = fract(uParameter); 
-    
-    vec4 finalColor = texture2D(uTexture, uv);
-    vec3 splashColor = ${vec3Color};
-
-    // --- PHASE 10: SPLASH EFFECT ---
-    if (phase_idx == 10.0) {
-         float t = progress; 
-         float bar = scannerSheet(uv, vec2(0.5, 0.5), vec2(1.0, 0.2), 0.3, 1);
-         float flashAlpha = bar * (1.0 - smoothstep(0.0, 0.6, t));
-         if (flashAlpha > 0.0) {
-            finalColor.rgb += splashColor * flashAlpha * 3.0; 
-         }
+        // ... rest of method ...
     }
 
-    // --- PHASE 2: DISTORTION ---
-    if (phase_idx == 2.0) {
-        vec2 center = vec2(0.5, 0.5);
-        vec2 dist = uv - center;
-        dist.y *= 0.02; 
-        vec4 distColor = texture2D(uTexture, center + dist);
-        distColor.rgb *= 1.5;
-        float active = 1.0 - ((progress - 0.66) / 0.34);
-        if (active > 0.0) finalColor = mix(finalColor, distColor, 0.5 * active);
-    }
-    
-    // --- PHASE 9: STRETCH ---
-    if (phase_idx == 9.0) {
-        float sampleX = 0.3;
-        vec4 stretchColor = texture2D(uTexture, vec2(sampleX, uv.y));
-        float flicker = 0.5 + 0.5 * sin(progress * 30.0); 
-        if (abs(uv.x - 0.33) < 0.05) { stretchColor.rgb *= 0.3; }
-        stretchColor.rgb *= (1.0 + flicker);
-        float alpha = (0.5 + 0.5 * flicker) * (1.0 - progress); 
-        finalColor = mix(finalColor, stretchColor, alpha);
-    }
-    
-    gl_FragColor = finalColor;
-}
-`;
+    stop() {
+        this.active = false;
+        if (this.shaderSlot) {
+            this.r.releaseShaderSlot(this);
+            this.shaderSlot = null;
+        }
+        this.snapshotOverlay.clear();
+        this.blackSheets = [];
+        this.crashBars = [];
+        this.supermanState.cells.clear();
+        this.supermanState.illuminatedCells.clear();
+        this.supermanState.geometry = null;
+        this.smithState.active = false;
+        this.flashState.active = false;
     }
 
     update() {

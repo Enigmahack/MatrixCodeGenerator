@@ -156,7 +156,7 @@ class EffectRegistry {
         }
 
         // Fallback: position-based (handles boot, crash, pulse, etc.)
-        for (let i = Math.max(0, buttonIdx - 10); i < Math.min(template.length, buttonIdx + 10); i++) {
+        for (let i = Math.max(0, buttonIdx - 30); i < Math.min(template.length, buttonIdx + 10); i++) {
             const def = template[i];
             if (def.id && def.id.endsWith('Enabled')) {
                 const prefix = def.id.replace('Enabled', '');
@@ -286,6 +286,7 @@ class EffectRegistry {
         const isEnabled = this.config.get(fx.enabledKey);
         if (!isEnabled) {
             this._managedTimers.delete(fx.name);
+            if (fx.active) fx.stop(); // Ensure effect stops immediately when disabled
             return;
         }
 
@@ -425,6 +426,7 @@ class AbstractEffect {
         this.shaderSlot = null;   // Reference to the currently assigned shader slot
     }
     trigger(force = false) { return false; }
+    stop() { this.active = false; }
     update() { }
     preallocate() { }
     getActiveIndices() { return new Set(); }
