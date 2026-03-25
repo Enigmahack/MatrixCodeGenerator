@@ -238,8 +238,9 @@ class WorkerSimulationSystem {
         grid.ages[idx]++;
         const age = grid.ages[idx];
         const type = grid.types[idx];
-        const baseType = type & CELL_TYPE_MASK;
-        const isTracer = (baseType === CELL_TYPE_TRACER || baseType === CELL_TYPE.ROTATOR);
+        const baseType = type & Utils.CELL_TYPE_MASK;
+        const isGradual = (type & Utils.CELL_FLAGS.GRADUAL) !== 0;
+        const isTracer = (baseType === Utils.CELL_TYPE.TRACER || baseType === Utils.CELL_TYPE.ROTATOR);
 
         if (decay < 2 && isTracer) {
             const attack = s.tracerAttackFrames;
@@ -287,7 +288,7 @@ class WorkerSimulationSystem {
 
         // Handle Rotator
         // Allow rotator to finish its transition (mix > 0) even if subsequently disabled
-        if ((s.rotatorEnabled || grid.mix[idx] > 0) && baseType === CELL_TYPE.ROTATOR) this._handleRotator(idx, frame, s, d);
+        if ((s.rotatorEnabled || grid.mix[idx] > 0) && baseType === Utils.CELL_TYPE.ROTATOR) this._handleRotator(idx, frame, s, d);
 
         // Handle Dynamic Colors (Effects)
         if (grid.complexStyles.has(idx)) {
@@ -351,9 +352,10 @@ class WorkerSimulationSystem {
     }
 
     _calculateAlpha(idx, age, decay, maxFade) {
+        const s = this.config.state;
         const b = this.grid.brightness[idx];
         if (decay >= 2) return 0.99 * Math.pow(Math.max(0, 1.0 - (decay - 2) / maxFade), 2.0) * b;
-        const attack = (this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.UPWARD_TRACER ? config.state.upwardTracerAttackFrames : config.state.tracerAttackFrames;
+        const attack = (this.grid.types[idx] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.UPWARD_TRACER ? s.upwardTracerAttackFrames : s.tracerAttackFrames;
         return 0.99 * (age <= attack && attack > 0 ? (age / attack) : 1.0) * b;
     }
 }
