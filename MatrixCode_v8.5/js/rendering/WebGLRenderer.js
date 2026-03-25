@@ -871,7 +871,7 @@ class WebGLRenderer {
                                         if (u_refraction3DEnabled && refrWidth > 0.001) { \
                                             float perpNorm_ = clamp((minD - refrOffPx) / refrWidth, -1.0, 1.0); \
                                             float n2_ = perpNorm_ * perpNorm_; \
-                                            shade3D_ = 1.0 - u_refraction3DStrength * n2_; \
+                                            shade3D_ = max(0.0, 1.0 - u_refraction3DStrength * n2_); \
                                         } \
                                         vec3 rc_ = boostSaturation(tintedColor * luma_ * (brightness_) * shade3D_, u_refractionSaturation); \
                                         resultColor = mix(resultColor, rc_ + rc_ * (u_refractionGlow * refrBell_), refrBell_); \

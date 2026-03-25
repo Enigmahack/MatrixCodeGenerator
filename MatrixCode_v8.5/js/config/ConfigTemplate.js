@@ -10,49 +10,50 @@ const QuantizedInheritableSettings = [
     // Block Interior — visual properties of the area inside blocks
     { sub: 'Block Interior', id: 'GlassBloom', type: 'range', label: 'Interior Brightness', min: 1.0, max: 5.0, step: 0.1, tier: 'basic', description: "Scales character brightness inside quantized blocks.", tags: ['bright', 'bloom', 'glow'] },
     { sub: 'Block Interior', id: 'GlassBloomScaleToSize', type: 'checkbox', label: 'Dynamic Brightness', tier: 'advanced', description: "Interior Brightness starts at full strength and fades to 1 (flat) as blocks fill in.", tags: ['dynamic', 'scale'] },
-    { sub: 'Block Interior', id: 'GlassCompressionThreshold', type: 'range', label: 'Black Level', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Clamps pixels below this brightness to black. 0 = all levels pass through.", tags: ['black', 'cutoff', 'limit'] },
+    { sub: 'Block Interior', id: 'GlassCompressionThreshold', type: 'range', label: 'Black Level', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Clamps pixels below this brightness to black. 0 = all levels pass through.", tags: ['black', 'cutoff', 'limit'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { sub: 'Block Interior', sub_header: 'Single Block Fill', id: 'SingleBlockFillEnabled', type: 'checkbox', label: 'Enable Single Block Fill', tier: 'advanced', description: "Extends line rendering width to fill the interior of isolated 1x1 blocks that are completely surrounded by perimeter lines (Primary or Echo).", tags: ['fill', 'block', 'single', 'isolated'] },
+
 
     // Line Appearance — core perimeter line look & feel
-    { sub: 'Line Appearance', id: 'LineGfxColor', type: 'color', label: 'Line Color', tier: 'basic', tags: ['color', 'tint', 'hue'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionOpacity', type: 'range', label: 'Line Opacity', min: 0.0, max: 1.0, step: 0.01, tier: 'basic', description: "Overall opacity of the refraction lines. 1 is fully opaque, 0 is fully transparent.", tags: ['alpha', 'transparency'] },
+    { sub: 'Line Appearance', id: 'LineGfxColor', type: 'color', label: 'Line Color', tier: 'basic', description: 'The primary color of the grid lines.', tags: ['color', 'tint', 'hue'] },
+    { sub: 'Line Appearance', id: 'GlassRefractionOpacity', type: 'range', label: 'Line Opacity', min: 0.0, max: 1.0, step: 0.01, tier: 'basic', description: "Overall opacity of the refraction lines. 1 is fully opaque, 0 is fully transparent.", tags: ['alpha', 'transparency'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { sub: 'Line Appearance', id: 'LineGfxPersistence', type: 'range', label: 'Line Persistence', min: 1, max: 180, step: 1, unit: 'fr', tier: 'advanced', description: "Controls how long lines linger after the effect retracts. Similar to burn-in.", tags: ['trail', 'fade', 'length'] },
 
     { sub: 'Line Appearance', sub_header: 'Perimeter Lines', id: 'GlassRefractionEnabled', type: 'checkbox', label: 'Enable Perimeter Lines', tier: 'basic', description: "Adds a light-refraction highlight centered on block edges.", tags: ['glass', 'bend', 'light', 'perimeter', 'lines'] },
     { sub: 'Line Appearance', id: 'TriggerBrightnessSwell', type: 'checkbox', label: 'Trigger Brightness Swell', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Pauses animation initially and swells line brightness to max, then fades back to start before continuing.", tags: ['swell', 'brightness', 'pause'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionWidth', type: 'range', label: 'Line Width', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Width of the refraction band as a fraction of cell size.", tags: ['size', 'width'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionBrightness', type: 'range', label: 'Line Brightness Start', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Brightness of the refraction edge highlight at the beginning.", tags: ['light', 'bright', 'start'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionBrightnessEnd', type: 'range', label: 'Line Brightness End', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Target brightness at the end of the effect.", tags: ['light', 'bright', 'end'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionSaturation', type: 'range', label: 'Color Saturation', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Saturation boost for the refraction edge highlight.", tags: ['color', 'vivid'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Additive glow emission at the refraction peak.", tags: ['bloom', 'glow'] },
+    { sub: 'Line Appearance', id: 'GlassRefractionWidth', type: 'range', label: 'Line Width', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Width of the refraction band as a fraction of cell size.", tags: ['size', 'width'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { sub: 'Line Appearance', id: 'GlassRefractionBrightness', type: 'range', label: 'Line Brightness Start', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Brightness of the refraction edge highlight at the beginning.", tags: ['light', 'bright', 'start'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { sub: 'Line Appearance', id: 'GlassRefractionBrightnessEnd', type: 'range', label: 'Line Brightness End', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Target brightness at the end of the effect.", tags: ['light', 'bright', 'end'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { sub: 'Line Appearance', id: 'GlassRefractionSaturation', type: 'range', label: 'Color Saturation', min: 0.0, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Saturation boost for the refraction edge highlight.", tags: ['color', 'vivid'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { sub: 'Line Appearance', id: 'GlassRefractionGlow', type: 'range', label: 'Line Glow', min: 0.0, max: 2.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Additive glow emission at the refraction peak.", tags: ['bloom', 'glow'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { sub: 'Line Appearance', id: 'GlassRefractionCompression', type: 'range', label: 'Barrel Distortion', min: 0.0, max: 10.0, step: 0.1, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Pulls sampled coordinates toward cell boundaries, simulating the optical bend of a curved glass edge. Stronger values snap tightly to grid lines.", tags: ['distort', 'warp', 'bend'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionOffset', type: 'range', label: 'Edge Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Shifts the peak of the refraction band away from the edge center.", tags: ['shift', 'position'] },
+    { sub: 'Line Appearance', id: 'GlassRefractionOffset', type: 'range', label: 'Edge Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Shifts the peak of the refraction band away from the edge center.", tags: ['shift', 'position'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { sub: 'Line Appearance', id: 'GlassRefractionUnwrap', type: 'checkbox', label: 'Unwrap Lines', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Samples content from the original position instead of mirroring it. Line shape and positioning remain the same.", tags: ['overlay', 'flat', 'simple'] },
     { sub: 'Line Appearance', id: 'GlassRefractionMaskScale', type: 'range', label: 'Character Scale', min: 0.5, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Scales the sampled characters inside the refraction band. 1 is normal size. Line shape and width are unaffected.", tags: ['zoom', 'scale', 'size'] },
-    { sub: 'Line Appearance', id: 'GlassRefractionMaskZoom', type: 'range', label: 'Global Zoom', min: 0.1, max: 5.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Zooms the entire source grid sample around the screen center. Unlike Character Scale which zooms per-cell, this zooms everything.", tags: ['zoom', 'global', 'size'] },
+    { sub: 'Block Interior', id: 'GlassRefractionMaskZoom', type: 'range', label: 'Fill Zoom', min: 0.1, max: 5.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Zooms the entire source grid sample around the screen center. Unlike Character Scale which zooms per-cell, this zooms everything.", tags: ['zoom', 'global', 'size'] },
 
     { sub: 'Line Appearance', sub_header: 'Rounded Shading', id: 'GlassRefraction3DEnabled', type: 'checkbox', label: 'Enable Rounding', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Adds cylindrical shading to refraction lines — edges darken, center stays bright — for a rounded look.", tags: ['rounded', 'cylinder', 'shading'] },
-    { sub: 'Line Appearance', id: 'GlassRefraction3DStrength', type: 'range', label: 'Rounding Strength', min: 0.0, max: 1.0, step: 0.01, dep: 'GlassRefraction3DEnabled', tier: 'advanced', description: "Intensity of the cylindrical shading. 0.3 is subtle, 1.0 is dramatic.", tags: ['depth', 'intensity', 'shading'] },
+    { sub: 'Line Appearance', id: 'GlassRefraction3DStrength', type: 'range', label: 'Rounding Strength', min: 0.0, max: 2.0, step: 0.01, dep: 'GlassRefraction3DEnabled', tier: 'advanced', description: "Intensity of the cylindrical shading. 0.3 is subtle, 1.0 is dramatic, 2.0 is extreme.", tags: ['depth', 'intensity', 'shading'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
-    { sub: 'Line Appearance', sub_header: 'Single Block Fill', id: 'SingleBlockFillEnabled', type: 'checkbox', label: 'Enable Single Block Fill', tier: 'advanced', description: "Extends line rendering width to fill the interior of isolated 1x1 blocks that are completely surrounded by perimeter lines (Primary or Echo).", tags: ['fill', 'block', 'single', 'isolated'] },
 
     { sub: 'Line Appearance', sub_header: 'Random Line Dimming', id: 'LineGfxBrightnessVarianceEnabled', type: 'checkbox', label: 'Enable Random Dimming', tier: 'advanced', description: "Applies random brightness variations to individual line segments.", tags: ['random', 'flicker', 'variety'] },
-    { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceAmount', type: 'range', label: 'Dimming Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', description: "Amount of random brightness reduction applied to lines.", tags: ['random', 'amount'] },
+    { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceAmount', type: 'range', label: 'Dimming Amount', min: 0.0, max: 1.0, step: 0.05, dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', description: "Amount of random brightness reduction applied to lines.", tags: ['random', 'amount'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceCoverage', type: 'range', label: 'Affected Lines', min: 0, max: 100, step: 5, unit: '%', dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', description: "Percentage of rows/columns affected by the dimming.", tags: ['random', 'area'] },
     { sub: 'Line Appearance', id: 'LineGfxBrightnessVarianceDirection', type: 'range', label: 'Line Direction', min: 0, max: 2, step: 1, dep: 'LineGfxBrightnessVarianceEnabled', tier: 'advanced', transform: v => ['H', 'Mixed', 'V'][v] ?? 'Mixed', description: "H = horizontal lines only, Mixed = both, V = vertical lines only.", tags: ['direction', 'axis'] },
 
     // Line Fine-Tuning — advanced color, sampling, and position adjustments
-    { sub: 'Line Fine-Tuning', sub_header: 'Color & Blending', id: 'LineGfxTintOffset', type: 'range', label: 'Hue Shift', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: "Adjusts the hue of the lines to compensate for bloom or layering color shifts.", tags: ['hue', 'tint', 'color'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxAdditiveStrength', type: 'range', label: 'Blend Strength', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: "Controls how strongly the lines add to the underlying character color.", tags: ['blend', 'mix'] },
+    { sub: 'Line Fine-Tuning', sub_header: 'Color & Blending', id: 'LineGfxTintOffset', type: 'range', label: 'Hue Shift', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: 'Adjusts the hue of the lines independently of the main color.', tags: ['hue', 'tint', 'color'] },
+    { sub: 'Line Fine-Tuning', id: 'LineGfxAdditiveStrength', type: 'range', label: 'Blend Strength', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: 'Controls how strongly the lines add to the underlying character color.', tags: ['blend', 'mix'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
     { sub: 'Line Fine-Tuning', sub_header: 'Perimeter Echo', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Enable Perimeter Echo', tier: 'basic', description: "Replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
-    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelay', type: 'range', label: 'Echo Delay', min: 1, max: 8, step: 1, tier: 'basic', description: "How many steps behind the perimeter the echo follows.", tags: ['delay', 'echo', 'steps'] },
-    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelayFadeAmount', type: 'range', label: 'Echo Fade', min: 0, max: 100, step: 1, unit: '%', tier: 'basic', description: "Brightness reduction for the echo. 0% is full brightness, 100% effectively hides it.", tags: ['delay', 'echo', 'fade', 'brightness'] },
+    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelay', type: 'range', label: 'Echo Delay', min: 1, max: 8, step: 1, tier: 'basic', description: 'Number of simulation steps the echo trails behind the main perimeter.', tags: ['delay', 'echo', 'steps'] },
+    { sub: 'Line Fine-Tuning', id: 'EchoGfxDelayFadeAmount', type: 'range', label: 'Echo Fade', min: 0, max: 100, step: 1, unit: '%', tier: 'basic', description: 'The amount of brightness lost by the echo lines.', tags: ['delay', 'echo', 'fade', 'brightness'] },
 
-    { sub: 'Line Fine-Tuning', sub_header: 'Position & Sampling', id: 'LineGfxSampleOffsetX', type: 'range', label: 'Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: "Shifts where the line samples character brightness horizontally.", tags: ['shift', 'sample'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxSampleOffsetY', type: 'range', label: 'Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: "Shifts where the line samples character brightness vertically.", tags: ['shift', 'sample'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxMaskSoftness', type: 'range', label: 'Line Softness', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Softens the character highlights for a smoother, antialiased look within the lines.", tags: ['blur', 'soft', 'smooth'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetX', type: 'range', label: 'Line X Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetY', type: 'range', label: 'Line Y Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', tags: ['position', 'shift'] },
+    { sub: 'Line Fine-Tuning', sub_header: 'Position & Sampling', id: 'LineGfxSampleOffsetX', type: 'range', label: 'Sample X Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Shifts the sampling point for character highlights within the lines horizontally.', tags: ['shift', 'sample'] },
+    { sub: 'Line Fine-Tuning', id: 'LineGfxSampleOffsetY', type: 'range', label: 'Sample Y Offset', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Shifts the sampling point for character highlights within the lines vertically.', tags: ['shift', 'sample'] },
+    { sub: 'Line Fine-Tuning', id: 'LineGfxMaskSoftness', type: 'range', label: 'Line Softness', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: 'Controls the blurriness of the character highlights inside the grid lines.', tags: ['blur', 'soft', 'smooth'] },
+    { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetX', type: 'range', label: 'Line X Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Fine-tunes the horizontal visual alignment of the grid lines.', tags: ['position', 'shift'] },
+    { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetY', type: 'range', label: 'Line Y Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Fine-tunes the vertical visual alignment of the grid lines.', tags: ['position', 'shift'] },
 
     // V2 Generator (Block Behavior) — layer, echo, and transition settings
     { sub: 'V2 Generator (Block Behavior)', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
@@ -60,14 +61,13 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Block Behavior)', id: 'LayerCount', type: 'range', label: 'Layer Count', min: 1, max: 2, step: 1, dep: '!SingleLayerMode', tier: 'advanced', description: "Number of layers to generate (1 layer = base only, 2 layers = base + detail layer).", tags: ['depth', 'complexity'] },
     { sub: 'V2 Generator (Block Behavior)', sub_header: 'Block Sizing', id: 'BlockSizeBias', type: 'range', label: 'Block Size Bias', min: 1, max: 20, step: 1, tier: 'basic', transform: v => v === 1 ? '1×1' : '≤' + v, description: "Maximum cluster area for generated blocks. 1 = single-cell blocks only, higher values allow larger multi-cell clusters.", tags: ['size', 'cluster', 'area'] },
     { sub: 'V2 Generator (Block Behavior)', id: 'BlockShapeBias', type: 'range', label: 'Bias', min: 1, max: 5, step: 1, tier: 'basic', transform: v => ['Skinny', 'Thin', 'Mixed', 'Stubby', 'Wide'][v - 1], description: "Skinny: long 1-wide blocks. Thin: narrow blocks. Mixed: even random distribution. Stubby: slightly wider blocks. Wide: squarish blocks.", tags: ['shape', 'aspect', 'ratio'] },
-    { sub: 'V2 Generator (Block Behavior)', id: 'ShadowWorldFadeSpeed', type: 'range', label: 'Transition Speed', min: 0, max: 2, step: 0.1, unit: 's', tier: 'advanced', description: "Crossfade duration when blocks are added or removed.", tags: ['fade', 'speed', 'transition'] },
 
     { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
     { sub: 'V2 Generator', id: 'SpineBoost', type: 'range', label: 'Spine Burst', min: 1, max: 10, step: 1, unit: 'steps', dep: 'SpinesFirstEnabled', tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
-    { sub: 'V2 Generator', id: 'SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, tier: 'advanced', description: "The maximum number of growth actions to attempt in a single step.", tags: ['amount', 'fast'] },
+    { sub: 'V2 Generator', id: 'SimultaneousSpawns', type: 'range', label: 'Max Actions', min: 1, max: 10, step: 1, tier: 'advanced', description: 'Maximum number of growth actions allowed per simulation step.', tags: ['amount', 'fast'] },
     { sub: 'V2 Generator', id: 'GenerativeScaling', type: 'checkbox', label: 'Generative Scaling', tier: 'advanced', description: 'Scales the number of growth events per step based on the available opportunities. Prevents overcrowding in dense areas while maintaining growth in sparse areas.', tags: ['scale', 'smart'] },
-    { sub: 'V2 Generator', id: 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', tier: 'advanced', description: 'Allow deferred columns/rows for unpredictable, non-symmetric growth patterns.', tags: ['random', 'chaos'] },
-    { sub: 'V2 Generator', id: 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Limits each layer to a randomly assigned subset of cardinal growth directions assigned at trigger time. Each layer independently receives this many directions. For example, selecting "Half" might assign East+North to Layer 0 and West+South to Layer 1.', tags: ['direction', 'limit'] },
+    { sub: 'V2 Generator', id: 'AllowAsymmetry', type: 'checkbox', label: 'Allow Asymmetry', tier: 'advanced', description: 'Permits non-symmetric growth for more organic and chaotic patterns.', tags: ['random', 'chaos'] },
+    { sub: 'V2 Generator', id: 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Restricts growth to a subset of cardinal directions assigned at trigger time.', tags: ['direction', 'limit'] },
     
     { sub: 'V2 Generator', sub_header: 'Perimeter Spawning', id: 'SpawnFromPerimeter', type: 'checkbox', label: 'Spawn From Perimeter', tier: 'basic', description: "Allows all sub-behaviors to spawn from the outermost perimeter, bypassing standard connectivity preconditions.", tags: ['growth', 'perimeter', 'spawn'] },
     { sub: 'V2 Generator', id: 'BlockSpawnerEnabled', type: 'checkbox', label: 'Enable Spawner', tier: 'advanced', description: "Randomly spawns and despawns blocks outside the main edge.", tags: ['spawn', 'despawn'] },
@@ -75,13 +75,13 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator', id: 'BlockSpawnerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator', id: 'BlockSpawnerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockSpawnerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator', id: 'BlockSpawnerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator', id: 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator', id: 'BlockSpawnerCount', type: 'range', label: 'Max Spawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnCount', type: 'range', label: 'Max Despawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerRate', type: 'range', label: 'Spawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced', description: 'How often the spawner attempts to place new blocks.' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerCount', type: 'range', label: 'Max Spawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced', description: 'Maximum number of blocks created per spawning event.' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnRate', type: 'range', label: 'Despawn Rate', min: 1, max: 50, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced', description: 'How often the spawner attempts to remove existing blocks.' },
+    { sub: 'V2 Generator', id: 'BlockSpawnerDespawnCount', type: 'range', label: 'Max Despawns per Rate', min: 1, max: 20, step: 1, dep: 'BlockSpawnerEnabled', tier: 'advanced', description: 'Maximum number of blocks removed per despawning event.' },
 
     
-    { sub: 'V2 Generator', sub_header: 'Size Scaling', id: 'FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'] },
+    { sub: 'V2 Generator', sub_header: 'Size Scaling', id: 'FillThreshold', type: 'range', label: 'Scale-Up Threshold', min: 0.05, max: 0.9, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Fill ratio at which strips begin using scaled block sizes. Below this threshold all blocks are 1×1.', tags: ['size', 'limit'], unit: '%' },
     { sub: 'V2 Generator', id: 'MaxBlockScale', type: 'range', label: 'Max Block Scale', min: 1, max: 5, step: 1, tier: 'advanced', description: "Maximum block dimension along a strip\'s growth axis (aspect-ratio scaled, 1–5 cells).", tags: ['size', 'large'] },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Main Nudge Growth', id: 'NudgeEnabled', type: 'checkbox', label: 'Enable Main Nudge', tier: 'advanced', description: "Enables core nudge behaviors along spines.", tags: ['nudge'] },
@@ -89,17 +89,17 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'NudgeEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'NudgeEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'NudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'NudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'NudgeEnabled', tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'The probability of a growth nudge occurring at each step.' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Spreading Nudge', id: 'SpreadingNudgeEnabled', type: 'checkbox', label: 'Enable Spreading Nudge', tier: 'advanced', description: "Sends 'nudges' outward along the spines.", tags: ['nudge', 'spine'] },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeMaxInstances', type: 'range', label: 'Max Nudge Instances', min: 1, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeRange', type: 'range', label: 'Nudge Spread Range', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeChance', type: 'range', label: 'Nudge Chance', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'The probability of a nudge spreading to adjacent cells.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSpawnSpeed', type: 'range', label: 'Spawn Speed', min: 1, max: 10, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced', description: 'The travel speed of spreading nudges.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeMaxInstances', type: 'range', label: 'Max Nudge Instances', min: 1, max: 100, step: 1, dep: 'SpreadingNudgeEnabled', tier: 'advanced', description: 'Maximum number of concurrent spreading nudges.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeRange', type: 'range', label: 'Nudge Spread Range', min: 0.1, max: 1.0, step: 0.1, dep: 'SpreadingNudgeEnabled', tier: 'advanced', description: 'Maximum distance a nudge can spread from its origin.' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'SpreadingNudgeSymmetry', type: 'checkbox', label: 'Enforce Symmetry', dep: 'SpreadingNudgeEnabled', tier: 'advanced' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Shove Fill', id: 'ShoveFillEnabled', type: 'checkbox', label: 'Enable Shove Fill', tier: 'advanced', description: "Fills large blocks aggressively.", tags: ['fill', 'shove'] },
@@ -107,38 +107,38 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced', description: 'How aggressively the generator fills in empty spaces.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced', description: 'Maximum number of blocks placed during a shove fill event.' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'HoleFillerEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'HoleFillerRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'HoleFillerEnabled', tier: 'advanced', description: 'Frequency of hole-filling checks.' },
     
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Block Thicken', id: 'BlockThickenEnabled', type: 'checkbox', label: 'Enable Block Thicken', tier: 'advanced', description: "Selects a random axis line and thickens blocks along it by adding adjacent blocks.", tags: ['thicken', 'grow', 'widen'] },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'BlockThickenEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnChance', type: 'range', label: 'Spawn Chance (%)', min: 1, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnFrequency', type: 'range', label: 'Spawn Frequency', min: 1, max: 50, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced', description: "Steps between spawn attempts. 1 = every step, 10 = once every 10 steps." },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnChance', type: 'range', label: 'Spawn Chance (%)', min: 1, max: 100, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced', unit: '%', description: 'Probability of thickening an existing block.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'BlockThickenSpawnFrequency', type: 'range', label: 'Spawn Frequency', min: 1, max: 50, step: 1, dep: 'BlockThickenEnabled', tier: 'advanced', description: 'Simulation steps between block thickening attempts.' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Inside Out Expansion', id: 'InsideOutEnabled', type: 'checkbox', label: 'Enable Inside Out Expansion', tier: 'advanced', description: "Starts a secondary expansion from the inside after a delay.", tags: ['expand', 'inside'] },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps Between Buckets', min: 1, max: 20, step: 1, dep: 'InsideOutEnabled', tier: 'advanced' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'InsideOutEnabled', tier: 'advanced', description: 'Wait time before the internal expansion begins.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutBucketSize', type: 'range', label: 'Bucket Size', min: 1, max: 10, step: 1, dep: 'InsideOutEnabled', tier: 'advanced', description: 'Number of blocks processed in each inside-out wave.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'InsideOutStepsBetweenBuckets', type: 'range', label: 'Steps Between Buckets', min: 1, max: 20, step: 1, dep: 'InsideOutEnabled', tier: 'advanced', description: 'Simulation steps between each inside-out wave.' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Axis Shift', id: 'AxisShiftEnabled', type: 'checkbox', label: 'Enable Axis Shift', tier: 'advanced', description: "Treats newly placed lines of blocks as sub-axes, spawning growth in all directions from them exactly like the main spawn axis.", tags: ['axis', 'shift', 'spawn', 'fractal'] },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftBehaviorType', type: 'select', label: 'Behavior Type', options: [{label: 'Core (Every Step)', value: 'core'}, {label: 'Pool (Scheduled)', value: 'pool'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftGrowthMode', type: 'select', label: 'Growth Mode', options: [{label: 'Edge (Outermost)', value: 'edge'}, {label: 'Spine (Initial)', value: 'spine'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'AxisShiftEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced' },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftRate', type: 'range', label: 'Check Rate', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Steps between attempts to create new sub-axes." },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMaxAxes', type: 'range', label: 'Max Sub-Axes', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Maximum number of sub-axes that can be active." },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "Minimum number of blocks a strip must have grown before it qualifies as a sub-axis." },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: "How many spine-like strips will be spawned from the new origin." },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftRate', type: 'range', label: 'Check Rate', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: 'Frequency of attempts to shift the growth axis.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMaxAxes', type: 'range', label: 'Max Sub-Axes', min: 1, max: 50, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: 'Maximum number of active growth axes.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftMinLength', type: 'range', label: 'Min Strip Length', min: 2, max: 20, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: 'Minimum block length required before an axis shift can occur.' },
+    { sub: 'V2 Generator (Spawn Behaviors)', id: 'AxisShiftSpawnAmount', type: 'range', label: 'Spawn Amount', min: 1, max: 4, step: 1, dep: 'AxisShiftEnabled', tier: 'advanced', description: 'Number of new growth strips spawned during an axis shift.' },
 
     { sub: 'V2 Generator (Logic)', id: 'BehaviorPool', type: 'sortable_list', label: 'Behavior Pool', tier: 'advanced', tags: ['logic', 'stack'] },
 ];
@@ -207,39 +207,42 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         }
     });
 
+    // Zoom-specific settings under Block Interior (quantizedZoom only)
+    if (prefix === 'quantizedZoom') {
+        const zoomDep = [...overrideDep, prefix + 'ZoomEnabled'];
+        visualSettings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Zoom Settings', dep: overrideDep });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'ZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: overrideDep, tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'], sub: 'Block Interior' });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'Opacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, unit: '%', transform: v => (v * 100).toFixed(0) + '%', dep: zoomDep, tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'], sub: 'Block Interior' });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'ZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: zoomDep, tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'], sub: 'Block Interior' });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'MaxScale', type: 'range', label: 'Max Zoom', min: 0, max: 2.0, step: 0.05, dep: zoomDep, tier: 'advanced', description: 'Maximum zoom magnification. 0 disables zoom animation (stays at 1x). The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'], sub: 'Block Interior' });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'BackgroundBrightness', type: 'range', label: 'Zoom Background Brightness', min: 0, max: 100, step: 1, unit: '%', dep: zoomDep, tier: 'basic', description: 'Controls how bright the background code remains during zoom. 100% is full normal brightness; 0% dims it completely.', tags: ['brightness', 'dim', 'background'], sub: 'Block Interior' });
+        visualSettings.push({ cat: 'Effects', id: prefix + 'Delay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: zoomDep, tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'], sub: 'Block Interior' });
+    }
+
     // Add Appearance Header
     settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Appearance', dep: overrideDep });
     
-    // Add Appearance Settings (Block Interior, Line Appearance, Line Fine-Tuning)
-    let currentVisSub = '';
+    // Group and Add Appearance Settings (Block Interior, Line Appearance, Line Fine-Tuning)
+    const visGroups = {};
     visualSettings.forEach(s => {
-        if (s.sub !== currentVisSub) {
-            if (currentVisSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
-            settings.push({ cat: 'Effects', type: 'sub_accordion', label: s.sub, dep: overrideDep });
-            currentVisSub = s.sub;
-        }
-        if (s.sub_header) {
-            settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
-        }
-
-        settings.push(s);
+        if (!visGroups[s.sub]) visGroups[s.sub] = [];
+        visGroups[s.sub].push(s);
     });
-    if (currentVisSub !== '') settings.push({ cat: 'Effects', type: 'end_group' });
 
-    // Zoom-specific settings under Appearance (quantizedZoom only)
-    if (prefix === 'quantizedZoom') {
-        const zoomDep = [...overrideDep, prefix + 'ZoomEnabled'];
-        settings.push({ cat: 'Effects', type: 'sub_accordion', label: 'Zoom Settings', dep: overrideDep });
-        settings.push({ cat: 'Effects', id: prefix + 'ZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: overrideDep, tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'] });
-        settings.push({ cat: 'Effects', id: prefix + 'Opacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, dep: zoomDep, tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'] });
-        settings.push({ cat: 'Effects', id: prefix + 'ZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: zoomDep, tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'] });
-        settings.push({ cat: 'Effects', id: prefix + 'MaxScale', type: 'range', label: 'Max Zoom', min: 0, max: 2.0, step: 0.05, dep: zoomDep, tier: 'advanced', description: 'Maximum zoom magnification. 0 disables zoom animation (stays at 1x). The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'] });
-        settings.push({ cat: 'Effects', id: prefix + 'BackgroundBrightness', type: 'range', label: 'Zoom Background Brightness', min: 0, max: 100, step: 1, unit: '%', dep: zoomDep, tier: 'basic', description: 'Controls how bright the background code remains during zoom. 100% is full normal brightness; 0% dims it completely.', tags: ['brightness', 'dim', 'background'] });
-        settings.push({ cat: 'Effects', id: prefix + 'Delay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: zoomDep, tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'] });
-        settings.push({ cat: 'Effects', type: 'end_group' });
-    }
+    ['Block Interior', 'Line Appearance', 'Line Fine-Tuning'].forEach(subName => {
+        if (visGroups[subName]) {
+            settings.push({ cat: 'Effects', type: 'sub_accordion', label: subName, dep: overrideDep });
+            visGroups[subName].forEach(s => {
+                if (s.sub_header) {
+                    settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
+                }
+                settings.push(s);
+            });
+            settings.push({ cat: 'Effects', type: 'end_group' });
+        }
+    });
 
-    // Add Behavior Header
+        // Add Behavior Header
     settings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Behavior', dep: overrideDep });
 
     // Add remaining Behavior Settings
@@ -305,32 +308,32 @@ const ConfigTemplate = [
     { cat: 'Global', type: 'accordion_header', label: 'Code Basics' },
     { cat: 'Global', id: 'backgroundColor', type: 'color', label: 'Background Color', tier: 'basic', tags: ['bg', 'dark', 'black'] },
     { cat: 'Global', id: 'streamPalette', type: 'color_list', label: 'Code Colors', max: 3, tier: 'basic', tags: ['green', 'hue', 'tint'] },
-    { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '% Mix', description: "Left: Solid Streams. Right: Random Characters. Middle: Blend.", tags: ['color', 'mix', 'random'] },
+    { cat: 'Global', id: 'paletteBias', type: 'range', label: 'Color Mix', min: 0, max: 1, step: 0.05, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Blends between uniform stream colors and randomized character colors.' },
     { cat: 'Global', id: 'colorMixType', type: 'range', label: 'Mix Type', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => v < 0.3 ? 'Stream Colors' : (v > 0.7 ? 'Character Colors' : 'Mixed'), description: "Controls whether colors are assigned per-stream or per-character.", tags: ['color', 'mode', 'type'] },
     { cat: 'Global', id: 'tracerColor', type: 'color', label: 'Tracer Color', tier: 'advanced', description: "The head of the stream that writes the code to the screen", tags: ['head', 'lead', 'front'] },
-    { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', tier: 'advanced', description: "Determines the glow intensity of the leading tracer characters.", tags: ['head', 'bloom', 'shine'] },
-    { cat: 'Global', id: 'brightness', type: 'range', label: 'Overall Brightness', min: 0.1, max: 3.0, step: 0.1, tier: 'basic', transform: v => (v * 100).toFixed(0) + '% Brightness', description: "Boosts the overall luminance of all characters.", tags: ['light', 'luminance', 'intensity'] },
+    { cat: 'Global', id: 'tracerGlow', type: 'range', label: 'Tracer Glow', min: 0, max: 50, unit: 'px', tier: 'advanced', description: 'Intensity of the glow effect on leading tracer characters.', tags: ['head', 'bloom', 'shine'] },
+    { cat: 'Global', id: 'brightness', type: 'range', label: 'Overall Brightness', min: 0.1, max: 3.0, step: 0.1, tier: 'basic', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Global', type: 'accordion_subheader', label: 'Code Style' },
-    { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px', tier: 'basic', tags: ['size', 'big', 'small', 'scale'] },
-    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1, tier: 'basic', tags: ['fast', 'slow', 'motion'] },
+    { cat: 'Global', id: 'fontSize', type: 'range', label: 'Font Size', min: 10, max: 80, step: 1, unit: 'px', tier: 'basic', description: 'Size of the characters in pixels.', tags: ['size', 'big', 'small', 'scale'] },
+    { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1, tier: 'basic', description: 'Overall falling speed of the code rain.', tags: ['fast', 'slow', 'motion'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
-    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, tier: 'advanced', transform: v => v + 'x', tags: ['quality', 'sharp', 'pixel'] },
+    { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Internal rendering resolution. Lowering this can significantly improve performance.' },
     { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', tier: 'advanced', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.', tags: ['blur', 'smooth', 'edges'] },
-    { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'], tier: 'advanced', tags: ['blur', 'soft'] },
-    { cat: 'Global', id: 'brightnessFloor', type: 'range', label: 'Brightness Floor', min: 0.0, max: 0.5, step: 0.01, tier: 'advanced', description: "The minimum brightness level for all characters. Default is 0.05.", tags: ['dark', 'dim', 'min'] },
-    { cat: 'Global', id: 'glowIntensityMultiplier', type: 'range', label: 'Glow Intensity', min: 0.0, max: 1.0, step: 0.05, tier: 'advanced', description: "Controls the strength of the additive glow on characters. Lower values preserve more detail in dense characters.", tags: ['bloom', 'bright', 'detail'] },
-    { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: "Controls the brightness boost applied to trails (phosphor persistence). Default is 2.0.", tags: ['ghost', 'trail', 'bright'] },
-    { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, tier: 'advanced', description: "The maximum alpha (transparency) for characters. Default is 0.99.", tags: ['transparency', 'alpha', 'see-through'] },
+    { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'], tier: 'advanced', description: 'Amount of anti-aliasing applied to character edges.', tags: ['blur', 'soft'] },
+    { cat: 'Global', id: 'brightnessFloor', type: 'range', label: 'Brightness Floor', min: 0.0, max: 0.5, step: 0.01, tier: 'advanced', description: "The minimum brightness level for all characters. Default is 0.05.", tags: ['dark', 'dim', 'min'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Global', id: 'glowIntensityMultiplier', type: 'range', label: 'Glow Intensity', min: 0.0, max: 1.0, step: 0.05, tier: 'advanced', description: "Controls the strength of the additive glow on characters. Lower values preserve more detail in dense characters.", tags: ['bloom', 'bright', 'detail'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Global', id: 'burnInBoost', type: 'range', label: 'Trail Brightness Boost', min: 0.0, max: 5.0, step: 0.1, tier: 'advanced', description: 'Brightness of the persistence trails left by moving characters.', tags: ['ghost', 'trail', 'bright'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Global', id: 'maxAlpha', type: 'range', label: 'Max Opacity', min: 0.1, max: 1.0, step: 0.01, tier: 'advanced', description: "The maximum alpha (transparency) for characters. Default is 0.99.", tags: ['transparency', 'alpha', 'see-through'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Global', type: 'accordion_subheader', label: 'Quick Presets' },
     { cat: 'Global', id: 'skipIntro', type: 'checkbox', label: 'Skip Intro', tier: 'basic', description: "Bypasses the loading screen transition and boot sequence on startup, starting the code as soon as it is ready to render.", tags: ['fast', 'skip', 'intro', 'boot', 'loading'] },
     { cat: 'Global', id: 'performanceMode', type: 'checkbox', label: 'Performance Mode', description: "Optimizes settings for lower-end hardware. Disables: Bloom, Post-Process, Dissolve, Deterioration, Line Variance, Refraction. Sets 0.75x resolution, pauses when hidden/idle, and reduces spawn rate. All settings are restored when turned off.", tier: 'basic', tags: ['fast', 'lag', 'optimize', 'low', 'performance'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Global FX' },
-    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-In (Phosphor Persistence)', hideValue: true, min: 0.0, max: 1.0, step: 0.01, tier: 'basic', invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.', tags: ['trail', 'length', 'phosphor', 'smear'] },
+    { cat: 'Global', id: 'clearAlpha', type: 'range', label: 'Burn-In (Phosphor Persistence)', hideValue: true, min: 0.0, max: 1.0, step: 0.01, tier: 'basic', invert: true, description: 'Adjusts the phosphor persistence effect. Higher values leave longer, smeary trails behind moving characters.', tags: ['trail', 'length', 'phosphor', 'smear'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Global', type: 'accordion_subheader', label: 'Bloom FX' },
-    { cat: 'Global', id: 'globalBloomEnabled', type: 'checkbox', label: 'Enable Bloom', tier: 'basic', tags: ['glow', 'blur', 'light'] },
+    { cat: 'Global', id: 'globalBloomEnabled', type: 'checkbox', label: 'Enable Bloom', tier: 'basic', tags: ['glow', 'blur', 'light'], description: 'Adds a glow effect to bright areas of the screen.' },
     { cat: 'Global', id: 'globalBloomType', type: 'select', label: 'Bloom Type', tier: 'advanced', options: [
         { label: 'Gaussian (Fast)', value: 'gaussian' },
         { label: 'Box (Performance)', value: 'box' },
@@ -339,122 +342,122 @@ const ConfigTemplate = [
         { label: 'Bokeh (Cinematic)', value: 'bokeh' },
         { label: 'Kawase (Smooth)', value: 'kawase' }
     ], dep: 'globalBloomEnabled', tags: ['quality', 'style'] },
-    { cat: 'Global', id: 'globalBloomBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'intensity'] },
-    { cat: 'Global', id: 'globalBloomIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'strength'] },
-    { cat: 'Global', id: 'globalBloomWidth', type: 'range', label: 'Bloom Width', min: 1.0, max: 10.0, step: 0.1, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'spread', 'size'] },
-    { cat: 'Global', id: 'globalBloomThreshold', type: 'range', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'limit', 'cutoff'] },
+    { cat: 'Global', id: 'globalBloomBrightness', type: 'range', label: 'Brightness', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'intensity'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Global', id: 'globalBloomIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'strength'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Global', id: 'globalBloomWidth', type: 'range', label: 'Bloom Width', min: 1.0, max: 10.0, step: 0.1, dep: 'globalBloomEnabled', tier: 'advanced', description: 'The spread or blurriness of the global bloom effect.', tags: ['glow', 'spread', 'size'] },
+    { cat: 'Global', id: 'globalBloomThreshold', type: 'range', label: 'Threshold', min: 0.0, max: 1.0, step: 0.01, dep: 'globalBloomEnabled', tier: 'advanced', tags: ['glow', 'limit', 'cutoff'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
     // 2. APPEARANCE TAB
     { cat: 'Appearance', type: 'accordion_header', label: 'Character Fonts' },
-    { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: 'fonts', tier: 'basic', tags: ['style', 'text', 'type'] },
+    { cat: 'Appearance', id: 'fontFamily', type: 'select', label: 'Font Family', options: 'fonts', tier: 'basic', description: 'Select the font style for the characters.', tags: ['style', 'text', 'type'] },
     { cat: 'Appearance', type: 'font_list', tier: 'advanced', tags: ['glyphs', 'set'] },
     { cat: 'Appearance', type: 'button', label: 'Manage Character Sets', action: 'manageCharacters', class: 'btn-info', tier: 'advanced', tags: ['glyphs', 'edit'] },
     { cat: 'Appearance', type: 'button', label: 'Import Font File (.ttf/.otf)', action: 'importFont', class: 'btn-info', tier: 'advanced', tags: ['upload', 'custom'] },
-    { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize', tier: 'advanced', tags: ['slant', 'style'] },
-    { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text', tier: 'advanced', tags: ['backward', 'reverse'] },
+    { cat: 'Appearance', id: 'italicEnabled', type: 'checkbox', label: 'Italicize', tier: 'advanced', description: 'Slants the characters for an italicized look.', tags: ['slant', 'style'] },
+    { cat: 'Appearance', id: 'mirrorEnabled', type: 'checkbox', label: 'Mirror / Flip Text', tier: 'advanced', description: 'Horizontally flips all characters.', tags: ['backward', 'reverse'] },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Character Effects' },
     { cat: 'Appearance', type: 'accordion_subheader', label: 'General' },
     { cat: 'Appearance', id: 'variableBrightnessEnabled', type: 'checkbox', label: 'Variable Brightness', tier: 'basic', description: 'Allows for brightness variance when characters are written', tags: ['random', 'flicker'] },
     { cat: 'Appearance', id: 'lockBrightnessToCharacters', type: 'checkbox', label: 'Lock Brightness to Characters', tier: 'advanced', description: 'Lock a brightness to a specific character instead of a character position', dep: 'variableBrightnessEnabled', tags: ['static', 'consistent'] },
-    { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled', tier: 'advanced', tags: ['random', 'amount'] },
+    { cat: 'Appearance', id: 'brightnessVariance', type: 'range', label: 'Brightness Variance', min: 0, max: 90, unit: '%', dep: 'variableBrightnessEnabled', tier: 'advanced', description: 'Randomizes the brightness of characters within a stream.', tags: ['random', 'amount'] },
     { cat: 'Appearance', id: 'gradualColorStreams', type: 'checkbox', label: 'Gradual Color Streams', tier: 'advanced', description: "Immediately blends tracer color to stream color behind the head, removing tracer glow.", tags: ['smooth', 'fade'] },
     { cat: 'Appearance', id: 'gradualColorStreamsFrequency', type: 'range', label: 'Frequency', min: 1, max: 100, step: 1, unit: '%', dep: 'gradualColorStreams', tier: 'advanced', description: "Probability that a tracer will use the gradual color effect.", tags: ['chance', 'amount'] },
 
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Tracers' },
-    { cat: 'Appearance', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 150, unit: 'fr', tier: 'advanced', tags: ['entry', 'start', 'smooth'] },
-    { cat: 'Appearance', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 150, unit: 'fr', tier: 'advanced', tags: ['stay', 'pause'] },
-    { cat: 'Appearance', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 150, unit: 'fr', tier: 'advanced', tags: ['exit', 'end', 'smooth'] },
+    { cat: 'Appearance', id: 'tracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 150, unit: 'fr', tier: 'advanced', description: 'Number of frames for a tracer to fade in.', tags: ['entry', 'start', 'smooth'] },
+    { cat: 'Appearance', id: 'tracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 150, unit: 'fr', tier: 'advanced', description: 'Number of frames a tracer stays at full brightness.', tags: ['stay', 'pause'] },
+    { cat: 'Appearance', id: 'tracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 150, unit: 'fr', tier: 'advanced', description: 'Number of frames for a tracer to fade out.', tags: ['exit', 'end', 'smooth'] },
 
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Stream Trails' },
-    { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails', tier: 'advanced', tags: ['shrink', 'grow', 'particles'] },
+    { cat: 'Appearance', id: 'dissolveEnabled', type: 'checkbox', label: 'Dissolving Stream Trails', tier: 'advanced', tags: ['shrink', 'grow', 'particles'], description: 'Makes stream trails shrink or grow as they fade out.' },
     { cat: 'Appearance', id: 'dissolveScalePercent', type: 'range', label: 'Dissolve Scale', min: -100, max: 100, unit: '%', dep: 'dissolveEnabled', tier: 'advanced', description: 'Percentage size change during dissolve. Negative values shrink, positive values grow.', tags: ['size', 'scale'] },
-    { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting', tier: 'advanced', tags: ['artifact', 'lag', 'echo'] },
-    { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled', tier: 'advanced', tags: ['offset', 'spread'] },
+    { cat: 'Appearance', id: 'deteriorationEnabled', type: 'checkbox', label: 'Enable Trail Ghosting', tier: 'advanced', tags: ['artifact', 'lag', 'echo'], description: 'Adds horizontal artifacts and lag to trails for a digital glitch look.' },
+    { cat: 'Appearance', id: 'deteriorationStrength', type: 'range', label: 'Ghosting Offset', min: 1, max: 10, unit: 'px', dep: 'deteriorationEnabled', tier: 'advanced', description: 'Horizontal spread of the ghosting and distortion effect.', tags: ['offset', 'spread'] },
 
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Character Overlap' },
-    { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'advanced', tags: ['stack', 'double', 'depth'] },
+    { cat: 'Appearance', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'advanced', tags: ['stack', 'double', 'depth'], description: 'Allows multiple characters to occupy the same grid cell for increased density.' },
     { cat: 'Appearance', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled', tier: 'advanced', tags: ['stack', 'tint'] },
-    { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled', tier: 'advanced', tags: ['amount', 'chance'] },
+    { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled', tier: 'advanced', tags: ['amount', 'chance'], unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the amount of overlapping characters in dense areas.' },
     { cat: 'Appearance', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{ label: 'Streams Only', value: 'stream' }, { label: 'All Characters', value: 'all' }], dep: 'overlapEnabled', tier: 'advanced', tags: ['mode', 'scope'] },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Glimmer Tracers' },
     { cat: 'Appearance', id: 'upwardTracerEnabled', type: 'checkbox', label: 'Glimmer Tracers', tier: 'basic', description: 'Invisible scanners that light up existing code', tags: ['scanner', 'up', 'glint'] },
-    { cat: 'Appearance', id: 'upwardTracerChance', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, transform: v => (v * 100).toFixed(0) + '%', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['amount', 'chance'] },
-    { cat: 'Appearance', id: 'upwardTracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['smooth', 'start'] },
-    { cat: 'Appearance', id: 'upwardTracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['stay', 'pause'] },
-    { cat: 'Appearance', id: 'upwardTracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['smooth', 'end'] },
+    { cat: 'Appearance', id: 'upwardTracerChance', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, unit: '%', transform: v => (v * 100).toFixed(0) + '%', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['amount', 'chance'] },
+    { cat: 'Appearance', id: 'upwardTracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames for upward glimmers to fade in.', tags: ['smooth', 'start'] },
+    { cat: 'Appearance', id: 'upwardTracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames upward glimmers stay at full brightness.', tags: ['stay', 'pause'] },
+    { cat: 'Appearance', id: 'upwardTracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames for upward glimmers to fade out.', tags: ['smooth', 'end'] },
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Movement', dep: 'upwardTracerEnabled' },
-    { cat: 'Appearance', id: 'upwardTracerSpeedMult', type: 'range', label: 'Vertical Climb Speed', min: 0.5, max: 4.0, step: 0.1, transform: v => v + 'x', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['fast', 'slow', 'motion'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerSpeed', type: 'range', label: 'Glimmer Blink Speed', min: 0.01, max: 10.0, step: 0.01, dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['blink', 'flash', 'fast'] },
+    { cat: 'Appearance', id: 'upwardTracerSpeedMult', type: 'range', label: 'Vertical Climb Speed', min: 0.5, max: 4.0, step: 0.1, transform: v => v + 'x', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Speed of the upward-moving glimmer highlights.', tags: ['fast', 'slow', 'motion'] },
+    { cat: 'Appearance', id: 'upwardTracerGlimmerSpeed', type: 'range', label: 'Glimmer Blink Speed', min: 0.01, max: 10.0, step: 0.01, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Animation speed of the glimmer effect.', tags: ['blink', 'flash', 'fast'] },
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Glimmer Shape', dep: 'upwardTracerEnabled' },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: "The number of mini blocks that determine the shape of the Glimmer highlighting.", tags: ['area', 'blocks'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: "The amount of mini blocks that are lit within the Glimmer Grid.", tags: ['density', 'lit'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['bloom', 'bright'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', transform: v => (v * 100).toFixed(0) + '%', tier: 'advanced', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting.", tags: ['glitch', 'random'] },
+    { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'The number of mini blocks that determine the shape of the glimmer highlights.', tags: ['area', 'blocks'] },
+    { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'The density of highlights within a glimmering cell.', tags: ['density', 'lit'] },
+    { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Brightness of the glimmer highlights.', tags: ['bloom', 'bright'] },
+    { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', unit: '%', transform: v => (v * 100).toFixed(0) + '%', tier: 'advanced', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting.", tags: ['glitch', 'random'] },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Glow Blocks' },
     { cat: 'Appearance', id: 'glowBlocksEnabled', type: 'checkbox', label: 'Enable Glow Blocks', tier: 'basic', description: 'Invisible floating blocks that boost and tint underlying code.', tags: ['float', 'glow', 'block', 'tint'] },
     
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Behavior', dep: 'glowBlocksEnabled' },
-    { cat: 'Appearance', id: 'glowBlocksFrequency', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, transform: v => (v * 100).toFixed(0) + '%', dep: 'glowBlocksEnabled', tier: 'advanced', description: "The chance that the full density of blocks will be active at any given time.", tags: ['chance', 'spawn'] },
-    { cat: 'Appearance', id: 'glowBlocksDensity', type: 'range', label: 'Density', min: 1, max: 50, step: 1, dep: 'glowBlocksEnabled', tier: 'basic', description: "Target number of blocks to maintain on the screen.", tags: ['amount', 'count'] },
-    { cat: 'Appearance', id: 'glowBlocksSpeed', type: 'range', label: 'Speed', min: 0.01, max: 1.0, step: 0.01, transform: v => (v * 100).toFixed(0), dep: 'glowBlocksEnabled', tier: 'basic', description: "Drift velocity of the blocks as they bounce around the grid.", tags: ['motion', 'fast'] },
-    { cat: 'Appearance', id: 'glowBlocksArea', type: 'range', label: 'Max Area', min: 1, max: 64, step: 1, unit: 'cl', dep: 'glowBlocksEnabled', tier: 'advanced', description: 'Maximum number of grid cells a single block can occupy.', tags: ['size', 'volume'] },
+    { cat: 'Appearance', id: 'glowBlocksFrequency', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, unit: '%', transform: v => (v * 100).toFixed(0) + '%', dep: 'glowBlocksEnabled', tier: 'advanced', description: "The chance that the full density of blocks will be active at any given time.", tags: ['chance', 'spawn'] },
+    { cat: 'Appearance', id: 'glowBlocksDensity', type: 'range', label: 'Density', min: 1, max: 50, step: 1, dep: 'glowBlocksEnabled', tier: 'basic', description: 'The target number of glowing highlight blocks on screen.', tags: ['amount', 'count'] },
+    { cat: 'Appearance', id: 'glowBlocksSpeed', type: 'range', label: 'Speed', min: 0.01, max: 1.0, step: 0.01, unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'How fast the highlight blocks move across the grid.', tags: ['motion', 'fast'] },
+    { cat: 'Appearance', id: 'glowBlocksArea', type: 'range', label: 'Max Area', min: 1, max: 64, step: 1, unit: 'cl', dep: 'glowBlocksEnabled', tier: 'advanced', description: 'Maximum size of a single highlight block in grid cells.', tags: ['size', 'volume'] },
     { cat: 'Appearance', id: 'glowBlocksAllowShapes', type: 'checkbox', label: 'Allow Irregular Shapes', dep: 'glowBlocksEnabled', tier: 'advanced', description: "Enables organic, edge-connected growth for more complex block forms.", tags: ['random', 'form'] },
 
     { cat: 'Appearance', type: 'accordion_subheader', label: 'Look', dep: 'glowBlocksEnabled' },
-    { cat: 'Appearance', id: 'glowBlocksIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'glowBlocksEnabled', tier: 'basic', description: "Global multiplier for both luminance and tint effects.", tags: ['strength', 'power'] },
-    { cat: 'Appearance', id: 'glowBlocksLuminanceBoost', type: 'range', label: 'Luminance Boost', min: 0.0, max: 5.0, step: 0.1, dep: 'glowBlocksEnabled', tier: 'advanced', description: "Additional brightness applied to characters inside the blocks.", tags: ['bright', 'light'] },
+    { cat: 'Appearance', id: 'glowBlocksIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'glowBlocksEnabled', tier: 'basic', description: 'Overall brightness multiplier for highlight blocks.', tags: ['strength', 'power'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Appearance', id: 'glowBlocksLuminanceBoost', type: 'range', label: 'Luminance Boost', min: 0.0, max: 5.0, step: 0.1, dep: 'glowBlocksEnabled', tier: 'advanced', description: 'Extra brightness for characters covered by a highlight block.', tags: ['bright', 'light'] },
     { cat: 'Appearance', id: 'glowBlocksStaticColorEnabled', type: 'checkbox', label: 'Static Color', dep: 'glowBlocksEnabled', tier: 'basic', description: "Use a single fixed color for all blocks instead of randomizing per-block.", tags: ['fixed', 'set'] },
     { cat: 'Appearance', id: 'glowBlocksStaticColor', type: 'color', label: 'Block Color', dep: 'glowBlocksStaticColorEnabled', tier: 'basic', description: "The color used for all blocks when Static Color is enabled.", tags: ['tint', 'hue'] },
     { cat: 'Appearance', id: 'glowBlocksTintInfluence', type: 'range', label: 'Tint Influence', min: 0, max: 100, unit: '%', dep: 'glowBlocksEnabled', tier: 'advanced', description: "How strongly the block color blends with the underlying code (0% = Original Only).", tags: ['color', 'hue'] },
-    { cat: 'Appearance', id: 'glowBlocksFadeRate', type: 'range', label: 'Fade Rate', min: 0.0, max: 1.0, step: 0.01, dep: 'glowBlocksEnabled', tier: 'advanced', description: 'How quickly the effect fades after a block moves away. 1.0 means instant off.', tags: ['decay', 'trail', 'linger'] },
+    { cat: 'Appearance', id: 'glowBlocksFadeRate', type: 'range', label: 'Fade Rate', min: 0.0, max: 1.0, step: 0.01, dep: 'glowBlocksEnabled', tier: 'advanced', description: 'How quickly the highlight fades after a block moves.', tags: ['decay', 'trail', 'linger'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Grid Layout' },
-    { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', tags: ['width', 'spacing', 'density'] },
-    { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', tags: ['height', 'spacing', 'density'] },
-    { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1, tier: 'advanced', tags: ['zoom', 'width'] },
-    { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1, tier: 'advanced', tags: ['zoom', 'height'] },
+    { cat: 'Appearance', id: 'horizontalSpacingFactor', type: 'range', label: 'Column Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', description: 'Adjusts the horizontal gap between columns.', tags: ['width', 'spacing', 'density'] },
+    { cat: 'Appearance', id: 'verticalSpacingFactor', type: 'range', label: 'Row Gap', min: 0.5, max: 2.0, step: 0.05, tier: 'advanced', description: 'Adjusts the vertical gap between rows.', tags: ['height', 'spacing', 'density'] },
+    { cat: 'Appearance', id: 'stretchX', type: 'range', label: 'View Window Stretch X', min: 0.5, max: 3.0, step: 0.1, tier: 'advanced', description: 'Stretches the entire view horizontally.', tags: ['zoom', 'width'] },
+    { cat: 'Appearance', id: 'stretchY', type: 'range', label: 'View Window Stretch Y', min: 0.5, max: 3.0, step: 0.1, tier: 'advanced', description: 'Stretches the entire view vertically.', tags: ['zoom', 'height'] },
 
     // 3. BEHAVIOR TAB
     { cat: 'Behavior', type: 'accordion_header', label: 'Streams' },
     { cat: 'Behavior', type: 'accordion_subheader', label: 'Timing' },
-    { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', tier: 'advanced', description: "For synchronized events (like tracer release) this is the interval between events.", min: 1, max: 10, step: 1, tags: ['timing', 'sync'] },
+    { cat: 'Behavior', id: 'releaseInterval', type: 'range', label: 'Event Timer', tier: 'advanced', description: 'Wait time between spawning new tracers.', min: 1, max: 10, step: 1, tags: ['timing', 'sync'] },
     { cat: 'Behavior', id: 'desyncIntensity', type: 'range', label: 'Tracer Desync', min: 0, max: 1, step: 0.05, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: "Varies the speed and release timing of tracers. 0% is uniform sync.", tags: ['random', 'timing'] },
     { cat: 'Behavior', type: 'accordion_subheader', label: 'Spacing' },
-    { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 2, max: 50, unit: 'px', tier: 'advanced', tags: ['spacing', 'empty'] },
-    { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px', tier: 'advanced', tags: ['spacing', 'empty'] },
-    { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', tier: 'advanced', description: "Minimum space between tracer types, preventing short streams", tags: ['spacing', 'variety'] },
+    { cat: 'Behavior', id: 'minStreamGap', type: 'range', label: 'Min Gap Between Streams', min: 2, max: 50, unit: 'px', tier: 'advanced', description: 'Minimum vertical space between code streams.', tags: ['spacing', 'empty'] },
+    { cat: 'Behavior', id: 'minEraserGap', type: 'range', label: 'Min Gap Between Erasers', min: 2, max: 50, unit: 'px', tier: 'advanced', description: 'Minimum vertical space between erasers.', tags: ['spacing', 'empty'] },
+    { cat: 'Behavior', id: 'minGapTypes', type: 'range', label: 'Min Gap Between Types', min: 1, max: 100, unit: 'px', tier: 'advanced', description: 'Minimum space between different types of streams.', tags: ['spacing', 'variety'] },
     { cat: 'Behavior', type: 'accordion_subheader', label: 'Length' },
-    { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit: 'fr', tier: 'advanced', tags: ['tail', 'fade', 'speed'] },
-    { cat: 'Behavior', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length', tier: 'advanced', tags: ['random', 'variety'] },
-    { cat: 'Behavior', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', tier: 'advanced', description: "Randomizes the length of the trail. Range is between Fade Speed and this value.", tags: ['random', 'range'] },
+    { cat: 'Behavior', id: 'decayFadeDurationFrames', type: 'range', label: 'Stream Fade Out Speed', min: 1, max: 180, unit: 'fr', tier: 'advanced', description: 'Speed at which dead streams fade into the background.', tags: ['tail', 'fade', 'speed'] },
+    { cat: 'Behavior', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length', tier: 'advanced', tags: ['random', 'variety'], description: 'Gives each code stream a slightly different trail length.' },
+    { cat: 'Behavior', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', tier: 'advanced', description: 'Adds random variation to the length of stream trails.', tags: ['random', 'range'] },
     { cat: 'Behavior', id: 'streamVisibleLengthScale', type: 'range', label: 'Stream Length Scale', min: 0.8, max: 2.0, step: 0.1, transform: v => v + 'x', tier: 'advanced', description: "Scales the visible length of all code streams.", tags: ['long', 'short', 'scale'] },
     { cat: 'Behavior', id: 'allowTinyStreams', type: 'checkbox', label: 'Allow Tiny Streams', tier: 'advanced', description: "Increases the probability of very short streams spawning.", tags: ['small', 'short', 'dots'] },
     { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.', tags: ['empty', 'broken', 'segments'] },
 
     { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
-    { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, tier: 'basic', description: "Max number of tracers released per cycle. A tracer is the leading character that 'writes' the stream to the screen.", tags: ['density', 'amount', 'rain'] },
+    { cat: 'Behavior', id: 'streamSpawnCount', type: 'range', label: 'Tracer Release Count', min: 1, max: 20, step: 1, tier: 'basic', description: 'Number of new code streams created per cycle.', tags: ['density', 'amount', 'rain'] },
     { cat: 'Behavior', id: 'preferClusters', type: 'checkbox', label: 'Prefer Clusters', tier: 'advanced', description: "Slightly increases the chance of tracers spawning side-by-side.", tags: ['grouping', 'pattern'] },
     { cat: 'Behavior', id: 'tracerStopChance', type: 'range', label: 'Tracer Drop-out', min: 0, max: 10, step: 1, tier: 'advanced', transform: v => v + '%', description: 'Chance for a tracer to randomly stop, leaving a hanging stream.', tags: ['random', 'incomplete'] },
     { cat: 'Behavior', type: 'accordion_subheader', label: 'Erasers' },
-    { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, tier: 'basic', description: "Invisible tracers that erase code streams instead of writing it.", tags: ['cleaning', 'clearing', 'delete'] },
+    { cat: 'Behavior', id: 'eraserSpawnCount', type: 'range', label: 'Eraser Release Count', min: 0, max: 20, step: 1, tier: 'basic', description: 'Number of new erasers created per cycle.', tags: ['cleaning', 'clearing', 'delete'] },
     { cat: 'Behavior', id: 'eraserStopChance', type: 'range', label: 'Eraser Drop-out', min: 0, max: 10, step: 1, tier: 'advanced', transform: v => v + '%', description: 'Chance for an eraser to randomly stop, leaving a hanging stream.', tags: ['random', 'incomplete'] },
     { cat: 'Behavior', type: 'accordion_subheader', label: 'Inverted Tracers' },
     { cat: 'Behavior', id: 'invertedTracerEnabled', type: 'checkbox', label: 'Inverted Tracers', tier: 'advanced', description: "Tracers that only write occassional characters", tags: ['sparse', 'dots'] },
     { cat: 'Behavior', id: 'invertedTracerChance', type: 'range', label: 'Inverted Frequency', min: 0.01, max: 0.20, step: 0.01, dep: 'invertedTracerEnabled', tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', tags: ['sparse', 'amount'] },
 
     { cat: 'Behavior', type: 'accordion_header', label: 'Rotators' },
-    { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Symbol Rotator', tier: 'basic', tags: ['change', 'motion', 'symbols'] },
+    { cat: 'Behavior', id: 'rotatorEnabled', type: 'checkbox', label: 'Symbol Rotator', tier: 'basic', tags: ['change', 'motion', 'symbols'], description: 'Causes characters to randomly change into other symbols over time.' },
     { cat: 'Behavior', id: 'rotatorChance', type: 'range', label: 'Rotator Chance', min: 0, max: 100, step: 1, unit: '%', dep: 'rotatorEnabled', tier: 'advanced', description: "Rotators are characters that change over time. This is the likelyhood that a rotator will be spawned.", tags: ['amount', 'chance'] },
     { cat: 'Behavior', id: 'rotatorSyncToTracer', type: 'checkbox', label: 'Sync to Tracer cycles', dep: 'rotatorEnabled', tier: 'advanced', description: "Lock the rotator change to the cycles that move the tracers", tags: ['timing', 'sync'] },
     { cat: 'Behavior', id: 'rotatorSyncMultiplier', type: 'range', label: 'Sync Divider', min: 0.1, max: 1, step: 0.1, dep: ['rotatorEnabled', 'rotatorSyncToTracer'], tier: 'advanced', transform: v => v + 'x', tags: ['speed', 'timing'] },
-    { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'], tier: 'advanced', tags: ['fast', 'slow'] },
-    { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled', tier: 'advanced', tags: ['smooth', 'transition'] },
+    { cat: 'Behavior', id: 'rotatorCycleFactor', type: 'range', label: 'Rotation Speed', min: 1, max: 20, dep: ['rotatorEnabled', '!rotatorSyncToTracer'], tier: 'advanced', description: 'Speed at which rotating characters change.', tags: ['fast', 'slow'] },
+    { cat: 'Behavior', id: 'rotatorCrossfadeFrames', type: 'range', label: 'Crossfade Smoothness', min: 1, max: 9, unit: 'fr', dep: 'rotatorEnabled', tier: 'advanced', description: 'Smoothness of the transition between rotating characters.', tags: ['smooth', 'transition'] },
     { cat: 'Behavior', id: 'rotateDuringFade', type: 'checkbox', label: 'Rotate during fade', dep: 'rotatorEnabled', tier: 'advanced', tags: ['motion'] },
     { cat: 'Behavior', id: 'rotatorDesyncEnabled', type: 'checkbox', label: 'Desynchronize Rotators', dep: 'rotatorEnabled', tier: 'advanced', description: "Allow rotators to rotate at different speeds", tags: ['random', 'variety'] },
-    { cat: 'Behavior', id: 'rotatorDesyncVariance', type: 'range', label: 'Desync Variance', min: 0, max: 100, unit: '%', dep: ['rotatorEnabled', 'rotatorDesyncEnabled'], tier: 'advanced', tags: ['random', 'amount'] },
+    { cat: 'Behavior', id: 'rotatorDesyncVariance', type: 'range', label: 'Desync Variance', min: 0, max: 100, unit: '%', dep: ['rotatorEnabled', 'rotatorDesyncEnabled'], tier: 'advanced', description: 'Randomizes the timing of character rotations.', tags: ['random', 'amount'] },
     { cat: 'Behavior', id: 'rotatorRandomSpeedEnabled', type: 'checkbox', label: 'Randomize Rotation Speed', dep: 'rotatorEnabled', tier: 'advanced', description: "Vary the rotation speed randomly throughout the rotator's life cycle.", tags: ['random', 'variety'] },
 
     // 4. EFFECTS TAB
@@ -462,19 +465,19 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Pulse' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'ripple', 'action'] },
-    { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses', tier: 'basic', tags: ['wave', 'auto'] },
+    { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses', tier: 'basic', tags: ['wave', 'auto'], description: 'Periodically triggers a wave of light that clears the screen.' },
     { cat: 'Effects', id: 'pulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'pulseEnabled', tier: 'advanced', description: "Enables movie-accurate timing and visuals, disabling custom controls.", tags: ['real', 'original'] },
-    { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 500 ? 'Random' : v + 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tags: ['timing', 'auto'] },
-    { cat: 'Effects', id: 'pulseDelaySeconds', type: 'range', label: 'Delay', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['timing', 'wait'] },
-    { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['timing', 'length'] },
+    { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 500 ? 'Random' : v + 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], description: 'Seconds between automatic pulse triggers.', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'pulseDelaySeconds', type: 'range', label: 'Delay', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Wait time before the pulse expansion begins.', tags: ['timing', 'wait'] },
+    { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Total time the pulse takes to complete.', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
     { cat: 'Effects', id: 'pulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['light', 'bright'] },
     { cat: 'Effects', id: 'pulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: "Honor blank spaces within the code streams.", tags: ['empty', 'gaps'] },
     { cat: 'Effects', id: 'pulseIgnoreTracers', type: 'checkbox', label: 'Preserve Tracer Glow', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['light', 'mask'] },
-    { cat: 'Effects', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['dark', 'dim'] },
+    { cat: 'Effects', id: 'pulseDimming', type: 'range', label: 'Initial Dim Amount', min: 0.0, max: 1.0, step: 0.05, dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Brightness reduction of the background during a pulse.', tags: ['dark', 'dim'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', id: 'pulseBlend', type: 'checkbox', label: 'Color Blend', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: "Blend the outer edge (tracer color) to inner edge (code color)", tags: ['color', 'smooth'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
-    { cat: 'Effects', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit: 'px', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['size', 'thick'] },
+    { cat: 'Effects', id: 'pulseWidth', type: 'range', label: 'Wave Width', min: 10, max: 400, step: 10, unit: 'px', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Thickness of the pulse wave front.', tags: ['size', 'thick'] },
     { cat: 'Effects', id: 'pulseRandomPosition', type: 'checkbox', label: 'Random Start Location', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['random', 'position'] },
     { cat: 'Effects', id: 'pulseInstantStart', type: 'checkbox', label: 'Instant Start', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: "Start at a full square", tags: ['fast', 'jump'] },
     { cat: 'Effects', id: 'pulseCircular', type: 'checkbox', label: 'Circular Pulse', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', tags: ['round', 'ring'] },
@@ -482,7 +485,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Clear Pulse' },
     { cat: 'Effects', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'reveal', 'action'] },
-    { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse', tier: 'basic', tags: ['wave', 'reveal', 'auto'] },
+    { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse', tier: 'basic', tags: ['wave', 'reveal', 'auto'], description: 'Similar to pulse, but reveals code in its path.' },
     { cat: 'Effects', id: 'clearPulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'clearPulseEnabled', tier: 'advanced', description: "Enables movie-accurate visual artifacts (tearing/lag) without dimming the screen.", tags: ['real', 'original'] },
     { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 500 ? 'Random' : v + 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tier: 'advanced', tags: ['timing', 'length'] },
@@ -499,7 +502,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Pulse Storm' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn', tier: 'basic', tags: ['weather', 'chaos', 'action'] },
-    { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms', tier: 'basic', tags: ['auto', 'chaos'] },
+    { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms', tier: 'basic', tags: ['auto', 'chaos'], description: 'Randomly triggers small localized pulses (Pulse Storm).' },
     { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
@@ -507,20 +510,20 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'miniPulsePreserveSpaces', type: 'checkbox', label: 'Preserve Spaces', dep: 'miniPulseEnabled', tier: 'advanced', description: "Honor blank spaces within the code streams.", tags: ['empty', 'gaps'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'miniPulseEnabled' },
     { cat: 'Effects', id: 'miniPulseThickness', type: 'range', label: 'Wave Width', min: 10, max: 150, unit: 'px', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['size', 'thick'] },
-    { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled', tier: 'advanced', tags: ['amount', 'chance'] },
+    { cat: 'Effects', id: 'miniPulseSpawnChance', type: 'range', label: 'Density', min: 0.01, max: 0.5, step: 0.01, dep: 'miniPulseEnabled', tier: 'advanced', tags: ['amount', 'chance'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', id: 'miniPulseSpeed', type: 'range', label: 'Speed', min: 5, max: 50, dep: 'miniPulseEnabled', tier: 'advanced', tags: ['fast', 'slow'] },
     { cat: 'Effects', id: 'miniPulseSize', type: 'range', label: 'Blast Size Max', min: 50, max: 400, unit: 'px', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['size', 'area'] },
 
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Deja Vu' },
     { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn', tier: 'basic', tags: ['glitch', 'error', 'action'] },
-    { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu', tier: 'basic', tags: ['auto', 'glitch'] },
+    { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu', tier: 'basic', tags: ['auto', 'glitch'], description: 'Triggers a glitchy rewind effect periodically.' },
     { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
     { cat: 'Effects', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['size', 'short'] },
     { cat: 'Effects', id: 'dejaVuMaxRectHeight', type: 'range', label: 'Maximum Thickness', min: 6, max: 50, unit: 'rows', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['size', 'tall'] },
-    { cat: 'Effects', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled', tier: 'advanced', tags: ['light', 'bright'] },
+    { cat: 'Effects', id: 'dejaVuHoleBrightness', type: 'range', label: 'Intensity', min: 0, max: 1, step: 0.01, dep: 'dejaVuEnabled', tier: 'advanced', tags: ['light', 'bright'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', id: 'dejaVuRandomizeColors', type: 'checkbox', label: 'Enable Color Writing', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['rainbow', 'random'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'dejaVuEnabled' },
     { cat: 'Effects', id: 'dejaVuIntensity', type: 'range', label: 'Flash Frequency', min: 0.01, max: 0.1, step: 0.01, dep: 'dejaVuEnabled', tier: 'advanced', tags: ['flicker', 'fast'] },
@@ -530,17 +533,17 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Superman' },
     { cat: 'Effects', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn', tier: 'basic', tags: ['lightning', 'physics', 'action'] },
-    { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects', tier: 'basic', tags: ['auto', 'lightning'] },
+    { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects', tier: 'basic', tags: ['auto', 'lightning'], description: 'Enables physics-based lightning bolt effects.' },
     { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'supermanEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
-    { cat: 'Effects', id: 'supermanGlow', type: 'range', label: 'Glow amount', min: 1, max: 10, dep: 'supermanEnabled', tier: 'advanced', tags: ['bloom', 'bright'] },
+    { cat: 'Effects', id: 'supermanGlow', type: 'range', label: 'Glow amount', min: 1, max: 10, dep: 'supermanEnabled', tier: 'advanced', description: 'Intensity of the lightning glow.', tags: ['bloom', 'bright'] },
     { cat: 'Effects', id: 'supermanFadeSpeed', type: 'range', label: 'Fade Duration', min: 5, max: 60, dep: 'supermanEnabled', tier: 'advanced', description: 'Higher values mean trails last longer.', tags: ['tail', 'length'] },
-    { cat: 'Effects', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled', tier: 'advanced', tags: ['size', 'width'] },
+    { cat: 'Effects', id: 'supermanBoltThickness', type: 'range', label: 'Bolt Thickness', min: 1, max: 10, step: 1, dep: 'supermanEnabled', tier: 'advanced', description: 'Thickness of the lightning bolts.', tags: ['size', 'width'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Feel', dep: 'supermanEnabled' },
     { cat: 'Effects', id: 'supermanFlickerRate', type: 'range', label: 'Flicker Jitter', min: 1, max: 10, unit: 'fr', dep: 'supermanEnabled', tier: 'advanced', description: 'Lower is faster electricity.', tags: ['fast', 'spark'] },
     { cat: 'Effects', id: 'supermanWidth', type: 'range', label: 'Scatter Height', min: 1, max: 10, dep: 'supermanEnabled', tier: 'advanced', description: 'How vertically erratic the lightning path is.', tags: ['random', 'jitter'] },
-    { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', tier: 'advanced', description: 'Speed from left to right', tags: ['fast', 'motion'] },
+    { cat: 'Effects', id: 'supermanSpawnSpeed', type: 'range', label: 'Bolt Speed', min: 10, max: 100, dep: 'supermanEnabled', tier: 'advanced', description: 'Travel speed of the lightning bolts.', tags: ['fast', 'motion'] },
 
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Boot/Crash' },
@@ -549,14 +552,14 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Boot Now', action: 'boot', class: 'btn-warn', tier: 'basic', tags: ['intro', 'start', 'action'] },
 
     { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
-    { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', tier: 'basic', tags: ['auto', 'error', 'stop'] },
-    { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
-    { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'length'] },
+    { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', tier: 'basic', tags: ['auto', 'error', 'stop'], description: 'Simulates a system failure with shadowbox blocks and character infection.' },
+    { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'crashEnabled', tier: 'advanced', description: 'Seconds between automatic crash triggers.', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled', tier: 'advanced', description: 'Total time the crash effect lasts.', tags: ['timing', 'length'] },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Crash Visuals', dep: 'crashEnabled' },
     { cat: 'Effects', id: 'crashSheetCount', type: 'range', label: 'Shadowbox Density', min: 0, max: 200, step: 1, dep: 'crashEnabled', tier: 'advanced', tags: ['blocks', 'amount'] },
     { cat: 'Effects', id: 'crashSheetSpeed', type: 'range', label: 'Shadowbox Speed', min: 0.1, max: 3.0, step: 0.1, dep: 'crashEnabled', transform: v => v + 'x', tier: 'advanced', tags: ['fast', 'slow'] },
-    { cat: 'Effects', id: 'crashSheetOpacity', type: 'range', label: 'Shadowbox Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'crashEnabled', tier: 'advanced', tags: ['alpha', 'see-through'] },
+    { cat: 'Effects', id: 'crashSheetOpacity', type: 'range', label: 'Shadowbox Opacity', min: 0.0, max: 1.0, step: 0.01, dep: 'crashEnabled', tier: 'advanced', tags: ['alpha', 'see-through'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', id: 'crashStationaryChance', type: 'range', label: 'Shadowbox Movement Level', min: 0, max: 100, unit: '%', invert: true, dep: 'crashEnabled', tier: 'advanced', description: "How likely a shadow box is to move when spawned.", tags: ['static', 'motion'] },
     { cat: 'Effects', id: 'crashFlashDelayMin', type: 'range', label: 'Flash Delay Min', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'wait'] },
     { cat: 'Effects', id: 'crashFlashDelayMax', type: 'range', label: 'Flash Delay Max', min: 1, max: 10, step: 0.5, unit: 's', dep: 'crashEnabled', tier: 'advanced', tags: ['timing', 'wait'] },
@@ -613,7 +616,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'accordion_header', label: 'Special Effects' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Star Power' },
-    { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', tier: 'basic', tags: ['sparkle', 'rainbow', 'glimmer'] },
+    { cat: 'Effects', id: 'starPowerEnabled', type: 'checkbox', label: 'Enable Star Power', tier: 'basic', tags: ['sparkle', 'rainbow', 'glimmer'], description: 'Adds prismatic sparkles and rainbow effects to the code.' },
     { cat: 'Effects', id: 'starPowerFreq', type: 'range', label: 'Frequency', min: 5, max: 100, dep: 'starPowerEnabled', tier: 'advanced', unit: '%', tags: ['amount', 'chance'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'starPowerEnabled' },
     { cat: 'Effects', id: 'starPowerRainbowMode', type: 'select', label: 'Color Mode', options: [{ label: 'Full Stream', value: 'stream' }, { label: 'Per Char', value: 'char' }], dep: 'starPowerEnabled', tier: 'advanced', tags: ['color', 'rainbow'] },
@@ -625,17 +628,17 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Rainbow Streams' },
-    { cat: 'Effects', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams', tier: 'basic', tags: ['color', 'prismatic'] },
+    { cat: 'Effects', id: 'rainbowStreamEnabled', type: 'checkbox', label: 'Enable Rainbow Streams', tier: 'basic', tags: ['color', 'prismatic'], description: 'Randomly colors entire code streams with a rainbow gradient.' },
     { cat: 'Effects', id: 'rainbowStreamChance', type: 'range', label: 'Frequency', min: 0.05, max: 1.0, step: 0.05, dep: 'rainbowStreamEnabled', tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', tags: ['chance', 'amount'] },
     { cat: 'Effects', id: 'rainbowStreamIntensity', type: 'range', label: 'Brightness', min: 10, max: 90, unit: '%', dep: 'rainbowStreamEnabled', tier: 'advanced', tags: ['light', 'bright'] },
 
     { cat: 'Effects', type: 'accordion_header', label: 'Post Processing' },
     { cat: 'Effects', type: 'sub_accordion', label: 'User Shader' },
-    { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader', tier: 'basic', tags: ['custom', 'glsl', 'glitch'] },
+    { cat: 'Effects', id: 'shaderEnabled', type: 'checkbox', label: 'Enable User Shader', tier: 'basic', tags: ['custom', 'glsl', 'glitch'], description: 'Apply a custom GLSL fragment shader to the entire output.' },
     { cat: 'Effects', type: 'info_description', id: 'currentShaderNameDisplay', text: 'none' },
     { cat: 'Effects', type: 'button', label: 'Import Fragment Shader (.glsl)', id: 'importShader_effects', action: 'importShader', class: 'btn-info', tier: 'advanced', tags: ['upload', 'code'] },
     { cat: 'Effects', type: 'container', id: 'dynamicShaderControls', dep: 'shaderEnabled' },
-    { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Global Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', tier: 'advanced', tags: ['amount', 'power'] },
+    { cat: 'Effects', id: 'shaderParameter', type: 'range', label: 'Global Parameter', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderEnabled', tier: 'advanced', tags: ['amount', 'power'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
 
     // 5. DEBUG TAB
@@ -654,37 +657,37 @@ const ConfigTemplate = [
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'effectShader1Enabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'effectShader1NameDisplay', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (E1)', action: 'importShader_E1', class: 'btn-info', dep: 'effectShader1Enabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'effect1Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'effect1Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Effect 2' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'effectShader2Enabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'effectShader2NameDisplay', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (E2)', action: 'importShader_E2', class: 'btn-info', dep: 'effectShader2Enabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'effect2Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'effect2Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Total FX1' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'totalFX1Enabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'totalFX1NameDisplay', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (FX1)', action: 'importShader_FX1', class: 'btn-info', dep: 'totalFX1Enabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'totalFX1Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'totalFX1Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Total FX2' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'totalFX2Enabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'totalFX2NameDisplay', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (FX2)', action: 'importShader_FX2', class: 'btn-info', dep: 'totalFX2Enabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'totalFX2Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'totalFX2Parameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Global FX (Bloom, etc.)' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'globalFXEnabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'globalFXNameDisplay', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (GLO)', action: 'importShader_GLO', class: 'btn-info', dep: 'globalFXEnabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'globalFXParameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'globalFXParameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     
     { cat: 'Debug', type: 'accordion_subheader', label: 'Custom User Shader' },
     { cat: 'Debug', type: 'checkbox', label: 'Enabled', id: 'shaderEnabled_debug', bind: 'shaderEnabled', tier: 'advanced' },
     { cat: 'Debug', type: 'info_description', label: 'Shader', id: 'currentShaderNameDisplay_debug', text: 'none' },
     { cat: 'Debug', type: 'button', label: 'Load Shader (CUST)', id: 'importShader_debug', action: 'importShader', class: 'btn-info', dep: 'shaderEnabled', tier: 'advanced' },
-    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'shaderParameter_debug', bind: 'shaderParameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced' },
+    { cat: 'Debug', type: 'range', label: 'Parameter', id: 'shaderParameter_debug', bind: 'shaderParameter', min: 0.0, max: 1.0, step: 0.01, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
     { cat: 'Debug', type: 'accordion_header', label: 'Layers' },
     { cat: 'Debug', id: 'layerEnableBackground', type: 'checkbox', label: 'Enable Background Color', tier: 'advanced', description: 'Draws the black background to clear the previous frame.', tags: ['clear', 'bg'] },
@@ -707,13 +710,13 @@ const ConfigTemplate = [
     { cat: 'System', type: 'slot', idx: 4, id: 'slot_4', tier: 'basic', tags: ['preset', 'save', 'load'] },
     { cat: 'System', type: 'button', label: 'Export Config (JSON)', action: 'export', class: 'btn-info', tier: 'advanced', tags: ['save', 'file'] },
     { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info', tier: 'advanced', tags: ['load', 'file'] },
-    { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', tier: 'basic', description: 'Hover your mouse over the top right or press the Toggle UI Panel keybind to show', tags: ['ui', 'clean'] },
-    { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', tier: 'basic', description: 'Double click/tap sliders to reset them to default values.', tags: ['ux', 'short'] },
-    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'advanced', description: 'Disable pop-up notifications at the bottom of the screen.', tags: ['ui', 'quiet'] },
-    { cat: 'System', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', tier: 'advanced', description: "Shows the hidden Debug tab for advanced settings and alignment tools.", tags: ['dev', 'tabs'] },
+    { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', tier: 'basic', description: 'Hides the gear icon; access settings by hovering top-right or using a keybind.', tags: ['ui', 'clean'] },
+    { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', tier: 'basic', description: 'Allows resetting sliders to default values by double-clicking them.', tags: ['ux', 'short'] },
+    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'advanced', description: 'Hides the pop-up notification messages.', tags: ['ui', 'quiet'] },
+    { cat: 'System', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', tier: 'advanced', description: 'Reveals the Debug tab for advanced tools and diagnostics.', tags: ['dev', 'tabs'] },
 
     { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
-    { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', tier: 'basic', description: 'Master switch for key bindings. When enabled, keybinds will force effects to run even if the effect is disabled in settings.', tags: ['keyboard', 'short'] },
+    { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', tier: 'basic', description: 'Master switch for keyboard shortcuts.', tags: ['keyboard', 'short'] },
     { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
     { cat: 'System', type: 'keybinder', id: 'BootSequence', label: 'Boot Animation', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'CrashSequence', label: 'Crash Animation', tier: 'advanced' },
