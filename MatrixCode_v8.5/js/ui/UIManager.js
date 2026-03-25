@@ -641,14 +641,23 @@ class UIManager {
         reader.onload = ev => {
             try {
                 const data = JSON.parse(ev.target.result);
+
+                if (!data || typeof data !== 'object' || !data.state) {
+                    this.notifications.show('Invalid Configuration File', 'error');
+                    return;
+                }
+
                 // Merge loaded config with defaults to ensure all properties exist
                 this.c.state = { ...this.c.defaults, ...data.state };
-                
-                // Handle Saved Presets
+
+                // Apply the same migrations that _loadState uses
+                this.c.migrateState(this.c.state);
+
+                // Handle Saved Presets with validation and padding
                 if (data.savedPresets) {
-                    this.c.slots = data.savedPresets;
+                    this.c.slots = this.c.validateSlots(data.savedPresets);
                     this.c.saveSlots();
-                    this.updateSlotNames(); // Force update immediately
+                    this.updateSlotNames();
                 }
 
                 this.c.updateDerivedValues();

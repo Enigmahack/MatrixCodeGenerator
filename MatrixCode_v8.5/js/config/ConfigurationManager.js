@@ -2141,6 +2141,58 @@ void main() {
     }
 
     /**
+     * Applies migration fixes to a state object (used by both _loadState and import).
+     * @param {Object} state - The state object to migrate in-place.
+     */
+    migrateState(state) {
+        delete state.customFonts;
+
+        if (!state.streamPalette) {
+            state.streamPalette = [state.streamColor];
+        }
+
+        if (state.eraserStopChance > 0 && state.eraserStopChance < 1) {
+            state.eraserStopChance = Math.round(state.eraserStopChance * 100);
+        }
+        if (state.eraserStopChance > 25) {
+            state.eraserStopChance = 25;
+        }
+    }
+
+    /**
+     * Validates and pads an imported slots array to match the expected length.
+     * Ensures every slot has a valid name (string) and data (object).
+     * @param {Array} slots - The imported slots array.
+     * @returns {Array} A validated, padded slots array.
+     */
+    validateSlots(slots) {
+        if (!Array.isArray(slots) || slots.length === 0) {
+            return this._deepClone(this.slots);
+        }
+
+        // Validate each slot has name and data
+        for (let i = 0; i < slots.length; i++) {
+            if (!slots[i] || typeof slots[i] !== 'object') {
+                slots[i] = { name: `Preset ${i + 1}`, data: this._deepClone(this.defaults) };
+            } else {
+                if (typeof slots[i].name !== 'string' || !slots[i].name) {
+                    slots[i].name = `Preset ${i + 1}`;
+                }
+                if (!slots[i].data || typeof slots[i].data !== 'object') {
+                    slots[i].data = this._deepClone(this.defaults);
+                }
+            }
+        }
+
+        // Pad to match current slot count
+        while (slots.length < this.slots.length) {
+            slots.push(this._deepClone(this.slots[slots.length]));
+        }
+
+        return slots;
+    }
+
+    /**
      * Saves configuration slots to local storage.
      */
     saveSlots() {
@@ -2167,8 +2219,6 @@ void main() {
 
             if (storedState) {
                 const parsed = JSON.parse(storedState);
-                delete parsed.customFonts; // Remove unsupported keys if present
-                
                 // Handle new profile structure vs legacy flat structure
                 if (parsed.profiles) {
                     // Flatten profiles - prioritize 2D if exists, otherwise take state
@@ -2181,20 +2231,8 @@ void main() {
                     // Legacy flat structure
                     this.state = { ...this.defaults, ...parsed };
                 }
-                
-                // Migration: Ensure streamPalette exists
-                if (!this.state.streamPalette) {
-                    this.state.streamPalette = [this.state.streamColor];
-                }
-                
-                // Migration: Convert eraserStopChance from float to integer if needed
-                if (this.state.eraserStopChance > 0 && this.state.eraserStopChance < 1) {
-                    this.state.eraserStopChance = Math.round(this.state.eraserStopChance * 100);
-                }
-                // Clamp to max 25
-                if (this.state.eraserStopChance > 25) {
-                    this.state.eraserStopChance = 25;
-                }
+
+                this.migrateState(this.state);
             } else {
                 // First run: Clone defaults
                 this.state = this._deepClone(this.defaults);
