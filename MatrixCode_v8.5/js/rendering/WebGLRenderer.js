@@ -195,6 +195,32 @@ class WebGLRenderer {
         this.bloomWidth = 0;
         this.bloomHeight = 0;
 
+        // --- GPU Resolve State ---
+        this._gpuResolveEnabled = this.canUseFloat; // Requires EXT_color_buffer_float for RGBA32F MRT
+        this._gpuResolveFailed = false;
+        this.resolveProgram = null;
+        this.programGPU2D = null;
+        this.vaoGPU = null;
+        this._resolveFbo = null;
+        this._resolveOutputTex = [null, null, null, null]; // 4 MRT RGBA32F
+        this._resolveInputTex = [null, null, null, null, null, null, null]; // 7 input textures
+        this._resolveShadowTex = [null, null]; // shadow grid ints + floats
+        this._resolveCharLookupTex = null; // 256x256 R16UI
+        this._resolveLastCols = 0;
+        this._resolveLastRows = 0;
+        this._resolveCharLookupDirty = true;
+        this._resolveLastAtlasGen = -1;
+        // Staging buffers (pre-allocated in resize)
+        this._resolveBuf1 = null; // Uint16Array RGBA16UI chars
+        this._resolveBuf2 = null; // Uint16Array RGBA16UI ovEff chars
+        this._resolveBuf3 = null; // Uint32Array RGBA32UI colors
+        this._resolveBuf4 = null; // Float32Array RGBA32F floats1
+        this._resolveBuf5 = null; // Float32Array RGBA32F floats2
+        this._resolveBuf6 = null; // Uint8Array RGBA8UI bytes
+        this._resolveShadowBuf1 = null; // Uint32Array shadow ints
+        this._resolveShadowBuf2 = null; // Float32Array shadow floats
+        this._resolveCharLookupBuf = null; // Uint16Array(65536)
+
         // --- State Tracking ---
         this.w = 0;
         this.h = 0;
@@ -1207,9 +1233,121 @@ class WebGLRenderer {
                     }
                 }
             `;
-    
 
-    
+            // GPU Resolve Vertex Shader — reads resolved data from textures instead of instance attributes
+            const matrixVS_GPU_2D = `#version 300 es
+                precision highp float;
+                layout(location=0) in vec2 a_quad;
+                layout(location=1) in vec2 a_pos;
+
+                uniform sampler2D u_resolvedChars;   // RT0: charIdx, nextChar, maxDecay, shapeID
+                uniform sampler2D u_resolvedColor;   // RT1: r, g, b, alpha
+                uniform sampler2D u_resolvedGlowMix; // RT2: glow, mix, decay, glimmerFlicker
+                uniform sampler2D u_resolvedParams;  // RT3: glimmerAlpha, dissolve, 0, 0
+                uniform float u_gridCols;
+
+                out vec2 v_uv;
+                out vec2 v_uv2;
+                out vec4 v_color;
+                out float v_mix;
+                out float v_glow;
+                out float v_prog;
+                out vec2 v_screenUV;
+                out vec2 v_cellPos;
+                out vec2 v_cellUV;
+                out float v_glimmerFlicker;
+                out float v_glimmerAlpha;
+                out float v_shapeID;
+
+                uniform vec2 u_resolution;
+                uniform vec2 u_atlasSize;
+                uniform vec2 u_gridSize;
+                uniform float u_cellSize;
+                uniform float u_cols;
+                uniform float u_decayDur;
+                uniform vec2 u_stretch;
+                uniform float u_mirror;
+                uniform float u_dissolveEnabled;
+                uniform float u_dissolveScale;
+                uniform vec2 u_cellScale;
+
+                void main() {
+                    // Compute cell coordinate from instance ID
+                    int cellCol = gl_InstanceID % int(u_gridCols);
+                    int cellRow = gl_InstanceID / int(u_gridCols);
+                    ivec2 cell = ivec2(cellCol, cellRow);
+
+                    // Read resolved data via texelFetch
+                    vec4 charData = texelFetch(u_resolvedChars, cell, 0);
+                    vec4 colorData = texelFetch(u_resolvedColor, cell, 0);
+                    vec4 glowMixData = texelFetch(u_resolvedGlowMix, cell, 0);
+                    vec4 paramData = texelFetch(u_resolvedParams, cell, 0);
+
+                    // Map to varyings
+                    float a_charIdx = charData.r;
+                    float a_nextChar = charData.g;
+                    float a_mix = glowMixData.g;
+                    float a_dissolve = paramData.g;
+
+                    v_glimmerFlicker = glowMixData.a;
+                    v_glimmerAlpha = paramData.r;
+                    v_shapeID = charData.a;
+                    v_prog = a_dissolve;
+
+                    float scale = 1.0;
+                    if (v_prog > 0.0 && u_dissolveEnabled > 0.5) {
+                        scale = mix(1.0, u_dissolveScale, v_prog);
+                    }
+
+                    v_cellUV = a_quad;
+                    vec2 centerPos2D = (a_quad - 0.5) * u_cellSize * scale;
+                    vec2 worldPos = a_pos + centerPos2D;
+                    v_cellPos = floor(a_pos / (u_cellSize * u_cellScale));
+
+                    vec2 gridCenter = u_gridSize * 0.5;
+                    worldPos.x = (worldPos.x - gridCenter.x) * u_stretch.x + (u_resolution.x * 0.5);
+                    worldPos.y = (worldPos.y - gridCenter.y) * u_stretch.y + (u_resolution.y * 0.5);
+                    if (u_mirror < 0.0) worldPos.x = u_resolution.x - worldPos.x;
+
+                    vec2 clip = (worldPos / u_resolution) * 2.0 - 1.0;
+                    clip.y = -clip.y;
+                    gl_Position = vec4(clip, 0.0, 1.0);
+
+                    vec3 ndc = gl_Position.xyz / gl_Position.w;
+                    v_screenUV = ndc.xy * 0.5 + 0.5;
+
+                    v_color = colorData;
+                    v_mix = a_mix;
+                    v_glow = glowMixData.r;
+
+                    // UV 1
+                    float cIdx = a_charIdx;
+                    if (cIdx < 65534.5) {
+                        float rowUV = floor(cIdx / u_cols);
+                        float colUV = mod(cIdx, u_cols);
+                        vec2 uvBase = vec2(colUV, rowUV) * u_cellSize;
+                        v_uv = (uvBase + (a_quad * u_cellSize)) / u_atlasSize;
+                    } else {
+                        v_uv = vec2(-1.0, -1.0);
+                    }
+
+                    // UV 2
+                    if (a_mix > 0.0) {
+                        float cIdx2 = a_nextChar;
+                        if (cIdx2 < 65534.5) {
+                            float row2 = floor(cIdx2 / u_cols);
+                            float col2 = mod(cIdx2, u_cols);
+                            vec2 uvBase2 = vec2(col2, row2) * u_cellSize;
+                            v_uv2 = (uvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
+                        } else {
+                            v_uv2 = vec2(-1.0, -1.0);
+                        }
+                    } else {
+                        v_uv2 = v_uv;
+                    }
+                }
+            `;
+
             // Optimized Fragment Shader (Shared)
             const matrixFS = `#version 300 es
                 precision highp float;
@@ -1492,6 +1630,16 @@ class WebGLRenderer {
             `;
             
             this.program2D = this._createProgram(matrixVS2D, matrixFS);
+
+            // GPU Resolve draw program — same fragment shader, GPU vertex shader
+            if (this._gpuResolveEnabled) {
+                this.programGPU2D = this._createProgram(matrixVS_GPU_2D, matrixFS);
+                if (!this.programGPU2D) {
+                    console.warn('[WebGLRenderer] GPU Resolve vertex program compilation failed, falling back to CPU path');
+                    this._gpuResolveEnabled = false;
+                    this._gpuResolveFailed = true;
+                }
+            }
             this.program = this.program2D; // Default fallback
 
             // Pin integer sampler uniform immediately so it never defaults to unit 0
@@ -1576,6 +1724,288 @@ class WebGLRenderer {
             const copyVS = `#version 300 es\nlayout(location=0) in vec2 a_position; out vec2 v_uv; void main(){ v_uv=a_position; gl_Position=vec4(a_position*2.0-1.0, 0.0, 1.0); }`;
             const copyFS = `#version 300 es\nprecision highp float; in vec2 v_uv; uniform sampler2D u_texture; out vec4 fragColor; void main(){ fragColor=texture(u_texture, v_uv); }`;
             this.copyProgram = this._createProgram(copyVS, copyFS);
+
+            // --- GPU RESOLVE SHADER (Phase 3: Instance Buffer Resolve) ---
+            const resolveVS = `#version 300 es
+                precision highp float;
+                layout(location=0) in vec2 a_position;
+                void main() {
+                    gl_Position = vec4(a_position, 0.0, 1.0);
+                }`;
+
+            const resolveFS = `#version 300 es
+                precision highp float;
+                precision highp int;
+                precision highp usampler2D;
+
+                // 7 input textures
+                uniform highp usampler2D u_rChars;        // RGBA16UI: chars, nextChars, secondaryChars, maxDecays
+                uniform highp usampler2D u_rOvEffChars;   // RGBA16UI: ovChars, ovNextChars, effChars, effGlows*4096
+                uniform highp usampler2D u_rColors;       // RGBA32UI: gColors, ovColors, effColors, 0
+                uniform sampler2D u_rFloats1;             // RGBA32F: alphas, glows, mix, envGlows
+                uniform sampler2D u_rFloats2;             // RGBA32F: ovAlphas, ovGlows, ovMix, effAlphas
+                uniform highp usampler2D u_rBytes;        // RGBA8UI: decays, renderMode, effActive, ovActive
+                uniform sampler2D u_rGenericParams;       // RGBA32F: genericParams[0..3]
+
+                // Character lookup (256x256 R16UI: codePoint -> atlasId)
+                uniform highp usampler2D u_charLookup;
+
+                // Shadow grid (for effActive=3)
+                uniform highp usampler2D u_rShadowInts;   // RGBA32UI: chars, colors, maxDecays, 0
+                uniform sampler2D u_rShadowFloats;        // RGBA32F: alphas, decays, glows, 0
+                uniform float u_shadowGridEnabled;
+
+                // MRT outputs (all RGBA32F)
+                layout(location=0) out vec4 rt0; // charIdx, nextChar, maxDecay, shapeID
+                layout(location=1) out vec4 rt1; // color.r, color.g, color.b, alpha
+                layout(location=2) out vec4 rt2; // glow, mix, decay, glimmerFlicker
+                layout(location=3) out vec4 rt3; // glimmerAlpha, dissolve, 0, 0
+
+                uint mapCharCode(uint code) {
+                    if (code <= 32u) return 65535u;
+                    ivec2 lc = ivec2(int(code) & 255, int(code) >> 8);
+                    return texelFetch(u_charLookup, lc, 0).r;
+                }
+
+                vec4 unpackColorU32(uint packed) {
+                    return vec4(
+                        float(packed & 0xFFu) / 255.0,
+                        float((packed >> 8u) & 0xFFu) / 255.0,
+                        float((packed >> 16u) & 0xFFu) / 255.0,
+                        float((packed >> 24u) & 0xFFu) / 255.0
+                    );
+                }
+
+                void main() {
+                    ivec2 cell = ivec2(gl_FragCoord.xy);
+
+                    // Read all input textures
+                    uvec4 charsData = texelFetch(u_rChars, cell, 0);
+                    uvec4 ovEffData = texelFetch(u_rOvEffChars, cell, 0);
+                    uvec4 colorsData = texelFetch(u_rColors, cell, 0);
+                    vec4 floats1 = texelFetch(u_rFloats1, cell, 0);
+                    vec4 floats2 = texelFetch(u_rFloats2, cell, 0);
+                    uvec4 byteData = texelFetch(u_rBytes, cell, 0);
+                    vec4 gParams = texelFetch(u_rGenericParams, cell, 0);
+
+                    // Unpack
+                    uint gChar = charsData.r;
+                    uint gNext = charsData.g;
+                    uint gSecChar = charsData.b;
+                    uint gMaxDecay = charsData.a;
+
+                    uint ovChar = ovEffData.r;
+                    uint ovNextChar = ovEffData.g;
+                    uint effChar = ovEffData.b;
+                    float effGlow = float(ovEffData.a) / 4096.0;
+
+                    uint gColor = colorsData.r;
+                    uint ovColor = colorsData.g;
+                    uint effColor = colorsData.b;
+
+                    float gAlpha = floats1.r;
+                    float gGlow = floats1.g;
+                    float gMix = floats1.b;
+                    float envGlow = floats1.a;
+
+                    float ovAlpha = floats2.r;
+                    float ovGlow = floats2.g;
+                    float ovMixVal = floats2.b;
+                    float effAlpha = floats2.a;
+
+                    uint gDecay = byteData.r;
+                    uint renderMode = byteData.g;
+                    uint effAct = byteData.b;
+                    uint ovAct = byteData.a;
+
+                    // Output defaults
+                    float outCharIdx = 65535.0;
+                    float outNextChar = 65535.0;
+                    float outMaxDecay = 0.0;
+                    float outShapeID = 0.0;
+                    vec3 outColorRGB = vec3(0.0);
+                    float outAlpha = 0.0;
+                    float outGlow = 0.0;
+                    float outMix = 0.0;
+                    float outDecay = 0.0;
+                    float outGlimmerFlicker = 1.0;
+                    float outGlimmerAlpha = 0.0;
+                    float outDissolve = 0.0;
+
+                    // ============ PRIORITY BRANCHING ============
+                    if (effAct > 0u) {
+                        // PRIORITY 1: EFFECT
+                        if (effAct == 3u) {
+                            // Shadow mode reveal
+                            if (u_shadowGridEnabled > 0.5) {
+                                uvec4 sInts = texelFetch(u_rShadowInts, cell, 0);
+                                vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                                outCharIdx = float(mapCharCode(sInts.r));
+                                vec4 sc = unpackColorU32(sInts.g);
+                                outColorRGB = sc.rgb;
+                                outAlpha = sc.a * sFloats.r;
+                                outDecay = sFloats.g;
+                                outMaxDecay = float(sInts.b);
+                                outGlow = sFloats.b + envGlow;
+                            } else {
+                                outCharIdx = float(mapCharCode(gChar));
+                                vec4 gc = unpackColorU32(gColor);
+                                outColorRGB = gc.rgb;
+                                outAlpha = gc.a * 1.0;
+                                outDecay = float(gDecay);
+                                outMaxDecay = float(gMaxDecay);
+                                outGlow = gGlow + envGlow;
+                            }
+                            outMix = 0.0;
+                            outNextChar = 65535.0;
+                        } else if (effAct == 2u) {
+                            // Overlay mode
+                            outCharIdx = float(mapCharCode(gChar));
+                            vec4 ec = unpackColorU32(effColor);
+                            outColorRGB = ec.rgb;
+                            outAlpha = ec.a * gAlpha;
+                            outDecay = float(gDecay);
+                            outGlow = gGlow + effGlow + envGlow;
+                            outNextChar = float(mapCharCode(effChar));
+                            float eAlpha = effAlpha;
+                            if (eAlpha > 0.99) eAlpha = 0.99;
+                            outMix = 4.0 + eAlpha;
+                        } else if (effAct == 4u) {
+                            // High priority
+                            outCharIdx = float(mapCharCode(effChar));
+                            vec4 ec = unpackColorU32(effColor);
+                            outColorRGB = ec.rgb;
+                            outAlpha = ec.a * effAlpha;
+                            outGlow = effGlow + envGlow;
+                            outMix = 10.0;
+                            outNextChar = 65535.0;
+                        } else {
+                            // Standard effect override
+                            outCharIdx = float(mapCharCode(effChar));
+                            vec4 ec = unpackColorU32(effColor);
+                            outColorRGB = ec.rgb;
+                            outAlpha = ec.a * effAlpha;
+                            outGlow = effGlow + envGlow;
+                            outMix = 0.0;
+                            outNextChar = 65535.0;
+                        }
+                    } else if (ovAct > 0u) {
+                        // PRIORITY 2: HARD OVERRIDE
+                        if (ovAct == 5u) {
+                            // Dual-world shadow mode with color blending
+                            outCharIdx = float(mapCharCode(gChar));
+                            float sFade = ovGlow;
+                            if (sFade > 0.001) {
+                                vec4 c1 = unpackColorU32(gColor);
+                                vec4 c2 = unpackColorU32(ovColor);
+                                float blend = min(1.0, sFade);
+                                outColorRGB = mix(c1.rgb, c2.rgb, blend);
+                            } else {
+                                outColorRGB = unpackColorU32(gColor).rgb;
+                            }
+                            outAlpha = gAlpha * ovAlpha;
+                            outGlow = sFade;
+                            float nwRotMix = ovMixVal;
+                            outNextChar = (nwRotMix > 0.5) ? float(mapCharCode(ovNextChar)) : float(mapCharCode(ovChar));
+                            outMix = 5.0 + nwRotMix;
+                            outDecay = float(gDecay);
+                            outMaxDecay = float(gMaxDecay);
+                        } else if (ovAct == 2u) {
+                            // Solid mode
+                            outCharIdx = 65535.0;
+                            outNextChar = 65535.0;
+                            outMix = 3.0;
+                            vec4 oc = unpackColorU32(ovColor);
+                            outColorRGB = oc.rgb;
+                            outAlpha = oc.a * ovAlpha;
+                            outGlow = envGlow;
+                        } else {
+                            // Standard override (includes ov=3)
+                            outCharIdx = float(mapCharCode(ovChar));
+                            if (renderMode == 1u) {
+                                outNextChar = float(mapCharCode(gSecChar));
+                                outMix = 2.0;
+                            } else {
+                                outNextChar = 65535.0;
+                                outMix = 0.0;
+                            }
+                            vec4 oc = unpackColorU32(ovColor);
+                            outColorRGB = oc.rgb;
+                            outAlpha = oc.a * ovAlpha;
+                            outGlow = ovGlow + envGlow;
+
+                            if (ovAct == 3u) {
+                                outMix = ovMixVal;
+                                if (ovMixVal > 0.0) outNextChar = float(mapCharCode(ovNextChar));
+                            } else if (gMix > 0.0) {
+                                outMix = gMix;
+                            }
+                        }
+                    } else {
+                        // PRIORITY 3: STANDARD SIMULATION
+                        float mix = gMix;
+                        uint c = gChar;
+                        if (mix >= 30.0 && effChar > 0u) {
+                            c = effChar;
+                        }
+                        outCharIdx = float(mapCharCode(c));
+                        vec4 gc = unpackColorU32(gColor);
+                        outColorRGB = gc.rgb;
+                        outAlpha = gc.a * gAlpha;
+                        outDecay = float(gDecay);
+                        outMaxDecay = float(gMaxDecay);
+                        outGlow = gGlow + envGlow;
+
+                        if (renderMode == 1u) {
+                            outNextChar = float(mapCharCode(gSecChar));
+                            outMix = 2.0;
+                        } else {
+                            outMix = mix;
+                            outNextChar = (mix > 0.0) ? float(mapCharCode(gNext)) : 65535.0;
+                        }
+                    }
+
+                    // ============ GENERIC PARAMS SUPPRESSION ============
+                    bool isOverridden = (effAct == 1u || effAct == 4u);
+                    bool isShadowWorld = (ovAct == 5u);
+
+                    if (isShadowWorld) {
+                        outGlimmerFlicker = 1.0;
+                        outShapeID = 0.0;
+                        if (u_shadowGridEnabled > 0.5) {
+                            vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                            outGlimmerAlpha = sFloats.b * ovGlow;
+                        } else {
+                            outGlimmerAlpha = 0.0;
+                        }
+                        outDissolve = 0.0;
+                    } else if (isOverridden) {
+                        outGlimmerFlicker = 1.0;
+                        outShapeID = 0.0;
+                        outGlimmerAlpha = 0.0;
+                        outDissolve = 0.0;
+                    } else {
+                        outGlimmerFlicker = gParams.r;
+                        outShapeID = gParams.g;
+                        outGlimmerAlpha = gParams.b;
+                        outDissolve = gParams.a;
+                    }
+
+                    // Write MRT outputs
+                    rt0 = vec4(outCharIdx, outNextChar, outMaxDecay, outShapeID);
+                    rt1 = vec4(outColorRGB, outAlpha);
+                    rt2 = vec4(outGlow, outMix, outDecay, outGlimmerFlicker);
+                    rt3 = vec4(outGlimmerAlpha, outDissolve, 0.0, 0.0);
+                }`;
+
+            if (this._gpuResolveEnabled) {
+                this.resolveProgram = this._createProgram(resolveVS, resolveFS);
+                if (!this.resolveProgram) {
+                    console.warn('[WebGLRenderer] GPU Resolve shader compilation failed, falling back to CPU path');
+                    this._gpuResolveEnabled = false;
+                    this._gpuResolveFailed = true;
+                }
+            }
         }
     _initBuffers() {
         if (!this.gl) return;
@@ -1758,6 +2188,92 @@ class WebGLRenderer {
             this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
             this.gl.bindVertexArray(null);
         }
+
+        // --- GPU Resolve Textures & FBO ---
+        if (this._gpuResolveEnabled && !this._gpuResolveFailed) {
+            const gl = this.gl;
+            const createNearestTex = (isInteger) => {
+                const tex = gl.createTexture();
+                if (tex) {
+                    gl.bindTexture(gl.TEXTURE_2D, tex);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                    // Init 1x1 to avoid incomplete texture errors
+                    if (isInteger) {
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, 1, 1, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, new Uint16Array(4));
+                    } else {
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT, new Float32Array(4));
+                    }
+                }
+                return tex;
+            };
+
+            // 4 MRT output textures (all RGBA32F)
+            for (let i = 0; i < 4; i++) {
+                this._resolveOutputTex[i] = createNearestTex(false);
+            }
+
+            // 7 input textures: [0-1]=RGBA16UI, [2]=RGBA32UI, [3-4]=RGBA32F, [5]=RGBA8UI, [6]=RGBA32F
+            this._resolveInputTex[0] = createNearestTex(true);  // chars RGBA16UI
+            this._resolveInputTex[1] = createNearestTex(true);  // ovEffChars RGBA16UI
+            // Input 2: RGBA32UI
+            this._resolveInputTex[2] = gl.createTexture();
+            if (this._resolveInputTex[2]) {
+                gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[2]);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 1, 1, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, new Uint32Array(4));
+            }
+            this._resolveInputTex[3] = createNearestTex(false); // floats1 RGBA32F
+            this._resolveInputTex[4] = createNearestTex(false); // floats2 RGBA32F
+            // Input 5: RGBA8UI
+            this._resolveInputTex[5] = gl.createTexture();
+            if (this._resolveInputTex[5]) {
+                gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[5]);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, 1, 1, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, new Uint8Array(4));
+            }
+            this._resolveInputTex[6] = createNearestTex(false); // genericParams RGBA32F
+
+            // CharLookup texture (256x256 R16UI)
+            this._resolveCharLookupTex = gl.createTexture();
+            if (this._resolveCharLookupTex) {
+                gl.bindTexture(gl.TEXTURE_2D, this._resolveCharLookupTex);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, 256, 256, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, new Uint16Array(65536));
+            }
+            this._resolveCharLookupBuf = new Uint16Array(65536);
+
+            // Shadow grid textures (for effActive=3)
+            // Shadow ints: RGBA32UI
+            this._resolveShadowTex[0] = gl.createTexture();
+            if (this._resolveShadowTex[0]) {
+                gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[0]);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 1, 1, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, new Uint32Array(4));
+            }
+            // Shadow floats: RGBA32F
+            this._resolveShadowTex[1] = createNearestTex(false);
+
+            // MRT Framebuffer
+            this._resolveFbo = gl.createFramebuffer();
+
+            gl.bindTexture(gl.TEXTURE_2D, null);
+            gl.activeTexture(gl.TEXTURE0);
+        }
     }
 
     _clearEchoHistory() {
@@ -1902,6 +2418,104 @@ class WebGLRenderer {
         this.instanceDataU8 = new Uint8Array(this.instanceBufferData);
 
         this._setupVAO();
+
+        // --- GPU Resolve: Resize Textures & Staging Buffers ---
+        if (this._gpuResolveEnabled && !this._gpuResolveFailed && this._resolveFbo) {
+            const gl = this.gl;
+            const cols = this.grid.cols;
+            const rows = this.grid.rows;
+
+            if (cols !== this._resolveLastCols || rows !== this._resolveLastRows) {
+                this._resolveLastCols = cols;
+                this._resolveLastRows = rows;
+
+                // Resize 4 MRT output textures (RGBA32F)
+                for (let i = 0; i < 4; i++) {
+                    if (this._resolveOutputTex[i]) {
+                        gl.bindTexture(gl.TEXTURE_2D, this._resolveOutputTex[i]);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, null);
+                    }
+                }
+
+                // Resize input textures
+                // [0] RGBA16UI chars
+                if (this._resolveInputTex[0]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[0]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, cols, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, null);
+                }
+                // [1] RGBA16UI ovEffChars
+                if (this._resolveInputTex[1]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[1]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, cols, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, null);
+                }
+                // [2] RGBA32UI colors
+                if (this._resolveInputTex[2]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[2]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, cols, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
+                }
+                // [3] RGBA32F floats1
+                if (this._resolveInputTex[3]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[3]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, null);
+                }
+                // [4] RGBA32F floats2
+                if (this._resolveInputTex[4]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[4]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, null);
+                }
+                // [5] RGBA8UI bytes
+                if (this._resolveInputTex[5]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[5]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, cols, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, null);
+                }
+                // [6] RGBA32F genericParams
+                if (this._resolveInputTex[6]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[6]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, null);
+                }
+
+                // Resize shadow textures
+                if (this._resolveShadowTex[0]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[0]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, cols, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
+                }
+                if (this._resolveShadowTex[1]) {
+                    gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[1]);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cols, rows, 0, gl.RGBA, gl.FLOAT, null);
+                }
+
+                // Setup MRT FBO
+                gl.bindFramebuffer(gl.FRAMEBUFFER, this._resolveFbo);
+                for (let i = 0; i < 4; i++) {
+                    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, this._resolveOutputTex[i], 0);
+                }
+                gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2, gl.COLOR_ATTACHMENT3]);
+
+                const fbStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+                if (fbStatus !== gl.FRAMEBUFFER_COMPLETE) {
+                    console.warn('[WebGLRenderer] GPU Resolve FBO incomplete (status: ' + fbStatus + '), falling back to CPU path');
+                    this._gpuResolveEnabled = false;
+                    this._gpuResolveFailed = true;
+                } else {
+                    if (this.config.state.logErrors) console.log('[WebGLRenderer] GPU Resolve FBO complete: ' + cols + 'x' + rows);
+                }
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+                // Pre-allocate staging buffers
+                this._resolveBuf1 = new Uint16Array(totalCells * 4);
+                this._resolveBuf2 = new Uint16Array(totalCells * 4);
+                this._resolveBuf3 = new Uint32Array(totalCells * 4);
+                this._resolveBuf4 = new Float32Array(totalCells * 4);
+                this._resolveBuf5 = new Float32Array(totalCells * 4);
+                this._resolveBuf6 = new Uint8Array(totalCells * 4);
+                this._resolveShadowBuf1 = new Uint32Array(totalCells * 4);
+                this._resolveShadowBuf2 = new Float32Array(totalCells * 4);
+
+                gl.bindTexture(gl.TEXTURE_2D, null);
+            }
+
+            this._setupGPUResolveVAO();
+        }
     }
 
     _setupVAO() {
@@ -1986,7 +2600,293 @@ class WebGLRenderer {
         this.gl.bindVertexArray(null);
     }
 
+    _setupGPUResolveVAO() {
+        if (this.vaoGPU) this.gl.deleteVertexArray(this.vaoGPU);
+        this.vaoGPU = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.vaoGPU);
 
+        // 0: Quad (Vertex) — same as CPU path
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+        this.gl.enableVertexAttribArray(0);
+        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 0, 0);
+
+        // 1: Pos (Static Instance) — cell center positions
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.posBuffer);
+        this.gl.enableVertexAttribArray(1);
+        this.gl.vertexAttribPointer(1, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(1, 1);
+
+        // No instance buffer attributes — all data comes from resolve textures via texelFetch
+
+        this.gl.bindVertexArray(null);
+    }
+
+    _gpuResolvePass(grid, atlas, fx, totalCells) {
+        const gl = this.gl;
+        const cols = grid.cols;
+        const rows = grid.rows;
+        const lookup = atlas.codeToId;
+
+        // --- Phase 1: Pre-scan for unmapped characters ---
+        const gChars = grid.chars;
+        const gNext = grid.nextChars;
+        const gSecChars = grid.secondaryChars;
+        const ovChars = grid.overrideChars;
+        const ovNextChars = grid.overrideNextChars;
+        const effChars = grid.effectChars;
+        const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+
+        const charArrays = [gChars, gNext];
+        if (gSecChars) charArrays.push(gSecChars);
+        if (ovChars) charArrays.push(ovChars);
+        if (ovNextChars) charArrays.push(ovNextChars);
+        if (effChars) charArrays.push(effChars);
+        if (sGrid && sGrid.chars) charArrays.push(sGrid.chars);
+
+        let atlasChanged = false;
+        for (let a = 0; a < charArrays.length; a++) {
+            const arr = charArrays[a];
+            for (let i = 0; i < totalCells; i++) {
+                const c = arr[i];
+                if (c > 32 && lookup[c] === -1) {
+                    atlas.addChar(String.fromCharCode(c));
+                    atlasChanged = true;
+                }
+            }
+        }
+
+        // Upload atlas if it changed
+        if (atlasChanged && atlas.hasChanges) {
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, atlas.glTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas);
+            atlas.resetChanges();
+        }
+
+        // --- Phase 2: Update charLookup texture ---
+        const atlasGen = atlas._lastCols * 10000 + atlas.nextId;
+        if (atlasGen !== this._resolveLastAtlasGen) {
+            this._resolveLastAtlasGen = atlasGen;
+            const buf = this._resolveCharLookupBuf;
+            for (let i = 0; i < 65536; i++) {
+                const id = lookup[i];
+                buf[i] = (id >= 0) ? id : 65535;
+            }
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this._resolveCharLookupTex);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 256, gl.RED_INTEGER, gl.UNSIGNED_SHORT, buf);
+        }
+
+        // --- Phase 3: Pack input textures ---
+        const gColors = grid.colors;
+        const gAlphas = grid.alphas;
+        const gDecays = grid.decays;
+        const gMaxDecays = grid.maxDecays;
+        const gGlows = grid.glows;
+        const gMix = grid.mix;
+        const gMode = grid.renderMode;
+        const gEnvGlows = grid.envGlows;
+        const ovActive = grid.overrideActive;
+        const ovColors = grid.overrideColors;
+        const ovAlphas = grid.overrideAlphas;
+        const ovGlows = grid.overrideGlows;
+        const ovMixArr = grid.overrideMix;
+        const effActive = grid.effectActive;
+        const effColors = grid.effectColors;
+        const effAlphas = grid.effectAlphas;
+        const effGlows = grid.effectGlows;
+        const gParams = grid.genericParams;
+
+        // Input 1: RGBA16UI (chars, nextChars, secondaryChars, maxDecays)
+        const b1 = this._resolveBuf1;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b1[o]     = gChars[i];
+            b1[o + 1] = gNext[i];
+            b1[o + 2] = gSecChars ? gSecChars[i] : 0;
+            b1[o + 3] = gMaxDecays ? gMaxDecays[i] : 0;
+        }
+
+        // Input 2: RGBA16UI (ovChars, ovNextChars, effChars, effGlows*4096)
+        const b2 = this._resolveBuf2;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b2[o]     = ovChars ? ovChars[i] : 0;
+            b2[o + 1] = ovNextChars ? ovNextChars[i] : 0;
+            b2[o + 2] = effChars ? effChars[i] : 0;
+            b2[o + 3] = effGlows ? Math.min(65535, (effGlows[i] * 4096) | 0) : 0;
+        }
+
+        // Input 3: RGBA32UI (gColors, ovColors, effColors, 0)
+        const b3 = this._resolveBuf3;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b3[o]     = gColors[i];
+            b3[o + 1] = ovColors ? ovColors[i] : 0;
+            b3[o + 2] = effColors ? effColors[i] : 0;
+            b3[o + 3] = 0;
+        }
+
+        // Input 4: RGBA32F (alphas, glows, mix, envGlows)
+        const b4 = this._resolveBuf4;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b4[o]     = gAlphas[i];
+            b4[o + 1] = gGlows[i];
+            b4[o + 2] = gMix[i];
+            b4[o + 3] = gEnvGlows ? gEnvGlows[i] : 0;
+        }
+
+        // Input 5: RGBA32F (ovAlphas, ovGlows, ovMix, effAlphas)
+        const b5 = this._resolveBuf5;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b5[o]     = ovAlphas ? ovAlphas[i] : 0;
+            b5[o + 1] = ovGlows ? ovGlows[i] : 0;
+            b5[o + 2] = ovMixArr ? ovMixArr[i] : 0;
+            b5[o + 3] = effAlphas ? effAlphas[i] : 0;
+        }
+
+        // Input 6: RGBA8UI (decays, renderMode, effActive, ovActive)
+        const b6 = this._resolveBuf6;
+        for (let i = 0; i < totalCells; i++) {
+            const o = i * 4;
+            b6[o]     = gDecays ? gDecays[i] : 0;
+            b6[o + 1] = gMode ? gMode[i] : 0;
+            b6[o + 2] = effActive ? effActive[i] : 0;
+            b6[o + 3] = ovActive ? ovActive[i] : 0;
+        }
+
+        // --- Phase 4: Upload input textures ---
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+        // Upload input 1 (RGBA16UI)
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[0]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, b1);
+
+        // Upload input 2 (RGBA16UI)
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[1]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, b2);
+
+        // Upload input 3 (RGBA32UI)
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[2]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, b3);
+
+        // Upload input 4 (RGBA32F)
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[3]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.FLOAT, b4);
+
+        // Upload input 5 (RGBA32F)
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[4]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.FLOAT, b5);
+
+        // Upload input 6 (RGBA8UI)
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[5]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, b6);
+
+        // Upload input 7 (RGBA32F genericParams — direct from grid)
+        gl.activeTexture(gl.TEXTURE6);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveInputTex[6]);
+        if (gParams) {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.FLOAT, gParams);
+        } else {
+            // Upload zeros if no genericParams
+            const zf = new Float32Array(totalCells * 4);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.FLOAT, zf);
+        }
+
+        // --- Phase 5: Upload shadow grid textures ---
+        const hasShadowGrid = !!(sGrid && sGrid.chars);
+        if (hasShadowGrid) {
+            const sb1 = this._resolveShadowBuf1;
+            const sb2 = this._resolveShadowBuf2;
+            const sChars = sGrid.chars;
+            const sColors = sGrid.colors;
+            const sMaxDecays = sGrid.maxDecays;
+            const sAlphas = sGrid.alphas;
+            const sDecays = sGrid.decays;
+            const sGlows = sGrid.glows;
+            for (let i = 0; i < totalCells; i++) {
+                const o = i * 4;
+                sb1[o]     = sChars[i];
+                sb1[o + 1] = sColors ? sColors[i] : 0;
+                sb1[o + 2] = sMaxDecays ? sMaxDecays[i] : 0;
+                sb1[o + 3] = 0;
+                sb2[o]     = sAlphas ? sAlphas[i] : 1.0;
+                sb2[o + 1] = sDecays ? sDecays[i] : 0;
+                sb2[o + 2] = sGlows ? sGlows[i] : 0;
+                sb2[o + 3] = 0;
+            }
+            gl.activeTexture(gl.TEXTURE8);
+            gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[0]);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, sb1);
+            gl.activeTexture(gl.TEXTURE9);
+            gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[1]);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.FLOAT, sb2);
+        }
+
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+
+        // --- Phase 6: Execute resolve shader ---
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this._resolveFbo);
+        gl.viewport(0, 0, cols, rows);
+        gl.disable(gl.BLEND);
+
+        gl.useProgram(this.resolveProgram);
+        gl.bindVertexArray(this.vaoLine);
+
+        // Bind input textures (already bound to units 0-6 from upload)
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rChars'), 0);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rOvEffChars'), 1);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rColors'), 2);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rFloats1'), 3);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rFloats2'), 4);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rBytes'), 5);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_rGenericParams'), 6);
+
+        // CharLookup on unit 7
+        gl.activeTexture(gl.TEXTURE7);
+        gl.bindTexture(gl.TEXTURE_2D, this._resolveCharLookupTex);
+        gl.uniform1i(this._u(this.resolveProgram, 'u_charLookup'), 7);
+
+        // Shadow textures on units 8-9
+        if (hasShadowGrid) {
+            // Already bound to units 8-9
+            gl.uniform1i(this._u(this.resolveProgram, 'u_rShadowInts'), 8);
+            gl.uniform1i(this._u(this.resolveProgram, 'u_rShadowFloats'), 9);
+        } else {
+            // Bind dummy textures
+            gl.activeTexture(gl.TEXTURE8);
+            gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[0]);
+            gl.uniform1i(this._u(this.resolveProgram, 'u_rShadowInts'), 8);
+            gl.activeTexture(gl.TEXTURE9);
+            gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[1]);
+            gl.uniform1i(this._u(this.resolveProgram, 'u_rShadowFloats'), 9);
+        }
+        gl.uniform1f(this._u(this.resolveProgram, 'u_shadowGridEnabled'), hasShadowGrid ? 1.0 : 0.0);
+
+        // Execute fullscreen quad
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.bindVertexArray(null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        // Unbind input textures to prevent feedback
+        for (let u = 0; u <= 9; u++) {
+            gl.activeTexture(gl.TEXTURE0 + u);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+        gl.activeTexture(gl.TEXTURE0);
+
+        // Flag that the CPU instance buffer was not populated this frame
+        this._gpuResolvedThisFrame = true;
+    }
 
     _drawFullscreenTexture(texture, opacity, blurAmt) {
         if (!this.bloomProgram) return;
@@ -2884,7 +3784,19 @@ class WebGLRenderer {
         this.needsAtlasUpdate = false;
 
         // --- MERGE & MAP ---
-        if (!this.instanceData) return;
+        this._gpuResolvedThisFrame = false;
+
+        // GPU Resolve Path — replaces CPU instance buffer loop
+        if (this._gpuResolveEnabled && this.resolveProgram && this._resolveFbo && this._resolveBuf1) {
+            this._gpuResolvePass(grid, atlas, fx, totalCells);
+            // Still need to handle atlas changes and shadow mask pass, so continue below
+        }
+
+        if (!this._gpuResolvedThisFrame && !this.instanceData) return;
+        if (this._gpuResolvedThisFrame) {
+            // Skip CPU instance buffer loop — GPU resolved
+        } else {
+        // === CPU FALLBACK PATH (original code) ===
 
         const gChars = grid.chars;
         const gNext = grid.nextChars;
@@ -3116,6 +4028,7 @@ class WebGLRenderer {
         // --- UPLOAD ---
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
+        } // end CPU fallback else block
 
         // --- SHADOW WORLD: CPU-packed path (GPU texture upload disabled) ---
         // Shadow data is packed into the instance buffer via _setOverride + ov=5 packing above.
@@ -3494,86 +4407,122 @@ class WebGLRenderer {
         let finalMainTex = this.texA;
 
         // 2. Draw Cells
-        if (s.layerEnablePrimaryCode !== false && this.program2D) {
-            const activeProgram = this.program2D;
-            this.gl.useProgram(activeProgram);
-            
-            this.gl.uniform2f(this._u(activeProgram, 'u_resolution'), this.w, this.h);
-            this.gl.uniform2f(this._u(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
-            
-            const gridPixW = grid.cols * d.cellWidth;
-            const gridPixH = grid.rows * d.cellHeight;
-            this.gl.uniform2f(this._u(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
+        {
+            const useGPU = this._gpuResolvedThisFrame && this.programGPU2D;
+            const activeProgram = useGPU ? this.programGPU2D : this.program2D;
 
-            this.gl.uniform1f(this._u(activeProgram, 'u_cellSize'), atlas.cellSize);
-            this.gl.uniform1f(this._u(activeProgram, 'u_cols'), atlas._lastCols);
-            this.gl.uniform1f(this._u(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
-            this.gl.uniform2f(this._u(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
-            this.gl.uniform1f(this._u(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
-            
-            this.gl.activeTexture(this.gl.TEXTURE0);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
-            this.gl.uniform1i(this._u(activeProgram, 'u_texture'), 0);
-            
-            this.gl.activeTexture(this.gl.TEXTURE1);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
-            this.gl.uniform1i(this._u(activeProgram, 'u_shadowMask'), 1);
-            
-            this.gl.activeTexture(this.gl.TEXTURE2);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
-            this.gl.uniform1i(this._u(activeProgram, 'u_glimmerNoise'), 2);
+            if (s.layerEnablePrimaryCode !== false && activeProgram) {
+                this.gl.useProgram(activeProgram);
 
-            // Shadow World: CPU-packed fallback path (u_shadowEnabled=0) — shader uses getProcessedAlpha
-            // GPU shadow textures disabled; all shadow data packed into instance buffer via _setOverride
-            {
-                this.gl.uniform1f(this._u(activeProgram, 'u_shadowEnabled'), 0.0);
-                // Bind dummy textures to ALL shadow slots to prevent type mismatch from stale uniform values
-                this.gl.activeTexture(this.gl.TEXTURE3);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);  // R16UI for usampler2D
-                this.gl.uniform1i(this._u(activeProgram, 'u_shadowCharTex'), 3);
-                this.gl.activeTexture(this.gl.TEXTURE4);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
-                this.gl.uniform1i(this._u(activeProgram, 'u_shadowFadeTex'), 4);
-                this.gl.activeTexture(this.gl.TEXTURE5);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
-                this.gl.uniform1i(this._u(activeProgram, 'u_shadowColorTex'), 5);
-                this.gl.activeTexture(this.gl.TEXTURE6);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);     // float for sampler2D
-                this.gl.uniform1i(this._u(activeProgram, 'u_shadowAtlasTex'), 6);
+                // --- Shared uniforms (same for CPU and GPU vertex shaders) ---
+                this.gl.uniform2f(this._u(activeProgram, 'u_resolution'), this.w, this.h);
+                this.gl.uniform2f(this._u(activeProgram, 'u_atlasSize'), atlas.canvas.width, atlas.canvas.height);
+
+                const gridPixW = grid.cols * d.cellWidth;
+                const gridPixH = grid.rows * d.cellHeight;
+                this.gl.uniform2f(this._u(activeProgram, 'u_gridSize'), gridPixW, gridPixH);
+
+                this.gl.uniform1f(this._u(activeProgram, 'u_cellSize'), atlas.cellSize);
+                this.gl.uniform1f(this._u(activeProgram, 'u_cols'), atlas._lastCols);
+                this.gl.uniform1f(this._u(activeProgram, 'u_decayDur'), s.decayFadeDurationFrames);
+                this.gl.uniform2f(this._u(activeProgram, 'u_stretch'), s.stretchX, s.stretchY);
+                this.gl.uniform1f(this._u(activeProgram, 'u_mirror'), s.mirrorEnabled ? -1.0 : 1.0);
+
+                this.gl.activeTexture(this.gl.TEXTURE0);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+                this.gl.uniform1i(this._u(activeProgram, 'u_texture'), 0);
+
+                this.gl.activeTexture(this.gl.TEXTURE1);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowMaskTex);
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowMask'), 1);
+
+                this.gl.activeTexture(this.gl.TEXTURE2);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.glimmerTexture);
+                this.gl.uniform1i(this._u(activeProgram, 'u_glimmerNoise'), 2);
+
+                // Shadow World: CPU-packed fallback path (u_shadowEnabled=0) — shader uses getProcessedAlpha
+                {
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shadowEnabled'), 0.0);
+                    this.gl.activeTexture(this.gl.TEXTURE3);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_shadowCharTex'), 3);
+                    this.gl.activeTexture(this.gl.TEXTURE4);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_shadowFadeTex'), 4);
+                    this.gl.activeTexture(this.gl.TEXTURE5);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_shadowColorTex'), 5);
+                    this.gl.activeTexture(this.gl.TEXTURE6);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_shadowAtlasTex'), 6);
+                }
+
+                this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
+                this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), 1);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
+                this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_brightnessFloor'), s.brightnessFloor !== undefined ? s.brightnessFloor : 0.05);
+                this.gl.uniform1f(this._u(activeProgram, 'u_glowIntensityMultiplier'), s.glowIntensityMultiplier !== undefined ? s.glowIntensityMultiplier : 0.3);
+
+                const cellScaleX = (d.cellWidth / atlas.cellSize);
+                const cellScaleY = (d.cellHeight / atlas.cellSize);
+                this.gl.uniform2f(this._u(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
+
+                const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
+                const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
+                this.gl.uniform1f(this._u(activeProgram, 'u_dissolveScale'), dissolveScale);
+                this.gl.uniform1f(this._u(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
+
+                this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
+                this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
+
+                const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
+                this.gl.uniform4f(this._u(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
+
+                if (useGPU) {
+                    // GPU path: bind resolve output textures and set GPU-specific uniforms
+                    this.gl.uniform1f(this._u(activeProgram, 'u_gridCols'), grid.cols);
+
+                    this.gl.activeTexture(this.gl.TEXTURE8);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this._resolveOutputTex[0]);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_resolvedChars'), 8);
+
+                    this.gl.activeTexture(this.gl.TEXTURE9);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this._resolveOutputTex[1]);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_resolvedColor'), 9);
+
+                    this.gl.activeTexture(this.gl.TEXTURE10);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this._resolveOutputTex[2]);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_resolvedGlowMix'), 10);
+
+                    this.gl.activeTexture(this.gl.TEXTURE11);
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this._resolveOutputTex[3]);
+                    this.gl.uniform1i(this._u(activeProgram, 'u_resolvedParams'), 11);
+
+                    this.gl.bindVertexArray(this.vaoGPU);
+                } else {
+                    // CPU path: use original VAO with instance buffer
+                    this.gl.bindVertexArray(this.vao);
+                }
+
+                this.gl.enable(this.gl.BLEND);
+                this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
+                this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
+                this.gl.bindVertexArray(null);
+
+                // Cleanup GPU resolve textures
+                if (useGPU) {
+                    for (let u = 8; u <= 11; u++) {
+                        this.gl.activeTexture(this.gl.TEXTURE0 + u);
+                        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+                    }
+                }
             }
-
-            this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);
-            this.gl.uniform1i(this._u(activeProgram, 'u_glassEnabled'), 1);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSpeed'), s.upwardTracerGlimmerSpeed || 1.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerSize'), s.upwardTracerGlimmerSize || 3.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
-            this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_brightnessFloor'), s.brightnessFloor !== undefined ? s.brightnessFloor : 0.05);
-            this.gl.uniform1f(this._u(activeProgram, 'u_glowIntensityMultiplier'), s.glowIntensityMultiplier !== undefined ? s.glowIntensityMultiplier : 0.3);
-
-            const cellScaleX = (d.cellWidth / atlas.cellSize);
-            const cellScaleY = (d.cellHeight / atlas.cellSize);
-            this.gl.uniform2f(this._u(activeProgram, 'u_cellScale'), cellScaleX, cellScaleY);
-
-            const percent = s.dissolveScalePercent !== undefined ? s.dissolveScalePercent : -20;
-            const dissolveScale = s.dissolveEnabled ? (1.0 + (percent / 100.0)) : 1.0;
-            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveScale'), dissolveScale);
-            this.gl.uniform1f(this._u(activeProgram, 'u_dissolveSize'), s.dissolveMinSize || 1.0);
-            
-            this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationEnabled'), s.deteriorationEnabled ? 1.0 : 0.0);
-            this.gl.uniform1f(this._u(activeProgram, 'u_deteriorationStrength'), s.deteriorationStrength);
-            
-            const ovRgb = Utils.hexToRgb(s.overlapColor || "#FFD700");
-            this.gl.uniform4f(this._u(activeProgram, 'u_overlapColor'), ovRgb.r/255.0, ovRgb.g/255.0, ovRgb.b/255.0, 1.0);
-
-            this.gl.bindVertexArray(this.vao);
-            this.gl.enable(this.gl.BLEND);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, this.instanceCapacity);
-            this.gl.bindVertexArray(null);
         }
 
         // --- RENDER PIPELINE EXECUTION ---
