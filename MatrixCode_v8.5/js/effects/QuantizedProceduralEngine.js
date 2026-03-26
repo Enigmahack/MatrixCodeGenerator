@@ -1316,6 +1316,21 @@ class _QuantizedProceduralEngine {
                 if (isEmpty(gx, gy)) fillCell(gx, gy);
             }
         }
+
+        // Corner fill: sweep small corner regions that edge passes may miss
+        const cornerSize = Math.min(maxInward, 3);
+        for (const [cStartX, cStartY] of [
+            [startX, startY],                          // NW
+            [endX - cornerSize, startY],               // NE
+            [startX, endY - cornerSize],               // SW
+            [endX - cornerSize, endY - cornerSize],    // SE
+        ]) {
+            for (let gy = cStartY; gy < Math.min(cStartY + cornerSize, endY); gy++) {
+                for (let gx = Math.max(cStartX, startX); gx < Math.min(cStartX + cornerSize, endX); gx++) {
+                    if (isEmpty(gx, gy)) fillCell(gx, gy);
+                }
+            }
+        }
     }
 
     _getBiasedCoordinate(minL, maxL, size, pStatus, axis) {
@@ -2411,7 +2426,10 @@ class _QuantizedProceduralEngine {
                         if (isOccupiedAny(bx + 1, by)) neighborCount++;
                         if (isOccupiedAny(bx, by - 1)) neighborCount++;
                         if (isOccupiedAny(bx, by + 1)) neighborCount++;
-                        const isSmallGap = (neighborCount >= 3);
+                        const maxPossibleNeighbors = 4
+                            - (bx <= -xVis ? 1 : 0) - (bx >= xVis ? 1 : 0)
+                            - (by <= -yVis ? 1 : 0) - (by >= yVis ? 1 : 0);
+                        const isSmallGap = (neighborCount >= Math.min(3, maxPossibleNeighbors));
 
                         if (isEnclosed || isSmallGap) {
                             this.actionBuffer.push({ layer, fn: () => {
@@ -2844,7 +2862,7 @@ class _QuantizedProceduralEngine {
                 }
             }
 
-            if (shouldGrow && strip.isExpansion) {
+            if (shouldGrow && strip.isExpansion && this._getGenConfig('SpinesFirstEnabled') !== false) {
                 const [dx, dy] = this._dirDelta(strip.direction);
                 const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
                 const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
@@ -3062,15 +3080,16 @@ class _QuantizedProceduralEngine {
             const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
 
             // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
-            const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
-            let perimeterEstablished = false;
-            if (spawnFromPerimeter && !spineEstablished) {
-                // Check if any cardinal neighbor of (bx, by) is occupied on L0 or L1
-                const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
-                perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
+            const spinesEnabled = this._getGenConfig('SpinesFirstEnabled') !== false;
+            if (spinesEnabled) {
+                const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
+                let perimeterEstablished = false;
+                if (spawnFromPerimeter && !spineEstablished) {
+                    const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
+                    perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
+                }
+                if (!spineEstablished && !perimeterEstablished) continue;
             }
-
-            if (!spineEstablished && !perimeterEstablished) continue;
 
             // Prepare waves for this bucket
             const waves = [];
@@ -3250,9 +3269,10 @@ class _QuantizedProceduralEngine {
         this.actionBuffer = [];
         this._tickLayerDirs(s);
         this._updateFillRatio(s);
-        this._seedStrips(s);
-
-        this._tickStrips(s);
+        if (this._getGenConfig('SpinesFirstEnabled') !== false) {
+            this._seedStrips(s);
+            this._tickStrips(s);
+        }
         this._expandInsideOut(s);
 
         // INCREMENT AGE OF ALL ACTIVE BLOCKS

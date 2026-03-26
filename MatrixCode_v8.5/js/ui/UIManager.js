@@ -1478,7 +1478,14 @@ class UIManager {
                 };
             }
             if (inp) {
-                row.appendChild(inp);
+                if (def.type === 'range') {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'range-wrapper';
+                    wrapper.appendChild(inp);
+                    row.appendChild(wrapper);
+                } else {
+                    row.appendChild(inp);
+                }
                 if(def.id) { inp.id = `in-${def.id}`; inp.name = def.id; }
             }
             if(def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep)); if(def.id) row.id = `row-${def.id}`;
