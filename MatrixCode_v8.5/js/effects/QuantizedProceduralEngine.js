@@ -851,10 +851,45 @@ class _QuantizedProceduralEngine {
         const id = this.nextBlockId++;
         const ox = this.behaviorState?.genOriginX ?? 0;
         const oy = this.behaviorState?.genOriginY ?? 0;
-        const b = { 
-            x, y, w, h, 
-            startFrame: this.animFrame, 
-            startPhase: this.expansionPhase, 
+
+        let isNewTerritory = false;
+        const targetGrid = this.layerGrids[layer];
+        if (targetGrid) {
+            for (let gy = minY; gy <= maxY; gy++) {
+                const rowOff = gy * blocksX;
+                for (let gx = minX; gx <= maxX; gx++) {
+                    if (targetGrid[rowOff + gx] === -1) {
+                        isNewTerritory = true;
+                        break;
+                    }
+                }
+                if (isNewTerritory) break;
+            }
+        } else {
+            isNewTerritory = true;
+        }
+
+        // Define op object early for all code paths that reference it
+        const op = {
+            type: 'addSmart',
+            x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
+            startFrame: this.animFrame,
+            expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
+            layer: layer,
+            blockId: id,
+            isShifter: isShifter,
+            fade: !suppressFades,
+            invisible: invisible,
+            source: source
+        };
+        if (!isNewTerritory) {
+            op.type = 'addRect';
+        }
+
+        const b = {
+            x, y, w, h,
+            startFrame: this.animFrame,
+            startPhase: this.expansionPhase,
             layer, id, isShifter,
             dist: Math.abs(x - ox) + Math.abs(y - oy),
             invisible: invisible, // Record for local state
@@ -863,20 +898,10 @@ class _QuantizedProceduralEngine {
         };
         if (expireFrames > 0) b.expireFrame = this.animFrame + expireFrames;
         this.activeBlocks.push(b);
-        
-        const op = {
-            type: 'addSmart', 
-            x1: x, y1: y, x2: x + w - 1, y2: y + h - 1,
-            startFrame: this.animFrame,
-            expireFrame: (expireFrames > 0) ? this.animFrame + expireFrames : null,
-            layer: layer,
-            blockId: id,
-            isShifter: isShifter,
-            fade: !suppressFades,
-            invisible: invisible, // NEW: Record invisibility in op
-            source: source
-        };
-        this.maskOps.push(op);
+
+        if (isNewTerritory) {
+            this.maskOps.push(op);
+        }
 
         // Record to sequence for Editor/Step support
         const isRecording = (this.manualStep) && this.sequence && !this.isReconstructing;
@@ -2529,41 +2554,55 @@ class _QuantizedProceduralEngine {
             });
         }, { enabled: this._getGenConfig('AxisShiftEnabled') ?? false, type: this._getGenConfig('AxisShiftBehaviorType') ?? 'pool', growth: this._getGenConfig('AxisShiftGrowthMode') ?? 'edge', bias: this._getGenConfig('AxisShiftSpawnBias') ?? 'single', label: 'Axis Shift' });
 
-        // Main Nudge: expand along spines (spine mode) or from outermost perimeter blocks (edge mode)
-        this.registerBehavior('main_nudge', function(s, behavior, layer) {
+        // Explorer Growth: moves towards edges, spawning from blocks (edge) or spine
+        this.registerBehavior('explorer_growth', function(s, behavior, layer) {
             const startDelay = this._getGenConfig('NudgeStartDelay') ?? 2;
             if (s.step < startDelay) return;
 
-            const nudgeChance = this._getGenConfig('NudgeChance') ?? 0.8;
-            if (Math.random() > nudgeChance) return;
-
-            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
-            const targetL = usePromotion ? 1 : layer;
-
-            if (behavior && behavior.growth === 'edge' && s.outsideMap) {
-                const cx = this._gridCX, cy = this._gridCY, w = this.logicGridW, h = this.logicGridH;
-                const perimBlocks = this.activeBlocks.filter(b => {
-                    if (b.layer !== targetL) return false;
-                    const neighbors = [];
-                    for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
-                    for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
-                    return neighbors.some(n => {
-                        const gx = cx + n.x, gy = cy + n.y;
-                        if (gx < 0 || gx >= w || gy < 0 || gy >= h) return false;
-                        return s.outsideMap[gy * w + gx] === 1;
-                    });
-                });
-                if (perimBlocks.length === 0) return;
-                const pick = perimBlocks[Math.floor(Math.random() * perimBlocks.length)];
-                const ox = pick.x + Math.floor(pick.w / 2);
-                const oy = pick.y + Math.floor(pick.h / 2);
-                const { bw, bh } = this._calcBlockSize({ originX: ox, originY: oy, direction: 'N' }, s.fillRatio);
-                this._attemptNudgeGrowthWithParams(targetL, bw, bh, ox, oy);
-            } else {
-                const { bw, bh } = this._calcBlockSize({ originX: s.genOriginX, originY: s.genOriginY, direction: 'N' }, s.fillRatio);
-                this._attemptNudgeGrowthWithParams(targetL, bw, bh, s.genOriginX, s.genOriginY);
+            const maxExplorers = this._getGenConfig('ExplorerMaxCount') ?? 20;
+            const spawnRate = this._getGenConfig('ExplorerSpawnRate') ?? 4;
+            
+            // Count current active explorers for this layer
+            let explorerCount = 0;
+            for (const strip of this.strips.values()) {
+                if (strip.isExplorer && strip.active && strip.layer === layer) explorerCount++;
             }
-        }, { enabled: this._getGenConfig('NudgeEnabled') !== false, type: this._getGenConfig('NudgeBehaviorType') ?? 'pool', growth: this._getGenConfig('NudgeGrowthMode') ?? 'spine', bias: this._getGenConfig('NudgeSpawnBias') ?? 'single', label: 'Main Nudge' });
+
+            if (explorerCount < maxExplorers && s.step % spawnRate === 0) {
+                // Spawn logic
+                let ox = this.behaviorState?.scx ?? 0, oy = this.behaviorState?.scy ?? 0, d = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                
+                const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
+                const targetL = usePromotion ? 1 : layer;
+
+                if (behavior.growth === 'edge') {
+                    // Pick random block from ANY existing blocks in this layer
+                    const candidates = this.activeBlocks.filter(b => b.layer === targetL);
+                    if (candidates.length > 0) {
+                        const b = candidates[Math.floor(Math.random() * candidates.length)];
+                        ox = b.x + Math.floor(Math.random() * b.w);
+                        oy = b.y + Math.floor(Math.random() * b.h);
+                    }
+                } else {
+                    // Spine mode
+                    const axis = Math.random() < 0.5 ? 'X' : 'Y';
+                    if (axis === 'X') {
+                        ox = (this.behaviorState?.scx ?? 0) + (Math.floor(Math.random() * 41) - 20);
+                        oy = (this.behaviorState?.scy ?? 0);
+                        d = Math.random() < 0.5 ? 'N' : 'S';
+                    } else {
+                        ox = (this.behaviorState?.scx ?? 0);
+                        oy = (this.behaviorState?.scy ?? 0) + (Math.floor(Math.random() * 41) - 20);
+                        d = Math.random() < 0.5 ? 'W' : 'E';
+                    }
+                }
+
+                const strip = this._createStrip(targetL, d, ox, oy);
+                strip.isExplorer = true;
+                strip.bypassOccupancy = true;
+                strip.pattern = [true];
+            }
+        }, { enabled: this._getGenConfig('NudgeEnabled') !== false, type: this._getGenConfig('NudgeBehaviorType') ?? 'pool', growth: this._getGenConfig('NudgeGrowthMode') ?? 'spine', label: 'Explorer Growth' });
     }
 
     _pickLayerDirs(count) {

@@ -96,7 +96,7 @@ class QuantizedSequenceGeneratorV2 {
             'LineGfxTintOffset', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
-            'PerimeterEchoEnabled', 'SingleLayerMode', 'LayerCount'
+            'PerimeterEchoEnabled', 'SingleLayerMode', 'LayerCount', 'ExplorerMaxCount', 'ExplorerSpawnRate'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -655,37 +655,57 @@ class QuantizedSequenceGeneratorV2 {
             }
         }, { enabled: true, type: gen._getConfig('HoleFillerBehaviorType') ?? 'pool', growth: gen._getConfig('HoleFillerGrowthMode') ?? 'edge', bias: gen._getConfig('HoleFillerSpawnBias') ?? 'single', label: 'Aggressive Hole Filler' });
 
-        // Main Nudge: expand along spines (spine mode) or from outermost perimeter blocks (edge mode)
-        this.registerBehavior('main_nudge', function(s, behavior, layer) {
+        this.registerBehavior('explorer_growth', function(s, behavior, layer) {
             const startDelay = gen._getConfig('NudgeStartDelay') ?? 2;
             if (s.step < startDelay) return;
 
-            const nudgeChance = gen._getConfig('NudgeChance') ?? 0.8;
-            if (Math.random() > nudgeChance) return;
-
-            if (behavior && behavior.growth === 'edge' && s.outsideInfo) {
-                const { outsideMap, getIdx, scanMinX, scanMaxX, scanMinY, scanMaxY } = s.outsideInfo;
-                const perimBlocks = gen.activeBlocks.filter(b => {
-                    if (b.layer !== 1) return false;
-                    const neighbors = [];
-                    for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
-                    for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
-                    return neighbors.some(n => {
-                        if (n.x < scanMinX || n.x > scanMaxX || n.y < scanMinY || n.y > scanMaxY) return false;
-                        return outsideMap[getIdx(n.x, n.y)] === 1;
-                    });
-                });
-                if (perimBlocks.length === 0) return;
-                const pick = perimBlocks[Math.floor(Math.random() * perimBlocks.length)];
-                const ox = (pick.x + Math.floor(pick.w / 2)) - s.scx;
-                const oy = (pick.y + Math.floor(pick.h / 2)) - s.scy;
-                const { bw, bh } = gen._calcBlockSize({ originX: ox, originY: oy, direction: 'N' }, s.fillRatio);
-                gen._attemptNudgeGrowthWithParams(1, bw, bh, ox, oy);
-            } else {
-                const { bw, bh } = gen._calcBlockSize({ originX: s.scx, originY: s.scy, direction: 'N' }, s.fillRatio);
-                gen._attemptNudgeGrowthWithParams(1, bw, bh, s.scx, s.scy);
+            const maxExplorers = gen._getConfig('ExplorerMaxCount') ?? 20;
+            const spawnRate = gen._getConfig('ExplorerSpawnRate') ?? 4;
+            
+            // Count current active explorers for this layer
+            let explorerCount = 0;
+            for (const strip of gen.strips.values()) {
+                if (strip.isExplorer && strip.active && strip.layer === layer) explorerCount++;
             }
-        }, { enabled: gen._getConfig('NudgeEnabled') !== false, type: gen._getConfig('NudgeBehaviorType') ?? 'pool', growth: gen._getConfig('NudgeGrowthMode') ?? 'spine', bias: gen._getConfig('NudgeSpawnBias') ?? 'single', label: 'Main Nudge' });
+
+            if (explorerCount < maxExplorers && s.step % spawnRate === 0) {
+                // Spawn logic
+                let ox = s.scx, oy = s.scy, d = ['N', 'S', 'E', 'W'][Math.floor(Math.random() * 4)];
+                
+                if (behavior.growth === 'edge' && s.outsideInfo) {
+                    // Pick random block from ANY existing blocks in this layer (per user request: "any existing block")
+                    // Note: User said "spawn from any existing block when Growth Mode is set to 'Edge'"
+                    const candidates = gen.activeBlocks.filter(b => b.layer === layer);
+                    if (candidates.length > 0) {
+                        const b = candidates[Math.floor(Math.random() * candidates.length)];
+                        ox = b.x + Math.floor(Math.random() * b.w);
+                        oy = b.y + Math.floor(Math.random() * b.h);
+                        // d is already randomized
+                    }
+                } else {
+                    // Spine mode: Explorers can only spawn from the spine outward.
+                    // "Spine" explorers can only spawn from the spine outward.
+                    const axis = Math.random() < 0.5 ? 'X' : 'Y';
+                    if (axis === 'X') {
+                        // Spawn from X spine (horizontal line at scy)
+                        ox = s.scx + (Math.floor(Math.random() * 41) - 20); // random offset along spine
+                        oy = s.scy;
+                        d = Math.random() < 0.5 ? 'N' : 'S';
+                    } else {
+                        // Spawn from Y spine (vertical line at scx)
+                        ox = s.scx;
+                        oy = s.scy + (Math.floor(Math.random() * 41) - 20); // random offset along spine
+                        d = Math.random() < 0.5 ? 'W' : 'E';
+                    }
+                }
+
+                const strip = gen._createStrip(layer, d, ox, oy);
+                strip.isExplorer = true;
+                strip.bypassOccupancy = true;
+                strip.pattern = [true]; // Grows every step
+                strip.stepPhase = 0;
+            }
+        }, { enabled: gen._getConfig('NudgeEnabled') !== false, type: gen._getConfig('NudgeBehaviorType') ?? 'pool', growth: gen._getConfig('NudgeGrowthMode') ?? 'spine', label: 'Explorer Growth' });
     }
 
     _getMaxLayer() {
@@ -1339,10 +1359,24 @@ class QuantizedSequenceGeneratorV2 {
         const gx1 = this.gridCX + x1, gy1 = this.gridCY + y1, gx2 = this.gridCX + x2, gy2 = this.gridCY + y2;
         if (gx1 < 0 || gx2 >= this.logicGridW || gy1 < 0 || gy2 >= this.logicGridH) return -1;
         const grid = this.layerGrids[layer];
+        let isNewTerritory = false;
+        for (let gy = gy1; gy <= gy2; gy++) {
+            const rowOff = gy * this.logicGridW;
+            for (let gx = gx1; gx <= gx2; gx++) {
+                if (grid[rowOff + gx] === -1) {
+                    isNewTerritory = true;
+                    break;
+                }
+            }
+            if (isNewTerritory) break;
+        }
+
+        if (!bypassOccupancy && !isNewTerritory) return -1;
         if (!bypassOccupancy) {
             for (let gy = gy1; gy <= gy2; gy++) {
+                const rowOff = gy * this.logicGridW;
                 for (let gx = gx1; gx <= gx2; gx++) {
-                    if (grid[gy * this.logicGridW + gx] !== -1) return -1;
+                    if (grid[rowOff + gx] !== -1) return -1;
                 }
             }
         }
@@ -1358,11 +1392,12 @@ class QuantizedSequenceGeneratorV2 {
             for (let gx = gx1; gx <= gx2; gx++) {
                 const idx = rowOff + gx;
                 grid[idx] = id;
-                
-                // Optimized Promotion: Spawn on L0 resets promotion counter
             }
         }
-        this.currentStepOps.push(['addRect', x1, y1, x2, y2, layer, 0, true]);
+        
+        if (isNewTerritory) {
+            this.currentStepOps.push(['addRect', x1, y1, x2, y2, layer, 0, true]);
+        }
         const md = this.behaviorState.layerMaxDist[layer] || (this.behaviorState.layerMaxDist[layer] = { N: 0, S: 0, E: 0, W: 0 });
         const rx = x - this.behaviorState.scx, ry = y - this.behaviorState.scy;
         if (ry < 0) md.N = Math.max(md.N, -ry); else if (ry > 0) md.S = Math.max(md.S, ry + h - 1);

@@ -169,6 +169,18 @@ Touch Physics: The UI manager now calculates velocity and drag distance to disti
 
 With continuous improvements and architectural changes, especially the significant modularization introduced in `v7.4` and refined through `v7.4` and `v7.4`, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
 
+## 🛠️ Hidden Resources
+
+### .claude/ Folder - File Manipulation Tools
+
+The `.claude/` directory contains additional utility tools designed to assist with file manipulation and development workflows:
+
+- **`.claude/commands/`**: Contains command definitions for various automation tasks
+- **`.claude/tests/`**: Test utilities for validating operations
+- **`.claude/tools/`**: Core tools for file manipulation and processing
+
+These resources are available to enhance your development experience when working with the project.
+
 ---
 
 ## 🏗️ Development Workflow

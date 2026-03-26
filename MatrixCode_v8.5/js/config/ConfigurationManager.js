@@ -396,6 +396,8 @@ class ConfigurationManager {
             "quantizedDefaultNudgeEnabled": true,
             "quantizedDefaultNudgeStartDelay": 4,
             "quantizedDefaultNudgeChance": 0.3,
+            "quantizedDefaultExplorerMaxCount": 20,
+            "quantizedDefaultExplorerSpawnRate": 4,
             "quantizedDefaultShiftFrequency": 5,
             "quantizedDefaultShiftMaxThickness": 5,
             "quantizedDefaultEnableSyncSubLayers": true,
