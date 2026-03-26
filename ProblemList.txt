@@ -1,4 +1,5 @@
 Todo:
+Run tests on all effects, behaviors, sliders, settings, etc. 
 
 Behaviours: 
 
@@ -7,4 +8,14 @@ Visuals:
 - Fix animation for quantized Retract. 
 - Adjust behaviors slightly so they don't quite overlap in terms of what they do. 
 - Remove the spine-default-always-on growth by default. 
-- Enabling Star Power appears to cause issues with gaps in code streams when Glow Blocks are enabled. (horizontal gaps with the occasional flickers within them, or there are streams of the same character repeated over and over, like rotators is disabled/broken, Rainbow Streams works as expected) 
+
+Bugs: 
+Clicking certain UI elements appears to move the canvas (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc. Some settings move it back? 
+
+There's a massive pause after the block generator takes over, instead of being seamless/continuing. 
+Scale to Effect Size does not work for some effects. 
+Remove Intersection Pause (Unnecessary)
+
+
+<- Look:
+Clean up UI. 

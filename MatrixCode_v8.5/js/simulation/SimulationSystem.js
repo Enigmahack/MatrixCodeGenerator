@@ -237,7 +237,7 @@ class SimulationSystem {
                 this.streamManager.update(frame, this.timeScale);
                 this._manageOverlapGrid(frame);
                 this._updateCells(frame, this.timeScale);
-                this._updateGlimmerLifecycle();
+                this._updateGlimmerLifecycle(frame);
             } else if (this.timeScale < 0) {
                 this.streamManager.update(frame, this.timeScale);
             }
@@ -253,7 +253,7 @@ class SimulationSystem {
         }
     }
     
-    _updateGlimmerLifecycle() {
+    _updateGlimmerLifecycle(frame) {
         const s = this.config.state;
         const d = this.config.derived;
         
@@ -388,9 +388,26 @@ class SimulationSystem {
             // --- TYPE 2: STAR POWER GLIMMER ---
             else if (style.type === 'star_glimmer') {
                 // Static glimmer effect for Star Power streams.
-                // Just force the shader signal (30.0) while the cell is active.
-                // The stream lifecycle handles the cell death/cleanup.
-                this.grid.mix[idx] = 30.0;
+                // Apply glimmer via genericParams to preserve 'mix' for rotator crossfades
+                const gOff = idx * 4;
+                const cellRand = this.grid.streamSeeds[idx] || 0.5;
+                
+                let flicker = Math.abs(Math.sin(frame * 0.1 + cellRand * 100.0));
+                
+                let shapeID = 0;
+                if (cellRand < 0.20) shapeID = 1;
+                else if (cellRand < 0.40) shapeID = 2;
+                else if (cellRand < 0.47) shapeID = 3;
+                else if (cellRand < 0.54) shapeID = 4;
+                else if (cellRand < 0.60) shapeID = 5;
+                else if (cellRand < 0.70) shapeID = 6;
+                else if (cellRand < 0.85) shapeID = 7;
+                else shapeID = 8;
+
+                this.grid.genericParams[gOff + 0] = flicker;
+                this.grid.genericParams[gOff + 1] = shapeID;
+                this.grid.genericParams[gOff + 2] = 1.0; // Glimmer Alpha
+                // We do not force this.grid.mix[idx] to 30.0 here anymore, so rotators can use it.
             }
 
         }); // end complexStyles.forEach

@@ -67,89 +67,114 @@ class WorkerSimulationSystem {
         }
     }
 
-    _updateGlimmerLifecycle() {
+    _updateGlimmerLifecycle(frame) {
         const s = this.config.state;
 
         // Optimization #3: Avoid per-frame Array.from() allocation by using iterator directly
         for (const idx of this.grid.complexStyles.keys()) {
             const style = this.grid.complexStyles.get(idx);
-            if (!style || style.type !== 'glimmer') continue;
+            if (!style || (style.type !== 'glimmer' && style.type !== 'star_glimmer')) continue;
 
             const ov = this.grid.overrideActive[idx];
             if (this.grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3)) continue;
 
-            if (style.mobile === undefined) {
-                if (Math.random() < 0.2) {
-                    style.mobile = true;
-                    style.moveInterval = Utils.randomInt(4, 8);
-                    style.nextMove = style.age + style.moveInterval;
-                    style.moveDir = -1; 
-                } else {
-                    style.mobile = false;
-                }
-            }
-
-            const attack = s.upwardTracerAttackFrames;
-            const hold = s.upwardTracerHoldFrames;
-            const release = s.upwardTracerReleaseFrames;
-            const totalDuration = attack + hold + release;
-            
-            style.age++;
-            const activeAge = style.age - 1;
-            
-            let currentIdx = idx;
-            if (style.mobile && activeAge >= style.nextMove && activeAge < totalDuration) {
-                const col = currentIdx % this.grid.cols;
-                const row = Math.floor(currentIdx / this.grid.cols);
-                const nextRow = row + style.moveDir;
-                
-                if (nextRow >= 0 && nextRow < this.grid.rows) {
-                    const nextIdx = currentIdx + (style.moveDir * this.grid.cols);
-                    
-                    if (!this.grid.complexStyles.has(nextIdx)) {
-                        this.grid.complexStyles.set(nextIdx, style);
-                        this.grid.complexStyles.delete(currentIdx);
-                        this.grid.mix[nextIdx] = this.grid.mix[currentIdx];
-                        this.grid.mix[currentIdx] = 0;
-                        this.grid.effectChars[nextIdx] = this.grid.effectChars[currentIdx];
-                        this.grid.effectChars[currentIdx] = 0;
-                        currentIdx = nextIdx;
-                        style.nextMove = activeAge + style.moveInterval;
+            if (style.type === 'glimmer') {
+                if (style.mobile === undefined) {
+                    if (Math.random() < 0.2) {
+                        style.mobile = true;
+                        style.moveInterval = Utils.randomInt(4, 8);
+                        style.nextMove = style.age + style.moveInterval;
+                        style.moveDir = -1; 
+                    } else {
+                        style.mobile = false;
                     }
                 }
-            }
-            
-            this.grid.effectChars[currentIdx] = 0;
 
-            let alpha = 0.0;
-            if (activeAge <= attack) {
-                alpha = (attack > 0) ? (activeAge / attack) : 1.0;
-            } else if (activeAge <= attack + hold) {
-                alpha = 1.0;
-            } else if (activeAge <= totalDuration) {
-                const releaseAge = activeAge - (attack + hold);
-                alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
-            }
-
-            if (activeAge <= totalDuration) {
-                this.grid.mix[currentIdx] = 30.0 + alpha;
-
-                // --- CPU OPTIMIZATION: Pre-calculate Glimmer State ---
-                const gOff = currentIdx * 4;
-                const cellRand = style.seed || (style.seed = Math.random());
+                const attack = s.upwardTracerAttackFrames;
+                const hold = s.upwardTracerHoldFrames;
+                const release = s.upwardTracerReleaseFrames;
+                const totalDuration = attack + hold + release;
                 
-                let flicker = 1.0;
-                if (cellRand < s.glimmerFlicker) {
-                    const cycleSpeed = 0.2 + (cellRand * 0.4); 
-                    const flickerBase = Math.sin(frame * cycleSpeed + (cellRand * 100.0));
-                    const cutout = Math.max(0, Math.min(1, (flickerBase + 0.4) / 0.2)); 
-                    const jitter = 0.7 + 0.6 * (Math.sin(frame * 2.0 + cellRand * 678.9) * 0.5 + 0.5);
-                    flicker = cutout * jitter;
+                style.age++;
+                const activeAge = style.age - 1;
+                
+                let currentIdx = idx;
+                if (style.mobile && activeAge >= style.nextMove && activeAge < totalDuration) {
+                    const col = currentIdx % this.grid.cols;
+                    const row = Math.floor(currentIdx / this.grid.cols);
+                    const nextRow = row + style.moveDir;
                     
-                    const dropoutVal = Math.abs(Math.sin(frame * 0.05 + cellRand * 50.0 + (currentIdx % 13) / 13.0));
-                    if (dropoutVal < 0.2) flicker = 0.0;
+                    if (nextRow >= 0 && nextRow < this.grid.rows) {
+                        const nextIdx = currentIdx + (style.moveDir * this.grid.cols);
+                        
+                        if (!this.grid.complexStyles.has(nextIdx)) {
+                            this.grid.complexStyles.set(nextIdx, style);
+                            this.grid.complexStyles.delete(currentIdx);
+                            this.grid.mix[nextIdx] = this.grid.mix[currentIdx];
+                            this.grid.mix[currentIdx] = 0;
+                            this.grid.effectChars[nextIdx] = this.grid.effectChars[currentIdx];
+                            this.grid.effectChars[currentIdx] = 0;
+                            currentIdx = nextIdx;
+                            style.nextMove = activeAge + style.moveInterval;
+                        }
+                    }
+                }
+                
+                this.grid.effectChars[currentIdx] = 0;
+
+                let alpha = 0.0;
+                if (activeAge <= attack) {
+                    alpha = (attack > 0) ? (activeAge / attack) : 1.0;
+                } else if (activeAge <= attack + hold) {
+                    alpha = 1.0;
+                } else if (activeAge <= totalDuration) {
+                    const releaseAge = activeAge - (attack + hold);
+                    alpha = (release > 0) ? (1.0 - (releaseAge / release)) : 0.0;
                 }
 
+                if (activeAge <= totalDuration) {
+                    this.grid.mix[currentIdx] = 30.0 + alpha;
+
+                    // --- CPU OPTIMIZATION: Pre-calculate Glimmer State ---
+                    const gOff = currentIdx * 4;
+                    const cellRand = style.seed || (style.seed = Math.random());
+                    
+                    let flicker = 1.0;
+                    if (cellRand < s.glimmerFlicker) {
+                        const cycleSpeed = 0.2 + (cellRand * 0.4); 
+                        const flickerBase = Math.sin(frame * cycleSpeed + (cellRand * 100.0));
+                        const cutout = Math.max(0, Math.min(1, (flickerBase + 0.4) / 0.2)); 
+                        const jitter = 0.7 + 0.6 * (Math.sin(frame * 2.0 + cellRand * 678.9) * 0.5 + 0.5);
+                        flicker = cutout * jitter;
+                        
+                        const dropoutVal = Math.abs(Math.sin(frame * 0.05 + cellRand * 50.0 + (currentIdx % 13) / 13.0));
+                        if (dropoutVal < 0.2) flicker = 0.0;
+                    }
+
+                    let shapeID = 0;
+                    if (cellRand < 0.20) shapeID = 1;
+                    else if (cellRand < 0.40) shapeID = 2;
+                    else if (cellRand < 0.47) shapeID = 3;
+                    else if (cellRand < 0.54) shapeID = 4;
+                    else if (cellRand < 0.60) shapeID = 5;
+                    else if (cellRand < 0.70) shapeID = 6;
+                    else if (cellRand < 0.85) shapeID = 7;
+                    else shapeID = 8;
+
+                    this.grid.genericParams[gOff + 0] = flicker;
+                    this.grid.genericParams[gOff + 1] = shapeID;
+                    this.grid.genericParams[gOff + 2] = alpha;
+                } else {
+                    this.grid.mix[currentIdx] = 0;
+                    this.grid.genericParams[currentIdx * 4] = 0;
+                    this.grid.complexStyles.delete(currentIdx);
+                }
+            } else if (style.type === 'star_glimmer') {
+                const gOff = idx * 4;
+                const cellRand = this.grid.streamSeeds[idx] || 0.5;
+                
+                let flicker = Math.abs(Math.sin(frame * 0.1 + cellRand * 100.0));
+                
                 let shapeID = 0;
                 if (cellRand < 0.20) shapeID = 1;
                 else if (cellRand < 0.40) shapeID = 2;
@@ -162,11 +187,8 @@ class WorkerSimulationSystem {
 
                 this.grid.genericParams[gOff + 0] = flicker;
                 this.grid.genericParams[gOff + 1] = shapeID;
-                this.grid.genericParams[gOff + 2] = alpha;
-            } else {
-                this.grid.mix[currentIdx] = 0;
-                this.grid.genericParams[currentIdx * 4] = 0;
-                this.grid.complexStyles.delete(currentIdx);
+                this.grid.genericParams[gOff + 2] = 1.0; 
+                // DO NOT overwrite grid.mix to let rotators function
             }
         }
     }
