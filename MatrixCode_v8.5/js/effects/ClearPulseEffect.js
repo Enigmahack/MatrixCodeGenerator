@@ -80,7 +80,7 @@ class ClearPulseEffect extends AbstractEffect {
         const activeFonts = d.activeFonts;
         for (let i = 0; i < total; i++) {
             const type = this.g.types[i] & Utils.CELL_TYPE_MASK;
-            if (type === Utils.CELL_TYPE.TRACER || type === Utils.CELL_TYPE.ROTATOR) {
+            if (type === Utils.CELL_TYPE.TRACER || type === Utils.CELL_TYPE.ROTATOR || type === Utils.CELL_TYPE.UPWARD_TRACER) {
                 this.snap.tracers[i] = 1;
             }
             const fontIdx = this.g.fontIndices[i];
@@ -206,6 +206,11 @@ class ClearPulseEffect extends AbstractEffect {
         const tG = (tColorInt >> 8) & 0xFF;
         const tB = (tColorInt >> 16) & 0xFF;
 
+        const sColorInt = d.streamColorUint32;
+        const sR = sColorInt & 0xFF;
+        const sG = (sColorInt >> 8) & 0xFF;
+        const sB = (sColorInt >> 16) & 0xFF;
+
         for (let i = 0; i < total; i++) {
             // Optimization: AABB Check (Skip if definitely outside)
             const x = i % grid.cols; 
@@ -272,17 +277,14 @@ class ClearPulseEffect extends AbstractEffect {
             let finalColor;
 
             if (!s.clearPulseBlend) {
-                // Blend OFF: Solid Tracer Color & Glow
+                // Blend OFF: Solid Tracer Color
                 finalColor = tColorInt;
             } else {
-                // Blend ON: Linear fade across the entire wave
-                const bR = color & 0xFF;
-                const bG = (color >> 8) & 0xFF;
-                const bB = (color >> 16) & 0xFF;
-                
-                const mR = Math.floor(tR + (bR - tR) * rel);
-                const mG = Math.floor(tG + (bG - tG) * rel);
-                const mB = Math.floor(tB + (bB - tB) * rel);
+                // Blend ON: Outer edge (rel=0) = tracer color,
+                // inner edge (rel=1) fades into stream color
+                const mR = Math.floor(tR + (sR - tR) * rel);
+                const mG = Math.floor(tG + (sG - tG) * rel);
+                const mB = Math.floor(tB + (sB - tB) * rel);
                 finalColor = Utils.packAbgr(mR, mG, mB);
             }
 
@@ -325,8 +327,13 @@ class ClearPulseEffect extends AbstractEffect {
                 finalAlpha = 1.0;
             }
 
-            // Use Overlay Mode to preserve background simulation movement
-            grid.setEffectOverlay(i, String.fromCharCode(charCode), finalColor, finalAlpha, fontIdx, actualGlow);
+            if (s.clearPulseMovieAccurate) {
+                // MA mode: overlay preserves background movement via shader mix-to-white
+                grid.setEffectOverlay(i, String.fromCharCode(charCode), finalColor, finalAlpha, fontIdx, actualGlow);
+            } else {
+                // Standard mode: direct override so the blended color is rendered as-is
+                grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, finalAlpha, fontIdx, actualGlow);
+            }
         }
     }
 }

@@ -79,18 +79,14 @@ class PulseEffect extends AbstractEffect {
             chars: new Uint16Array(this.g.chars),
             colors: new Uint32Array(this.g.colors),
             alphas: new Float32Array(this.g.alphas),
+            glows: new Float32Array(this.g.glows),
             fontIndices: new Uint8Array(this.g.fontIndices),
-            tracers: new Uint8Array(total),
             fillChars: new Uint16Array(total),
             fillFonts: new Uint8Array(total)
         };
 
         const activeFonts = d.activeFonts;
         for (let i = 0; i < total; i++) {
-            const type = this.g.types[i] & Utils.CELL_TYPE_MASK;
-            if (type === Utils.CELL_TYPE.TRACER || type === Utils.CELL_TYPE.ROTATOR) {
-                this.snap.tracers[i] = 1;
-            }
             const fontIdx = this.g.fontIndices[i];
             const charSet = (activeFonts[fontIdx] || activeFonts[0]).chars;
             this.snap.fillChars[i] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
@@ -105,7 +101,6 @@ class PulseEffect extends AbstractEffect {
         this.snap = null;
         this.renderData = null;
         this.chunks = [];
-        this.c.state.effectSimulationFreeze = false;
     }
     
     update() {
@@ -128,22 +123,17 @@ class PulseEffect extends AbstractEffect {
         
         const d = this.c.derived;
         
-        if(this.state === 'WAITING') { 
-            this.c.state.effectSimulationFreeze = true;
-            if(--this.timer <= 0) { 
-                this.state = 'EXPANDING'; 
+        if(this.state === 'WAITING') {
+            if(--this.timer <= 0) {
+                this.state = 'EXPANDING';
             }
         } else {
-            // Keep time frozen while the wave passes
-            this.c.state.effectSimulationFreeze = true;
-
             const maxDim = Math.max(this.g.cols * d.cellWidth * s.stretchX, this.g.rows * d.cellHeight * s.stretchY);
             this.speed = (maxDim + 200) / Math.max(1, s.pulseDurationSeconds * fps);
-            this.radius += this.speed; 
-            if(this.radius > maxDim + 400) { 
-                this.active = false; this.snap = null; this.renderData = null; 
-                this.c.state.effectSimulationFreeze = false;
-                return; 
+            this.radius += this.speed;
+            if(this.radius > maxDim + 400) {
+                this.active = false; this.snap = null; this.renderData = null;
+                return;
             }
 
             // --- Chunk Lifecycle & Spawning ---
@@ -273,19 +263,8 @@ class PulseEffect extends AbstractEffect {
 
              const progress = this.radius / maxRad;
 
-             // FADE TO DARK LOGIC
-             // Timer counts DOWN. We want to fade OUT in the first 10 frames of the wait.
-             // Max timer = s.pulseDelaySeconds * 60
-             const maxTimer = s.pulseDelaySeconds * 60;
-             const timeElapsed = maxTimer - this.timer;
-             const fadeDur = 10; // Frames
-             let fadeMult = s.pulseDimming;
-             
-             if (timeElapsed < fadeDur) {
-                 const t = timeElapsed / fadeDur; 
-                 // Lerp from 1.0 to s.pulseDimming
-                 fadeMult = 1.0 + (s.pulseDimming - 1.0) * t;
-             }
+             // FADE TO DARK LOGIC — Movie Accurate: instant dim, no interpolation
+             const fadeMult = s.pulseDimming;
              
              for (let i = 0; i < total; i++) {
                  // Common Data Fetch
@@ -293,8 +272,9 @@ class PulseEffect extends AbstractEffect {
                  let charCode = this.snap.chars[i];
                  let color = this.snap.colors[i];
                  let fontIdx = this.snap.fontIndices[i];
-                 const isTracer = (this.snap.tracers[i] === 1);
-                 
+                 const snGlow = this.snap.glows[i];
+                 const isTracerHead = (snGlow > 1.0);
+
                  // Fill gaps from snapshot
                  const isGap = (snAlpha <= 0.01);
                  if (isGap) {
@@ -305,9 +285,9 @@ class PulseEffect extends AbstractEffect {
 
                  if (this.state === 'WAITING') {
                      // 1. Darken Everything with Fade
-                     if (isTracer) {
-                         const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
-                         // Tracers REMAIN BRIGHT (Ignore fadeMult)
+                     if (isTracerHead) {
+                         const glow = (s.pulseUseTracerGlow) ? snGlow : 0;
+                         // Tracer heads REMAIN BRIGHT (Ignore fadeMult)
                          grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                      } else {
                          grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * fadeMult, fontIdx, 0);
@@ -368,9 +348,9 @@ class PulseEffect extends AbstractEffect {
                          grid.setEffectOverlay(i, displayChar, baseColor, 0.4, displayFont, 0); // No glow for faded part
                      } else {
                          // NORMAL BACKGROUND
-                         if (isTracer) {
-                             // Tracers remain bright outside
-                             const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                         if (isTracerHead) {
+                             // Tracer heads remain bright outside
+                             const glow = (s.pulseUseTracerGlow) ? snGlow : 0;
                              grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                          } else {
                              grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0);
@@ -409,21 +389,22 @@ class PulseEffect extends AbstractEffect {
                              const waveGlow = 1.5;
 
                              // Dimming Logic for Leading Edge (First 5 chars)
-                             let baseColor = grid.colors[i];
+                             let displayColor = color; // Default to pulse/snapshot color
+                             
                              // Check distance from leading edge
                              const edgeDist = localOuter - dist;
                              const threshold = 5 * d.cellWidth * s.stretchX;
                              
                              if (edgeDist < threshold) {
-                                 const r = baseColor & 0xFF;
-                                 const g = (baseColor >> 8) & 0xFF;
-                                 const b = (baseColor >> 16) & 0xFF;
+                                 const r = displayColor & 0xFF;
+                                 const g = (displayColor >> 8) & 0xFF;
+                                 const b = (displayColor >> 16) & 0xFF;
                                  // Dim by 50%
-                                 baseColor = Utils.packAbgr(Math.floor(r * 0.5), Math.floor(g * 0.5), Math.floor(b * 0.5));
+                                 displayColor = Utils.packAbgr(Math.floor(r * 0.5), Math.floor(g * 0.5), Math.floor(b * 0.5));
                              }
 
                              // Use Overlay Mode (2) to see simulation underneath
-                             grid.setEffectOverlay(i, displayChar, baseColor, alpha, displayFont, waveGlow);
+                             grid.setEffectOverlay(i, displayChar, displayColor, alpha, displayFont, waveGlow);
                          }
                      } else {
                          // --- HOLE (Full Reveal) ---
@@ -474,8 +455,10 @@ class PulseEffect extends AbstractEffect {
             let charCode = this.snap.chars[i];
             let fontIdx = this.snap.fontIndices[i];
             let color = this.snap.colors[i];
-            
-            const isTracer = (this.snap.tracers[i] === 1);
+            const snGlow = this.snap.glows[i];
+
+            // A cell is a "tracer head" if it had significant glow at snapshot time
+            const isTracerHead = (snGlow > 1.0);
             const isGap = (snAlpha <= 0.01);
 
             // Apply Gap Filling (Global)
@@ -490,9 +473,9 @@ class PulseEffect extends AbstractEffect {
             if (this.state === 'WAITING' || dist > rd.radius) {
                 if (s.pulsePreserveSpaces && isGap) {
                     grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha * s.pulseDimming, fontIdx, 0)
-                } else if (isTracer && s.pulseIgnoreTracers) {
-                    // Keep original tracer
-                    const glow = (s.pulseUseTracerGlow) ? s.tracerGlow : 0;
+                } else if (isTracerHead && s.pulseIgnoreTracers) {
+                    // Preserve actual tracer heads (bright leading chars) at their original glow
+                    const glow = (s.pulseUseTracerGlow) ? snGlow : 0;
                     grid.setEffectOverride(i, String.fromCharCode(charCode), color, snAlpha, fontIdx, glow);
                 } else {
                     // Dimmed Snapshot
@@ -502,7 +485,7 @@ class PulseEffect extends AbstractEffect {
                         grid.clearEffectOverride(i);
                     }
                 }
-            } 
+            }
             // 3. WAVE BAND (Bright)
             // Condition: We are here because dist >= innerEdge AND dist <= radius
             else {
@@ -512,23 +495,32 @@ class PulseEffect extends AbstractEffect {
                     // Calculate relative position (0.0 at outer edge, 1.0 at inner edge)
                     // (radius - dist) is small at edge, large at inner
                     const rel = Math.max(0, Math.min(1, (rd.radius - dist) / (s.pulseWidth * 1.25)));
-                    
+
                     let finalColor = tColorInt;
                     if (s.pulseBlend) {
                         const bR = color & 0xFF;
                         const bG = (color >> 8) & 0xFF;
                         const bB = (color >> 16) & 0xFF;
-                        
+
                         const mR = Math.floor(tR + (bR - tR) * rel);
                         const mG = Math.floor(tG + (bG - tG) * rel);
                         const mB = Math.floor(tB + (bB - tB) * rel);
                         finalColor = Utils.packAbgr(mR, mG, mB);
                     }
-                    
-                    const glowAmount = (s.pulseUseTracerGlow) ? Math.max(s.tracerGlow, 30 * (1.0 - rel)) : 0;
-                    
+
+                    // Wave glow: only use tracerGlow for actual tracer heads,
+                    // otherwise use a subtle sweep glow that fades across the band
+                    let glowAmount = 0;
+                    if (s.pulseUseTracerGlow) {
+                        if (isTracerHead) {
+                            glowAmount = Math.max(snGlow, 30 * (1.0 - rel));
+                        } else {
+                            glowAmount = 30 * (1.0 - rel);
+                        }
+                    }
+
                     // Force alpha 1.0 for the wave
-                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0 , fontIdx, glowAmount);
+                    grid.setEffectOverride(i, String.fromCharCode(charCode), finalColor, 1.0, fontIdx, glowAmount);
                 }
             }
         }

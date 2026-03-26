@@ -251,19 +251,18 @@ const Utils = {
         // Encode SVG to UTF-8 before Base64 encoding for characters outside Latin1 range
         const utf8Svg = unescape(encodeURIComponent(svg));
         return `data:image/svg+xml;base64,${btoa(utf8Svg)}`;
+    },
+
+    // --- Matrix Constants ---
+    CELL_TYPE: {
+        EMPTY: 0,
+        TRAIL: 1,
+        TRACER: 2,
+        ROTATOR: 3,
+        UPWARD_TRACER: 4
+    },
+    CELL_TYPE_MASK: 0x7F, // 127
+    CELL_FLAGS: {
+        GRADUAL: 0x80 // 128
     }
-};
-
-// Predefined cell types for use in the grid
-const CELL_TYPE = {
-    EMPTY: 0,
-    TRAIL: 1,
-    TRACER: 2,
-    ROTATOR: 3,
-    UPWARD_TRACER: 4
-};
-
-const CELL_TYPE_MASK = 0x7F; // 127
-const CELL_FLAGS = {
-    GRADUAL: 0x80 // 128
 };

@@ -838,10 +838,12 @@ class QuantizedBaseEffect extends AbstractEffect {
             return false;
         }
 
-        const isEnabled = this.getConfig('Enabled');
-        if (!isEnabled && !force) {
-            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (disabled and not forced)`);
-            return false;
+        if (!force) {
+            const isEnabled = this.getConfig('Enabled');
+            if (!isEnabled) {
+                if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (disabled and not forced)`);
+                return false;
+            }
         }
 
         // Safety net: if chunked preallocation didn't complete (e.g. race condition),

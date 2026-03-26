@@ -285,8 +285,9 @@ class EffectRegistry {
         
         const isEnabled = this.config.get(fx.enabledKey);
         if (!isEnabled) {
+            // Only suppress automatic triggering — do NOT stop an effect
+            // that was manually/force-triggered via keybind or button.
             this._managedTimers.delete(fx.name);
-            if (fx.active) fx.stop(); // Ensure effect stops immediately when disabled
             return;
         }
 

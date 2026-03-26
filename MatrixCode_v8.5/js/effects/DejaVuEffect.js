@@ -200,13 +200,10 @@ void main() {
         const d = this.c.derived;
         const cols = grid.cols;
         const tracerColor = d.tracerColorUint32;
-        // holeBrightness is labeled 'Intensity' in UI, but 0.02 is too low for a "hidden map" look.
-        // We boost it and ensure a minimum visibility for the "white" rectangles.
-        const holeAlpha = Math.max(0.2, s.dejaVuHoleBrightness * 5.0);
+        const holeAlpha = Math.max(0.05, s.dejaVuHoleBrightness);
         const activeFonts = d.activeFonts;
         const fallbackFontIdx = 0;
         const fallbackChars = activeFonts[0].chars;
-        const timeSeed = Math.floor(Date.now() / 150);
         const randomizeColors = s.dejaVuRandomizeColors;
 
         for (let y = 0; y < grid.rows; y++) {
@@ -215,24 +212,27 @@ void main() {
                 for (let x = 0; x < cols; x++) {
                     const i = rowOffset + x;
                     const baseAlpha = grid.alphas[i];
-                    const fontIdx = grid.fontIndices[i];
-                    
-                    // Always scramble characters within the bars to show the "hidden character map"
-                    const hash = (i ^ timeSeed) * 2654435761;
-                    const rndIdx = (hash & 0x7FFFFFFF) % fallbackChars.length;
+
+                    // Stable hash based on position only — color stays fixed per cell
+                    const hash = (i * 2654435761) & 0x7FFFFFFF;
+                    const rndIdx = hash % fallbackChars.length;
                     const char = fallbackChars[rndIdx];
-                    
+
                     let finalAlpha = Math.max(holeAlpha, baseAlpha);
                     let color = tracerColor;
 
                     if (randomizeColors) {
-                        const h = Math.abs(hash % 360);
-                        const rgb = Utils.hslToRgb(h, 90, 70);
+                        const h = hash % 360;
+                        const rgb = Utils.hslToRgb(h, 90, 50);
                         color = Utils.packAbgr(rgb.r, rgb.g, rgb.b);
+                        // Write into both colors and baseColors so it persists after the bar.
+                        // baseColors is the fade target — the simulation transitions toward it.
+                        // A new tracer head will overwrite baseColors, restoring normal color.
+                        grid.colors[i] = color;
+                        grid.baseColors[i] = color;
                     }
 
-                    // Use setHighPriorityEffect to ensure these blocks stand out against the simulation
-                    grid.setHighPriorityEffect(i, char, color, finalAlpha, fallbackFontIdx, 0.5);
+                    grid.setHighPriorityEffect(i, char, color, finalAlpha, fallbackFontIdx, 0);
                 }
             }
         }

@@ -600,7 +600,7 @@ class StreamManager {
         const decays = this.grid.decays;
         if (decays[idx] >= 2) return;
 
-        if (decays[idx] > 0 && (this.grid.types[idx] & CELL_TYPE_MASK) !== CELL_TYPE.EMPTY) {
+        if (decays[idx] > 0 && (this.grid.types[idx] & Utils.CELL_TYPE_MASK) !== Utils.CELL_TYPE.EMPTY) {
             this.grid.ages[idx] = 0;
             decays[idx] = 2;
         } else {
@@ -625,11 +625,11 @@ class StreamManager {
             const grid = this.grid;
 
             let cellType = s.rotatorEnabled && Math.random() < (s.rotatorChance / 100)
-                ? CELL_TYPE.ROTATOR
-                : CELL_TYPE.TRACER;
+                ? Utils.CELL_TYPE.ROTATOR
+                : Utils.CELL_TYPE.TRACER;
 
             if (stream.isGradual) {
-                cellType |= CELL_FLAGS.GRADUAL;
+                cellType |= Utils.CELL_FLAGS.GRADUAL;
             }
 
             grid.types[idx] = cellType;

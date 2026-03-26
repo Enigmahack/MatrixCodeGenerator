@@ -93,6 +93,12 @@ class MiniPulseEffect extends AbstractEffect {
         const tG = (tracerColor >> 8) & 0xFF;
         const tB = (tracerColor >> 16) & 0xFF;
 
+        const activeFonts = d.activeFonts;
+        const streamColor = d.streamColorUint32;
+        const scR = streamColor & 0xFF;
+        const scG = (streamColor >> 8) & 0xFF;
+        const scB = (streamColor >> 16) & 0xFF;
+
         for (const p of this.renderPulses) {
             const startCol = Math.max(0, Math.floor(p.minX / cW));
             const endCol = Math.min(grid.cols, Math.ceil(p.maxX / cW));
@@ -103,10 +109,12 @@ class MiniPulseEffect extends AbstractEffect {
                 const rowOffset = y * grid.cols;
                 for (let x = startCol; x < endCol; x++) {
                     const i = rowOffset + x;
-                    
-                    // Skip empty cells (No scrambling)
+
                     const baseAlpha = grid.alphas[i];
-                    if (baseAlpha <= 0.01) continue;
+                    const isGap = (baseAlpha <= 0.01);
+
+                    // Preserve Spaces: skip gaps entirely
+                    if (s.miniPulsePreserveSpaces && isGap) continue;
 
                     const cx = (x * cW) + (cW * 0.5);
                     const cy = (y * cH) + (cH * 0.5);
@@ -124,28 +132,43 @@ class MiniPulseEffect extends AbstractEffect {
                     // Hit!
                     let lifeFade = 1.0;
                     if (p.r > p.maxR) lifeFade = Math.max(0, 1.0 - ((p.r - p.maxR) / 100));
-                    
+
                     if (lifeFade <= 0.01) continue;
 
-                    // Blend Tracer Color -> Stream Color
-                    // Ratio: lifeFade. 1.0 = Tracer. 0.0 = Stream.
-                    const streamColor = grid.colors[i];
-                    const sR = streamColor & 0xFF;
-                    const sG = (streamColor >> 8) & 0xFF;
-                    const sB = (streamColor >> 16) & 0xFF;
-                    
-                    const mR = Math.floor(sR + (tR - sR) * lifeFade);
-                    const mG = Math.floor(sG + (tG - sG) * lifeFade);
-                    const mB = Math.floor(sB + (tB - sB) * lifeFade);
-                    
+                    // Determine char/font/color for this cell
+                    let charStr, fontIdx, cellColor;
+                    if (isGap) {
+                        // Fill gap with random character for solid barrier
+                        fontIdx = grid.fontIndices[i] || 0;
+                        const fontData = activeFonts[fontIdx] || activeFonts[0];
+                        charStr = fontData.chars[Math.floor(Math.random() * fontData.chars.length)];
+                        cellColor = streamColor;
+                    } else {
+                        charStr = grid.getChar(i);
+                        fontIdx = grid.fontIndices[i];
+                        cellColor = grid.colors[i];
+                    }
+
+                    // Blend cell color -> tracer color based on lifeFade
+                    const cR = cellColor & 0xFF;
+                    const cG = (cellColor >> 8) & 0xFF;
+                    const cB = (cellColor >> 16) & 0xFF;
+
+                    const mR = Math.floor(cR + (tR - cR) * lifeFade);
+                    const mG = Math.floor(cG + (tG - cG) * lifeFade);
+                    const mB = Math.floor(cB + (tB - cB) * lifeFade);
+
                     const finalColor = Utils.packAbgr(mR, mG, mB);
                     const baseGlow = s.tracerGlow * lifeFade;
                     const glow = (s.miniPulseUseTracerGlow) ? baseGlow : 0;
-                    
-                    // Override acts as a "Lighting" layer here.
-                    // We use existing char and font.
-                    // We use existing alpha to preserve fade state.
-                    grid.setOverride(i, grid.getChar(i), finalColor, baseAlpha, grid.fontIndices[i], glow);
+
+                    if (lifeFade >= 1.0) {
+                        // Full strength: solid override
+                        grid.setEffectOverride(i, charStr, finalColor, 1.0, fontIdx, glow);
+                    } else {
+                        // Fading out: overlay so the live grid bleeds through
+                        grid.setEffectOverlay(i, charStr, finalColor, lifeFade, fontIdx, glow);
+                    }
                 }
             }
         }

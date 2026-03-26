@@ -892,7 +892,7 @@ class MatrixKernel {
 
                         let rotators = 0;
                         for (const idx of this.grid.activeIndices) {
-                            if ((this.grid.types[idx] & CELL_TYPE_MASK) === CELL_TYPE.ROTATOR) rotators++;
+                            if ((this.grid.types[idx] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.ROTATOR) rotators++;
                         }
                         const shimmers = this.grid.complexStyles.size;
 
