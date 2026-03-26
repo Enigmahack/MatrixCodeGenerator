@@ -4,13 +4,12 @@ Run tests on all effects, behaviors, sliders, settings, etc.
 Behaviours: 
 
 Visuals: 
-- Boot Effect doesn't look right. Refine. (The bluish/white boot animation only)
 - Fix animation for quantized Retract. 
 - Adjust behaviors slightly so they don't quite overlap in terms of what they do. 
 - Remove the spine-default-always-on growth by default. 
 
 Bugs: 
-Clicking certain UI elements appears to move the canvas (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc. Some settings move it back? 
+- [FIXED] Clicking certain UI elements appears to move the canvas up and left, (Line Tint, Code Colors, Italicize, Lock brightness to characters) but does not move the quantized lines, grid lines in the editor, etc. Some settings (Resolution Scale, Grid Layout) move it back. 
 
 There's a massive pause after the block generator takes over, instead of being seamless/continuing. 
 Scale to Effect Size does not work for some effects. 
