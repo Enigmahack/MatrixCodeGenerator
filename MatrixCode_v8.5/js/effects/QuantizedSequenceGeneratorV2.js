@@ -240,13 +240,19 @@ class QuantizedSequenceGeneratorV2 {
             const spawnRate  = Math.max(1, gen._getConfig('BlockSpawnerRate') ?? 4);
 
             const allowed = gen._getAllowedDirs(layer);
-            const spawnFromPerimeter = !!gen._getConfig('SpawnFromPerimeter');
+
+            // Recent-position tracking to prevent repetitive spawning at same locations
+            if (!s.spawnerRecent) s.spawnerRecent = new Map(); // key: "x,y" → step when spawned
+            // Cleanup old entries (TTL = 10 steps)
+            for (const [k, spawnStep] of s.spawnerRecent) {
+                if (s.step - spawnStep > 10) s.spawnerRecent.delete(k);
+            }
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
                 const maxSpawn = gen._getConfig('BlockSpawnerCount') ?? 5;
 
-                const needsEdge = spawnFromPerimeter || (behavior && behavior.growth === 'edge');
+                const needsEdge = (behavior && behavior.growth === 'edge');
                 let outsideInfo = null;
                 if (needsEdge) {
                     outsideInfo = gen._getOutsideMap();
@@ -269,7 +275,7 @@ class QuantizedSequenceGeneratorV2 {
                         const neighbors = [];
                         for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
                         for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
-                        
+
                         onOuterPerimeter = neighbors.some(n => {
                             if (n.x < outsideInfo.scanMinX || n.x > outsideInfo.scanMaxX || n.y < outsideInfo.scanMinY || n.y > outsideInfo.scanMaxY) return false;
                             return outsideMap[getIdx(n.x, n.y)] === 1;
@@ -288,12 +294,8 @@ class QuantizedSequenceGeneratorV2 {
                 });
 
                 if (perimeterBlocks.length > 0) {
-                    // NEW: Strict restriction - Prefer empty blocks closer to the initial spawn block first
-                    perimeterBlocks.sort((a, b) => {
-                        const distA = Math.abs(a.x + a.w/2 - s.scx) + Math.abs(a.y + a.h/2 - s.scy);
-                        const distB = Math.abs(b.x + b.w/2 - s.scx) + Math.abs(b.y + b.h/2 - s.scy);
-                        return distA - distB;
-                    });
+                    // Shuffle for spawn diversity — prevents always picking the same closest parents
+                    perimeterBlocks.sort(() => Math.random() - 0.5);
 
                     const biasArea = gen._getConfig('BlockSizeBias') ?? 1;
                     const sizes = biasArea > 1 ? null : [
@@ -353,10 +355,15 @@ class QuantizedSequenceGeneratorV2 {
                         }
                         if (!isAreaFree) continue;
 
+                        // Skip positions that were recently spawned to prevent repetitive clustering
+                        const posKey = nx + ',' + ny;
+                        if (s.spawnerRecent.has(posKey)) continue;
+
                         gen.actionBuffer.push({ layer: layer, fn: () => {
                             // Set bypassOccupancy to false to enforce strict placement
                             gen._spawnBlock(nx, ny, size.w, size.h, layer, false, 'block_spawner');
                         }});
+                        s.spawnerRecent.set(posKey, s.step);
                         spawnedCount++;
                     }
                 }
@@ -366,19 +373,19 @@ class QuantizedSequenceGeneratorV2 {
             const despawnRate = Math.max(1, gen._getConfig('BlockSpawnerDespawnRate') ?? 8);
             if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
                 const despawnCount = gen._getConfig('BlockSpawnerDespawnCount') ?? 2;
-                
+
                 // Select blocks that are connected by 2 or less edges (directions)
                 // RULE: Do not remove if two opposite edges are connected (e.g. N and S).
-                // NEW: Do not remove if block overlaps the spine (X or Y axis) or age > 3 steps.
+                // Blocks must be older than 8 steps to be despawn candidates (prevents spawn→despawn thrashing).
                 const candidates = gen.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
-                    
+
                     // --- PROTECTED BLOCKS ---
                     const overlapsYSpine = (b.x <= s.scx && b.x + b.w - 1 >= s.scx);
                     const overlapsXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
                     if (overlapsXSpine || overlapsYSpine) return false;
 
-                    if (b.stepAge > 3) return false;
+                    if (b.stepAge > 8) return false;
 
                     // --- CONNECTIVITY RULES ---
                     let north = false, south = false, west = false, east = false;
@@ -521,7 +528,6 @@ class QuantizedSequenceGeneratorV2 {
             const fillRate   = Math.max(1, gen._getConfig('ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = gen._getAllowedDirs(layer);
-            const allowAsymmetry = !!gen._getConfig('AllowAsymmetry');
             const bs    = gen._getBlockSize();
             const halfW = Math.floor(gen.cols / bs.w / 2);
             const halfH = Math.floor(gen.rows / bs.h / 2);
@@ -545,11 +551,11 @@ class QuantizedSequenceGeneratorV2 {
                     if (isEW) {
                         const perpMid   = s.scy + Math.round((Math.random() * 2 - 1) * proxH);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scx + (dir === 'E' ? 2 : -2), active: true, phaseOff: 0 });
                     } else {
                         const perpMid   = s.scx + Math.round((Math.random() * 2 - 1) * proxW);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.scy + (dir === 'S' ? 2 : -2), active: true, phaseOff: 0 });
                     }
                 }
             }
@@ -557,7 +563,6 @@ class QuantizedSequenceGeneratorV2 {
             for (const strip of s.shoveStripsByLayer[layer]) {
                 if (!strip.active) continue;
                 if (allowed && !allowed.has(strip.dir)) continue; // QUADRANT CHECK
-                if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
                 const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
@@ -1076,23 +1081,7 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _tickStrips(s) {
-        const allowAsymmetry = !!this._getConfig('AllowAsymmetry');
         const useGenerativeScaling = !!this._getConfig('GenerativeScaling');
-
-        if (allowAsymmetry) {
-            for (const [col, ticks] of s.deferredCols.entries()) {
-                if (ticks <= 1) s.deferredCols.delete(col); else s.deferredCols.set(col, ticks - 1);
-            }
-            for (const [row, ticks] of s.deferredRows.entries()) {
-                if (ticks <= 1) s.deferredRows.delete(row); else s.deferredRows.set(row, ticks - 1);
-            }
-            if (Math.random() < 0.2) {
-                const bs = this._getBlockSize();
-                const halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
-                if (Math.random() < 0.5) s.deferredCols.set(s.scx + Math.floor((Math.random() * 2 - 1) * (halfW + 5)), 1 + Math.floor(Math.random() * 2));
-                else s.deferredRows.set(s.scy + Math.floor((Math.random() * 2 - 1) * (halfH + 5)), 1 + Math.floor(Math.random() * 2));
-            }
-        }
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
@@ -1105,18 +1094,6 @@ class QuantizedSequenceGeneratorV2 {
             if (allowed && !allowed.has(strip.direction)) continue; // QUADRANT RESTRICTION
 
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
-
-            if (allowAsymmetry && strip.layer < 2 && (s.deferredCols.has(strip.headX) || s.deferredRows.has(strip.headY))) continue;
-            
-            if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
-                if (strip.isExpansion || strip.isSpine) {
-                    strip.pattern = this._generateInsideOutPattern();
-                    strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
-                } else {
-                    strip.pattern = this._generateRandomPattern();
-                    strip.pausePattern = this._generateDistinctPattern(strip.pattern);
-                }
-            }
 
             let shouldGrow = false;
             // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
@@ -1233,20 +1210,7 @@ class QuantizedSequenceGeneratorV2 {
             return { bw: 1, bh: 1 };
         }
 
-        const fillThreshold = this._getConfig('FillThreshold') ?? 0.33;
-        if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
-        const maxScale = this._getConfig('MaxBlockScale') ?? 3;
-        const halfW = Math.floor(visW / 2);
-        const halfH = Math.floor(visH / 2);
-        const ox = strip.originX, oy = strip.originY, dir = strip.direction;
-        let distFactor, axisRatio;
-        if (dir === 'N') { distFactor = halfH > 0 ? (oy + halfH) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'S') { distFactor = halfH > 0 ? (halfH - oy) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'E') { distFactor = halfW > 0 ? (halfW - ox) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        else { distFactor = halfW > 0 ? (ox + halfW) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        distFactor = Math.max(0, Math.min(2, distFactor));
-        const size = Math.min(maxScale, Math.max(1, Math.round(distFactor * axisRatio)));
-        return (dir === 'N' || dir === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        return { bw: 1, bh: 1 };
     }
 
     _growStrip(strip, s) {
@@ -1521,18 +1485,9 @@ class QuantizedSequenceGeneratorV2 {
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
 
-            const spawnFromPerimeter = !!gen._getConfig('SpawnFromPerimeter');
-
             // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
             const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
-            let perimeterEstablished = false;
-            if (spawnFromPerimeter && !spineEstablished) {
-                // Check if any cardinal neighbor of (bx, by) is occupied on L0 or L1
-                const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
-                perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
-            }
-
-            if (!spineEstablished && !perimeterEstablished) continue;
+            if (!spineEstablished) continue;
 
             // Prepare waves for this bucket
             const waves = [];
@@ -2014,10 +1969,9 @@ class QuantizedSequenceGeneratorV2 {
         this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
 
-        // One-time per step calculation of outsideInfo if SpawnFromPerimeter is enabled or any edge-mode behavior is active
+        // One-time per step calculation of outsideInfo if any edge-mode behavior is active
         s.outsideInfo = null;
-        const _needsOutside = !!this._getConfig('SpawnFromPerimeter') ||
-            !!this._getConfig('HoleFillerEnabled') ||
+        const _needsOutside = !!this._getConfig('HoleFillerEnabled') ||
             [...this.growthPool.values()].some(b => b.enabled && b.growth === 'edge');
         if (_needsOutside) {
             s.outsideInfo = this._getOutsideMap();
@@ -2069,7 +2023,6 @@ class QuantizedSequenceGeneratorV2 {
         }
         this._expandInsideOut(s);
 
-        const quota = this._getConfig('SimultaneousSpawns') || 1;
         const poolBehaviors = [];
         const minL = this._getMinLayer();
         const maxL = this._getMaxLayer();
@@ -2085,13 +2038,9 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
         if (poolBehaviors.length > 0) {
-            const qCount = parseInt(this._getConfig('QuadrantCount') ?? 4);
-            const dynamicQuota = Math.max(1, Math.floor(quota * (qCount / 4)));
-            for (let q = 0; q < dynamicQuota; q++) {
-                const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
-                for (let l = minL; l <= maxL; l++) {
-                    b.fn.call(this, s, b, l);
-                }
+            const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
+            for (let l = minL; l <= maxL; l++) {
+                b.fn.call(this, s, b, l);
             }
         }
     }

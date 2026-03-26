@@ -1886,13 +1886,19 @@ class _QuantizedProceduralEngine {
             const spawnRate  = Math.max(1, this._getGenConfig('BlockSpawnerRate') ?? 4);
 
             const allowed = this._getAllowedDirs(layer);
-            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
+
+            // Recent-position tracking to prevent repetitive spawning at same locations
+            if (!s.spawnerRecent) s.spawnerRecent = new Map(); // key: "x,y" → step when spawned
+            // Cleanup old entries (TTL = 10 steps)
+            for (const [k, spawnStep] of s.spawnerRecent) {
+                if (s.step - spawnStep > 10) s.spawnerRecent.delete(k);
+            }
 
             // 1. Spawning Logic
             if (s.step >= startDelay && (s.step - startDelay) % spawnRate === 0) {
                 const maxSpawn = this._getGenConfig('BlockSpawnerCount') ?? 5;
 
-                const needsEdge = spawnFromPerimeter || (behavior && behavior.growth === 'edge');
+                const needsEdge = (behavior && behavior.growth === 'edge');
                 let outsideMap = null;
                 if (needsEdge) {
                     outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
@@ -1915,7 +1921,7 @@ class _QuantizedProceduralEngine {
                         const neighbors = [];
                         for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
                         for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
-                        
+
                         onOuterPerimeter = neighbors.some(n => {
                             const gx = cx + n.x, gy = cy + n.y;
                             if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH) return false;
@@ -1930,27 +1936,22 @@ class _QuantizedProceduralEngine {
                         {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'}, // N, S
                         {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, y: b.y, dir: 'E'}  // W, E
                     ];
-                    // RELAXATION: A block is a candidate if it has ANY free neighbor, 
+                    // RELAXATION: A block is a candidate if it has ANY free neighbor,
                     // and we'll filter the spawn side later based on quadrants.
                     return neighbors.some(n => !this._isOccupied(n.x, n.y, layer));
                 });
 
                 if (perimeterBlocks.length > 0) {
-                    // NEW: Strict restriction - Prefer empty blocks closer to the initial spawn block first
-                    perimeterBlocks.sort((a, b) => {
-                        const distA = Math.abs(a.x + a.w/2 - s.genOriginX) + Math.abs(a.y + a.h/2 - s.genOriginY);
-                        const distB = Math.abs(b.x + b.w/2 - s.genOriginX) + Math.abs(b.y + b.h/2 - s.genOriginY);
-                        return distA - distB;
-                    });
+                    // Shuffle for spawn diversity — prevents always picking the same closest parents
+                    Utils.shuffle(perimeterBlocks);
 
                     const sizes = [
-                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}, 
+                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1},
                         {w: 1, h: 3}, {w: 3, h: 1}
                     ];
 
                     let spawnedCount = 0;
                     for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
-                        // Strict preference: Iterate through sorted parents. Try up to 2 attempts per parent before moving on.
                         const parent = perimeterBlocks[Math.floor(i / 2) % perimeterBlocks.length];
                         
                         // Determine parent's quadrant relative to spawn center
@@ -2001,10 +2002,15 @@ class _QuantizedProceduralEngine {
                         }
                         if (!isAreaFree) continue;
 
+                        // Skip positions that were recently spawned to prevent repetitive clustering
+                        const posKey = nx + ',' + ny;
+                        if (s.spawnerRecent.has(posKey)) continue;
+
                         this.actionBuffer.push({ layer: layer, fn: () => {
                             // Set skipConnectivity (8th arg) to false to enforce strict placement
                             this._spawnBlock(nx, ny, size.w, size.h, layer, false, 0, false, true, true, false, false, 'block_spawner');
                         }});
+                        s.spawnerRecent.set(posKey, s.step);
                         spawnedCount++;
                     }
                 }
@@ -2014,19 +2020,19 @@ class _QuantizedProceduralEngine {
             const despawnRate = Math.max(1, this._getGenConfig('BlockSpawnerDespawnRate') ?? 8);
             if (s.step >= startDelay && (s.step - startDelay) % despawnRate === 0) {
                 const despawnCount = this._getGenConfig('BlockSpawnerDespawnCount') ?? 2;
-                
+
                 // Select blocks that are connected by 2 or less edges (directions)
                 // RULE: Do not remove if two opposite edges are connected (e.g. N and S).
-                // NEW: Do not remove if block overlaps the spine (X or Y axis) or age > 3 steps.
+                // Blocks must be older than 8 steps to be despawn candidates (prevents spawn→despawn thrashing).
                 const candidates = this.activeBlocks.filter(b => {
                     if (b.layer !== layer) return false;
-                    
+
                     // --- PROTECTED BLOCKS ---
                     const overlapsYSpine = (b.x <= s.genOriginX && b.x + b.w - 1 >= s.genOriginX);
                     const overlapsXSpine = (b.y <= s.genOriginY && b.y + b.h - 1 >= s.genOriginY);
                     if (overlapsXSpine || overlapsYSpine) return false;
 
-                    if (b.stepAge > 3) return false;
+                    if (b.stepAge > 8) return false;
 
                     // --- CONNECTIVITY RULES ---
                     let north = false, south = false, west = false, east = false;
@@ -2192,7 +2198,6 @@ class _QuantizedProceduralEngine {
             const fillRate   = Math.max(1, this._getGenConfig('ShoveFillRate') ?? 4);
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = this._getAllowedDirs(layer);
-            const allowAsymmetry = !!this._getGenConfig('AllowAsymmetry');
             const bs    = this.getBlockSize();
             const halfW = Math.floor(this.g.cols / bs.w / 2);
             const halfH = Math.floor(this.g.rows / bs.h / 2);
@@ -2216,11 +2221,11 @@ class _QuantizedProceduralEngine {
                     if (isEW) {
                         const perpMid   = s.genOriginY + Math.round((Math.random() * 2 - 1) * proxH);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginX + (dir === 'E' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginX + (dir === 'E' ? 2 : -2), active: true, phaseOff: 0 });
                     } else {
                         const perpMid   = s.genOriginX + Math.round((Math.random() * 2 - 1) * proxW);
                         const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginY + (dir === 'S' ? 2 : -2), active: true, phaseOff: allowAsymmetry ? Math.floor(Math.random() * 3) : 0 });
+                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginY + (dir === 'S' ? 2 : -2), active: true, phaseOff: 0 });
                     }
                 }
             }
@@ -2228,7 +2233,6 @@ class _QuantizedProceduralEngine {
             for (const strip of s.shoveStripsByLayer[layer]) {
                 if (!strip.active) continue;
                 if (allowed && !allowed.has(strip.dir)) continue; // QUADRANT CHECK
-                if (allowAsymmetry && ((s.step - startDelay + strip.phaseOff) % Math.max(2, fillRate)) !== 0) continue;
 
                 const isEW = strip.dir === 'E' || strip.dir === 'W';
                 const step = (strip.dir === 'E' || strip.dir === 'S') ? 1 : -1;
@@ -2454,8 +2458,6 @@ class _QuantizedProceduralEngine {
             const maxAxes = this._getGenConfig('AxisShiftMaxAxes') ?? 10;
             const minLength = this._getGenConfig('AxisShiftMinLength') ?? 3;
 
-            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
-
             // Initialize state
             if (!s[`axisShiftAxes_${layer}`]) s[`axisShiftAxes_${layer}`] = [];
             if (!s.axisShiftUsedStrips) s.axisShiftUsedStrips = new Set();
@@ -2480,33 +2482,6 @@ class _QuantizedProceduralEngine {
 
             if (s.step < startDelay) return;
             if ((s.step - startDelay) % rate !== 0) return;
-
-            // Option: Spawn from ANY perimeter block
-            if (spawnFromPerimeter && s.outsideMap) {
-                const cx = this._gridCX, cy = this._gridCY, w = this.logicGridW;
-                const perimeterCandidates = this.activeBlocks.filter(b => {
-                    // Is this block on the outermost perimeter?
-                    const neighbors = [];
-                    for (let x = b.x; x < b.x + b.w; x++) { neighbors.push({x, y: b.y - 1}, {x, y: b.y + b.h}); }
-                    for (let y = b.y; y < b.y + b.h; y++) { neighbors.push({x: b.x - 1, y}, {x: b.x + b.w, y}); }
-                    return neighbors.some(n => {
-                        const gx = cx + n.x, gy = cy + n.y;
-                        if (gx < 0 || gx >= w || gy < 0 || gy >= this.logicGridH) return false;
-                        return s.outsideMap[gy * w + gx] === 1;
-                    });
-                });
-
-                if (perimeterCandidates.length > 0) {
-                    const b = perimeterCandidates[Math.floor(Math.random() * perimeterCandidates.length)];
-                    s[`axisShiftCandidates_${layer}`].push({
-                        id: 'perimeter_' + b.id + '_' + s.step,
-                        direction: 'ANY',
-                        originX: b.x + Math.floor(b.w / 2),
-                        originY: b.y + Math.floor(b.h / 2),
-                        growCount: 2 // Artificial growCount to allow offset pick
-                    });
-                }
-            }
 
             // Cap check
             if (s[`axisShiftAxes_${layer}`].length >= maxAxes) return;
@@ -2782,32 +2757,7 @@ class _QuantizedProceduralEngine {
     }
 
     _tickStrips(s) {
-        const allowAsymmetry = !!this._getGenConfig('AllowAsymmetry');
         const useGenerativeScaling = !!this._getGenConfig('GenerativeScaling');
-
-        if (allowAsymmetry) {
-            if (!s.deferredCols) s.deferredCols = new Map();
-            if (!s.deferredRows) s.deferredRows = new Map();
-            for (const [col, ticks] of s.deferredCols.entries()) {
-                if (ticks <= 1) s.deferredCols.delete(col); else s.deferredCols.set(col, ticks - 1);
-            }
-            for (const [row, ticks] of s.deferredRows.entries()) {
-                if (ticks <= 1) s.deferredRows.delete(row); else s.deferredRows.set(row, ticks - 1);
-            }
-            if (Math.random() < 0.2) {
-                const bs = this.getBlockSize();
-                const halfW = Math.floor(this.g.cols / bs.w / 2);
-                const halfH = Math.floor(this.g.rows / bs.h / 2);
-                const isCol = Math.random() < 0.5;
-                if (isCol) {
-                    const colOffset = Math.floor((Math.random() * 2 - 1) * (halfW + 5));
-                    s.deferredCols.set(s.genOriginX + colOffset, 1 + Math.floor(Math.random() * 2));
-                } else {
-                    const rowOffset = Math.floor((Math.random() * 2 - 1) * (halfH + 5));
-                    s.deferredRows.set(s.genOriginY + rowOffset, 1 + Math.floor(Math.random() * 2));
-                }
-            }
-        }
         
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
@@ -2823,20 +2773,6 @@ class _QuantizedProceduralEngine {
             if (allowed && !allowed.has(strip.direction) && !isBranchOfAllowedArm) continue; // QUADRANT RESTRICTION
 
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
-
-            if (allowAsymmetry && strip.layer < 2) {
-                if (s.deferredCols?.has(strip.headX) || s.deferredRows?.has(strip.headY)) continue;
-            }
-            
-            if (allowAsymmetry && strip.stepPhase === 0 && strip.boostSteps <= 0) {
-                if (strip.isExpansion || strip.isSpine) {
-                    strip.pattern = this._generateInsideOutPattern();
-                    strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
-                } else {
-                    strip.pattern = this._generateRandomPattern();
-                    strip.pausePattern = this._generateDistinctPattern(strip.pattern);
-                }
-            }
 
             let shouldGrow = false;
             // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
@@ -2922,20 +2858,7 @@ class _QuantizedProceduralEngine {
             return { bw: 1, bh: 1 };
         }
 
-        const fillThreshold = this._getGenConfig('FillThreshold') ?? 0.33;
-        if (fillRatio < fillThreshold) return { bw: 1, bh: 1 };
-        const maxScale = this._getGenConfig('MaxBlockScale') ?? 3;
-        const halfW = Math.floor(visW / 2);
-        const halfH = Math.floor(visH / 2);
-        const ox = strip.originX, oy = strip.originY, dir = strip.direction;
-        let distFactor, axisRatio;
-        if (dir === 'N') { distFactor = halfH > 0 ? (oy + halfH) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'S') { distFactor = halfH > 0 ? (halfH - oy) / halfH : 1; axisRatio = visH / Math.max(1, visW); }
-        else if (dir === 'E') { distFactor = halfW > 0 ? (halfW - ox) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        else { distFactor = halfW > 0 ? (ox + halfW) / halfW : 1; axisRatio = visW / Math.max(1, visH); }
-        distFactor = Math.max(0, Math.min(2, distFactor));
-        const size = Math.min(maxScale, Math.max(1, Math.round(distFactor * axisRatio)));
-        return (dir === 'N' || dir === 'S') ? { bw: 1, bh: size } : { bw: size, bh: 1 };
+        return { bw: 1, bh: 1 };
     }
 
     _growStrip(strip, s) {
@@ -3077,18 +3000,11 @@ class _QuantizedProceduralEngine {
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
 
-            const spawnFromPerimeter = !!this.getConfig('SpawnFromPerimeter');
-
             // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
             const spinesEnabled = this._getGenConfig('SpinesFirstEnabled') !== false;
             if (spinesEnabled) {
                 const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
-                let perimeterEstablished = false;
-                if (spawnFromPerimeter && !spineEstablished) {
-                    const neighbors = [{x: bx-1, y: by}, {x: bx+1, y: by}, {x: bx, y: by-1}, {x: bx, y: by+1}];
-                    perimeterEstablished = neighbors.some(n => this._isOccupied(n.x, n.y, 0) || this._isOccupied(n.x, n.y, 1));
-                }
-                if (!spineEstablished && !perimeterEstablished) continue;
+                if (!spineEstablished) continue;
             }
 
             // Prepare waves for this bucket
@@ -3232,10 +3148,9 @@ class _QuantizedProceduralEngine {
         this._updateAxisMaxDist(s);
         this._updateLayerMaxDist(s);
 
-        // One-time per step calculation of outsideMap if SpawnFromPerimeter is enabled or any edge-mode behavior is active
+        // One-time per step calculation of outsideMap if any edge-mode behavior is active
         s.outsideMap = null;
-        const _needsOutside = !!this.getConfig('SpawnFromPerimeter') ||
-            !!this._getGenConfig('HoleFillerEnabled') ||
+        const _needsOutside = !!this._getGenConfig('HoleFillerEnabled') ||
             [...this.growthPool.values()].some(b => b.enabled && b.growth === 'edge');
         if (_needsOutside) {
             s.outsideMap = this._computeTrueOutside(this.logicGridW, this.logicGridH);
@@ -3289,7 +3204,6 @@ class _QuantizedProceduralEngine {
             }
         }
 
-        const quota = this.getConfig('SimultaneousSpawns') || 1;
         if (!this._enabledPoolBehaviorsBuf) this._enabledPoolBehaviorsBuf = [];
         const poolBehaviors = this._enabledPoolBehaviorsBuf;
         poolBehaviors.length = 0;
@@ -3309,13 +3223,9 @@ class _QuantizedProceduralEngine {
         }
 
         if (poolBehaviors.length > 0) {
-            const qCount = parseInt(this._getGenConfig('QuadrantCount') ?? 4);
-            const dynamicQuota = Math.max(1, Math.floor(quota * (qCount / 4)));
-            for (let q = 0; q < dynamicQuota; q++) {
-                const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
-                for (let l = minL; l <= maxL; l++) {
-                    b.fn.call(this, s, b, l);
-                }
+            const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
+            for (let l = minL; l <= maxL; l++) {
+                b.fn.call(this, s, b, l);
             }
         }
 
