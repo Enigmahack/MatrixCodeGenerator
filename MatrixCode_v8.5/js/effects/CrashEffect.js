@@ -122,6 +122,8 @@ class CrashEffect extends AbstractEffect {
         this.supermanState.geometry = null;
         this.smithState.active = false;
         this.flashState.active = false;
+        const dv = this.r && this.r.get('DejaVu');
+        if (dv && dv.active) dv.stop();
     }
 
     update() {
@@ -166,6 +168,8 @@ class CrashEffect extends AbstractEffect {
             this.supermanState.cells.clear();
             this.supermanState.illuminatedCells.clear();
             this.supermanState.geometry = null;
+            const dv = this.r && this.r.get('DejaVu');
+            if (dv && dv.active) dv.stop();
             return;
         }
 

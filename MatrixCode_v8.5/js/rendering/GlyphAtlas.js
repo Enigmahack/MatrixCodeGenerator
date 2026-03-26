@@ -47,8 +47,11 @@ class GlyphAtlas {
         this.testCanvas.width = 20;
         this.testCanvas.height = 20;
         this.testCtx = this.testCanvas.getContext('2d', { willReadFrequently: true });
-        this._cachedFilteredChars = null;
-        this._cachedFilterKey = '';
+        this._filteredCharsCache = new Map(); // key: font+'::'+rawChars → filtered string
+
+        // Font loading validation
+        this._fontValidationRetries = 0;
+        this._rejectedChars = new Set(); // Chars rejected by signature check (may be font race condition)
         
         // Lazy Loading State
         this.usedChars = []; // List of characters currently in atlas
@@ -62,7 +65,7 @@ class GlyphAtlas {
      * Initializes or updates the atlas configuration.
      * Clears the atlas and resets state to allow lazy loading.
      */
-    update() {
+    update(force = false) {
         const s = this.config.state;
         const d = this.config.derived;
 
@@ -83,10 +86,13 @@ class GlyphAtlas {
 
         const isFontReady = document.fonts.check(fontBase);
 
-        if (this.currentFont === fontBase &&
+        if (!force &&
+            this.currentFont === fontBase &&
             this.currentPalette === fullConfigStr &&
             this.fontReady === isFontReady &&
             !this.needsUpdate) {
+            // Even when atlas is unchanged, re-filter charsets in case they were rebuilt
+            this._filterActiveFontChars(fontBase);
             return;
         }
 
@@ -107,8 +113,9 @@ class GlyphAtlas {
             this.needsUpdate = false;
         }
 
-        // Reset dynamic state
-        // Use a representative string with high/low chars
+        // Reset dynamic state (including filter cache since font changed)
+        this._filteredCharsCache.clear();
+        this._rejectedChars.clear(); // Allow re-checking rejected chars on atlas rebuild
         this.ctx.font = fontBase;
         const metrics = this.ctx.measureText("Mjg|[]{}()");
         // fallback if metrics not supported
@@ -160,6 +167,91 @@ class GlyphAtlas {
                 if (code < 65536) this.codeToId[code] = i;
             }
             this.usedChars = prevUsedChars;
+
+            // Validate that characters actually rendered on the canvas.
+            // document.fonts.check() can return true before the font is fully ready
+            // for canvas rendering, causing random characters to render as blank.
+            if (isFontReady) {
+                const blankChars = this._findBlankAtlasChars();
+                if (blankChars.length > 0) {
+                    // Remove blank entries so addChar can re-attempt them
+                    for (const blankChar of blankChars) {
+                        this.charMap.delete(blankChar);
+                        const code = blankChar.charCodeAt(0);
+                        if (code < 65536) this.codeToId[code] = -1;
+                    }
+                    this._fontValidationRetries++;
+                    if (this._fontValidationRetries < 30) {
+                        this.needsUpdate = true; // Force retry next frame
+                    }
+                    if (this.config.state.logErrors) {
+                        console.warn(`[GlyphAtlas:${this._debugLabel}] ${blankChars.length} blank chars after pre-population (retry ${this._fontValidationRetries}): "${blankChars.join('')}"`);
+                    }
+                } else {
+                    this._fontValidationRetries = 0;
+                }
+            }
+        }
+
+        // Filter active font charsets to remove characters unsupported by this font
+        this._filterActiveFontChars(fontBase);
+    }
+
+    /**
+     * Scans the atlas canvas for characters whose cells have no alpha content.
+     * Returns an array of blank character strings.
+     * Uses a single getImageData call for the full atlas, then spot-checks each cell.
+     */
+    _findBlankAtlasChars() {
+        if (this.usedChars.length === 0) return [];
+
+        const cols = this._lastCols;
+        const cs = this.cellSize;
+        const w = this.atlasWidth;
+        const h = this.atlasHeight;
+
+        // Read entire atlas pixel data once (much faster than per-cell getImageData)
+        const fullData = this.ctx.getImageData(0, 0, w, h).data;
+        const blanks = [];
+
+        for (let i = 0; i < this.usedChars.length; i++) {
+            const cellX = (i % cols) * cs;
+            const cellY = ((i / cols) | 0) * cs;
+
+            // Scan the entire cell, checking every 4th pixel's alpha for speed.
+            // Characters like "." or "_" render far from center, so we must check the full cell.
+            let hasContent = false;
+            for (let py = cellY, endY = Math.min(cellY + cs, h); py < endY && !hasContent; py += 2) {
+                for (let px = cellX, endX = Math.min(cellX + cs, w); px < endX; px += 2) {
+                    if (fullData[(py * w + px) * 4 + 3] > 0) {
+                        hasContent = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasContent) {
+                blanks.push(this.usedChars[i]);
+            }
+        }
+        return blanks;
+    }
+
+    /**
+     * Filters config.derived.activeFonts charsets to only include characters
+     * that the current font can actually render (not tofu/blank).
+     * Uses a per-key cache so repeated calls with unchanged data are free.
+     */
+    _filterActiveFontChars(fontBase) {
+        const activeFonts = this.config.derived?.activeFonts;
+        if (!activeFonts || !fontBase) return;
+
+        for (const font of activeFonts) {
+            const raw = font.chars;
+            if (!raw || raw.length === 0) continue;
+            const filtered = this._getFilteredChars(raw, fontBase);
+            if (filtered && filtered.length > 0) {
+                font.chars = filtered;
+            }
         }
     }
 
@@ -236,16 +328,21 @@ class GlyphAtlas {
             return rect;
         }
 
-        // Check if supported first
+        // Check if supported first (but don't permanently reject — font may not be ready yet)
         const checkFont = this.currentFont.replace(/\d+px/, '16px');
         const sig = this._getCharSignature(checkFont, char);
         const emptySig = this._getCharSignature(checkFont, '\uFFFF');
 
         if (!sig || sig === emptySig) {
-            // Unsupported, do not add
-            if (!this._debugRejected) this._debugRejected = 0;
-            this._debugRejected++;
-            if (this._debugRejected <= 5 && this.config.state.logErrors) console.warn(`[GlyphAtlas:${this._debugLabel}] REJECTED char "${char}" (0x${char.charCodeAt(0).toString(16)}) font=${this.currentFont}`);
+            // Character failed signature check — may be unsupported OR font race condition.
+            // Track it and force a retry on next update cycle.
+            if (!this._rejectedChars.has(char)) {
+                this._rejectedChars.add(char);
+                this.needsUpdate = true; // Force atlas rebuild next frame to retry
+                if (!this._debugRejected) this._debugRejected = 0;
+                this._debugRejected++;
+                if (this._debugRejected <= 10 && this.config.state.logErrors) console.warn(`[GlyphAtlas:${this._debugLabel}] REJECTED char "${char}" (0x${char.charCodeAt(0).toString(16)}) font=${this.currentFont} — will retry`);
+            }
             return null;
         }
 
@@ -261,7 +358,11 @@ class GlyphAtlas {
         // Always draw the new char (even after expansion)
         if (this.valid) {
             const index = this.usedChars.length - 1;
-            this._drawSingleChar(char, index);
+            const success = this._drawSingleChar(char, index);
+            if (success === false) {
+                // Draw failed (blank glyph) — font not truly ready
+                return null;
+            }
         }
 
         // Return the new mapping
@@ -280,10 +381,10 @@ class GlyphAtlas {
     _drawSingleChar(char, index) {
         const col = index % this._lastCols;
         const row = (index / this._lastCols) | 0;
-        
+
         const x = col * this.cellSize + this.halfCell;
         const y = row * this.cellSize + this.halfCell;
-        
+
         const rect = {
             x: col * this.cellSize,
             y: row * this.cellSize,
@@ -292,11 +393,33 @@ class GlyphAtlas {
             id: index // Store index for shader lookup
         };
         this.charMap.set(char, rect);
-        
+
         this.ctx.fillText(char, x, y);
 
         // Strategy 2: Incremental Updates - Capture pixel data
         const imageData = this.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
+
+        // Validate the character actually rendered (font race condition protection).
+        // Check alpha channel for any non-zero content.
+        let hasContent = false;
+        const data = imageData.data;
+        for (let p = 3; p < data.length; p += 16) { // Sample every 4th pixel's alpha
+            if (data[p] > 0) { hasContent = true; break; }
+        }
+        if (!hasContent) {
+            // Character drew blank — font likely not truly ready yet.
+            // Remove from atlas so it will be re-attempted.
+            this.charMap.delete(char);
+            const code = char.charCodeAt(0);
+            if (code < 65536) this.codeToId[code] = -1;
+            // Pop it from usedChars (it was the last one pushed)
+            if (this.usedChars.length > 0 && this.usedChars[this.usedChars.length - 1] === char) {
+                this.usedChars.pop();
+            }
+            this.needsUpdate = true; // Force atlas rebuild next frame
+            return false; // Signal draw failure
+        }
+
         this.dirtyRects.push({
             x: rect.x,
             y: rect.y,
@@ -355,36 +478,36 @@ class GlyphAtlas {
      * Caches the result to avoid expensive re-scans.
      */
     _getFilteredChars(rawList, font) {
-        // Use a key that includes the font (with size replaced by standard) and the raw list
-        // Note: We use the full fontBase as key because if size changes significantly, 
-        // we might want to re-check (though unlikely to change support).
+        // Use a key that includes the font and the raw list for cache lookup
         const key = font + '::' + rawList.length + ':' + rawList;
-        
-        if (this._cachedFilteredChars !== null && this._cachedFilterKey === key) {
-            return this._cachedFilteredChars;
+
+        const cached = this._filteredCharsCache.get(key);
+        if (cached !== undefined) {
+            return cached;
         }
 
         const filtered = [];
         // Pre-calculate empty signature (tofu)
         // We use a fixed size for checking to avoid large canvas requirements
-        const checkFont = font.replace(/\d+px/, '16px'); 
+        const checkFont = font.replace(/\d+px/, '16px');
         const emptySig = this._getCharSignature(checkFont, '\uFFFF');
 
         for (let i = 0; i < rawList.length; i++) {
             const char = rawList[i];
             const sig = this._getCharSignature(checkFont, char);
             // If signature exists and is different from tofu, it's supported.
-            // (We assume space ' ' is either not in list or handled by renderer if empty)
             if (sig && sig !== emptySig) {
                 filtered.push(char);
             }
         }
-        
-        this._cachedFilteredChars = (typeof rawList === 'string') ? filtered.join('') : filtered;
-        this._cachedFilterKey = key;
-        
-        // console.log(`[GlyphAtlas] Filtered chars: ${rawList.length} -> ${filtered.length}`);
-        return this._cachedFilteredChars;
+
+        const result = (typeof rawList === 'string') ? filtered.join('') : filtered;
+        this._filteredCharsCache.set(key, result);
+
+        if (result.length < rawList.length && this.config.state.logErrors) {
+            console.log(`[GlyphAtlas:${this._debugLabel}] Filtered chars: ${rawList.length} -> ${result.length} (removed ${rawList.length - result.length} unsupported)`);
+        }
+        return result;
     }
 
     /**

@@ -135,6 +135,18 @@ class MatrixKernel {
 
         requestAnimationFrame(this._boundLoop);
 
+        // Force a deferred atlas rebuild to guarantee the font is fully rasterizable.
+        // document.fonts.ready can resolve before Canvas2D can actually render the font,
+        // causing random blank glyphs. A brief delay + handleAppearanceChange (same path
+        // as the italic toggle) ensures a clean full rebuild once the font is truly ready.
+        document.fonts.ready.then(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (this.renderer) this.renderer.handleAppearanceChange();
+                });
+            });
+        });
+
         // Cleanup WebGL on unload to help Safari free up context slots
         window.addEventListener('beforeunload', () => {
             if (this.config && this.config.saveImmediate) this.config.saveImmediate();

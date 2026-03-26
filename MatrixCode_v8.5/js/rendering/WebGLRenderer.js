@@ -3757,7 +3757,7 @@ class WebGLRenderer {
             atlas.fontName = font.name; 
         }
 
-        if (this.needsAtlasUpdate || atlas.needsUpdate) atlas.update();
+        if (this.needsAtlasUpdate || atlas.needsUpdate) atlas.update(this.needsAtlasUpdate);
 
         if (!atlas.glTexture || atlas.needsFullUpdate) {
             // Full Upload (Initial or Resize)
@@ -4018,9 +4018,11 @@ class WebGLRenderer {
 
         }
 
-        if (atlas.hasChanges) {
-             this.gl.activeTexture(this.gl.TEXTURE7); // Scratch unit for upload
+        if (atlas.dirtyRects.length > 0) {
+             // Characters were added during instance buffer building — upload the updated atlas
+             this.gl.activeTexture(this.gl.TEXTURE7);
              this.gl.bindTexture(this.gl.TEXTURE_2D, atlas.glTexture);
+             this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
              this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, atlas.canvas);
              atlas.resetChanges();
         }
