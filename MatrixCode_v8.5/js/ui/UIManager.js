@@ -1283,11 +1283,6 @@ class UIManager {
                     startY = e.touches[0].clientY;
                     startValue = parseFloat(e.target.value);
                     isHorizontalDrag = false;
-                    
-                    // Prevent "jump to tap" visually
-                    requestAnimationFrame(() => {
-                        inp.value = startValue;
-                    });
                 }, { passive: false });
 
                 inp.addEventListener('touchmove', e => {
@@ -1330,10 +1325,12 @@ class UIManager {
                     }
                 }, { passive: false });
                 
-                inp.addEventListener('touchend', () => {
+                const endTouch = () => {
                     isTouching = false;
                     isHorizontalDrag = false;
-                });
+                };
+                inp.addEventListener('touchend', endTouch);
+                inp.addEventListener('touchcancel', endTouch);
             }
 
             else if(def.type === 'color') { 

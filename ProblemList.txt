@@ -13,8 +13,6 @@ Bugs:
 
 There's a massive pause after the block generator takes over, instead of being seamless/continuing. 
 Scale to Effect Size does not work for some effects. 
-Remove Intersection Pause (Unnecessary)
-
 
 <- Look:
 Clean up UI. 
