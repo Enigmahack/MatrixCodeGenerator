@@ -3268,7 +3268,9 @@ class _QuantizedProceduralEngine {
         }
 
         this._processIntents();
-        if (this._visibleFillRatio >= 0.5) this._snapToEdges();
+        if (this._visibleFillRatio >= 0.5 && this._getGenConfig('InsideOutSnapToEdges') !== false) {
+            this._snapToEdges();
+        }
         s.step++;
         this._updateRenderGridLogic();
         this._updateVisibleEmptyCount();

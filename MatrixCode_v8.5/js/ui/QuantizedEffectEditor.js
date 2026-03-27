@@ -1363,6 +1363,24 @@ class QuantizedEffectEditor {
         };
         removalsToggle.append(removalsCheck, document.createTextNode(' Show Removals'));
         container.appendChild(removalsToggle);
+
+        const snapEdgesToggle = document.createElement('label');
+        snapEdgesToggle.style.display = 'block';
+        snapEdgesToggle.style.marginTop = '5px';
+        snapEdgesToggle.style.marginBottom = '10px';
+        snapEdgesToggle.title = "When enabled, the generator will attempt to snap blocks to the screen edges once they are close enough.";
+        const snapEdgesCheck = document.createElement('input');
+        snapEdgesCheck.type = 'checkbox';
+        snapEdgesCheck.checked = (this.effect && !!this.effect.getConfig('InsideOutSnapToEdges'));
+        snapEdgesCheck.onchange = (e) => {
+            if (this.isStandalone) {
+                this._sendRemote({ type: 'toggleSnapEdges', val: e.target.checked });
+            }
+            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'InsideOutSnapToEdges', e.target.checked);
+            this.isDirty = true;
+        };
+        snapEdgesToggle.append(snapEdgesCheck, document.createTextNode(' Snap to Edges'));
+        container.appendChild(snapEdgesToggle);
         
         const exportControls = document.createElement('div');
         exportControls.style.display = 'flex';
