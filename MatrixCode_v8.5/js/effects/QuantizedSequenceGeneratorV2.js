@@ -709,9 +709,9 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _getMaxLayer() {
-        const singleMode = this._getConfig('SingleLayerMode');
-        // If Single Layer Mode is on, we strictly only use Layer 1 (Promotion is enabled)
-        if (singleMode) return 1;
+        const usePromotion = (this._getConfig('SingleLayerMode') || this.configPrefix === 'quantizedGenerateV2');
+        // If promotion is active, we strictly only use Layer 1
+        if (usePromotion) return 1;
 
         let val = this._getConfig('LayerCount');
         // If LayerCount is explicitly 1, we only want Layer 0.
@@ -1136,24 +1136,7 @@ class QuantizedSequenceGeneratorV2 {
                 }
             }
 
-            if (shouldGrow && strip.isExpansion) {
-                const [dx, dy] = this._dirDelta(strip.direction);
-                const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
-                const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
-                const scx = s.scx || 0, scy = s.scy || 0;
-                const limitN = s.axisMaxDist.N - 2, limitS = s.axisMaxDist.S - 2;
-                const limitE = s.axisMaxDist.E - 2, limitW = s.axisMaxDist.W - 2;
-
-                if (!s.hitEdge?.N && dy < 0 && (scy - nextY) > limitN) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.S && dy > 0 && (nextY - scy) > limitS) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.E && dx > 0 && (nextX - scx) > limitE) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.W && dx < 0 && (scx - nextX) > limitW) {
-                    shouldGrow = false;
-                }
-            }
+            // Expansion strips are bounded only by screen edges (checkScreenEdge in _growStrip)
 
             if (shouldGrow) this.actionBuffer.push({ layer: strip.layer, isSpine: !!strip.isSpine, fn: () => this._growStrip(strip, s) });
             strip.stepPhase = (strip.stepPhase + 1) % 6;
@@ -1235,10 +1218,21 @@ class QuantizedSequenceGeneratorV2 {
 
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
-        
+
         // Force 1×1 on the very first growth step.
         // Otherwise use _calcBlockSize to adhere to size scaling settings.
         let { bw, bh } = (strip.growCount === 0) ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
+
+        // Inside Out expansion: override with configured IO block dimensions
+        if (strip.isExpansion && strip.ioBlockW) {
+            bw = strip.ioBlockW;
+            bh = strip.ioBlockH;
+            // Apply wider spawn bias
+            if (strip.ioSpawnBias === 'wider') {
+                if (bw === 1) bw = 2 + Math.floor(Math.random() * 2);
+                if (bh === 1) bh = 2 + Math.floor(Math.random() * 2);
+            }
+        }
 
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         const edges = this.checkScreenEdge(newHeadX, newHeadY);
@@ -1485,6 +1479,9 @@ class QuantizedSequenceGeneratorV2 {
         if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
 
         const bucketSize = Math.max(1, this._getConfig('InsideOutBucketSize') ?? 3);
+        const ioBlockW = this._getConfig('InsideOutBlockWidth') ?? 1;
+        const ioBlockH = this._getConfig('InsideOutBlockHeight') ?? 1;
+        const ioSpawnBias = this._getConfig('InsideOutSpawnBias') ?? 'single';
         const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
         const edgeBuf = 2;
         const maxLayer = this._getMaxLayer();
@@ -1520,9 +1517,12 @@ class QuantizedSequenceGeneratorV2 {
             // 2. Progression Check: Wait for previous bucket to establish
             if (!prevBucketStarted(arm, baseWave)) continue;
 
-            // 3. Spine Connectivity Gate: Only spawn bucket if the first wave's origin is established
-            const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
-            if (!spineEstablished) continue;
+            // 3. Spine Connectivity Gate: Only gate on spine if spines are enabled
+            const spinesEnabled = this._getConfig('SpinesFirstEnabled') !== false;
+            if (spinesEnabled) {
+                const spineEstablished = this._isOccupied(bx, by, 0) || this._isOccupied(bx, by, 1);
+                if (!spineEstablished) continue;
+            }
 
             // Prepare waves for this bucket
             const waves = [];
@@ -1537,7 +1537,8 @@ class QuantizedSequenceGeneratorV2 {
             }
 
             let spawnedAnyInBucket = false;
-            for (let l = 0; l <= maxLayer; l++) {
+            const minL = this._getMinLayer();
+            for (let l = minL; l <= maxLayer; l++) {
                 const allowed = this._getAllowedDirs(l);
                 if (allowed && !allowed.has(arm)) continue;
 
@@ -1566,11 +1567,13 @@ class QuantizedSequenceGeneratorV2 {
                         s1.startDelay = startDelay;
                         s1.pattern = ioPattern;
                         s1.pausePattern = ioPausePattern;
+                        s1.ioBlockW = ioBlockW; s1.ioBlockH = ioBlockH; s1.ioSpawnBias = ioSpawnBias;
                         const s2 = this._createStrip(l, perp2, ox, oy);
                         s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
                         s2.startDelay = startDelay;
                         s2.pattern = ioPattern;
                         s2.pausePattern = ioPausePattern;
+                        s2.ioBlockW = ioBlockW; s2.ioBlockH = ioBlockH; s2.ioSpawnBias = ioSpawnBias;
                     }});
                     spawnedAnyInBucket = true;
                 }

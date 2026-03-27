@@ -1269,7 +1269,7 @@ class _QuantizedProceduralEngine {
 
         const threshold = 0.6;
         const maxInward = 3;
-        const layer = 0;
+        const layer = this._getMinLayer();
         const cx = this._gridCX, cy = this._gridCY;
 
         const isEmpty = (gx, gy) => {
@@ -1642,7 +1642,7 @@ class _QuantizedProceduralEngine {
         //    Also fill "small gap" cells (3+ cardinal neighbors occupied) as inlets/dead-ends.
         let filledCount = 0;
         const maxLayer = this._getMaxLayer();
-        const startL = this.getConfig('SingleLayerMode') ? 1 : 0;
+        const startL = this._getMinLayer();
 
         for (let gy = 1; gy < h - 1; gy++) {
             for (let gx = 1; gx < w - 1; gx++) {
@@ -2837,24 +2837,7 @@ class _QuantizedProceduralEngine {
                 }
             }
 
-            if (shouldGrow && strip.isExpansion && this._getGenConfig('SpinesFirstEnabled') !== false) {
-                const [dx, dy] = this._dirDelta(strip.direction);
-                const { bw, bh } = this._calcBlockSize(strip, s.fillRatio);
-                const nextX = strip.headX + dx * bw, nextY = strip.headY + dy * bh;
-                const scx = s.genOriginX || 0, scy = s.genOriginY || 0;
-                const limitN = s.axisMaxDist.N - 2, limitS = s.axisMaxDist.S - 2;
-                const limitE = s.axisMaxDist.E - 2, limitW = s.axisMaxDist.W - 2;
-
-                if (!s.hitEdge?.N && dy < 0 && (scy - nextY) > limitN) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.S && dy > 0 && (nextY - scy) > limitS) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.E && dx > 0 && (nextX - scx) > limitE) {
-                    shouldGrow = false;
-                } else if (!s.hitEdge?.W && dx < 0 && (scx - nextX) > limitW) {
-                    shouldGrow = false;
-                }
-            }
+            // Expansion strips are bounded only by screen edges (checkScreenEdge in _growStrip)
 
             if (shouldGrow) {
                 this.actionBuffer.push({ layer: strip.layer, isSpine: !!strip.isSpine, fn: () => this._growStrip(strip, s) });
@@ -2902,11 +2885,22 @@ class _QuantizedProceduralEngine {
 
     _growStrip(strip, s) {
         const [dx, dy] = this._dirDelta(strip.direction);
-        
+
         // Force 1×1 on the very first growth step so new strips always begin with a single block.
         // Otherwise, use _calcBlockSize to adhere to size scaling settings.
         let { bw, bh } = (strip.growCount === 0) ? { bw: 1, bh: 1 } : this._calcBlockSize(strip, s.fillRatio);
-        
+
+        // Inside Out expansion: override with configured IO block dimensions
+        if (strip.isExpansion && strip.ioBlockW) {
+            bw = strip.ioBlockW;
+            bh = strip.ioBlockH;
+            // Apply wider spawn bias
+            if (strip.ioSpawnBias === 'wider') {
+                if (bw === 1) bw = 2 + Math.floor(Math.random() * 2);
+                if (bh === 1) bh = 2 + Math.floor(Math.random() * 2);
+            }
+        }
+
         const newHeadX = strip.headX + dx * bw, newHeadY = strip.headY + dy * bh;
         const edges = this.checkScreenEdge(newHeadX, newHeadY);
         if (edges) {
@@ -3000,6 +2994,9 @@ class _QuantizedProceduralEngine {
         if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
 
         const bucketSize = Math.max(1, this._getGenConfig('InsideOutBucketSize') ?? 3);
+        const ioBlockW = this._getGenConfig('InsideOutBlockWidth') ?? 1;
+        const ioBlockH = this._getGenConfig('InsideOutBlockHeight') ?? 1;
+        const ioSpawnBias = this._getGenConfig('InsideOutSpawnBias') ?? 'single';
         const bs = this.getBlockSize();
         const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
         const edgeBuf = 2;
@@ -3085,11 +3082,13 @@ class _QuantizedProceduralEngine {
                         s1.startDelay = startDelay;
                         s1.pattern = ioPattern;
                         s1.pausePattern = ioPausePattern;
+                        s1.ioBlockW = ioBlockW; s1.ioBlockH = ioBlockH; s1.ioSpawnBias = ioSpawnBias;
                         const s2 = this._createStrip(l, perp2, ox, oy);
                         s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
                         s2.startDelay = startDelay;
                         s2.pattern = ioPattern;
                         s2.pausePattern = ioPausePattern;
+                        s2.ioBlockW = ioBlockW; s2.ioBlockH = ioBlockH; s2.ioSpawnBias = ioSpawnBias;
                     }});
                     spawnedAnyInBucket = true;
                 }

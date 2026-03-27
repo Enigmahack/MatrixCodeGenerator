@@ -363,9 +363,9 @@ class QuantizedBaseEffect extends AbstractEffect {
     }
 
     _getMaxLayer() {
-        const singleMode = this.getConfig('SingleLayerMode');
-        // If Single Layer Mode is on, we strictly only use Layer 1 (Promotion is enabled)
-        if (singleMode) return 1;
+        const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
+        // If promotion is active, we strictly only use Layer 1
+        if (usePromotion) return 1;
 
         let val = this.getConfig('LayerCount');
         // If LayerCount is explicitly 1, we only want Layer 0.
