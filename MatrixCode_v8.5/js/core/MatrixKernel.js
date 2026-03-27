@@ -227,7 +227,7 @@ class MatrixKernel {
         this.grid = grid0;
         this.simulation = sim0;
 
-        this.effectRegistry = new EffectRegistry(this.grid, this.config);
+        this.effectRegistry = new EffectRegistry(this.grid, this.config, this.notifications);
     }
 
     _logError(...args) {
@@ -1024,4 +1024,3 @@ window.addEventListener('DOMContentLoaded', async () => {
     await kernel.initAsync();
     kernel.lastFrameTime = performance.now(); // Set initial time
 });
-

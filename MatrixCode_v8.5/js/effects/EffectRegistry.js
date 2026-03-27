@@ -3,9 +3,10 @@
 // =========================================================================
 
 class EffectRegistry {
-    constructor(grid, config) {
+    constructor(grid, config, notifications) {
         this.grid = grid;
         this.config = config;
+        this.notifications = notifications;
         this.effects = [];
         this._managedTimers = new Map();
 
@@ -107,6 +108,10 @@ class EffectRegistry {
             'QuantizedBlockGenerator': QuantizedBlockGeneration
         };
 
+        // 8.5.2: Conditional registration for optional effects
+        if (typeof QuantizedCrawlerEffect !== 'undefined') CLASS_MAP['quantizedCrawler'] = QuantizedCrawlerEffect;
+        if (typeof QuantizedExpansionEffect !== 'undefined') CLASS_MAP['quantizedExpansion'] = QuantizedExpansionEffect;
+
         const registeredActions = new Set();
 
         template.forEach(def => {
@@ -187,29 +192,30 @@ class EffectRegistry {
         const fx = this.effects.find(e => e.name === name);
         if (!fx) return false;
 
+        const logEnabled = this.config.get('logEffects');
+
         // 1. Prevent running ANY effects while in the editor
         if (this._isEditorActive()) {
             return false;
         }
 
-        // 2. Prevent two quantized effects from running at the same time
+        // 2. Prevent overlapping quantized effects.
+        // If any quantized effect is already active or swapping, we block new triggers.
         const isQuantized = name.startsWith('Quantized');
         if (isQuantized) {
             const activeQuantized = this.effects.find(e => e.active && e.name.startsWith('Quantized'));
-            if (activeQuantized && activeQuantized !== fx) {
-                // If a DIFFERENT quantized effect is running, stop it first to ensure a clean slate
-                if (typeof activeQuantized.stop === 'function') {
-                    activeQuantized.stop();
-                } else if (typeof activeQuantized._terminate === 'function') {
-                    activeQuantized._terminate();
-                } else {
-                    activeQuantized.active = false;
+            const anySwapping = (typeof QuantizedBaseEffect !== 'undefined') && QuantizedBaseEffect.isAnyQuantizedSwapping;
+            
+            if (activeQuantized || anySwapping) {
+                if (logEnabled) console.log(`[EffectRegistry] Blocked ${name} trigger: Another quantized effect is active or swapping.`);
+                if (force && this.notifications) {
+                    this.notifications.show('Quantized effect in progress...', 'info');
                 }
+                return false;
             }
         }
 
         let result;
-        const logEnabled = this.config.get('logEffects');
         if (logEnabled) {
             const startTime = performance.now();
             result = fx.trigger(force, ...args);

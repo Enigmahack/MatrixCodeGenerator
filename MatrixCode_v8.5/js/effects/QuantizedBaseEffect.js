@@ -6,6 +6,7 @@ class QuantizedBaseEffect extends AbstractEffect {
     static sharedCharCache = new Map();
     static lastGridSeed = -1;
     static _preallocated = false;
+    static isAnyQuantizedSwapping = false;
     static sharedCanvases = {
         mask: null,
         scratch: null,
@@ -833,9 +834,18 @@ class QuantizedBaseEffect extends AbstractEffect {
         const logEnabled = this.c.state.logErrors;
         if (logEnabled) startTime = performance.now();
 
-        if (this.active && !force) {
-            if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (already active)`);
-            return false;
+        // 8.5.2: Strictly prevent re-triggering if already active or swapping.
+        // Also prevent triggering if ANY other quantized effect is active or swapping.
+        const anyQuantizedActive = this.r && this.r.isQuantizedActive();
+        const anyQuantizedSwapping = QuantizedBaseEffect.isAnyQuantizedSwapping;
+
+        if (this.active || this.isSwapping || anyQuantizedActive || anyQuantizedSwapping) {
+            if (this.debugMode && force) {
+                // Allow re-triggering in Editor/Debug mode to facilitate rapid iteration
+            } else {
+                if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (quantized iteration already running or swapping)`);
+                return false;
+            }
         }
 
         if (!force) {
@@ -1505,6 +1515,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             this.g.clearAllOverrides();
             if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.isSwapping = false;
+            QuantizedBaseEffect.isAnyQuantizedSwapping = false;
             this.hasSwapped = true;
             this.shadowGrid = null;
             this.shadowSim = null;
@@ -1523,11 +1534,14 @@ class QuantizedBaseEffect extends AbstractEffect {
         const result = this._commitShadowState();
         if (result === 'ASYNC') {
             this.isSwapping = true;
+            QuantizedBaseEffect.isAnyQuantizedSwapping = true;
             this.swapTimer = 5;
         } else if (result === 'SYNC') {
             this.g.clearAllOverrides();
             if (this.g.cellLocks) this.g.cellLocks.fill(0);
             this.hasSwapped = true;
+            this.isSwapping = false;
+            QuantizedBaseEffect.isAnyQuantizedSwapping = false;
             this.alpha = 0.0; // Reset alpha to prevent any lingering screen effects
 
             // PING-PONG TERMINATION:

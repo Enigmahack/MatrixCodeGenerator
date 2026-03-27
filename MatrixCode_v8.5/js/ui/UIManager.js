@@ -1675,14 +1675,14 @@ class UIManager {
         if(action === 'pulse') { if(this.effects.trigger('Pulse', true)) this.notifications.show('Pulse Triggered', 'success'); else this.notifications.show('Pulse already active...', 'info'); }
         if(action === 'clearpulse') { if(this.effects.trigger('ClearPulse', true)) this.notifications.show('Clear Pulse Triggered', 'success'); else this.notifications.show('Clear Pulse active...', 'info'); }
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse', true)) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
-        if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse', true)) this.notifications.show('Quantized Pulse Triggered', 'success'); else this.notifications.show('Quantized Pulse active...', 'info'); }
-        if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd', true)) this.notifications.show('Quantized Add Triggered', 'success'); else this.notifications.show('Quantized Add active...', 'info'); }
-        if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract', true)) this.notifications.show('Quantized Retract Triggered', 'success'); else this.notifications.show('Quantized Retract active...', 'info'); }
-        if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb', true)) this.notifications.show('Quantized Climb Triggered', 'success'); else this.notifications.show('Quantized Climb active...', 'info'); }
-        if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom', true)) this.notifications.show('Quantized Zoom Triggered', 'success'); else this.notifications.show('Quantized Zoom active...', 'info'); }
-        if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion', true)) this.notifications.show('Quantized Expansion Triggered', 'success'); else this.notifications.show('Quantized Expansion active...', 'info'); }
-        if(action === 'quantizedCrawler') { if(this.effects.trigger('QuantizedCrawler', true)) this.notifications.show('Quantized Crawler Triggered', 'success'); else this.notifications.show('Quantized Crawler active...', 'info'); }
-        if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator', true)) this.notifications.show('Quantized Block Generator Triggered', 'success'); else this.notifications.show('Quantized Block Generator already active...', 'info'); }
+        if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse', true)) this.notifications.show('Quantized Pulse Triggered', 'success'); }
+        if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd', true)) this.notifications.show('Quantized Add Triggered', 'success'); }
+        if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract', true)) this.notifications.show('Quantized Retract Triggered', 'success'); }
+        if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb', true)) this.notifications.show('Quantized Climb Triggered', 'success'); }
+        if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom', true)) this.notifications.show('Quantized Zoom Triggered', 'success'); }
+        if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion', true)) this.notifications.show('Quantized Expansion Triggered', 'success'); }
+        if(action === 'quantizedCrawler') { if(this.effects.trigger('QuantizedCrawler', true)) this.notifications.show('Quantized Crawler Triggered', 'success'); }
+        if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator', true)) this.notifications.show('Quantized Block Generator Triggered', 'success'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu', true)) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman', true)) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
         if(action === 'stopAllEffects') { this.disableAllPeriodicEffects(); this.notifications.show('Disabled All Periodic Effects', 'info'); }

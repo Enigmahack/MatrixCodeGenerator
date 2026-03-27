@@ -3363,6 +3363,7 @@ class WebGLRenderer {
         const charArr = fx._charIndexArray;
         if (charArr && fx.lastGridSeed !== this.lastCharIndexSeed) {
             const ciCols = fx.g.cols, ciRows = fx.g.rows;
+            if (charArr.length < ciCols * ciRows) { this.lastCharIndexSeed = -1; return false; }
             this.gl.activeTexture(this.gl.TEXTURE7); // Use scratch unit for uploads to avoid polluting sampler-bound units
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.charIndexTexture);
             if (ciCols !== this.lastCharIndexCols || ciRows !== this.lastCharIndexRows) {

@@ -910,14 +910,12 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _generateInsideOutPattern() {
-        const p = [true, true, true];
-        const p1 = Math.floor(Math.random() * 3);
-        p[p1] = false;
-        // 50% chance for a second pause in the 3-step segment
-        if (Math.random() < 0.5) {
-            let p2;
-            do { p2 = Math.floor(Math.random() * 3); } while (p2 === p1);
-            p[p2] = false;
+        // 8.5.2: Exactly 2 movements in 3 steps
+        const p = [true, true, false];
+        // Shuffle
+        for (let i = 2; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [p[i], p[j]] = [p[j], p[i]];
         }
         return p;
     }
@@ -1465,6 +1463,7 @@ class QuantizedSequenceGeneratorV2 {
 
     _expandInsideOut(s) {
         if (!this._getConfig('InsideOutEnabled')) return;
+        const growthMode = this._getConfig('InsideOutGrowthMode') ?? 'spine';
         const delay = this._getConfig('InsideOutDelay') ?? 6;
         let bucketPeriod = Math.max(1, this._getConfig('InsideOutStepsBetweenBuckets') ?? 3);
 
@@ -1485,7 +1484,71 @@ class QuantizedSequenceGeneratorV2 {
         const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
         const edgeBuf = 2;
         const maxLayer = this._getMaxLayer();
+        const minL = this._getMinLayer();
 
+        if (growthMode === 'edge') {
+            // Edge Mode Logic: Spawn expansion strips from any perimeter block
+            if (!s.outsideInfo) s.outsideInfo = this._getOutsideMap();
+            const { outsideMap, getIdx, scanMinX, scanMaxX, scanMinY, scanMaxY } = s.outsideInfo;
+
+            for (let l = minL; l <= maxLayer; l++) {
+                const allowed = this._getAllowedDirs(l);
+                
+                const candidates = this.activeBlocks.filter(b => {
+                    if (b.layer !== l) return false;
+                    const neighbors = [
+                        {x: b.x, y: b.y - 1, dir: 'N'}, {x: b.x, y: b.y + b.h, dir: 'S'},
+                        {x: b.x - 1, y: b.y, dir: 'W'}, {x: b.x + b.w, dir: 'E'}
+                    ];
+                    return neighbors.some(n => {
+                        if (n.x < scanMinX || n.x > scanMaxX || n.y < scanMinY || n.y > scanMaxY) return false;
+                        return outsideMap[getIdx(n.x, n.y)] === 1;
+                    });
+                });
+
+                if (candidates.length === 0) continue;
+
+                // 8.5.2: Bucket-wide lockstep logic for Edge Mode
+                const bucketLockstep = Math.random() < 0.5;
+                const bucketPattern = this._generateInsideOutPattern();
+                const bucketPausePattern = this._generateInsideOutDistinctPattern(bucketPattern);
+                const bucketDelay = Math.floor(Math.random() * bucketSize);
+
+                // Pick random blocks from candidates up to bucketSize
+                for (let i = 0; i < bucketSize; i++) {
+                    const b = candidates[Math.floor(Math.random() * candidates.length)];
+                    const dirs = ['N', 'S', 'E', 'W'].filter(d => {
+                        if (allowed && !allowed.has(d)) return false;
+                        let nx = b.x, ny = b.y;
+                        if (d === 'N') ny--; else if (d === 'S') ny += b.h; else if (d === 'W') nx--; else nx += b.w;
+                        return !this._isOccupied(nx, ny, l);
+                    });
+
+                    if (dirs.length === 0) continue;
+                    const d = dirs[Math.floor(Math.random() * dirs.length)];
+                    
+                    this.actionBuffer.push({ layer: l, fn: () => {
+                        const strip = this._createStrip(l, d, b.x + Math.floor(Math.random() * b.w), b.y + Math.floor(Math.random() * b.h));
+                        strip.isExpansion = true;
+                        
+                        if (bucketLockstep) {
+                            strip.startDelay = bucketDelay;
+                            strip.pattern = bucketPattern;
+                            strip.pausePattern = bucketPausePattern;
+                        } else {
+                            strip.startDelay = bucketDelay + Math.floor(Math.random() * 3);
+                            strip.pattern = this._generateInsideOutPattern();
+                            strip.pausePattern = this._generateInsideOutDistinctPattern(strip.pattern);
+                        }
+                        
+                        strip.ioBlockW = ioBlockW; strip.ioBlockH = ioBlockH; strip.ioSpawnBias = ioSpawnBias;
+                    }});
+                }
+            }
+            return;
+        }
+
+        // Spine Mode (Default Logic)
         if (!s.insideOutProgression) s.insideOutProgression = {};
 
         // Helper: Check if the dependency wave (last wave of previous bucket) has started growing
@@ -1536,6 +1599,12 @@ class QuantizedSequenceGeneratorV2 {
                 }
             }
 
+            // 8.5.2: Bucket-wide lockstep logic for Spine Mode
+            const bucketLockstep = Math.random() < 0.5;
+            const bucketPattern = this._generateInsideOutPattern();
+            const bucketPausePattern = this._generateInsideOutDistinctPattern(bucketPattern);
+            const bucketDelay = Math.floor(Math.random() * bucketSize);
+
             let spawnedAnyInBucket = false;
             const minL = this._getMinLayer();
             for (let l = minL; l <= maxLayer; l++) {
@@ -1558,21 +1627,31 @@ class QuantizedSequenceGeneratorV2 {
                     const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
                     const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';
 
-                    const startDelay = Math.floor(Math.random() * bucketSize);
-                    const ioPattern = this._generateInsideOutPattern();
-                    const ioPausePattern = this._generateInsideOutDistinctPattern(ioPattern);
                     this.actionBuffer.push({ layer: l, fn: () => {
                         const s1 = this._createStrip(l, perp1, ox, oy);
                         s1.isExpansion = true; s1.arm = arm; s1.wave = wave;
-                        s1.startDelay = startDelay;
-                        s1.pattern = ioPattern;
-                        s1.pausePattern = ioPausePattern;
-                        s1.ioBlockW = ioBlockW; s1.ioBlockH = ioBlockH; s1.ioSpawnBias = ioSpawnBias;
+                        
                         const s2 = this._createStrip(l, perp2, ox, oy);
                         s2.isExpansion = true; s2.arm = arm; s2.wave = wave;
-                        s2.startDelay = startDelay;
-                        s2.pattern = ioPattern;
-                        s2.pausePattern = ioPausePattern;
+
+                        if (bucketLockstep) {
+                            s1.startDelay = bucketDelay;
+                            s1.pattern = bucketPattern;
+                            s1.pausePattern = bucketPausePattern;
+                            s2.startDelay = bucketDelay;
+                            s2.pattern = bucketPattern;
+                            s2.pausePattern = bucketPausePattern;
+                        } else {
+                            s1.startDelay = bucketDelay + Math.floor(Math.random() * 3);
+                            s1.pattern = this._generateInsideOutPattern();
+                            s1.pausePattern = this._generateInsideOutDistinctPattern(s1.pattern);
+
+                            s2.startDelay = bucketDelay + Math.floor(Math.random() * 3);
+                            s2.pattern = this._generateInsideOutPattern();
+                            s2.pausePattern = this._generateInsideOutDistinctPattern(s2.pattern);
+                        }
+
+                        s1.ioBlockW = ioBlockW; s1.ioBlockH = ioBlockH; s1.ioSpawnBias = ioSpawnBias;
                         s2.ioBlockW = ioBlockW; s2.ioBlockH = ioBlockH; s2.ioSpawnBias = ioSpawnBias;
                     }});
                     spawnedAnyInBucket = true;
