@@ -991,18 +991,11 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _tickLayerDirs(s) {
-        const genScaling = !!this._getConfig('GenerativeScaling');
+        const genScaling = false;
         let userMax = parseInt(this._getConfig('QuadrantCount') ?? 4);
         
-        // 1. Determine Min/Max Counts based on Fill Ratio (0-15%, 15-30%, >30%)
-        let minCount = 1, maxCount = userMax;
-        if (genScaling) {
-            if (s.fillRatio < 0.15) { maxCount = Math.min(userMax, 2); minCount = 1; }
-            else if (s.fillRatio < 0.30) { maxCount = Math.min(userMax, 3); minCount = 2; }
-            else { maxCount = userMax; minCount = userMax; }
-        } else {
-            minCount = userMax; maxCount = userMax;
-        }
+        // 1. Determine Min/Max Counts
+        let minCount = userMax, maxCount = userMax;
 
         const all = ['N', 'S', 'E', 'W'];
         if (!s.dirPools) s.dirPools = { 0: [], 1: [] };
@@ -1099,7 +1092,7 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _tickStrips(s) {
-        const useGenerativeScaling = !!this._getConfig('GenerativeScaling');
+        const useGenerativeScaling = false;
         for (const strip of this.strips.values()) {
             if (!strip.active) continue;
 
@@ -1114,24 +1107,16 @@ class QuantizedSequenceGeneratorV2 {
             strip.stepsSinceLastGrowth = (strip.stepsSinceLastGrowth || 0) + 1;
 
             let shouldGrow = false;
-            // Spine boost takes precedence, but Generative Scaling overrides frequency if enabled
+            // Spine boost takes precedence
             // If it's a spine, we now force it to follow the rhythmic behavior.
-            if (strip.boostSteps > 0 && !useGenerativeScaling && !strip.isSpine) {
+            if (strip.boostSteps > 0 && !strip.isSpine) {
                 shouldGrow = true;
                 strip.boostSteps--;
             } else {
-                if (useGenerativeScaling && strip.growCount < 7 && !strip.isExpansion && !strip.isSpine) {
-                    const gc = strip.growCount;
-                    const requiredSteps = (gc < 2) ? 3 : (gc < 4) ? 2 : 1;
-                    if (strip.stepsSinceLastGrowth >= requiredSteps) {
-                        shouldGrow = true;
-                    }
-                } else {
-                    const pattern = strip.paused ? strip.pausePattern : strip.pattern;
-                    const phase = (strip.isExpansion || strip.isSpine) ? (strip.stepPhase % 3) : (strip.stepPhase % pattern.length);
-                    shouldGrow = pattern[phase];
-                    if (shouldGrow && strip.isSpine && strip.boostSteps > 0) strip.boostSteps--;
-                }
+                const pattern = strip.paused ? strip.pausePattern : strip.pattern;
+                const phase = (strip.isExpansion || strip.isSpine) ? (strip.stepPhase % 3) : (strip.stepPhase % pattern.length);
+                shouldGrow = pattern[phase];
+                if (shouldGrow && strip.isSpine && strip.boostSteps > 0) strip.boostSteps--;
             }
 
             // Expansion strips are bounded only by screen edges (checkScreenEdge in _growStrip)
@@ -1186,30 +1171,6 @@ class QuantizedSequenceGeneratorV2 {
     _calcBlockSize(strip, fillRatio) {
         const maxArea = this._getConfig('BlockSizeBias') ?? 1;
         if (maxArea > 1) return this._getBiasedBlockDimensions();
-
-        const bs = this._getBlockSize();
-        const visW = Math.max(1, Math.floor(this.cols / bs.w));
-        const visH = Math.max(1, Math.floor(this.rows / bs.h));
-
-        if (this._getConfig('GenerativeScaling')) {
-            if (strip.isExpansion || strip.isSpine) {
-                const ratio = visW / visH;
-                if (ratio > 1.05 && (strip.direction === 'E' || strip.direction === 'W')) {
-                    const baseSize = Math.floor(ratio);
-                    const chance = ratio - baseSize;
-                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
-                    return { bw: size, bh: 1 };
-                }
-                if (ratio < 0.95 && (strip.direction === 'N' || strip.direction === 'S')) {
-                    const invRatio = 1.0 / ratio;
-                    const baseSize = Math.floor(invRatio);
-                    const chance = invRatio - baseSize;
-                    const size = Math.random() < chance ? baseSize + 1 : baseSize;
-                    return { bw: 1, bh: size };
-                }
-            }
-            return { bw: 1, bh: 1 };
-        }
 
         return { bw: 1, bh: 1 };
     }
@@ -1467,13 +1428,7 @@ class QuantizedSequenceGeneratorV2 {
         const delay = this._getConfig('InsideOutDelay') ?? 6;
         let bucketPeriod = Math.max(1, this._getConfig('InsideOutStepsBetweenBuckets') ?? 3);
 
-        const genScaling = !!this._getConfig('GenerativeScaling');
-        if (genScaling) {
-            // Adjust density by reducing steps between buckets instead of increasing block size.
-            // Reduce period by 1-2 steps based on current fill ratio to increase density.
-            const reduction = s.fillRatio < 0.4 ? 2 : (s.fillRatio < 0.7 ? 1 : 0);
-            bucketPeriod = Math.max(1, bucketPeriod - reduction);
-        }
+        const genScaling = false;
 
         if (s.step < delay || (s.step - delay) % bucketPeriod !== 0) return;
 
@@ -1616,13 +1571,6 @@ class QuantizedSequenceGeneratorV2 {
 
                     // Wave-specific boundary check
                     if (Math.abs(ox - s.scx) > halfW + edgeBuf || Math.abs(oy - s.scy) > halfH + edgeBuf) continue;
-
-                    // Generative Scaling
-                    if (genScaling) {
-                        let activeExp = 0;
-                        for (const st of this.strips.values()) if (st.isExpansion && st.active) activeExp++;
-                        if (activeExp > (8 * (l + 1))) continue; 
-                    }
 
                     const perp1 = (arm === 'N' || arm === 'S') ? 'E' : 'N';
                     const perp2 = (arm === 'N' || arm === 'S') ? 'W' : 'S';

@@ -1310,42 +1310,6 @@ class QuantizedEffectEditor {
         shadowToggle.append(shadowCheck, document.createTextNode(' Use Shadow World'));
         container.appendChild(shadowToggle);
 
-        const singleLayerToggle = document.createElement('label');
-        singleLayerToggle.style.display = 'block';
-        singleLayerToggle.style.marginTop = '5px';
-        singleLayerToggle.title = "Use only Layer 1 with no Layer 0 promotion. Perimeter Echo becomes a hold/fade effect.";
-        const singleLayerCheck = document.createElement('input');
-        singleLayerCheck.type = 'checkbox';
-        singleLayerCheck.checked = (this.effect && !!this.effect.getConfig('SingleLayerMode'));
-        singleLayerCheck.onchange = (e) => {
-            if (this.isStandalone) {
-                this._sendRemote({ type: 'toggleSingleLayerMode', val: e.target.checked });
-            }
-            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerMode', e.target.checked);
-            this.isDirty = true;
-        };
-        singleLayerToggle.append(singleLayerCheck, document.createTextNode(' Single Layer Mode'));
-        container.appendChild(singleLayerToggle);
-
-
-        const retainStateToggle = document.createElement('label');
-        retainStateToggle.style.display = 'block';
-        retainStateToggle.style.marginTop = '3px';
-        retainStateToggle.style.marginLeft = '14px';
-        retainStateToggle.title = "Echo takes periodic snapshots of L1 state, replays them delayed then fades out";
-        const retainStateCheck = document.createElement('input');
-        retainStateCheck.type = 'checkbox';
-        retainStateCheck.checked = (this.effect && !!this.effect.getConfig('SingleLayerModeRetainState'));
-        retainStateCheck.onchange = (e) => {
-            if (this.isStandalone) {
-                this._sendRemote({ type: 'toggleRetainState', val: e.target.checked });
-            }
-            if (this.effect) this.effect.c.set(this.effect.configPrefix + 'SingleLayerModeRetainState', e.target.checked);
-            this.isDirty = true;
-        };
-        retainStateToggle.append(retainStateCheck, document.createTextNode(' Retain Original State'));
-        container.appendChild(retainStateToggle);
-
         const removalsToggle = document.createElement('label');
         removalsToggle.style.display = 'block';
         removalsToggle.style.marginTop = '5px';

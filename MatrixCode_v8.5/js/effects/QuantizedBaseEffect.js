@@ -1322,7 +1322,12 @@ class QuantizedBaseEffect extends AbstractEffect {
         // Handle trigger swell logic before animation step progression
         if (this._swelling) {
             this._swellTimer++;
-            this.cycleTimer = 0; // Freeze logical animation steps during swell
+
+            // Only freeze logical animation steps during swell if requested
+            if (this.getConfig('IncludeSwellPause')) {
+                this.cycleTimer = 0;
+            }
+
             if (this._swellTimer >= this._swellDurationFrames) {
                 this._swelling = false;
                 // Capture the frame when the swell finishes to start duration calculations
