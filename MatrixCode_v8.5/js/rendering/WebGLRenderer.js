@@ -3872,7 +3872,7 @@ class WebGLRenderer {
                     mU8[u8Off + 20] = sGrid ? sGrid.decays[i] : gDecays[i];
                     m16[u16Off + 11] = sGrid ? (sGrid.maxDecays ? sGrid.maxDecays[i] : 0) : (gMaxDecays ? gMaxDecays[i] : 0);
                     mF32[baseOff + 3] = (sGrid ? sGrid.glows[i] : gGlows[i]) + (gEnvGlows ? gEnvGlows[i] : 0);
-                    
+
                     mF32[baseOff + 4] = 0.0; // Standard render mode
                     m16[u16Off + 1] = 65535;
                 } else if (effActive[i] === 2) {

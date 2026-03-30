@@ -18,6 +18,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this.spawnY = 0;
         this._zoomOpacity = 1.0;
         this._zoomBgBrightness = 1.0; // Strip background brightness multiplier
+        this._innerCodeBrightness = 1.0; // Falling code brightness inside perimeter (1=full, 0=invisible)
         this._savedBrightness = null; // Original brightness to restore on terminate
         this._fadingOut = false;      // True once base lifecycle ends; drives a timed fade-out
         this._fadeOutProgress = 0;    // 0→1 fade-out interpolant
@@ -34,6 +35,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._bgTileW = 0;             // Current tile dimensions
         this._bgTileH = 0;
         this._lastFontStr = '';         // Track font changes for invalidation
+        this._zoomDelayTimer = 0;      // Counts up after strips captured; zoom starts after delay
+        this._zoomDelayDone = false;   // True once delay has elapsed
     }
 
     getConfig(key) {
@@ -75,6 +78,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._smoothedZoom = noZoom ? 1.0 : 0.25;
         this._zoomOpacity = 1.0;
         this._zoomBgBrightness = 1.0;
+        this._innerCodeBrightness = 1.0;
 
         // Save current brightness (which might have been restored above or changed by user)
         this._savedBrightness = this.c.state.brightness ?? 1.0;
@@ -85,6 +89,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         this._segmentLibrary = [];
         this._captureFrame = 0;
         this._bgDirty = true;
+        this._zoomDelayTimer = 0;
+        this._zoomDelayDone = false;
 
         // Match BlockGenerator: check for sequence and enter GENERATING if none exists
         const hasSequence = this.sequence && this.sequence.length > 0 && !(this.sequence.length === 1 && this.sequence[0].length === 0);
@@ -329,8 +335,12 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             // Zoom opacity fades to zero
             this._zoomOpacity *= (1.0 - fo);
 
+            // Falling code brightness recovers proportional to fade-out
+            this._innerCodeBrightness = 1.0 - (this._zoomBgBrightness * (1.0 - fo));
+
             // Once complete, do final termination
             if (this._fadeOutProgress >= 1.0) {
+                this._innerCodeBrightness = 1.0;
                 this._savedBrightness = null;
                 this._fadingOut = false;
                 super._terminate();
@@ -371,6 +381,17 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
 
         // Derive zoom scale, opacity, and code brightness from fill ratio
         if (this._stripsCaptured) {
+            // Zoom delay: count up after strips captured; zoom scale stays frozen until done
+            if (!this._zoomDelayDone) {
+                const delaySec = s.quantizedZoomDelay ?? 0;
+                if (delaySec > 0) {
+                    this._zoomDelayTimer += 1 / 60;
+                }
+                if (this._zoomDelayTimer >= delaySec) {
+                    this._zoomDelayDone = true;
+                }
+            }
+
             const maxScale = s.quantizedZoomMaxScale ?? 1.5;
             const noZoom = maxScale === 0;
             const minScale = noZoom ? 1.0 : 0.25;
@@ -397,10 +418,18 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
             // Background strip brightness: direct multiplier from config (0%=invisible, 100%=full)
             this._zoomBgBrightness = bgBright;
 
-            // Target zoom from fill ratio, EMA-smoothed for continuous motion
-            const targetZoom = noZoom ? 1.0 : minScale + ((effectiveMax - minScale) * fillRatio);
-            this._smoothedZoom += (targetZoom - this._smoothedZoom) * 0.08;
+            // Zoom scale: hold at minScale during delay, then track fill ratio
+            if (this._zoomDelayDone) {
+                const targetZoom = noZoom ? 1.0 : minScale + ((effectiveMax - minScale) * fillRatio);
+                this._smoothedZoom += (targetZoom - this._smoothedZoom) * 0.08;
+            }
             this.zoomScale = this._smoothedZoom;
+
+            // Dim falling code proportional to zoom progress, completing at 70% of zoom range
+            const zoomProgress = (effectiveMax > minScale)
+                ? Math.min(1.0, (this._smoothedZoom - minScale) / ((effectiveMax - minScale) * 0.7))
+                : 0;
+            this._innerCodeBrightness = 1.0 - (bgBright * zoomProgress);
         }
     }
 
@@ -418,6 +447,7 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         }
 
         // Fallback: if strips were never captured, terminate immediately
+        this._innerCodeBrightness = 1.0;
         if (this._savedBrightness !== null) {
             this.c.state.brightness = this._savedBrightness;
             this._savedBrightness = null;
@@ -426,11 +456,44 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 
     stop() {
+        this._innerCodeBrightness = 1.0;
         if (this._savedBrightness !== null) {
             this.c.state.brightness = this._savedBrightness;
             this._savedBrightness = null;
         }
         super.stop();
+    }
+
+    applyToGrid(grid) {
+        if (this._innerCodeBrightness >= 1.0) return;
+        const srGrid = this.shadowRevealGrid;
+        if (!srGrid) return;
+        const l = this.layout;
+        if (!l) return;
+
+        const cols = grid.cols, rows = grid.rows;
+        const distW = this.logicGridW;
+        const distH = this.logicGridH;
+        const dim = this._innerCodeBrightness;
+        const glows = grid.glows;
+        const alphas = grid.alphas;
+
+        for (let y = 0; y < rows; y++) {
+            const rowOff = y * cols;
+            const by = Math.floor((y / l.cellPitchY) + l.offY - l.userBlockOffY);
+            if (by < 0 || by >= distH) continue;
+            const bRowOff = by * distW;
+
+            for (let x = 0; x < cols; x++) {
+                const bx = Math.floor((x / l.cellPitchX) + l.offX - l.userBlockOffX);
+                if (bx < 0 || bx >= distW) continue;
+                if (srGrid[bRowOff + bx] !== 1) continue;
+
+                const i = rowOff + x;
+                glows[i] *= dim;
+                alphas[i] *= dim;
+            }
+        }
     }
 
     _handleDebugInput(e) {

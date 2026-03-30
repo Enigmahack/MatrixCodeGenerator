@@ -1907,6 +1907,8 @@ class _QuantizedProceduralEngine {
 
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('BlockSpawnerStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const startDelay = this._getGenConfig('BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, this._getGenConfig('BlockSpawnerRate') ?? 4);
 
@@ -2091,6 +2093,8 @@ class _QuantizedProceduralEngine {
         }, { enabled: this._getGenConfig('BlockSpawnerEnabled') ?? false, type: this._getGenConfig('BlockSpawnerBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockSpawnerGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockSpawnerSpawnBias') ?? 'single', label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('SpreadingNudgeStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const startDelay = this._getGenConfig('SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
             const allowed = this._getAllowedDirs(layer);
@@ -2218,6 +2222,8 @@ class _QuantizedProceduralEngine {
 
         // ── Shove Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('ShoveFillStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!this._getGenConfig('ShoveFillEnabled')) return;
             const startDelay = this._getGenConfig('ShoveFillStartDelay') ?? 20;
             const fillRate   = Math.max(1, this._getGenConfig('ShoveFillRate') ?? 4);
@@ -2291,6 +2297,8 @@ class _QuantizedProceduralEngine {
 
         // Behavior: Block Thicken — picks a random axis line and thickens blocks along it
         this.registerBehavior('block_thicken', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('BlockThickenStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const startDelay = this._getGenConfig('BlockThickenStartDelay') ?? 10;
             const spawnFreq  = Math.max(1, this._getGenConfig('BlockThickenSpawnFrequency') ?? 5);
             const spawnChance = (this._getGenConfig('BlockThickenSpawnChance') ?? 50) / 100;
@@ -2403,6 +2411,8 @@ class _QuantizedProceduralEngine {
         }, { enabled: this._getGenConfig('BlockThickenEnabled') ?? false, type: this._getGenConfig('BlockThickenBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockThickenGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockThickenSpawnBias') ?? 'single', label: 'Block Thicken' });
 
         this.registerBehavior('hole_filler', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('HoleFillerStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const highFill = (s.fillRatio || 0) > 0.90;
             if (!highFill && !this._getGenConfig('HoleFillerEnabled')) return;
             const startDelay = this._getGenConfig('HoleFillerStartDelay') ?? 0;
@@ -2478,6 +2488,8 @@ class _QuantizedProceduralEngine {
         // time — strips are deleted when deactivated, so we snapshot them as
         // they qualify.
         this.registerBehavior('axis_shift', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('AxisShiftStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const startDelay = this._getGenConfig('AxisShiftStartDelay') ?? 15;
             const rate = Math.max(1, this._getGenConfig('AxisShiftRate') ?? 5);
             const maxAxes = this._getGenConfig('AxisShiftMaxAxes') ?? 10;
@@ -2556,6 +2568,8 @@ class _QuantizedProceduralEngine {
 
         // Explorer Growth: moves towards edges, spawning from blocks (edge) or spine
         this.registerBehavior('explorer_growth', function(s, behavior, layer) {
+            const stopAfter = this._getGenConfig('NudgeStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             const startDelay = this._getGenConfig('NudgeStartDelay') ?? 2;
             if (s.step < startDelay) return;
 
@@ -2936,6 +2950,8 @@ class _QuantizedProceduralEngine {
     }
 
     _expandInsideOut(s) {
+        const stopAfter = this._getGenConfig('InsideOutStopAfter') ?? 0;
+        if (stopAfter > 0 && s.step >= stopAfter) return;
         if (!this._getGenConfig('InsideOutEnabled')) return;
         const delay = this._getGenConfig('InsideOutDelay') ?? 6;
         let bucketPeriod = Math.max(1, this._getGenConfig('InsideOutStepsBetweenBuckets') ?? 3);

@@ -91,12 +91,14 @@ class QuantizedSequenceGeneratorV2 {
         const inheritable = [
             'ShadowWorldFadeSpeed', 'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold',
             'LineGfxColor', 'LineGfxPersistence',
-            'GlassRefractionEnabled', 'GlassRefractionWidth', 'GlassRefractionBrightness', 'GlassRefractionSaturation',
+            'GlassRefractionEnabled', 'TriggerBrightnessSwell', 'IncludeSwellPause', 'GlassRefractionWidth', 'GlassRefractionBrightness', 'GlassRefractionSaturation',
             'GlassRefractionCompression', 'GlassRefractionOffset', 'GlassRefractionGlow',
             'LineGfxTintOffset', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
-            'PerimeterEchoEnabled', 'SingleLayerMode', 'LayerCount', 'ExplorerMaxCount', 'ExplorerSpawnRate'
+            'BlockSizeBias', 'BlockShapeBias',
+            'PerimeterEchoEnabled', 'SingleLayerMode', 'LayerCount', 'ExplorerMaxCount', 'ExplorerSpawnRate',
+            'BlockSpawnerStopAfter', 'NudgeStopAfter', 'SpreadingNudgeStopAfter', 'ShoveFillStopAfter', 'HoleFillerStopAfter', 'BlockThickenStopAfter', 'InsideOutStopAfter', 'AxisShiftStopAfter'
         ];
 
         const isInheritable = inheritable.includes(keySuffix);
@@ -236,6 +238,9 @@ class QuantizedSequenceGeneratorV2 {
         const gen = this;
         // Behavior 2: Block Spawner/Despawner (Anticipatory Growth + Volatility)
         this.registerBehavior('block_spawner_despawner', function(s, behavior, layer) {
+            const stopAfter = gen._getConfig('BlockSpawnerStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
+
             const startDelay = gen._getConfig('BlockSpawnerStartDelay') ?? 10;
             const spawnRate  = Math.max(1, gen._getConfig('BlockSpawnerRate') ?? 4);
 
@@ -420,6 +425,8 @@ class QuantizedSequenceGeneratorV2 {
         }, { enabled: gen._getConfig('BlockSpawnerEnabled') ?? false, type: this._getConfig('BlockSpawnerBehaviorType') ?? 'pool', growth: this._getConfig('BlockSpawnerGrowthMode') ?? 'edge', bias: this._getConfig('BlockSpawnerSpawnBias') ?? 'single', label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s, behavior, layer) {
+            const stopAfter = gen._getConfig('SpreadingNudgeStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!gen._getConfig('SpreadingNudgeEnabled')) return;
             const startDelay = gen._getConfig('SpreadingNudgeStartDelay') ?? 20;
             if (s.step < startDelay) return;
@@ -523,6 +530,8 @@ class QuantizedSequenceGeneratorV2 {
 
         // ── Shove Fill ─────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s, behavior, layer) {
+            const stopAfter = gen._getConfig('ShoveFillStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!gen._getConfig('ShoveFillEnabled')) return;
             const startDelay = gen._getConfig('ShoveFillStartDelay') ?? 20;
             const fillRate   = Math.max(1, gen._getConfig('ShoveFillRate') ?? 4);
@@ -595,6 +604,8 @@ class QuantizedSequenceGeneratorV2 {
         }, { enabled: gen._getConfig('ShoveFillEnabled') ?? false, type: gen._getConfig('ShoveFillBehaviorType') ?? 'pool', growth: gen._getConfig('ShoveFillGrowthMode') ?? 'edge', bias: gen._getConfig('ShoveFillSpawnBias') ?? 'single', label: 'Shove Fill' });
 
         this.registerBehavior('hole_filler', function(s, behavior, layer) {
+            const stopAfter = gen._getConfig('HoleFillerStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!gen._getConfig('HoleFillerEnabled')) return;
             const startDelay = gen._getConfig('HoleFillerStartDelay') ?? 0;
             const fillRate = Math.max(1, gen._getConfig('HoleFillerRate') ?? 1);
@@ -656,6 +667,9 @@ class QuantizedSequenceGeneratorV2 {
         }, { enabled: true, type: gen._getConfig('HoleFillerBehaviorType') ?? 'pool', growth: gen._getConfig('HoleFillerGrowthMode') ?? 'edge', bias: gen._getConfig('HoleFillerSpawnBias') ?? 'single', label: 'Aggressive Hole Filler' });
 
         this.registerBehavior('explorer_growth', function(s, behavior, layer) {
+            const stopAfter = gen._getConfig('NudgeStopAfter') ?? 0;
+            if (stopAfter > 0 && s.step >= stopAfter) return;
+
             const startDelay = gen._getConfig('NudgeStartDelay') ?? 2;
             if (s.step < startDelay) return;
 
@@ -1423,6 +1437,8 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _expandInsideOut(s) {
+        const stopAfter = this._getConfig('InsideOutStopAfter') ?? 0;
+        if (stopAfter > 0 && s.step >= stopAfter) return;
         if (!this._getConfig('InsideOutEnabled')) return;
         const growthMode = this._getConfig('InsideOutGrowthMode') ?? 'spine';
         const delay = this._getConfig('InsideOutDelay') ?? 6;
