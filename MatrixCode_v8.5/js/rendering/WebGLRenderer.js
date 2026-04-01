@@ -1121,6 +1121,7 @@ class WebGLRenderer {
                 layout(location=12) in float a_glimmerFlicker;
                 layout(location=13) in float a_glimmerAlpha;
                 layout(location=14) in float a_dissolve;
+                layout(location=15) in float a_shadowGlow;
     
                 out vec2 v_uv;
                 out vec2 v_uv2;
@@ -1134,6 +1135,7 @@ class WebGLRenderer {
                 out float v_glimmerFlicker;
                 out float v_glimmerAlpha;
                 out float v_shapeID;
+                out float v_shadowGlow;
             `;
     
             // 2D Vertex Shader
@@ -1156,6 +1158,7 @@ class WebGLRenderer {
                     v_glimmerAlpha = a_glimmerAlpha;
                     v_shapeID = a_shapeID;
                     v_prog = a_dissolve;
+                    v_shadowGlow = a_shadowGlow;
                     
                     // Decay Scale Logic (Legacy support for non-optimized effects if needed)
                     float scale = 1.0;
@@ -1245,6 +1248,7 @@ class WebGLRenderer {
                 out float v_glimmerFlicker;
                 out float v_glimmerAlpha;
                 out float v_shapeID;
+                out float v_shadowGlow;
 
                 uniform vec2 u_resolution;
                 uniform vec2 u_atlasSize;
@@ -1280,6 +1284,7 @@ class WebGLRenderer {
                     v_glimmerAlpha = paramData.r;
                     v_shapeID = charData.a;
                     v_prog = a_dissolve;
+                    v_shadowGlow = paramData.b;
 
                     float scale = 1.0;
                     if (v_prog > 0.0 && u_dissolveEnabled > 0.5) {
@@ -1350,6 +1355,7 @@ class WebGLRenderer {
                 in float v_glimmerFlicker;
                 in float v_glimmerAlpha;
                 in float v_shapeID;
+                in float v_shadowGlow;
                 
                 uniform sampler2D u_texture;
                 uniform sampler2D u_shadowMask;
@@ -2705,6 +2711,11 @@ class WebGLRenderer {
         this.gl.enableVertexAttribArray(14);
         this.gl.vertexAttribPointer(14, 1, this.gl.FLOAT, false, 40, 32);
         this.gl.vertexAttribDivisor(14, 1);
+
+        // 15: ShadowGlow (F32 at offset 36)
+        this.gl.enableVertexAttribArray(15);
+        this.gl.vertexAttribPointer(15, 1, this.gl.FLOAT, false, 40, 36);
+        this.gl.vertexAttribDivisor(15, 1);
 
         this.gl.bindVertexArray(null);
     }
