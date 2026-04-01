@@ -1,6 +1,6 @@
 // =======================================================================
 // MATRIX KERNEL
-// =========================================================================
+// =======================================================================
 
 class MatrixKernel {
     constructor() {
@@ -37,7 +37,6 @@ class MatrixKernel {
         this._fpsBufferSum = 0;
         this._fpsBufferCount = 0;
         this.fpsDisplayElement = null; // Holds reference to the HTML element
-        this._lastDebugUpdateTime = 0;
         this._cachedDebugText = "";
 
         // Pre-bind the animation loop to avoid per-frame closure allocation
@@ -590,8 +589,11 @@ class MatrixKernel {
         const d = this.config.derived;
 
         // 1. Calculate Logical Dimensions (accounting for Stretch)
-        const logicalW = window.innerWidth / s.stretchX;
-        const logicalH = window.innerHeight / s.stretchY;
+        
+        const stretchX = Math.max(0.001, s.stretchX);
+        const stretchY = Math.max(0.001, s.stretchY);
+        const logicalW = window.innerWidth / stretchX;
+        const logicalH = window.innerHeight / stretchY;
 
         // 2. Snap Logic: Adjust Derived Cell Size to fit Width perfectly
         // Calculate target Cell Width based on User Settings
@@ -740,8 +742,11 @@ class MatrixKernel {
             }
         });
 
-        // Mark preallocation complete so trigger() never re-runs it
+        // Mark preallocation complete so trigger() never re-runs it        
+        if (typeof QuantizedBaseEffect !== 'undefined') {
         QuantizedBaseEffect._preallocated = true;
+        }
+
 
         // Chunk 7: Hidden render pass — exercises the FULL quantized GPU pipeline
         // behind the loading screen.  This forces ALL first-time initialization:
@@ -807,14 +812,12 @@ class MatrixKernel {
     }
 
     /**
-     * Transitions the loading screen: swap text to "Knock Knock, Neo",
-     * then fade out the overlay while the first code starts falling.
+     * Transitions the loading screen: 
+     * Fade out the overlay while the first code starts falling.
      * @private
      */
     _transitionLoadingScreen() {
         const overlay = document.getElementById('loadingOverlay');
-        const textEl = document.getElementById('loadingText');
-        const dotsEl = document.getElementById('loadingDots');
         if (!overlay) return;
 
         // Hold the Loading... message briefly, then fade out
@@ -826,14 +829,15 @@ class MatrixKernel {
                 clearInterval(this._dotsInterval);
                 overlay.remove();
             }, { once: true });
+
             // Fallback removal if transitionend doesn't fire
             setTimeout(() => { 
                 if (overlay.parentNode) {
                     clearInterval(this._dotsInterval);
                     overlay.remove();
                 }
-            }, 2000);
-        }, 900);
+            }, 1000);
+        }, 500);
     }
 
     /**
@@ -906,7 +910,7 @@ class MatrixKernel {
                         for (const idx of this.grid.activeIndices) {
                             if ((this.grid.types[idx] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.ROTATOR) rotators++;
                         }
-                        const shimmers = this.grid.complexStyles.size;
+                        const shimmers = this.grid.complexStyles ? this.grid.complexStyles.size : 0;
 
                         debugText += ` | Cells: ${cellCount}`;
                         debugText += ` | Tracers: ${tracers}`;

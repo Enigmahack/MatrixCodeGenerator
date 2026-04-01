@@ -2,10 +2,6 @@
 // WEBGL RENDERER
 // =========================================================================
 
-// =========================================================================
-// RENDER PIPELINE PASSES (SOLID / Open-Closed Architecture)
-// =========================================================================
-
 class RenderPass {
     constructor(name, enabled = true) {
         this.name = name;
@@ -401,34 +397,25 @@ class WebGLRenderer {
         const data = new Uint8Array(w * h);
         data.fill(0);
         
-        // More walkers, but much sparser trail (fragmented)
-        const numWalkers = 40;
+        // ULTIMATE DENSITY: Column-based spawning with high walker count.
+        // Ensures "multiple walkers per stream" as requested.
+        const walkersPerColumn = 30; 
+        const numWalkers = w * walkersPerColumn;
         
         for (let n = 0; n < numWalkers; n++) {
-            let x = Math.floor(Math.random() * w);
-            let y = 0;
+            let x = n % w; 
+            let y = Math.floor(Math.random() * h); 
             
             let steps = 0;
-            const maxSteps = h * 4; 
+            const maxSteps = h * 2; 
             
-            while (y < h && steps < maxSteps) {
-                // Fragmented: Only 40% chance to draw a block at current step
-                // This creates "broken" connections and inconsistency
-                if (Math.random() < 0.4) {
-                    data[y * w + x] = 255;
+            while (steps < maxSteps) {
+                // 15% probability per step ensures rich coverage without total saturation.
+                if (Math.random() < 0.15) {
+                    const idx = (y % h) * w + x;
+                    data[idx] = Math.min(255, data[idx] + 255); // Instant full intensity
                 }
-                
-                const r = Math.random();
-                if (r < 0.65) {
-                    // Move UP (65% chance)
-                    y++;
-                } else if (r < 0.825) {
-                    // Move LEFT
-                    x = (x - 1 + w) % w;
-                } else {
-                    // Move RIGHT
-                    x = (x + 1) % w;
-                }
+                y++;
                 steps++;
             }
         }
@@ -1647,92 +1634,99 @@ class WebGLRenderer {
                     // --- SHADER-BASED GLIMMER (GPU-only, glyph-intersection masking) ---
                     if (u_shaderGlimmerEnabled > 0.5 && tex1 > 0.001 && streamAlpha > 0.001) {
                         bool bandActive = u_shaderGlimmerVerticalSpeed > 0.001;
+                        float fadeOutDuration = u_shaderGlimmerFadeOut / 60.0; // Seconds
 
-                        // Compute vertical band factor (1.0 = full glimmer, 0.0 = no glimmer)
-                        float bandFactor = 1.0;
+                        // --- SHARED DENSITY & NOISE LOGIC ---
+                        float noiseSpeed = u_shaderGlimmerSpeed * 10.0;
+                        
+                        // Fix UV mapping to be 1:1 with grid columns/rows
+                        // noiseUV = (pixelPos / atlasSize) basically
+                        vec2 noiseUV = (v_cellPos - vec2(0.0, u_time * noiseSpeed)) / u_gridDimsChar;
+                        float nVal = 0.0;
+
+                        if (fadeOutDuration > 0.001) {
+                            // Fading Mode: Sample multiple offsets for a persistent trail
+                            float trailLength = fadeOutDuration * noiseSpeed * 2.0; 
+                            for (float i = 0.0; i < 10.0; i++) {
+                                float weight = 1.0 - (i / 9.0);
+                                float offset = (i / 9.0) * trailLength;
+                                float sampleVal = texture(u_glimmerNoise, noiseUV + vec2(0.0, offset / u_gridDimsChar.y)).r;
+                                nVal = max(nVal, sampleVal * weight);
+                            }
+                        } else {
+                            // SNAP MODE: Single sample for instantaneous on/off
+                            nVal = texture(u_glimmerNoise, noiseUV).r;
+                        }
+
+                        // DENSITY SCALING: Drastically amplify the nVal based on Density slider
+                        // This ensures even moderate settings fill the screen.
+                        float densityMult = u_shaderGlimmerDensity * 1.0;
+                        float boostedNVal = nVal * densityMult;
+                        float effectiveThreshold = u_shaderGlimmerThreshold * (1.0 - u_shaderGlimmerDensity * 0.9);
+
+                        // --- MODE BRANCHING ---
+                        float finalGlimmerFactor = 0.0;
+
                         if (bandActive) {
-                            // Per-column phase offset via procedural hash
                             float colHash = fract(sin(v_cellPos.x * 78.233) * 43758.5453);
-                            float totalRows = u_gridDimsChar.y;
-                            float fadeTailRows = (u_shaderGlimmerFadeOut / 60.0) * u_shaderGlimmerVerticalSpeed;
-                            float cycleLen = totalRows + u_shaderGlimmerHeight + fadeTailRows;
-                            // Band leading edge moves upward (decreasing row). v_cellPos.y=0 is top.
-                            float bandLead = mod(u_time * u_shaderGlimmerVerticalSpeed + colHash * cycleLen, cycleLen);
-                            // dist: how far this cell is below the leading edge (positive = below/south)
-                            float dist = mod(v_cellPos.y + bandLead, cycleLen);
-                            bandFactor = 0.0;
+                            float stableCycleLen = u_gridDimsChar.y + u_shaderGlimmerHeight + 120.0; 
+                            
+                            // Moving UP: decrease leadY over time
+                            float leadY = mod(u_time * u_shaderGlimmerVerticalSpeed + colHash * stableCycleLen, stableCycleLen);
+                            float dist = mod(v_cellPos.y + leadY, stableCycleLen);
+
                             if (dist < u_shaderGlimmerHeight) {
-                                bandFactor = 1.0;  // inside the active band
-                            } else if (dist < u_shaderGlimmerHeight + fadeTailRows) {
-                                // Fade trail extends south (below the band)
-                                bandFactor = 1.0 - (dist - u_shaderGlimmerHeight) / max(fadeTailRows, 0.001);
+                                finalGlimmerFactor = 1.0;
+                            } else if (fadeOutDuration > 0.001) {
+                                float fadeTailRows = fadeOutDuration * u_shaderGlimmerVerticalSpeed * 2.0;
+                                if (dist < u_shaderGlimmerHeight + fadeTailRows) {
+                                    finalGlimmerFactor = pow(1.0 - (dist - u_shaderGlimmerHeight) / max(fadeTailRows, 0.001), 1.2);
+                                }
+                            }
+                            
+                            // Boost band density (more columns)
+                            float colNoise = fract(sin(v_cellPos.x * 127.1 + 311.7) * 43758.5453);
+                            if (colNoise > (u_shaderGlimmerDensity * 2.0)) finalGlimmerFactor = 0.0;
+
+                        } else {
+                            // Noise Mode logic
+                            if (boostedNVal > effectiveThreshold) {
+                                float glimmerVal = (boostedNVal - effectiveThreshold) / max(1.0 - effectiveThreshold, 0.001);
+                                if (fadeOutDuration > 0.001) {
+                                    float softness = 0.02 + min(0.15, fadeOutDuration * 0.3);
+                                    finalGlimmerFactor = smoothstep(0.0, softness, glimmerVal) * min(1.0, glimmerVal);
+                                } else {
+                                    finalGlimmerFactor = step(0.01, glimmerVal);
+                                }
                             }
                         }
 
-                        if (bandFactor > 0.001) {
-                            // Column selection: band mode uses frequency to gate per-column instances
-                            float colSelect = 1.0;
-                            if (bandActive) {
-                                // Each column is an independent band instance; frequency = fraction that are active
-                                float colNoise = fract(sin(v_cellPos.x * 127.1 + 311.7) * 43758.5453);
-                                colSelect = colNoise < u_shaderGlimmerFrequency ? 1.0 : 0.0;
-                            }
+                        if (finalGlimmerFactor > 0.001) {
+                            float atlasCols = floor(u_atlasSize.x / u_cellSize);
+                            float totalGlyphs = atlasCols * floor(u_atlasSize.y / u_cellSize);
 
-                            if (colSelect > 0.5 || !bandActive) {
-                                // Original noise path for non-band mode
-                                float noiseGate = 1.0;
-                                if (!bandActive) {
-                                    vec2 noiseUV = vec2(
-                                        v_cellPos.x * 0.1,
-                                        (v_cellPos.y * (0.1 + u_shaderGlimmerFrequency * 0.9)) - u_time * u_shaderGlimmerSpeed
-                                    );
-                                    float noiseVal = texture(u_glimmerNoise, noiseUV).r;
-                                    if (noiseVal <= u_shaderGlimmerThreshold) {
-                                        noiseGate = 0.0;
-                                    } else {
-                                        float glimmerVal = (noiseVal - u_shaderGlimmerThreshold) / (1.0 - u_shaderGlimmerThreshold);
-                                        noiseGate = glimmerVal > (1.0 - u_shaderGlimmerDensity) ? min(1.0, glimmerVal) : 0.0;
-                                    }
-                                }
+                            float flickerBase = dot(v_cellPos, vec2(127.1, 311.7));
+                            float flickerTime = u_time * u_shaderGlimmerSpeed * 30.0;
+                            float flickerPhase = fract(flickerTime);
+                            float flickerIdx1 = floor(flickerTime);
+                            float flickerIdx2 = flickerIdx1 + 1.0;
 
-                                if (noiseGate > 0.001) {
-                                    float atlasCols = floor(u_atlasSize.x / u_cellSize);
-                                    float totalGlyphs = atlasCols * floor(u_atlasSize.y / u_cellSize);
+                            float glyphIdx1 = floor(mod(abs(fract(sin(flickerBase + flickerIdx1) * 43758.5453) * totalGlyphs), totalGlyphs));
+                            vec2 maskUv1 = (vec2(mod(glyphIdx1, atlasCols), floor(glyphIdx1 / atlasCols)) * u_cellSize + (v_cellUV * u_cellSize)) / u_atlasSize;
+                            float maskAlpha1 = texture(u_texture, maskUv1).a;
 
-                                    if (bandActive) {
-                                        // Band mode: all stream characters highlighted, mask glyph shifts with band movement
-                                        float seed = dot(v_cellPos, vec2(127.1, 311.7)) + floor(u_time * u_shaderGlimmerVerticalSpeed * 0.5);
-                                        float glyphIdx = floor(mod(abs(fract(sin(seed) * 43758.5453) * totalGlyphs), totalGlyphs));
-                                        float mCol = mod(glyphIdx, atlasCols);
-                                        float mRow = floor(glyphIdx / atlasCols);
-                                        vec2 maskUvBase = vec2(mCol, mRow) * u_cellSize;
-                                        vec2 maskUv = (maskUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
-                                        float maskAlpha = texture(u_texture, maskUv).a;
-                                        // Intersection: only highlight where character and mask glyph overlap
-                                        float intersection = tex1 * maskAlpha;
-                                        if (intersection > 0.05) {
-                                            float intensity = u_shaderGlimmerIntensity * bandFactor;
-                                            col.rgb += u_shaderGlimmerColor * intensity * intersection;
-                                            // Ensure dim/faded cells become visible when glimmered
-                                            streamAlpha = max(streamAlpha, intensity * intersection);
-                                        }
-                                    } else {
-                                        // Original mode: glyph-intersection masking
-                                        float seed = dot(v_cellPos, vec2(127.1, 311.7)) + floor(u_time * 0.5);
-                                        float glyphIdx = floor(mod(abs(fract(sin(seed) * 43758.5453) * totalGlyphs), totalGlyphs));
-                                        float mCol = mod(glyphIdx, atlasCols);
-                                        float mRow = floor(glyphIdx / atlasCols);
-                                        vec2 maskUvBase = vec2(mCol, mRow) * u_cellSize;
-                                        vec2 maskUv = (maskUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
-                                        float maskAlpha = texture(u_texture, maskUv).a;
-                                        float intersection = tex1 * maskAlpha;
-                                        if (intersection > 0.1) {
-                                            float intensity = noiseGate * u_shaderGlimmerIntensity;
-                                            col.rgb += u_shaderGlimmerColor * intensity * intersection;
-                                            streamAlpha = max(streamAlpha, intensity * intersection * 0.5);
-                                        }
-                                    }
-                                }
+                            float glyphIdx2 = floor(mod(abs(fract(sin(flickerBase + flickerIdx2) * 43758.5453) * totalGlyphs), totalGlyphs));
+                            vec2 maskUv2 = (vec2(mod(glyphIdx2, atlasCols), floor(glyphIdx2 / atlasCols)) * u_cellSize + (v_cellUV * u_cellSize)) / u_atlasSize;
+                            float maskAlpha2 = texture(u_texture, maskUv2).a;
+
+                            float maskAlpha = mix(maskAlpha1, maskAlpha2, flickerPhase);
+                            float intensity = finalGlimmerFactor * u_shaderGlimmerIntensity;
+                            float intersection = maskAlpha;
+                            
+                            if (intersection > 0.05) {
+                                col.rgb += u_shaderGlimmerColor * intensity * intersection;
+                                float alphaBoost = bandActive ? 1.0 : 0.5;
+                                streamAlpha = max(streamAlpha, intensity * intersection * alphaBoost);
                             }
                         }
                     }
@@ -4591,13 +4585,13 @@ class WebGLRenderer {
                 // Shader-based glimmer uniforms
                 this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerEnabled'), s.shaderGlimmerEnabled ? 1.0 : 0.0);
                 if (s.shaderGlimmerEnabled) {
-                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerSpeed'), s.shaderGlimmerSpeed || 0.1);
-                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerDensity'), s.shaderGlimmerDensity || 0.3);
-                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerIntensity'), s.shaderGlimmerIntensity || 0.5);
-                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerFrequency'), s.shaderGlimmerFrequency || 0.5);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerSpeed'), s.shaderGlimmerSpeed !== undefined ? s.shaderGlimmerSpeed : 0.1);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerDensity'), s.shaderGlimmerDensity !== undefined ? s.shaderGlimmerDensity : 0.3);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerIntensity'), s.shaderGlimmerIntensity !== undefined ? s.shaderGlimmerIntensity : 0.5);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerFrequency'), 0.5); // Hardcoded perfect default
                     const sgc = Utils.hexToRgb(s.shaderGlimmerColor || '#ffffff');
                     this.gl.uniform3f(this._u(activeProgram, 'u_shaderGlimmerColor'), sgc.r / 255, sgc.g / 255, sgc.b / 255);
-                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerThreshold'), s.shaderGlimmerThreshold || 0.7);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerThreshold'), 0.7); // Hardcoded perfect default
                     this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerVerticalSpeed'), s.shaderGlimmerVerticalSpeed !== undefined ? s.shaderGlimmerVerticalSpeed : 2.0);
                     this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerHeight'), s.shaderGlimmerHeight !== undefined ? s.shaderGlimmerHeight : 8.0);
                     this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerFadeOut'), s.shaderGlimmerFadeOut !== undefined ? s.shaderGlimmerFadeOut : 30.0);

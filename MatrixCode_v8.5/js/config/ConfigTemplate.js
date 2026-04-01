@@ -385,12 +385,10 @@ const ConfigTemplate = [
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Shader Glimmer' },
     { cat: 'Appearance', id: 'shaderGlimmerEnabled', type: 'checkbox', label: 'Enable Glimmer', tier: 'basic', description: 'Adds a procedural, scrolling glimmer/shine effect to active code characters, rendered on the GPU.', tags: ['shine', 'highlight', 'glint'] },
-    { cat: 'Appearance', id: 'shaderGlimmerSpeed', type: 'range', label: 'Speed', min: 0.0, max: 0.5, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The vertical scrolling speed of the glimmer effect.', tags: ['fast', 'slow', 'motion'] },
+    { cat: 'Appearance', id: 'shaderGlimmerSpeed', type: 'range', label: 'Speed', min: 0.0, max: 0.5, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The vertical scrolling speed and shimmer/flicker frequency of the glimmer effect.', tags: ['fast', 'slow', 'motion', 'flicker'] },
     { cat: 'Appearance', id: 'shaderGlimmerDensity', type: 'range', label: 'Density', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The percentage of the screen covered by glimmer highlights.', tags: ['amount', 'coverage'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Appearance', id: 'shaderGlimmerIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'shaderGlimmerEnabled', tier: 'basic', description: 'The brightness of the glimmer highlights.', tags: ['bright', 'shine'] },
-    { cat: 'Appearance', id: 'shaderGlimmerFrequency', type: 'range', label: 'Frequency', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The vertical tiling/frequency of the glimmer noise pattern. Higher values create more frequent, smaller highlights.', tags: ['tiling', 'scale'] },
     { cat: 'Appearance', id: 'shaderGlimmerColor', type: 'color', label: 'Color', dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The tint of the glimmer effect.', tags: ['tint', 'hue'] },
-    { cat: 'Appearance', id: 'shaderGlimmerThreshold', type: 'range', label: 'Cut-off Threshold', min: 0.5, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The noise cutoff value. Higher values result in sharper, more defined glimmer shapes.', tags: ['sharp', 'soft', 'cutoff'] },
     { cat: 'Appearance', id: 'shaderGlimmerVerticalSpeed', type: 'range', label: 'Vertical Speed', min: 0.0, max: 20.0, step: 0.1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'How fast the glimmer band moves upward (cells/sec). Set to 0 to disable vertical band movement.', tags: ['motion', 'sweep', 'band'] },
     { cat: 'Appearance', id: 'shaderGlimmerHeight', type: 'range', label: 'Height', min: 1, max: 50, step: 1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'How many character rows the active glimmer band spans.', tags: ['band', 'size', 'rows'] },
     { cat: 'Appearance', id: 'shaderGlimmerFadeOut', type: 'range', label: 'Fade Out', min: 0, max: 120, step: 1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'Frames for the glimmer trail to dim after the band passes.', tags: ['trail', 'dim', 'fade'] },
@@ -638,7 +636,6 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'info_description', text: 'Uniforms provided: uTexture (sampler2D), uTime (float), uResolution (vec2), uMouse (vec2), uParameter (float). Output to gl_FragColor.', dep: 'shaderEnabled' },
     { cat: 'Effects', type: 'end_group' }, 
     { cat: 'Effects', type: 'end_group' },
-    { cat: 'Effects', type: 'button', label: 'Disable All Periodic Effects', action: 'stopAllEffects', class: 'btn-danger', tier: 'basic', description: 'Immediately stops and disables all automated/periodic visual effects across Trilogy and Resurrections.', tags: ['stop', 'all', 'reset', 'kill'] },
 
     // 5. DEBUG TAB
     { cat: 'Debug', type: 'accordion_header', label: 'General' },
@@ -736,6 +733,7 @@ const ConfigTemplate = [
     { cat: 'System', type: 'info_description', text: 'Clears the current font cache, and resets all font entries to default' },
     { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn', tier: 'advanced', tags: ['fix', 'fonts'] },
     { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
+    { cat: 'System', type: 'button', label: 'Periodic Events', action: 'stopAllEffects', class: 'btn-danger', caution: true, tier: 'basic', description: 'Immediately stops and disables all automated/periodic visual effects across Trilogy and Resurrections.', tags: ['stop', 'all', 'reset', 'kill'] },
     { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true, tier: 'advanced', tags: ['clear', 'wipe', 'nuke'] },
 
     { cat: 'System', type: 'accordion_header', label: 'About' },

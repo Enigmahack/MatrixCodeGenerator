@@ -1113,11 +1113,18 @@ class UIManager {
             btn.id = `btn-${def.id || def.action}`;
             btn.name = def.action;
             btn.onclick = () => this.handleAction(def.action);
+
+            if (def.description) {
+                btn.onmouseenter = (e) => this.showTooltip(def.description, e.target);
+                btn.onmouseleave = () => this.hideTooltip();
+            }
+
             row.appendChild(btn);
             if (def.dep) row.setAttribute('data-dep', JSON.stringify(def.dep));
             if (def.id) row.id = `row-${def.id}`;
             return row;
-        } else if (def.type === 'sortable_list') {
+        }
+ else if (def.type === 'sortable_list') {
             this._renderSortableList(row, def);
         } else if (def.type === 'slot') {
             row.className = 'slot-container';
@@ -1684,7 +1691,7 @@ class UIManager {
         if(action === 'QuantizedBlockGenerator') { if(this.effects.trigger('QuantizedBlockGenerator', true)) this.notifications.show('Quantized Block Generator Triggered', 'success'); }
         if(action === 'dejavu') { if(this.effects.trigger('DejaVu', true)) this.notifications.show('DejaVu Triggered', 'success'); else this.notifications.show('DejaVu already active...', 'info'); }
         if(action === 'superman') { if(this.effects.trigger('Superman', true)) this.notifications.show('Neo is flying...', 'success'); else this.notifications.show('Superman active...', 'info'); }
-        if(action === 'stopAllEffects') { this.disableAllPeriodicEffects(); this.notifications.show('Disabled All Periodic Effects', 'info'); }
+        if(action === 'stopAllEffects') { this.disableAllPeriodicEffects(); this.notifications.show('Disabled Periodic Events', 'info'); }
         if(action === 'unloadAllShaders') { this._unloadAllShaders(); }
     }
 
