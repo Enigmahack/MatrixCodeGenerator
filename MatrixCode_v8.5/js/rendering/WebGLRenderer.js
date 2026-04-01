@@ -1371,6 +1371,7 @@ class WebGLRenderer {
                 uniform float u_shadowAtlasCols;              // shared atlas columns
                 uniform float u_shadowAtlasCellSize;          // shared atlas cell size
                 uniform vec2 u_shadowAtlasSize;               // shared atlas dimensions
+                uniform highp usampler2D u_shadowOverlapCharTex; // R16UI: shadow overlap secondary glyph IDs
 
                 uniform float u_time;
                 uniform float u_dissolveEnabled; 
@@ -1380,9 +1381,10 @@ class WebGLRenderer {
                 uniform float u_deteriorationEnabled;
                 uniform float u_deteriorationStrength;
                 uniform vec2 u_atlasSize;
-                uniform vec2 u_gridSize; 
-                uniform float u_cellSize; 
-                uniform vec2 u_cellScale; 
+                uniform vec2 u_gridSize;
+                uniform float u_cellSize;
+                uniform float u_cols;
+                uniform vec2 u_cellScale;
                 uniform vec4 u_overlapColor;
                 uniform float u_glimmerSpeed;
                 uniform float u_glimmerSize;
@@ -1529,6 +1531,22 @@ class WebGLRenderer {
                         float owA = tex1 * oFade;
                         finalAlpha = owA + tex2 * sFade;
                         baseColor.a = 1.0;
+
+                        // Shadow world Character Overlap (GPU path)
+                        if (sFade > 0.01) {
+                            uint gpuShadowOverlapId = texelFetch(u_shadowOverlapCharTex, cellCoord, 0).r;
+                            if (gpuShadowOverlapId < 65535u) {
+                                float gpuOvCol = mod(float(gpuShadowOverlapId), u_cols);
+                                float gpuOvRow = floor(float(gpuShadowOverlapId) / u_cols);
+                                vec2 gpuOvUvBase = vec2(gpuOvCol, gpuOvRow) * u_cellSize;
+                                vec2 gpuOvUv = (gpuOvUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
+                                float gpuOvTex = getProcessedAlpha(gpuOvUv);
+                                float gpuOvIntersection = tex2 * gpuOvTex;
+                                if (gpuOvIntersection > 0.1) {
+                                    baseColor.rgb = u_overlapColor.rgb;
+                                }
+                            }
+                        }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed dual world mode (shadow textures not available)
                         float originalBaseAlpha = baseColor.a;
@@ -1537,6 +1555,23 @@ class WebGLRenderer {
                         float owA = tex1 * originalBaseAlpha;
                         finalAlpha = owA + tex2 * nwA;
                         baseColor.a = 1.0;
+
+                        // Shadow world Character Overlap
+                        if (nwA > 0.01) {
+                            ivec2 ovCellCoord = ivec2(v_cellPos);
+                            uint shadowOverlapId = texelFetch(u_shadowOverlapCharTex, ovCellCoord, 0).r;
+                            if (shadowOverlapId < 65535u) {
+                                float ovCol = mod(float(shadowOverlapId), u_cols);
+                                float ovRow = floor(float(shadowOverlapId) / u_cols);
+                                vec2 ovUvBase = vec2(ovCol, ovRow) * u_cellSize;
+                                vec2 ovUv = (ovUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
+                                float ovTex = getProcessedAlpha(ovUv);
+                                float ovIntersection = tex2 * ovTex;
+                                if (ovIntersection > 0.1) {
+                                    baseColor.rgb = u_overlapColor.rgb;
+                                }
+                            }
+                        }
                     } else if (useMix >= 4.0) {
                         // Overlay Mode (Tracers/Effects)
                         // Use baseColor so tracers follow Stream Color.
@@ -1755,11 +1790,20 @@ class WebGLRenderer {
             }
             this.program = this.program2D; // Default fallback
 
-            // Pin integer sampler uniform immediately so it never defaults to unit 0
+            // Pin integer sampler uniforms immediately so they never default to unit 0
             if (this.program2D) {
                 this.gl.useProgram(this.program2D);
                 const loc = this._u(this.program2D, 'u_shadowCharTex');
                 if (loc) this.gl.uniform1i(loc, 3); // Permanently assign to TEXTURE3
+                const loc2 = this._u(this.program2D, 'u_shadowOverlapCharTex');
+                if (loc2) this.gl.uniform1i(loc2, 7); // Permanently assign to TEXTURE7
+            }
+            if (this.programGPU2D) {
+                this.gl.useProgram(this.programGPU2D);
+                const loc = this._u(this.programGPU2D, 'u_shadowCharTex');
+                if (loc) this.gl.uniform1i(loc, 3);
+                const loc2 = this._u(this.programGPU2D, 'u_shadowOverlapCharTex');
+                if (loc2) this.gl.uniform1i(loc2, 7);
             }
     
             // Keep existing Bloom/Color programs
@@ -2232,6 +2276,8 @@ class WebGLRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
             this.gl.activeTexture(this.gl.TEXTURE5); // lineFS u_charIndexGrid slot
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+            this.gl.activeTexture(this.gl.TEXTURE7); // matrixFS u_shadowOverlapCharTex slot
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
             this.gl.activeTexture(this.gl.TEXTURE0); // Restore default
         }
 
@@ -2288,9 +2334,15 @@ class WebGLRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowCharIndexTexture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, 1, 1, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, new Uint16Array([65535]));
         }
+        this.shadowOverlapCharTexture = createNearestTexture(); // R16UI: shadow overlap secondary glyph IDs
+        if (this.shadowOverlapCharTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowOverlapCharTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R16UI, 1, 1, 0, this.gl.RED_INTEGER, this.gl.UNSIGNED_SHORT, new Uint16Array([65535]));
+        }
         this._shadowFadeBuffer = null;
         this._shadowColorBuffer = null;
         this._shadowCharIndexArray = null;
+        this._shadowOverlapCharArray = null;
         this._lastShadowCols = 0;
         this._lastShadowRows = 0;
 
@@ -4157,6 +4209,48 @@ class WebGLRenderer {
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, this.instanceData);
         } // end CPU fallback else block
 
+        // --- SHADOW OVERLAP TEXTURE: Upload secondary char IDs for shadow world overlap ---
+        this._hasShadowOverlapTexture = false;
+        if (grid.overrideActive && grid.secondaryChars && grid.renderMode && this.shadowOverlapCharTexture) {
+            const sCols = grid.cols, sRows = grid.rows, sTotal = sCols * sRows;
+            const ovActive = grid.overrideActive;
+            const gMode = grid.renderMode;
+            const gSecChars = grid.secondaryChars;
+            const lookup = atlas.codeToId;
+            let hasAny = false;
+
+            if (!this._shadowOverlapCharArray || this._shadowOverlapCharArray.length !== sTotal) {
+                this._shadowOverlapCharArray = new Uint16Array(sTotal);
+            }
+            const soa = this._shadowOverlapCharArray;
+            soa.fill(65535);
+
+            for (let i = 0; i < sTotal; i++) {
+                if (ovActive[i] === 5 && gMode[i] === 1) {
+                    const sc = gSecChars[i];
+                    if (sc > 32) {
+                        let id = lookup[sc];
+                        if (id === -1) {
+                            const rect = atlas.addChar(String.fromCharCode(sc));
+                            id = rect ? rect.id : 65535;
+                        }
+                        soa[i] = (id >= 0) ? id : 65535;
+                        hasAny = true;
+                    }
+                }
+            }
+
+            if (hasAny) {
+                const gl = this.gl;
+                gl.activeTexture(gl.TEXTURE7);
+                gl.bindTexture(gl.TEXTURE_2D, this.shadowOverlapCharTexture);
+                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, sCols, sRows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, soa);
+                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+                this._hasShadowOverlapTexture = true;
+            }
+        }
+
         // --- SHADOW WORLD: CPU-packed path (GPU texture upload disabled) ---
         // Shadow data is packed into the instance buffer via _setOverride + ov=5 packing above.
         // The shader uses the CPU fallback path (u_shadowEnabled=0) with getProcessedAlpha().
@@ -4583,6 +4677,15 @@ class WebGLRenderer {
                     this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackTexture);
                     this.gl.uniform1i(this._u(activeProgram, 'u_shadowAtlasTex'), 6);
                 }
+
+                // Shadow Overlap: bind secondary char texture for shadow world overlap rendering
+                this.gl.activeTexture(this.gl.TEXTURE7);
+                if (this._hasShadowOverlapTexture && this.shadowOverlapCharTexture) {
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowOverlapCharTexture);
+                } else {
+                    this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
+                }
+                this.gl.uniform1i(this._u(activeProgram, 'u_shadowOverlapCharTex'), 7);
 
                 this.gl.uniform1f(this._u(activeProgram, 'u_time'), performance.now() / 1000.0);
                 this.gl.uniform1f(this._u(activeProgram, 'u_dissolveEnabled'), s.dissolveEnabled ? 1.0 : 0.0);

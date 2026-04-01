@@ -485,6 +485,7 @@ class SimulationSystem {
                     
                     this.grid.secondaryChars[i] = code;
                     this.grid.secondaryColors[i] = ovColor;
+                    this.grid.renderMode[i] = RENDER_MODE.OVERLAP;
                 }
             } else if (sc !== 32 && sc !== 0) {
                 // Background overlap should NOT exist.
@@ -492,6 +493,7 @@ class SimulationSystem {
                 // Rotators are identified by their cell type.
                 if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) !== Utils.CELL_TYPE.ROTATOR) {
                     this.grid.secondaryChars[i] = 32; 
+                    this.grid.renderMode[i] = RENDER_MODE.STANDARD;
                 }
             }
         }
