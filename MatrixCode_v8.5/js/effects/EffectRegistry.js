@@ -102,7 +102,6 @@ class EffectRegistry {
             'crash': CrashEffect,
             'quantizedPulse': QuantizedPulseEffect,
             'quantizedAdd': QuantizedAddEffect,
-            'quantizedRetract': QuantizedRetractEffect,
             'quantizedClimb': QuantizedClimbEffect,
             'quantizedZoom': QuantizedZoomEffect,
             'QuantizedBlockGenerator': QuantizedBlockGeneration

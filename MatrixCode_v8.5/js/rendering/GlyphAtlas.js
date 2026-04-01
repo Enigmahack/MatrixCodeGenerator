@@ -58,6 +58,7 @@ class GlyphAtlas {
         this.capacity = 0;   // Current max characters
         this.minCapacity = 256; // Starting capacity
         this.hasChanges = false;
+        this.nextId = 0;
         this.fontReady = false;
     }
 
@@ -301,6 +302,8 @@ class GlyphAtlas {
 
         // Full update required on resize/clear (GPU texture must be resized)
         this.needsFullUpdate = true;
+        this.hasChanges = true;
+        this.nextId++;
         this.dirtyRects = []; // Clear partial updates as we are doing full
 
         // Setup Context (State is lost on resize)
@@ -347,6 +350,8 @@ class GlyphAtlas {
         }
 
         this.usedChars.push(char);
+        this.hasChanges = true;
+        this.nextId++;
         if (!this._debugAdded) this._debugAdded = 0;
         this._debugAdded++;
         if (this._debugAdded <= 3 && this.config.state.logErrors) console.log(`[GlyphAtlas:${this._debugLabel}] ADDED char "${char}" (0x${char.charCodeAt(0).toString(16)}) total=${this.usedChars.length} font=${this.currentFont}`);

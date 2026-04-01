@@ -38,7 +38,6 @@ CODE_MAP = {
     'QuantizedProceduralEngine': 'js/effects/QuantizedProceduralEngine.js',
     'QuantizedPulseEffect': 'js/effects/QuantizedPulseEffect.js',
     'QuantizedAddEffect': 'js/effects/QuantizedAddEffect.js',
-    'QuantizedRetractEffect': 'js/effects/QuantizedRetractEffect.js',
     'QuantizedClimbEffect': 'js/effects/QuantizedClimbEffect.js',
     'QuantizedZoomEffect': 'js/effects/QuantizedZoomEffect.js',
     'QuantizedBlockGeneration': 'js/effects/QuantizedBlockGeneration.js',

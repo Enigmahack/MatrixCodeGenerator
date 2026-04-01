@@ -93,7 +93,7 @@ class QuantizedSequenceGeneratorV2 {
             'LineGfxColor', 'LineGfxPersistence',
             'GlassRefractionEnabled', 'TriggerBrightnessSwell', 'IncludeSwellPause', 'GlassRefractionWidth', 'GlassRefractionBrightness', 'GlassRefractionSaturation',
             'GlassRefractionCompression', 'GlassRefractionOffset', 'GlassRefractionGlow',
-            'LineGfxTintOffset', 'LineGfxAdditiveStrength', 'LineGfxSharpness',
+            'LineGfxTintOffset', 'LineGfxSharpness',
             'LineGfxRoundness', 'LineGfxGlowFalloff', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
             'LineGfxMaskSoftness', 'LineGfxOffsetX', 'LineGfxOffsetY', 'Speed', 'BlockWidthCells', 'BlockHeightCells',
             'BlockSizeBias', 'BlockShapeBias',
@@ -145,9 +145,10 @@ class QuantizedSequenceGeneratorV2 {
 
         // Preserve scx/scy if already set (e.g. by tap-to-spawn in base trigger)
         const hasSpawnOffset = (this.behaviorState.scx !== 0 || this.behaviorState.scy !== 0);
+        let scx = this.behaviorState.scx;
+        let scy = this.behaviorState.scy;
+
         if (!hasSpawnOffset) {
-            let scx = 0;
-            let scy = 0;
             if (randomStart) {
                 const bs = this._getBlockSize();
                 const halfW = Math.floor(this.cols / bs.w / 2) - 5;
@@ -390,7 +391,7 @@ class QuantizedSequenceGeneratorV2 {
                     const overlapsXSpine = (b.y <= s.scy && b.y + b.h - 1 >= s.scy);
                     if (overlapsXSpine || overlapsYSpine) return false;
 
-                    if (b.stepAge > 8) return false;
+                    if (b.stepAge < 8) return false;
 
                     // --- CONNECTIVITY RULES ---
                     let north = false, south = false, west = false, east = false;
@@ -534,7 +535,7 @@ class QuantizedSequenceGeneratorV2 {
             if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!gen._getConfig('ShoveFillEnabled')) return;
             const startDelay = gen._getConfig('ShoveFillStartDelay') ?? 20;
-            const fillRate   = Math.max(1, gen._getConfig('ShoveFillRate') ?? 4);
+            const fillRate   = 4; // Hardcoded after UI slider removal
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = gen._getAllowedDirs(layer);
             const bs    = gen._getBlockSize();

@@ -258,8 +258,7 @@ const Utils = {
         EMPTY: 0,
         TRAIL: 1,
         TRACER: 2,
-        ROTATOR: 3,
-        UPWARD_TRACER: 4
+        ROTATOR: 3
     },
     CELL_TYPE_MASK: 0x7F, // 127
     CELL_FLAGS: {

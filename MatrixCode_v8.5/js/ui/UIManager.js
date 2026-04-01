@@ -1677,7 +1677,6 @@ class UIManager {
         if(action === 'minipulse') { if(this.effects.trigger('MiniPulse', true)) this.notifications.show('Pulse Storm Triggered', 'success'); else this.notifications.show('Pulse Storm active...', 'info'); }
         if(action === 'quantizedPulse') { if(this.effects.trigger('QuantizedPulse', true)) this.notifications.show('Quantized Pulse Triggered', 'success'); }
         if(action === 'quantizedAdd') { if(this.effects.trigger('QuantizedAdd', true)) this.notifications.show('Quantized Add Triggered', 'success'); }
-        if(action === 'quantizedRetract') { if(this.effects.trigger('QuantizedRetract', true)) this.notifications.show('Quantized Retract Triggered', 'success'); }
         if(action === 'quantizedClimb') { if(this.effects.trigger('QuantizedClimb', true)) this.notifications.show('Quantized Climb Triggered', 'success'); }
         if(action === 'quantizedZoom') { if(this.effects.trigger('QuantizedZoom', true)) this.notifications.show('Quantized Zoom Triggered', 'success'); }
         if(action === 'quantizedExpansion') { if(this.effects.trigger('QuantizedExpansion', true)) this.notifications.show('Quantized Expansion Triggered', 'success'); }

@@ -1394,7 +1394,20 @@ class WebGLRenderer {
                 uniform float u_glimmerSpeed;
                 uniform float u_glimmerSize;
                 uniform float u_glimmerIntensity;
-                uniform float u_glimmerFlicker; 
+                uniform float u_glimmerFlicker;
+
+                // Shader-based glimmer (GPU-only, no CPU simulation needed)
+                uniform float u_shaderGlimmerEnabled;
+                uniform float u_shaderGlimmerSpeed;
+                uniform float u_shaderGlimmerDensity;
+                uniform float u_shaderGlimmerIntensity;
+                uniform float u_shaderGlimmerFrequency;
+                uniform vec3 u_shaderGlimmerColor;
+                uniform float u_shaderGlimmerThreshold;
+                uniform float u_shaderGlimmerVerticalSpeed;
+                uniform float u_shaderGlimmerHeight;
+                uniform float u_shaderGlimmerFadeOut;
+
                 uniform float u_brightness;
                 uniform float u_brightnessFloor;
                 uniform float u_glowIntensityMultiplier;
@@ -1449,16 +1462,23 @@ class WebGLRenderer {
                     float finalAlpha = tex1;
                     
                     // --- OPTIMIZED GLIMMER LOGIC ---
-                    // In dual-world mode (useMix >= 5.0), v_glimmerAlpha is repurposed as the
-                    // shadow world glow channel. Skip the shape computation in that mode.
+                    // In dual-world mode (useMix >= 5.0), v_glimmerFlicker is repurposed
+                    // to carry shadow glow. Actual glimmer data (shapeID, glimmerAlpha)
+                    // comes from the shadow world's simulation so glimmer matches both worlds.
                     float glimmer = 0.0;
-                    if (v_glimmerAlpha > 0.0 && useMix < 5.0) {
+                    float shadowGlowVal = 0.0;
+                    float flickerVal = v_glimmerFlicker;
+                    if (useMix >= 5.0) {
+                        shadowGlowVal = v_glimmerFlicker;
+                        flickerVal = 1.0;
+                    }
+                    if (v_glimmerAlpha > 0.0) {
                         float rawTex = texture(u_texture, v_uv).a;
                         if (rawTex > 0.3) {
                             vec2 center = vec2(0.5);
-                            vec2 sizeBounds = vec2(0.1, 0.1); 
+                            vec2 sizeBounds = vec2(0.1, 0.1);
                             float rotation = 0.0;
-                            
+
                             // Shape ID Decoding (CPU Determined)
                             int sID = int(v_shapeID + 0.5);
                             if (sID == 1) { center = vec2(0.2, 0.5); sizeBounds = vec2(0.08, 0.45); }
@@ -1473,7 +1493,7 @@ class WebGLRenderer {
                             // Sample Noise Texture (Static per cell seed offset)
                             vec2 noiseUV = (v_cellPos / 64.0) + (v_shapeID * 0.123);
                             float activeVal = texture(u_glimmerNoise, noiseUV).r;
-                            
+
                             // Draw Shape
                             vec2 p = v_cellUV - center;
                             if (rotation != 0.0) {
@@ -1484,7 +1504,7 @@ class WebGLRenderer {
                             float d = length(max(p - sizeBounds, vec2(0.0))) + min(max(p.x - sizeBounds.x, p.y - sizeBounds.y), 0.0) - 0.01;
                             float shape = (1.0 - smoothstep(-0.01, 0.01, d)) + (1.0 - smoothstep(0.0, 0.15, d)) * 0.4;
 
-                            glimmer = shape * (0.4 + (0.6 * activeVal)) * v_glimmerFlicker * v_glimmerAlpha;
+                            glimmer = shape * (0.4 + (0.6 * activeVal)) * flickerVal * v_glimmerAlpha;
                         }
                     }
     
@@ -1587,9 +1607,9 @@ class WebGLRenderer {
                             col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
                         }
                     } else if (useMix >= 5.0) {
-                        // Fallback: CPU-packed shadow glow via v_glimmerAlpha
-                        if (v_glimmerAlpha > 0.0) {
-                            float swGlowFactor = v_glimmerAlpha;
+                        // Fallback: CPU-packed shadow glow via v_glimmerFlicker (repurposed)
+                        if (shadowGlowVal > 0.0) {
+                            float swGlowFactor = shadowGlowVal;
                             if (glassMask <= 0.001) {
                                 swGlowFactor *= (1.0 - shadow);
                             }
@@ -1623,7 +1643,100 @@ class WebGLRenderer {
                         // Force alpha to be at least the glimmer opacity
                         streamAlpha = max(streamAlpha, glimmer);
                     }
-    
+
+                    // --- SHADER-BASED GLIMMER (GPU-only, glyph-intersection masking) ---
+                    if (u_shaderGlimmerEnabled > 0.5 && tex1 > 0.001 && streamAlpha > 0.001) {
+                        bool bandActive = u_shaderGlimmerVerticalSpeed > 0.001;
+
+                        // Compute vertical band factor (1.0 = full glimmer, 0.0 = no glimmer)
+                        float bandFactor = 1.0;
+                        if (bandActive) {
+                            // Per-column phase offset via procedural hash
+                            float colHash = fract(sin(v_cellPos.x * 78.233) * 43758.5453);
+                            float totalRows = u_gridDimsChar.y;
+                            float fadeTailRows = (u_shaderGlimmerFadeOut / 60.0) * u_shaderGlimmerVerticalSpeed;
+                            float cycleLen = totalRows + u_shaderGlimmerHeight + fadeTailRows;
+                            // Band leading edge moves upward (decreasing row). v_cellPos.y=0 is top.
+                            float bandLead = mod(u_time * u_shaderGlimmerVerticalSpeed + colHash * cycleLen, cycleLen);
+                            // dist: how far this cell is below the leading edge (positive = below/south)
+                            float dist = mod(v_cellPos.y + bandLead, cycleLen);
+                            bandFactor = 0.0;
+                            if (dist < u_shaderGlimmerHeight) {
+                                bandFactor = 1.0;  // inside the active band
+                            } else if (dist < u_shaderGlimmerHeight + fadeTailRows) {
+                                // Fade trail extends south (below the band)
+                                bandFactor = 1.0 - (dist - u_shaderGlimmerHeight) / max(fadeTailRows, 0.001);
+                            }
+                        }
+
+                        if (bandFactor > 0.001) {
+                            // Column selection: band mode uses frequency to gate per-column instances
+                            float colSelect = 1.0;
+                            if (bandActive) {
+                                // Each column is an independent band instance; frequency = fraction that are active
+                                float colNoise = fract(sin(v_cellPos.x * 127.1 + 311.7) * 43758.5453);
+                                colSelect = colNoise < u_shaderGlimmerFrequency ? 1.0 : 0.0;
+                            }
+
+                            if (colSelect > 0.5 || !bandActive) {
+                                // Original noise path for non-band mode
+                                float noiseGate = 1.0;
+                                if (!bandActive) {
+                                    vec2 noiseUV = vec2(
+                                        v_cellPos.x * 0.1,
+                                        (v_cellPos.y * (0.1 + u_shaderGlimmerFrequency * 0.9)) - u_time * u_shaderGlimmerSpeed
+                                    );
+                                    float noiseVal = texture(u_glimmerNoise, noiseUV).r;
+                                    if (noiseVal <= u_shaderGlimmerThreshold) {
+                                        noiseGate = 0.0;
+                                    } else {
+                                        float glimmerVal = (noiseVal - u_shaderGlimmerThreshold) / (1.0 - u_shaderGlimmerThreshold);
+                                        noiseGate = glimmerVal > (1.0 - u_shaderGlimmerDensity) ? min(1.0, glimmerVal) : 0.0;
+                                    }
+                                }
+
+                                if (noiseGate > 0.001) {
+                                    float atlasCols = floor(u_atlasSize.x / u_cellSize);
+                                    float totalGlyphs = atlasCols * floor(u_atlasSize.y / u_cellSize);
+
+                                    if (bandActive) {
+                                        // Band mode: all stream characters highlighted, mask glyph shifts with band movement
+                                        float seed = dot(v_cellPos, vec2(127.1, 311.7)) + floor(u_time * u_shaderGlimmerVerticalSpeed * 0.5);
+                                        float glyphIdx = floor(mod(abs(fract(sin(seed) * 43758.5453) * totalGlyphs), totalGlyphs));
+                                        float mCol = mod(glyphIdx, atlasCols);
+                                        float mRow = floor(glyphIdx / atlasCols);
+                                        vec2 maskUvBase = vec2(mCol, mRow) * u_cellSize;
+                                        vec2 maskUv = (maskUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
+                                        float maskAlpha = texture(u_texture, maskUv).a;
+                                        // Intersection: only highlight where character and mask glyph overlap
+                                        float intersection = tex1 * maskAlpha;
+                                        if (intersection > 0.05) {
+                                            float intensity = u_shaderGlimmerIntensity * bandFactor;
+                                            col.rgb += u_shaderGlimmerColor * intensity * intersection;
+                                            // Ensure dim/faded cells become visible when glimmered
+                                            streamAlpha = max(streamAlpha, intensity * intersection);
+                                        }
+                                    } else {
+                                        // Original mode: glyph-intersection masking
+                                        float seed = dot(v_cellPos, vec2(127.1, 311.7)) + floor(u_time * 0.5);
+                                        float glyphIdx = floor(mod(abs(fract(sin(seed) * 43758.5453) * totalGlyphs), totalGlyphs));
+                                        float mCol = mod(glyphIdx, atlasCols);
+                                        float mRow = floor(glyphIdx / atlasCols);
+                                        vec2 maskUvBase = vec2(mCol, mRow) * u_cellSize;
+                                        vec2 maskUv = (maskUvBase + (v_cellUV * u_cellSize)) / u_atlasSize;
+                                        float maskAlpha = texture(u_texture, maskUv).a;
+                                        float intersection = tex1 * maskAlpha;
+                                        if (intersection > 0.1) {
+                                            float intensity = noiseGate * u_shaderGlimmerIntensity;
+                                            col.rgb += u_shaderGlimmerColor * intensity * intersection;
+                                            streamAlpha = max(streamAlpha, intensity * intersection * 0.5);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Boosted brightness
                     fragColor = vec4(col.rgb * (u_brightness + u_brightnessFloor), streamAlpha);
                 }
@@ -1967,18 +2080,20 @@ class WebGLRenderer {
 
                     // ============ GENERIC PARAMS SUPPRESSION ============
                     bool isOverridden = (effAct == 1u || effAct == 4u);
-                    bool isShadowWorld = (ovAct == 5u);
+                    bool isShadowWorld = (ovAct == 5u && effAct != 3u);
 
                     if (isShadowWorld) {
-                        outGlimmerFlicker = 1.0;
-                        outShapeID = 0.0;
+                        // Pass through shadow world's actual glimmer data
+                        outShapeID = gParams.g;
+                        outGlimmerAlpha = gParams.b;
+                        outDissolve = 0.0;
+                        // Repurpose GlimmerFlicker to carry shadow glow
                         if (u_shadowGridEnabled > 0.5) {
                             vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
-                            outGlimmerAlpha = sFloats.b * ovGlow;
+                            outGlimmerFlicker = sFloats.b * ovGlow;
                         } else {
-                            outGlimmerAlpha = 0.0;
+                            outGlimmerFlicker = 0.0;
                         }
-                        outDissolve = 0.0;
                     } else if (isOverridden) {
                         outGlimmerFlicker = 1.0;
                         outShapeID = 0.0;
@@ -3998,16 +4113,20 @@ class WebGLRenderer {
                 // we must suppress simulation-driven parameters like Dissolve and Flicker.
                 const isOverridden = effActive && (effActive[i] === 1 || effActive[i] === 4);
 
-                // In dual-world shadow mode (ov=5), repurpose GlimmerAlpha to carry the
-                // shadow grid's glow so the shader can apply it as a tracer brightness boost.
-                const isShadowWorld = ovActive && ovActive[i] === 5;
+                // In dual-world shadow mode (ov=5), pass through shadow world's actual glimmer
+                // data (shapeID, glimmerAlpha) and repurpose GlimmerFlicker for shadow glow.
+                // Only repurpose GlimmerFlicker for shadow glow when rendering in
+                // dual-world blend mode (ov=5 mix>=5). effActive=3 cells use mix=0
+                // and need actual flicker values from the normal genericParams path.
+                const isShadowWorld = ovActive && ovActive[i] === 5
+                    && !(effActive && effActive[i] === 3);
                 if (isShadowWorld) {
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
                     // sFade = sg.alphas[i] * shadowFade (already stored in ovGlows[i])
                     const sFade = ovGlows[i];
-                    mF32[baseOff + 6] = 1.0;                                           // GlimmerFlicker (unused in sw path)
-                    mU8[u8Off + 21]   = 0;                                             // ShapeID
-                    mF32[baseOff + 7] = sGrid ? sGrid.glows[i] * sFade : 0;           // Shadow world glow (faded)
+                    mF32[baseOff + 6] = sGrid ? sGrid.glows[i] * sFade : 0;           // GlimmerFlicker repurposed: shadow glow
+                    mU8[u8Off + 21]   = gParams[gIdx + 1];                             // ShapeID from shadow world
+                    mF32[baseOff + 7] = gParams[gIdx + 2];                             // GlimmerAlpha from shadow world
                     mF32[baseOff + 8] = 0;                                             // Dissolve
                 } else {
                     mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
@@ -4468,6 +4587,21 @@ class WebGLRenderer {
                 this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFill'), s.upwardTracerGlimmerFill || 3.0);
                 this.gl.uniform1f(this._u(activeProgram, 'u_glimmerIntensity'), s.upwardTracerGlimmerGlow || 10.0);
                 this.gl.uniform1f(this._u(activeProgram, 'u_glimmerFlicker'), s.upwardTracerGlimmerFlicker !== undefined ? s.upwardTracerGlimmerFlicker : 0.5);
+
+                // Shader-based glimmer uniforms
+                this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerEnabled'), s.shaderGlimmerEnabled ? 1.0 : 0.0);
+                if (s.shaderGlimmerEnabled) {
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerSpeed'), s.shaderGlimmerSpeed || 0.1);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerDensity'), s.shaderGlimmerDensity || 0.3);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerIntensity'), s.shaderGlimmerIntensity || 0.5);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerFrequency'), s.shaderGlimmerFrequency || 0.5);
+                    const sgc = Utils.hexToRgb(s.shaderGlimmerColor || '#ffffff');
+                    this.gl.uniform3f(this._u(activeProgram, 'u_shaderGlimmerColor'), sgc.r / 255, sgc.g / 255, sgc.b / 255);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerThreshold'), s.shaderGlimmerThreshold || 0.7);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerVerticalSpeed'), s.shaderGlimmerVerticalSpeed !== undefined ? s.shaderGlimmerVerticalSpeed : 2.0);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerHeight'), s.shaderGlimmerHeight !== undefined ? s.shaderGlimmerHeight : 8.0);
+                    this.gl.uniform1f(this._u(activeProgram, 'u_shaderGlimmerFadeOut'), s.shaderGlimmerFadeOut !== undefined ? s.shaderGlimmerFadeOut : 30.0);
+                }
                 this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
                 this.gl.uniform1f(this._u(activeProgram, 'u_brightnessFloor'), s.brightnessFloor !== undefined ? s.brightnessFloor : 0.05);
                 this.gl.uniform1f(this._u(activeProgram, 'u_glowIntensityMultiplier'), s.glowIntensityMultiplier !== undefined ? s.glowIntensityMultiplier : 0.3);

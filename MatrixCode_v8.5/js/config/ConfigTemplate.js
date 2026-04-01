@@ -44,7 +44,6 @@ const QuantizedInheritableSettings = [
 
     // Line Fine-Tuning — advanced color, sampling, and position adjustments
     { sub: 'Line Fine-Tuning', sub_header: 'Color & Blending', id: 'LineGfxTintOffset', type: 'range', label: 'Hue Shift', min: -1.0, max: 1.0, step: 0.01, tier: 'advanced', description: 'Adjusts the hue of the lines independently of the main color.', tags: ['hue', 'tint', 'color'] },
-    { sub: 'Line Fine-Tuning', id: 'LineGfxAdditiveStrength', type: 'range', label: 'Blend Strength', min: 0.0, max: 2.0, step: 0.05, tier: 'advanced', description: 'Controls how strongly the lines add to the underlying character color.', tags: ['blend', 'mix'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
 
     { sub: 'Line Fine-Tuning', sub_header: 'Perimeter Echo', id: 'PerimeterEchoEnabled', type: 'checkbox', label: 'Enable Perimeter Echo', tier: 'basic', description: "Replicates the external perimeter with a trailing delay.", tags: ['delay', 'echo', 'perimeter'] },
     { sub: 'Line Fine-Tuning', id: 'EchoGfxDelay', type: 'range', label: 'Echo Delay', min: 1, max: 8, step: 1, tier: 'basic', description: 'Number of simulation steps the echo trails behind the main perimeter.', tags: ['delay', 'echo', 'steps'] },
@@ -100,7 +99,6 @@ const QuantizedInheritableSettings = [
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillSpawnBias', type: 'select', label: 'Spawn Bias', options: [{label: 'Single Strip', value: 'single'}, {label: 'Wider', value: 'wider'}], dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillStartDelay', type: 'range', label: 'Start Delay', min: 0, max: 100, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillStopAfter', type: 'range', label: 'Stop After', min: 0, max: 100, step: 1, unit: 'steps', dep: 'ShoveFillEnabled', tier: 'advanced', description: 'Prevents the behavior from growing after this many steps. 0 = never stops.', tags: ['stop', 'limit', 'end'] },
-    { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillRate', type: 'range', label: 'Fill Rate', min: 1, max: 50, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced', description: 'How aggressively the generator fills in empty spaces.' },
     { sub: 'V2 Generator (Spawn Behaviors)', id: 'ShoveFillAmount', type: 'range', label: 'Shove Amount', min: 1, max: 5, step: 1, dep: 'ShoveFillEnabled', tier: 'advanced', description: 'Maximum number of blocks placed during a shove fill event.' },
 
     { sub: 'V2 Generator (Spawn Behaviors)', sub_header: 'Hole Filler', id: 'HoleFillerEnabled', type: 'checkbox', label: 'Enable Hole Filler', tier: 'advanced', description: "Actively searches for and fills enclosed holes.", tags: ['hole', 'fill'] },
@@ -385,20 +383,17 @@ const ConfigTemplate = [
     { cat: 'Appearance', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled', tier: 'advanced', tags: ['amount', 'chance'], unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the amount of overlapping characters in dense areas.' },
     { cat: 'Appearance', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{ label: 'Streams Only', value: 'stream' }, { label: 'All Characters', value: 'all' }], dep: 'overlapEnabled', tier: 'advanced', tags: ['mode', 'scope'] },
 
-    { cat: 'Appearance', type: 'accordion_header', label: 'Glimmer Tracers' },
-    { cat: 'Appearance', id: 'upwardTracerEnabled', type: 'checkbox', label: 'Glimmer Tracers', tier: 'basic', description: 'Invisible scanners that light up existing code', tags: ['scanner', 'up', 'glint'] },
-    { cat: 'Appearance', id: 'upwardTracerChance', type: 'range', label: 'Frequency', min: 0, max: 1.0, step: 0.01, unit: '%', transform: v => (v * 100).toFixed(0) + '%', dep: 'upwardTracerEnabled', tier: 'advanced', tags: ['amount', 'chance'] },
-    { cat: 'Appearance', id: 'upwardTracerAttackFrames', type: 'range', label: 'Fade In', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames for upward glimmers to fade in.', tags: ['smooth', 'start'] },
-    { cat: 'Appearance', id: 'upwardTracerHoldFrames', type: 'range', label: 'Hold', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames upward glimmers stay at full brightness.', tags: ['stay', 'pause'] },
-    { cat: 'Appearance', id: 'upwardTracerReleaseFrames', type: 'range', label: 'Fade Out', min: 0, max: 180, unit: 'fr', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Number of frames for upward glimmers to fade out.', tags: ['smooth', 'end'] },
-    { cat: 'Appearance', type: 'accordion_subheader', label: 'Movement', dep: 'upwardTracerEnabled' },
-    { cat: 'Appearance', id: 'upwardTracerSpeedMult', type: 'range', label: 'Vertical Climb Speed', min: 0.5, max: 4.0, step: 0.1, transform: v => v + 'x', dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Speed of the upward-moving glimmer highlights.', tags: ['fast', 'slow', 'motion'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerSpeed', type: 'range', label: 'Glimmer Blink Speed', min: 0.01, max: 10.0, step: 0.01, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Animation speed of the glimmer effect.', tags: ['blink', 'flash', 'fast'] },
-    { cat: 'Appearance', type: 'accordion_subheader', label: 'Glimmer Shape', dep: 'upwardTracerEnabled' },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerSize', type: 'range', label: 'Glimmer Grid Size', min: 2, max: 6, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'The number of mini blocks that determine the shape of the glimmer highlights.', tags: ['area', 'blocks'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerFill', type: 'range', label: 'Glimmer Fill', min: 2, max: 12, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'The density of highlights within a glimmering cell.', tags: ['density', 'lit'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerGlow', type: 'range', label: 'Glimmer Glow', min: 0, max: 50, step: 1, dep: 'upwardTracerEnabled', tier: 'advanced', description: 'Brightness of the glimmer highlights.', tags: ['bloom', 'bright'] },
-    { cat: 'Appearance', id: 'upwardTracerGlimmerFlicker', type: 'range', label: 'Glimmer Flicker', min: 0.0, max: 1.0, step: 0.05, dep: 'upwardTracerEnabled', unit: '%', transform: v => (v * 100).toFixed(0) + '%', tier: 'advanced', description: "How often Glimmer highlights will flicker on/off, adding to the randomness of the highlighting.", tags: ['glitch', 'random'] },
+    { cat: 'Appearance', type: 'accordion_header', label: 'Shader Glimmer' },
+    { cat: 'Appearance', id: 'shaderGlimmerEnabled', type: 'checkbox', label: 'Enable Glimmer', tier: 'basic', description: 'Adds a procedural, scrolling glimmer/shine effect to active code characters, rendered on the GPU.', tags: ['shine', 'highlight', 'glint'] },
+    { cat: 'Appearance', id: 'shaderGlimmerSpeed', type: 'range', label: 'Speed', min: 0.0, max: 0.5, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The vertical scrolling speed of the glimmer effect.', tags: ['fast', 'slow', 'motion'] },
+    { cat: 'Appearance', id: 'shaderGlimmerDensity', type: 'range', label: 'Density', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The percentage of the screen covered by glimmer highlights.', tags: ['amount', 'coverage'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
+    { cat: 'Appearance', id: 'shaderGlimmerIntensity', type: 'range', label: 'Intensity', min: 0.0, max: 2.0, step: 0.05, dep: 'shaderGlimmerEnabled', tier: 'basic', description: 'The brightness of the glimmer highlights.', tags: ['bright', 'shine'] },
+    { cat: 'Appearance', id: 'shaderGlimmerFrequency', type: 'range', label: 'Frequency', min: 0.0, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The vertical tiling/frequency of the glimmer noise pattern. Higher values create more frequent, smaller highlights.', tags: ['tiling', 'scale'] },
+    { cat: 'Appearance', id: 'shaderGlimmerColor', type: 'color', label: 'Color', dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The tint of the glimmer effect.', tags: ['tint', 'hue'] },
+    { cat: 'Appearance', id: 'shaderGlimmerThreshold', type: 'range', label: 'Cut-off Threshold', min: 0.5, max: 1.0, step: 0.01, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'The noise cutoff value. Higher values result in sharper, more defined glimmer shapes.', tags: ['sharp', 'soft', 'cutoff'] },
+    { cat: 'Appearance', id: 'shaderGlimmerVerticalSpeed', type: 'range', label: 'Vertical Speed', min: 0.0, max: 20.0, step: 0.1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'How fast the glimmer band moves upward (cells/sec). Set to 0 to disable vertical band movement.', tags: ['motion', 'sweep', 'band'] },
+    { cat: 'Appearance', id: 'shaderGlimmerHeight', type: 'range', label: 'Height', min: 1, max: 50, step: 1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'How many character rows the active glimmer band spans.', tags: ['band', 'size', 'rows'] },
+    { cat: 'Appearance', id: 'shaderGlimmerFadeOut', type: 'range', label: 'Fade Out', min: 0, max: 120, step: 1, dep: 'shaderGlimmerEnabled', tier: 'advanced', description: 'Frames for the glimmer trail to dim after the band passes.', tags: ['trail', 'dim', 'fade'] },
 
     { cat: 'Appearance', type: 'accordion_header', label: 'Glow Blocks' },
     { cat: 'Appearance', id: 'glowBlocksEnabled', type: 'checkbox', label: 'Enable Glow Blocks', tier: 'basic', description: 'Invisible floating blocks that boost and tint underlying code.', tags: ['float', 'glow', 'block', 'tint'] },
@@ -438,7 +433,6 @@ const ConfigTemplate = [
     { cat: 'Behavior', id: 'trailLengthVarianceEnabled', type: 'checkbox', label: 'Variable Trail Length', tier: 'advanced', tags: ['random', 'variety'], description: 'Gives each code stream a slightly different trail length.' },
     { cat: 'Behavior', id: 'trailLengthVariance', type: 'range', label: 'Length Variance', min: 0, max: 600, unit: 'fr', dep: 'trailLengthVarianceEnabled', tier: 'advanced', description: 'Adds random variation to the length of stream trails.', tags: ['random', 'range'] },
     { cat: 'Behavior', id: 'streamVisibleLengthScale', type: 'range', label: 'Stream Length Scale', min: 0.8, max: 2.0, step: 0.1, transform: v => v + 'x', tier: 'advanced', description: "Scales the visible length of all code streams.", tags: ['long', 'short', 'scale'] },
-    { cat: 'Behavior', id: 'allowTinyStreams', type: 'checkbox', label: 'Allow Tiny Streams', tier: 'advanced', description: "Increases the probability of very short streams spawning.", tags: ['small', 'short', 'dots'] },
     { cat: 'Behavior', id: 'holeRate', type: 'range', label: 'Gaps in Code Stream', min: 0, max: 0.5, step: 0.01, tier: 'advanced', transform: v => (v * 100).toFixed(0) + '%', description: 'Probability of missing data segments (empty spaces) appearing within a code stream.', tags: ['empty', 'broken', 'segments'] },
 
     { cat: 'Behavior', type: 'accordion_header', label: 'Tracers' },
@@ -580,7 +574,6 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'activeQuantizedEffect', type: 'select', label: 'Selected Effect', options: [
         { label: 'Quantized Pulse', value: 'quantizedPulse' },
         { label: 'Quantized Add', value: 'quantizedAdd' },
-        { label: 'Quantized Retract', value: 'quantizedRetract' },
         { label: 'Quantized Climb', value: 'quantizedClimb' },
         { label: 'Quantized Zoom', value: 'quantizedZoom' },
         { label: 'Block Generator', value: 'quantizedGenerateV2' }
@@ -588,7 +581,6 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Pulse',     action: 'quantizedPulse',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedPulse',         tier: 'basic', tags: ['quantizedpulse', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Add',       action: 'quantizedAdd',            class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedAdd',           tier: 'basic', tags: ['quantizedadd', 'action', 'trigger'] },
-    { cat: 'Effects', type: 'button', label: 'Trigger Quantized Retract',   action: 'quantizedRetract',        class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedRetract',       tier: 'basic', tags: ['quantizedretract', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Climb',     action: 'quantizedClimb',          class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedClimb',         tier: 'basic', tags: ['quantizedclimb', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Quantized Zoom',      action: 'quantizedZoom',           class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedZoom',          tier: 'basic', tags: ['quantizedzoom', 'action', 'trigger'] },
     { cat: 'Effects', type: 'button', label: 'Trigger Block Generator',     action: 'QuantizedBlockGenerator', class: 'btn-warn', dep: 'activeQuantizedEffect:quantizedGenerateV2',   tier: 'basic', tags: ['blockgenerator', 'action', 'trigger'] },
@@ -596,7 +588,6 @@ const ConfigTemplate = [
     // Per-effect settings (shown based on selected effect)
     ...generateQuantizedEffectSettings('quantizedPulse', 'Quantized Pulse', 'quantizedPulse'),
     ...generateQuantizedEffectSettings('quantizedAdd', 'Quantized Add', 'quantizedAdd'),
-    ...generateQuantizedEffectSettings('quantizedRetract', 'Quantized Retract', 'quantizedRetract'),
     ...generateQuantizedEffectSettings('quantizedClimb', 'Quantized Climb', 'quantizedClimb'),
     ...generateQuantizedEffectSettings('quantizedZoom', 'Quantized Zoom', 'quantizedZoom'),
     ...generateQuantizedEffectSettings('quantizedGenerateV2', 'Quantized Block Generator', 'QuantizedBlockGenerator'),
@@ -734,7 +725,6 @@ const ConfigTemplate = [
     { cat: 'System', type: 'keybinder', id: 'MiniPulse', label: 'Pulse Storm', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'QuantizedPulse', label: 'Quantized Pulse', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'QuantizedAdd', label: 'Quantized Add', tier: 'advanced' },
-    { cat: 'System', type: 'keybinder', id: 'QuantizedRetract', label: 'Quantized Retract', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'QuantizedClimb', label: 'Quantized Climb', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'QuantizedZoom', label: 'Quantized Zoom', tier: 'advanced' },
     { cat: 'System', type: 'keybinder', id: 'QuantizedBlockGenerator', label: 'Quantized Block Generator', tier: 'advanced' },

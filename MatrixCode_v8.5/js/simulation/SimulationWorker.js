@@ -52,11 +52,8 @@ class WorkerSimulationSystem {
         this.streamManager.update(frame, this.timeScale);
         this._manageOverlapGrid(frame);
         this._updateCells(frame, this.timeScale);
-        
-        this._updateGlimmerLifecycle();
 
-        if (this.grid.envGlows) this.grid.envGlows.fill(0);
-        this.glowSystem.update();
+        if (this.grid.envGlows) this.grid.envGlows.fill(0);        this.glowSystem.update();
         this.glowSystem.apply();
 
         this.glowBlocksSystem.update();
@@ -69,6 +66,9 @@ class WorkerSimulationSystem {
 
     _updateGlimmerLifecycle(frame) {
         const s = this.config.state;
+
+        // BUG FIX: Defer mutations to avoid modifying the Map while iterating
+        const mutations = [];
 
         // Optimization #3: Avoid per-frame Array.from() allocation by using iterator directly
         for (const idx of this.grid.complexStyles.keys()) {
@@ -108,8 +108,9 @@ class WorkerSimulationSystem {
                         const nextIdx = currentIdx + (style.moveDir * this.grid.cols);
                         
                         if (!this.grid.complexStyles.has(nextIdx)) {
-                            this.grid.complexStyles.set(nextIdx, style);
-                            this.grid.complexStyles.delete(currentIdx);
+                            // Defer mutation
+                            mutations.push({ type: 'move', from: currentIdx, to: nextIdx, style });
+                            
                             this.grid.mix[nextIdx] = this.grid.mix[currentIdx];
                             this.grid.mix[currentIdx] = 0;
                             this.grid.effectChars[nextIdx] = this.grid.effectChars[currentIdx];
@@ -167,7 +168,7 @@ class WorkerSimulationSystem {
                 } else {
                     this.grid.mix[currentIdx] = 0;
                     this.grid.genericParams[currentIdx * 4] = 0;
-                    this.grid.complexStyles.delete(currentIdx);
+                    mutations.push({ type: 'delete', idx: currentIdx });
                 }
             } else if (style.type === 'star_glimmer') {
                 const gOff = idx * 4;
@@ -191,6 +192,16 @@ class WorkerSimulationSystem {
                 // DO NOT overwrite grid.mix to let rotators function
             }
         }
+
+        // Apply deferred mutations
+        for (const m of mutations) {
+            if (m.type === 'move') {
+                this.grid.complexStyles.set(m.to, m.style);
+                this.grid.complexStyles.delete(m.from);
+            } else if (m.type === 'delete') {
+                this.grid.complexStyles.delete(m.idx);
+            }
+        }
     }
 
     _manageOverlapGrid(frame) {
@@ -206,27 +217,54 @@ class WorkerSimulationSystem {
         }
         
         const activeFonts = this.config.derived.activeFonts;
+        const numFonts = activeFonts.length;
         const currentDensity = s.overlapDensity;
         const ovRgb = Utils.hexToRgb(s.overlapColor);
         const ovColor = Utils.packAbgr(ovRgb.r, ovRgb.g, ovRgb.b);
 
-        if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
-            const N = this.grid.secondaryChars.length;
-            for (let i = 0; i < N; i++) {
-                const ov = this.grid.overrideActive[i];
-                if (ov !== 0 && ov !== 5) continue;
-                if (Math.random() < currentDensity) {
-                    const fontIdx = this.grid.fontIndices[i];
-                    const charSet = (activeFonts[fontIdx] || activeFonts[0]).chars;
-                    this.grid.secondaryChars[i] = charSet[Math.floor(Math.random() * charSet.length)].charCodeAt(0);
-                    this.grid.secondaryColors[i] = ovColor;
-                } else {
+        const N = this.grid.secondaryChars.length;
+        for (let i = 0; i < N; i++) {
+            const ov = this.grid.overrideActive[i];
+            
+            // Mode 3 (FULL) and Mode 5 (Shadow/Dual) are masking modes, let them run.
+            if (ov !== 0 && ov !== 3 && ov !== 5) continue;
+
+            const sc = this.grid.secondaryChars[i];
+            
+            // Stable pseudo-random background seed based on cell index.
+            const cellSeed = (i * 12.9898 + 78.233) * 43758.5453;
+            const rand = (Math.abs(Math.sin(cellSeed)) % 1.0);
+
+            if (rand < currentDensity) {
+                // Background overlap should exist. Populate if currently empty.
+                if (sc === 32 || sc === 0) {
+                    let fIdx;
+                    if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.EMPTY) {
+                        const fontSeed = (cellSeed * 9.81 + 1.23) * 23.45;
+                        fIdx = Math.floor((Math.abs(Math.sin(fontSeed)) % 1.0) * numFonts);
+                    } else {
+                        fIdx = this.grid.fontIndices[i];
+                    }
+                    
+                    const fontData = activeFonts[fIdx] || activeFonts[0];
+                    const charSet = fontData.chars;
+                    if (charSet && charSet.length > 0) {
+                        const charSeed = (cellSeed * 7.42 + 4.56) * 11.22;
+                        const r = Math.floor((Math.abs(Math.sin(charSeed)) % 1.0) * charSet.length);
+                        this.grid.secondaryChars[i] = charSet.charCodeAt(r);
+                        this.grid.secondaryColors[i] = ovColor;
+                    }
+                }
+            } else if (sc !== 32 && sc !== 0) {
+                // Background overlap should NOT exist.
+                // Rotators are identified by their cell type.
+                if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) !== Utils.CELL_TYPE.ROTATOR) {
                     this.grid.secondaryChars[i] = 32; 
                 }
             }
-            this.overlapInitialized = true;
-            this._lastOverlapDensity = currentDensity;
         }
+        this.overlapInitialized = true;
+        this._lastOverlapDensity = currentDensity;
     }
 
     _updateCells(frame, timeScale = 1.0) {

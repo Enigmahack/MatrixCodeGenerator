@@ -2226,7 +2226,7 @@ class _QuantizedProceduralEngine {
             if (stopAfter > 0 && s.step >= stopAfter) return;
             if (!this._getGenConfig('ShoveFillEnabled')) return;
             const startDelay = this._getGenConfig('ShoveFillStartDelay') ?? 20;
-            const fillRate   = Math.max(1, this._getGenConfig('ShoveFillRate') ?? 4);
+            const fillRate   = 4; // Hardcoded after UI slider removal
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = this._getAllowedDirs(layer);
             const bs    = this.getBlockSize();
@@ -3289,6 +3289,7 @@ class _QuantizedProceduralEngine {
             this._savedBrightness = null;
         }
 
+        QuantizedBaseEffect.isAnyQuantizedSwapping = false;
         this.active = false;
         this.state = 'IDLE';
         this.alpha = 0.0;

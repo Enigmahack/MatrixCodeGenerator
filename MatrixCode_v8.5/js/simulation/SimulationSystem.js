@@ -444,43 +444,60 @@ class SimulationSystem {
         const ovRgb = Utils.hexToRgb(s.overlapColor);
         const ovColor = Utils.packAbgr(ovRgb.r, ovRgb.g, ovRgb.b);
 
-        const setOverlapChar = (i) => {
-            let fIdx;
-            if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.EMPTY) {
-                fIdx = Math.floor(Math.random() * numFonts);
-            } else {
-                fIdx = this.grid.fontIndices[i];
-            }
+        // We run the logic every frame, but with a stable hash to prevent flickering.
+        // This ensures background overlaps are repopulated as streams clear cells,
+        // and also populates the shadow grid on every frame as needed.
+        const N = this.grid.secondaryChars.length;
+        for (let i = 0; i < N; i++) {
+            const ov = this.grid.overrideActive[i];
             
-            const fontData = activeFonts[fIdx] || activeFonts[0];
-            const chars = fontData.chars;
-            let code = 32;
-            if (chars && chars.length > 0) {
-                const r = Math.floor(Math.random() * chars.length);
-                code = chars[r].charCodeAt(0);
-            }
-            
-            this.grid.secondaryChars[i] = code;
-            this.grid.secondaryColors[i] = ovColor;
-        };
+            // If cell is frozen (e.g. Pulse Pause), skip background fill logic.
+            // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL/Shadow) are masking modes, let them run.
+            if (ov !== 0 && ov !== 3 && ov !== 5) continue;
 
-        if (!this.overlapInitialized || this._lastOverlapDensity !== currentDensity) {
-            const N = this.grid.secondaryChars.length;
-            for (let i = 0; i < N; i++) {
-                // If cell is overridden (e.g. Pulse Freeze), do not change secondary char
-                // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL) are masking modes, let them run.
-                const ov = this.grid.overrideActive[i];
-                if (ov !== 0 && ov !== 3 && ov !== 5) continue;
+            const sc = this.grid.secondaryChars[i];
 
-                if (Math.random() < currentDensity) {
-                    setOverlapChar(i);
-                } else {
+            // Stable pseudo-random background seed based on cell index.
+            const cellSeed = (i * 12.9898 + 78.233) * 43758.5453;
+            const rand = (Math.abs(Math.sin(cellSeed)) % 1.0);
+
+            if (rand < currentDensity) {
+                // Background overlap should exist. 
+                // Populate if current char is empty (32) or zero.
+                if (sc === 32 || sc === 0) {
+                    let fIdx;
+                    // For background overlaps, pick a font based on seed
+                    if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.EMPTY) {
+                        const fontSeed = (cellSeed * 9.81 + 1.23) * 23.45;
+                        fIdx = Math.floor((Math.abs(Math.sin(fontSeed)) % 1.0) * numFonts);
+                    } else {
+                        fIdx = this.grid.fontIndices[i];
+                    }
+                    
+                    const fontData = activeFonts[fIdx] || activeFonts[0];
+                    const chars = fontData.chars;
+                    let code = 32;
+                    if (chars && chars.length > 0) {
+                        const charSeed = (cellSeed * 7.42 + 4.56) * 11.22;
+                        const r = Math.floor((Math.abs(Math.sin(charSeed)) % 1.0) * chars.length);
+                        code = chars[r].charCodeAt(0);
+                    }
+                    
+                    this.grid.secondaryChars[i] = code;
+                    this.grid.secondaryColors[i] = ovColor;
+                }
+            } else if (sc !== 32 && sc !== 0) {
+                // Background overlap should NOT exist.
+                // Only clear if it was a background char (to avoid clearing active rotators).
+                // Rotators are identified by their cell type.
+                if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) !== Utils.CELL_TYPE.ROTATOR) {
                     this.grid.secondaryChars[i] = 32; 
                 }
             }
-            this.overlapInitialized = true;
-            this._lastOverlapDensity = currentDensity;
         }
+        
+        this.overlapInitialized = true;
+        this._lastOverlapDensity = currentDensity;
     }
 
     _updateCells(frame, timeScale = 1.0) {
@@ -544,7 +561,6 @@ class SimulationSystem {
         const isGradual = (type & Utils.CELL_FLAGS.GRADUAL) !== 0;
 
         const isTracer = (baseType === Utils.CELL_TYPE.TRACER || baseType === Utils.CELL_TYPE.ROTATOR);
-        const isUpward = (baseType === Utils.CELL_TYPE.UPWARD_TRACER);
 
         if (decay < 2 && isTracer) {
             const attack = s.tracerAttackFrames;
@@ -563,7 +579,7 @@ class SimulationSystem {
             
             const activeAge = age - 1;
             
-            if (isGradual && !isUpward) {
+            if (isGradual) {
                 // Immediately blend to stream color after attack+hold
                 if (activeAge > attack + hold) {
                     ratio = 1.0;
@@ -597,7 +613,7 @@ class SimulationSystem {
                 
                 grid.colors[idx] = (0xFF000000 | (mB << 16) | (mG << 8) | mR);
                 
-                if (isGradual && !isUpward) {
+                if (isGradual) {
                     grid.glows[idx] = 0;
                 } else {
                     grid.glows[idx] = targetGlow * (1.0 - ratio);

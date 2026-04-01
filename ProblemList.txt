@@ -1,45 +1,26 @@
 Todo:
 Run tests on all effects, behaviors, sliders, settings, etc. 
+Build out presets and ensure everything works. 
+Review Basic/Advanced Settings
+Consolidate/ensure similar controls for similar items. Consistent UI control types.
+Disable Periodic Events should be in "Caution Zone" 
+Test Search functions
+Update to v10 with presets and settings configured for shipping. 
+
 
 Behaviours: 
-Remove "Spawn from Perimeter" as a general setting; this is per-behavior, not global. 
-Remove "Allow Asymmetry" - confusing and redundant. 
-Remove "Size Scaling" and control. Seems to not work anyway. 
-Remove "Max Actions" as each step should only have 1 'action' as determined by the behavior pool.
-
-Figure out Block Size Bias - allow it to dictate how large spawns can be, and what size. 
-	Size bias should max at 10 (w or h can be 1-10 when slider set to 10)
-	Skinny = 1*(w), 1*(h)
-	Thin = 2*(w), 2*(h)
-	Mixed = w*h
-	
-
-Perimeter Spawner should be in the Spawn Behaviors accordion, and it should attempt to spawn in new locations, not add/delete the same block repeatedly in the same location. 
-
-"Nudge Growth" should be "Explorer Growth"
-
-Shove Fill:	
-	- Must adhere to the Growth mode; it can only start attached to existing blocks. If Edge, spawn anywhere. If Spine, from spine only (current behavior, only if block exists first, and fill-rate should be higher is faster, not the inverse)
-	- Must adhere to Spawn Bias (single strip means only single strips get spawned. Wider = larger strips of 2 or 3)
-	- 
-	
-"Inside Out Expansion" does not have the additional controls as the rest of the behaviors, and does not appear to work unless Spine generation is enabled. Also, it seems to stop part way instead of just ignoring the perimeter and continuing indefinitely. (Should be more blunt of an expansion tool.)
-Also needs controls for 'block size' so it can add 2x2 blocks, 1x2, 2x1, etc. 
-
-
-"Spreading Nudge" can be removed entirely. 
-
 
 
 Visuals: 
-- Fix animation for quantized Retract. 
-- Adjust behaviors slightly so they don't quite overlap in terms of what they do. 
-- In the UI, put back the underlying slider path, to know a slider can be moved. 
+Character Overlap does not render in the shadow world but should. 
 
 Bugs: 
-There's a massive pause after the block generator takes over, instead of being seamless/continuing. 
+Crash no longer seems to use the GLSL pipeline for some of the on-screen effects, competes with Deja Vu?
+Anti-Aliasing does not always appear unless searched? 
+Changing Presets should re-trigger the loading of code. 
+Bindings have a bug where sometimes they're not binding correctly? Binds the wrong button to the wrong trigger. 
+Glimmer tracers appear to be broken/stationary and no longer move. The general functionality appears to be somewhat broken. 
 
-Scale to Effect Size does not work for some effects. 
 
 <- Look:
 Clean up UI. 

@@ -1500,6 +1500,8 @@ class QuantizedBaseEffect extends AbstractEffect {
 
     _terminate() {
         this.active = false;
+        this.isSwapping = false;
+        QuantizedBaseEffect.isAnyQuantizedSwapping = false;
         this.state = 'IDLE';
         this.alpha = 0.0;
         window.removeEventListener('keydown', this._boundDebugHandler);

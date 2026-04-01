@@ -61,10 +61,18 @@ class QuantizedShadow {
             if (this.shadowGrid.effectAlphas)  this.shadowGrid.effectAlphas.fill(0);
             if (this.shadowGrid.overrideMix)   this.shadowGrid.overrideMix.fill(0);
             if (this.shadowGrid.secondaryActive) this.shadowGrid.secondaryActive.fill(0);
+            
+            // Ensure overlap characters are cleared so they can be repopulated correctly
+            if (this.shadowGrid.secondaryChars) this.shadowGrid.secondaryChars.fill(32);
         }
 
         fx.shadowGrid = this.shadowGrid;
         fx.shadowSim = this.shadowSim;
+        
+        // Force re-initialization of overlaps for the shadow simulation
+        if (this.shadowSim) {
+            this.shadowSim.overlapInitialized = false;
+        }
         fx.warmupRemaining = 0;
         fx.shadowSimFrame = 0;
 
@@ -203,6 +211,29 @@ class QuantizedShadow {
             g.overrideMix[i] = sg.mix[i];
             g.overrideNextChars[i] = sg.nextChars[i];
             g.overrideFontIndices[i] = sg.fontIndices[i];
+            g.renderMode[i] = sg.renderMode[i];
+
+            // Copy Secondary (Overlap) buffers
+            if (sg.secondaryChars) {
+                g.secondaryChars[i] = sg.secondaryChars[i];
+                g.secondaryColors[i] = sg.secondaryColors[i];
+                g.secondaryAlphas[i] = sg.secondaryAlphas[i];
+                g.secondaryGlows[i] = sg.secondaryGlows[i];
+                g.secondaryFontIndices[i] = sg.secondaryFontIndices[i];
+            }
+
+            // The shadow simulation runs its own _updateGlimmerLifecycle and other logic,
+            // which populates its own genericParams buffer with data for glimmers, rotators, etc.
+            // We must copy the final result of that simulation to the main grid's genericParams
+            // buffer so the renderer has access to it for this frame. The main simulation
+            // skips processing for overrideActive=5 cells, so this value will not be overwritten.
+            if (sg.genericParams && g.genericParams) {
+                const gOff = i * 4;
+                g.genericParams[gOff + 0] = sg.genericParams[gOff + 0];
+                g.genericParams[gOff + 1] = sg.genericParams[gOff + 1];
+                g.genericParams[gOff + 2] = sg.genericParams[gOff + 2];
+                g.genericParams[gOff + 3] = sg.genericParams[gOff + 3];
+            }
         }
     }
 

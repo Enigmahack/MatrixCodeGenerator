@@ -17,6 +17,7 @@ class CrashEffect extends AbstractEffect {
             active: false,
             type: 0, 
             cells: new Set(), 
+            illuminatedCells: new Set(),
             fadingReveals: [], // Store active reveal zones
             flickerTimer: 0,
             globalTimer: 0,
