@@ -664,6 +664,7 @@ class UIManager {
                 this.c.save();
                 this.c.notify('ALL');
                 this.notifications.show('Configuration Loaded', 'success');
+                setTimeout(() => location.reload(), 150);
             } catch (error) {
                 console.error("Error loading config:", error);
                 this.notifications.show('Invalid Configuration File', 'error');

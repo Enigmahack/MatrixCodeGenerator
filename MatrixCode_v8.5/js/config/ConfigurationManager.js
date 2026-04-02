@@ -2503,7 +2503,7 @@ void main() {
      * @param {number} index - The index of the slot (0-2).
      * @returns {boolean} True if the state was loaded successfully, false otherwise.
      */
-    loadFromSlot(index) {
+    loadFromSlot(index, { reload = true } = {}) {
         if (!this.slots[index]?.data) return false; // Use optional chaining for safety
 
         this.state = { ...this.defaults, ...this.slots[index].data };
@@ -2511,6 +2511,10 @@ void main() {
         this.save();
         this.notify('ALL');
         this._showToast(`Loaded Preset: ${this.slots[index].name}`, "success");
+
+        if (reload) {
+            setTimeout(() => location.reload(), 150); // Brief delay so toast is visible
+        }
         return true;
     }
 
