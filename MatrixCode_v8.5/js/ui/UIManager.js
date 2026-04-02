@@ -214,18 +214,71 @@ class UIManager {
             this.dom.track.innerHTML = '';
         }
 
-        const showDebug = this.c.get('debugTabEnabled');
         const uiTier = this.c.get('uiTier') || 'basic';
         const query = this.uiSearchQuery;
 
         // Filter definitions based on tier and search
-        // Pass 1: Apply debug and tier filters
+        // Pass 1: Apply tier filters
         const baseDefs = this.defs.filter(def => {
-            if (def.cat === 'Debug' && !showDebug) return false;
             const isStructural = ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader'].includes(def.type);
             if (uiTier === 'basic' && !isStructural && def.tier !== 'basic') return false;
             return true;
         });
+
+        // Pass 1.5: Remove orphaned structural elements (headers/subheaders with no visible children)
+        if (uiTier === 'basic') {
+            const isStructuralType = (t) => ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader', 'info_description'].includes(t);
+            let i = 0;
+            while (i < baseDefs.length) {
+                const def = baseDefs[i];
+
+                if (def.type === 'accordion_header') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (baseDefs[j].type === 'accordion_header') break;
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+
+                if (def.type === 'accordion_subheader') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        const t = baseDefs[j].type;
+                        if (['accordion_header', 'accordion_subheader', 'sub_accordion', 'end_group', 'header'].includes(t)) break;
+                        if (!isStructuralType(t)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+
+                if (def.type === 'sub_accordion') {
+                    let hasChildren = false;
+                    let depth = 1;
+                    let endIdx = -1;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (baseDefs[j].type === 'sub_accordion') depth++;
+                        if (baseDefs[j].type === 'end_group') { depth--; if (depth === 0) { endIdx = j; break; } }
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; }
+                    }
+                    if (!hasChildren && endIdx !== -1) {
+                        baseDefs.splice(endIdx, 1);
+                        baseDefs.splice(i, 1);
+                        continue;
+                    }
+                }
+
+                if (def.type === 'header') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (['accordion_header', 'header'].includes(baseDefs[j].type)) break;
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+
+                i++;
+            }
+        }
 
         let filteredDefs;
         if (query) {
@@ -285,6 +338,16 @@ class UIManager {
         }
  else {
             filteredDefs = baseDefs;
+        }
+
+        // Pass 3: Remove entire tabs that have no non-structural content
+        if (uiTier === 'basic') {
+            const structuralTypes = new Set(['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader', 'info_description']);
+            const catsWithContent = new Set();
+            for (const def of filteredDefs) {
+                if (!structuralTypes.has(def.type)) catsWithContent.add(def.cat);
+            }
+            filteredDefs = filteredDefs.filter(def => catsWithContent.has(def.cat));
         }
 
         const categories = [...new Set(filteredDefs.map(def => def.cat))];
@@ -1831,11 +1894,6 @@ class UIManager {
 
             if (key === 'keyBindings') {
                 this.defs.filter(d => d.type === 'keybinder').forEach(d => this._refreshControl(d));
-                return;
-            }
-
-            if (key === 'debugTabEnabled') {
-                this._setupTabs();
                 return;
             }
 

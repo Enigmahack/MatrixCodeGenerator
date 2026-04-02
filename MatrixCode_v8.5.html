@@ -3075,7 +3075,7 @@ class ConfigurationManager {
             "showFpsCounter": false,
             "tapToSpawnEnabled": true,
             "performanceMode": false,
-            "debugTabEnabled": false,
+            "debugTabEnabled": true,
             "debugEnabled": false,
             "highlightErasers": false,
             "simulationPaused": false,
@@ -6809,7 +6809,7 @@ const ConfigTemplate = [
     { cat: 'Effects', id: 'glowBlocksFadeRate', type: 'range', label: 'Fade Rate', min: 0.0, max: 1.0, step: 0.01, dep: 'glowBlocksEnabled', tier: 'advanced', description: 'How quickly the highlight fades after a block moves.', tags: ['decay', 'trail', 'linger'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { cat: 'Effects', type: 'end_group' },
     { cat: 'Effects', type: 'sub_accordion', label: 'Character Overlap' },
-    { cat: 'Effects', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'advanced', tags: ['stack', 'double', 'depth'], description: 'Allows multiple characters to occupy the same grid cell for increased density.' },
+    { cat: 'Effects', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'basic', tags: ['stack', 'double', 'depth'], description: 'Allows multiple characters to occupy the same grid cell for increased density.' },
     { cat: 'Effects', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled', tier: 'advanced', tags: ['stack', 'tint'] },
     { cat: 'Effects', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled', tier: 'advanced', tags: ['amount', 'chance'], unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the amount of overlapping characters in dense areas.' },
     { cat: 'Effects', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{ label: 'Streams Only', value: 'stream' }, { label: 'All Characters', value: 'all' }], dep: 'overlapEnabled', tier: 'advanced', tags: ['mode', 'scope'] },
@@ -6840,11 +6840,11 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' }, 
     { cat: 'Effects', type: 'end_group' },
     // 5. DEBUG TAB
-    { cat: 'Debug', type: 'accordion_header', label: 'General' },
-    { cat: 'Debug', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', tier: 'basic', description: "Displays the current frames-per-second in the top-left corner.", tags: ['stats', 'perf'] },
+    { cat: 'Debug', type: 'accordion_header', label: 'General', tier: 'advanced' },
+    { cat: 'Debug', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', tier: 'advanced', description: "Displays the current frames-per-second in the top-left corner.", tags: ['stats', 'perf'] },
     { cat: 'Debug', id: 'debugEnabled', type: 'checkbox', label: 'Detailed Performance Stats', dep: 'showFpsCounter', tier: 'advanced', description: "Shows detailed performance logs.", tags: ['stats', 'verbose'] },
-    { cat: 'Debug', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', tier: 'basic', description: "Freezes the falling code animation.", tags: ['stop', 'freeze'] },
-    { cat: 'Debug', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', tier: 'basic', description: "Allows application errors to be logged to the browser console.", tags: ['dev', 'console'] },
+    { cat: 'Debug', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', tier: 'advanced', description: "Freezes the falling code animation.", tags: ['stop', 'freeze'] },
+    { cat: 'Debug', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', tier: 'advanced', description: "Allows application errors to be logged to the browser console.", tags: ['dev', 'console'] },
     { cat: 'Debug', id: 'quantEditorEnabled', type: 'checkbox', label: 'QuantEditor', tier: 'advanced', description: "Enable the visual editor for Quantized Pulse Effect.", tags: ['editor', 'visual'] },
     { cat: 'Debug', type: 'accordion_header', label: 'Post Processing', icon: '󰋚', description: 'Pipeline: Effect 1 -> Effect 2 -> Total FX1 -> Total FX2 -> Global FX -> Custom' },
     { cat: 'Debug', type: 'checkbox', label: 'Bypass All Shaders', id: 'postProcessBypassAll', tier: 'advanced', tags: ['clean', 'off'] },
@@ -6901,8 +6901,7 @@ const ConfigTemplate = [
     { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info', tier: 'advanced', tags: ['load', 'file'] },
     { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', tier: 'basic', description: 'Hides the gear icon; access settings by hovering top-right or using a keybind.', tags: ['ui', 'clean'] },
     { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', tier: 'basic', description: 'Allows resetting sliders to default values by double-clicking them.', tags: ['ux', 'short'] },
-    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'advanced', description: 'Hides the pop-up notification messages.', tags: ['ui', 'quiet'] },
-    { cat: 'System', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', tier: 'advanced', description: 'Reveals the Debug tab for advanced tools and diagnostics.', tags: ['dev', 'tabs'] },
+    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'basic', description: 'Hides the pop-up notification messages.', tags: ['ui', 'quiet'] },
     { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
     { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', tier: 'basic', description: 'Master switch for keyboard shortcuts.', tags: ['keyboard', 'short'] },
     { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
@@ -6925,16 +6924,16 @@ const ConfigTemplate = [
     { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn', tier: 'advanced', tags: ['fix', 'fonts'] },
     { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
     { cat: 'System', type: 'button', label: 'Periodic Events', action: 'stopAllEffects', class: 'btn-danger', caution: true, tier: 'basic', description: 'Immediately stops and disables all automated/periodic visual effects across Trilogy and Resurrections.', tags: ['stop', 'all', 'reset', 'kill'] },
-    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true, tier: 'advanced', tags: ['clear', 'wipe', 'nuke'] },
+    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true, tier: 'basic', tags: ['clear', 'wipe', 'nuke'] },
     { cat: 'System', type: 'accordion_header', label: 'About' },
     { cat: 'System', type: 'about_content', tier: 'basic' },
     { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
-    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.', tier: 'advanced' }
+    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.', tier: 'basic' }
 ];
 // --- QuantizedBaseEffect.js ---
 ﻿/**
@@ -58524,17 +58523,64 @@ class UIManager {
         } else {
             this.dom.track.innerHTML = '';
         }
-        const showDebug = this.c.get('debugTabEnabled');
         const uiTier = this.c.get('uiTier') || 'basic';
         const query = this.uiSearchQuery;
         // Filter definitions based on tier and search
-        // Pass 1: Apply debug and tier filters
+        // Pass 1: Apply tier filters
         const baseDefs = this.defs.filter(def => {
-            if (def.cat === 'Debug' && !showDebug) return false;
             const isStructural = ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader'].includes(def.type);
             if (uiTier === 'basic' && !isStructural && def.tier !== 'basic') return false;
             return true;
         });
+        // Pass 1.5: Remove orphaned structural elements (headers/subheaders with no visible children)
+        if (uiTier === 'basic') {
+            const isStructuralType = (t) => ['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader', 'info_description'].includes(t);
+            let i = 0;
+            while (i < baseDefs.length) {
+                const def = baseDefs[i];
+                if (def.type === 'accordion_header') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (baseDefs[j].type === 'accordion_header') break;
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+                if (def.type === 'accordion_subheader') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        const t = baseDefs[j].type;
+                        if (['accordion_header', 'accordion_subheader', 'sub_accordion', 'end_group', 'header'].includes(t)) break;
+                        if (!isStructuralType(t)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+                if (def.type === 'sub_accordion') {
+                    let hasChildren = false;
+                    let depth = 1;
+                    let endIdx = -1;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (baseDefs[j].type === 'sub_accordion') depth++;
+                        if (baseDefs[j].type === 'end_group') { depth--; if (depth === 0) { endIdx = j; break; } }
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; }
+                    }
+                    if (!hasChildren && endIdx !== -1) {
+                        baseDefs.splice(endIdx, 1);
+                        baseDefs.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (def.type === 'header') {
+                    let hasChildren = false;
+                    for (let j = i + 1; j < baseDefs.length; j++) {
+                        if (['accordion_header', 'header'].includes(baseDefs[j].type)) break;
+                        if (!isStructuralType(baseDefs[j].type)) { hasChildren = true; break; }
+                    }
+                    if (!hasChildren) { baseDefs.splice(i, 1); continue; }
+                }
+                i++;
+            }
+        }
         let filteredDefs;
         if (query) {
             // Pass 2: Search with context preservation and forward inclusion
@@ -58587,6 +58633,15 @@ class UIManager {
         }
  else {
             filteredDefs = baseDefs;
+        }
+        // Pass 3: Remove entire tabs that have no non-structural content
+        if (uiTier === 'basic') {
+            const structuralTypes = new Set(['accordion_header', 'sub_accordion', 'header', 'end_group', 'accordion_subheader', 'info_description']);
+            const catsWithContent = new Set();
+            for (const def of filteredDefs) {
+                if (!structuralTypes.has(def.type)) catsWithContent.add(def.cat);
+            }
+            filteredDefs = filteredDefs.filter(def => catsWithContent.has(def.cat));
         }
         const categories = [...new Set(filteredDefs.map(def => def.cat))];
         const tabContentContainers = {}; // Mapping of category -> content container div
@@ -59929,10 +59984,6 @@ class UIManager {
             }
             if (key === 'keyBindings') {
                 this.defs.filter(d => d.type === 'keybinder').forEach(d => this._refreshControl(d));
-                return;
-            }
-            if (key === 'debugTabEnabled') {
-                this._setupTabs();
                 return;
             }
             if (key === 'fontFamily' || key === 'fontSettings') {

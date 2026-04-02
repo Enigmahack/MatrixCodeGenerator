@@ -119,7 +119,7 @@ class ConfigurationManager {
             "showFpsCounter": false,
             "tapToSpawnEnabled": true,
             "performanceMode": false,
-            "debugTabEnabled": false,
+            "debugTabEnabled": true,
             "debugEnabled": false,
             "highlightErasers": false,
             "simulationPaused": false,

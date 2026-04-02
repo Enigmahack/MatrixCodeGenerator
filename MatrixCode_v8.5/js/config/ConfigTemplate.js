@@ -604,7 +604,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Character Overlap' },
-    { cat: 'Effects', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'advanced', tags: ['stack', 'double', 'depth'], description: 'Allows multiple characters to occupy the same grid cell for increased density.' },
+    { cat: 'Effects', id: 'overlapEnabled', type: 'checkbox', label: 'Enable Overlap', tier: 'basic', tags: ['stack', 'double', 'depth'], description: 'Allows multiple characters to occupy the same grid cell for increased density.' },
     { cat: 'Effects', id: 'overlapColor', type: 'color', label: 'Overlap Color', dep: 'overlapEnabled', tier: 'advanced', tags: ['stack', 'tint'] },
     { cat: 'Effects', id: 'overlapDensity', type: 'range', label: 'Overlap Density', min: 0.1, max: 1.0, step: 0.1, dep: 'overlapEnabled', tier: 'advanced', tags: ['amount', 'chance'], unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Controls the amount of overlapping characters in dense areas.' },
     { cat: 'Effects', id: 'overlapTarget', type: 'select', label: 'Overlap Target', options: [{ label: 'Streams Only', value: 'stream' }, { label: 'All Characters', value: 'all' }], dep: 'overlapEnabled', tier: 'advanced', tags: ['mode', 'scope'] },
@@ -639,11 +639,11 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'end_group' },
 
     // 5. DEBUG TAB
-    { cat: 'Debug', type: 'accordion_header', label: 'General' },
-    { cat: 'Debug', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', tier: 'basic', description: "Displays the current frames-per-second in the top-left corner.", tags: ['stats', 'perf'] },
+    { cat: 'Debug', type: 'accordion_header', label: 'General', tier: 'advanced' },
+    { cat: 'Debug', id: 'showFpsCounter', type: 'checkbox', label: 'Show FPS Counter', tier: 'advanced', description: "Displays the current frames-per-second in the top-left corner.", tags: ['stats', 'perf'] },
     { cat: 'Debug', id: 'debugEnabled', type: 'checkbox', label: 'Detailed Performance Stats', dep: 'showFpsCounter', tier: 'advanced', description: "Shows detailed performance logs.", tags: ['stats', 'verbose'] },
-    { cat: 'Debug', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', tier: 'basic', description: "Freezes the falling code animation.", tags: ['stop', 'freeze'] },
-    { cat: 'Debug', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', tier: 'basic', description: "Allows application errors to be logged to the browser console.", tags: ['dev', 'console'] },
+    { cat: 'Debug', id: 'simulationPaused', type: 'checkbox', label: 'Pause Code Flow', tier: 'advanced', description: "Freezes the falling code animation.", tags: ['stop', 'freeze'] },
+    { cat: 'Debug', id: 'logErrors', type: 'checkbox', label: 'Log Errors to Console', tier: 'advanced', description: "Allows application errors to be logged to the browser console.", tags: ['dev', 'console'] },
     { cat: 'Debug', id: 'quantEditorEnabled', type: 'checkbox', label: 'QuantEditor', tier: 'advanced', description: "Enable the visual editor for Quantized Pulse Effect.", tags: ['editor', 'visual'] },
 
     { cat: 'Debug', type: 'accordion_header', label: 'Post Processing', icon: '󰋚', description: 'Pipeline: Effect 1 -> Effect 2 -> Total FX1 -> Total FX2 -> Global FX -> Custom' },
@@ -709,9 +709,7 @@ const ConfigTemplate = [
     { cat: 'System', type: 'button', label: 'Import Config (JSON)', action: 'import', class: 'btn-info', tier: 'advanced', tags: ['load', 'file'] },
     { cat: 'System', id: 'hideMenuIcon', type: 'checkbox', label: 'Hide Settings Icon', tier: 'basic', description: 'Hides the gear icon; access settings by hovering top-right or using a keybind.', tags: ['ui', 'clean'] },
     { cat: 'System', id: 'doubleClickToReset', type: 'checkbox', label: 'Double Click to Reset', tier: 'basic', description: 'Allows resetting sliders to default values by double-clicking them.', tags: ['ux', 'short'] },
-    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'advanced', description: 'Hides the pop-up notification messages.', tags: ['ui', 'quiet'] },
-    { cat: 'System', id: 'debugTabEnabled', type: 'checkbox', label: 'Enable Debug Mode', tier: 'advanced', description: 'Reveals the Debug tab for advanced tools and diagnostics.', tags: ['dev', 'tabs'] },
-
+    { cat: 'System', id: 'suppressToasts', type: 'checkbox', label: 'Suppress Toast Messages', tier: 'basic', description: 'Hides the pop-up notification messages.', tags: ['ui', 'quiet'] },
     { cat: 'System', type: 'accordion_header', label: 'Key Bindings' },
     { cat: 'System', id: 'enableKeybinds', type: 'checkbox', label: 'Enable Keybinds', tier: 'basic', description: 'Master switch for keyboard shortcuts.', tags: ['keyboard', 'short'] },
     { cat: 'System', type: 'info_description', text: 'Click a button to assign a new key. Press Backspace or Delete to clear.' },
@@ -735,15 +733,15 @@ const ConfigTemplate = [
     { cat: 'System', type: 'button', label: 'Clear Font Cache', action: 'clearCache', class: 'btn-warn', tier: 'advanced', tags: ['fix', 'fonts'] },
     { cat: 'System', type: 'header', label: 'CAUTION ZONE' },
     { cat: 'System', type: 'button', label: 'Periodic Events', action: 'stopAllEffects', class: 'btn-danger', caution: true, tier: 'basic', description: 'Immediately stops and disables all automated/periodic visual effects across Trilogy and Resurrections.', tags: ['stop', 'all', 'reset', 'kill'] },
-    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true, tier: 'advanced', tags: ['clear', 'wipe', 'nuke'] },
+    { cat: 'System', type: 'button', label: 'Factory Reset All', action: 'reset', class: 'btn-danger', caution: true, tier: 'basic', tags: ['clear', 'wipe', 'nuke'] },
 
     { cat: 'System', type: 'accordion_header', label: 'About' },
     { cat: 'System', type: 'about_content', tier: 'basic' },
     { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
-    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.', tier: 'advanced' },
-    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.', tier: 'advanced' }
+    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.', tier: 'basic' }
 ];
