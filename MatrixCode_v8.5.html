@@ -51447,6 +51447,7 @@ class WebGLRenderer {
                     vec4 baseColor = v_color;
                     // Default Standard Mode
                     float finalAlpha = tex1;
+                    float shadowGlowAlpha = -1.0; // Set by ov=5 paths for glow modulation
                     // --- OPTIMIZED GLIMMER LOGIC ---
                     // In dual-world mode (useMix >= 5.0), v_glimmerFlicker is repurposed
                     // to carry shadow glow. Actual glimmer data (shapeID, glimmerAlpha)
@@ -51512,6 +51513,7 @@ class WebGLRenderer {
                         baseColor.rgb = mix(baseColor.rgb, shadowColor.rgb, sFade);
                         float owA = tex1 * oFade;
                         finalAlpha = owA + tex2 * sFade;
+                        shadowGlowAlpha = sFade;
                         baseColor.a = 1.0;
                         // Shadow world Character Overlap (GPU path)
                         if (sFade > 0.01) {
@@ -51535,6 +51537,7 @@ class WebGLRenderer {
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
                         finalAlpha = owA + tex2 * nwA;
+                        shadowGlowAlpha = nwA;
                         baseColor.a = 1.0;
                         // Shadow world Character Overlap
                         if (nwA > 0.01) {
@@ -51594,6 +51597,9 @@ class WebGLRenderer {
                     float glassMask = texture(u_shadowMask, v_screenUV).r;
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger).
+                    // For ov=5 (dual-world), col.a is forced to 1.0 for alpha compositing,
+                    // so we use shadowGlowAlpha (the shadow cell's effective alpha) instead
+                    // to match normal glow modulation where glow scales with cell brightness.
                     if (useMix >= 5.0 && u_shadowEnabled > 0.5) {
                         // GPU shadow: read shadow glow from shadowColor texture alpha channel
                         vec2 glowCellUV = (v_cellPos + 0.5) / u_gridDimsChar;
@@ -51603,7 +51609,7 @@ class WebGLRenderer {
                             if (glassMask <= 0.001) {
                                 swGlowFactor *= (1.0 - shadow);
                             }
-                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed shadow glow via v_glimmerFlicker (repurposed)
@@ -51612,7 +51618,7 @@ class WebGLRenderer {
                             if (glassMask <= 0.001) {
                                 swGlowFactor *= (1.0 - shadow);
                             }
-                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (v_glow > 0.0) {
                         float glowFactor = v_glow;
@@ -59074,6 +59080,34 @@ class UIManager {
         btn.className = 'action-btn btn-info'; // Reset class
     }
     /**
+     * Removes keyTrap event listeners and resets binding state without restoring button visuals.
+     * @private
+     */
+    _cleanupKeyBinding() {
+        if (this._keyBindHandler) {
+            this.dom.keyTrap.removeEventListener('keydown', this._keyBindHandler);
+            this._keyBindHandler = null;
+        }
+        if (this._keyBindBlurHandler) {
+            this.dom.keyTrap.removeEventListener('blur', this._keyBindBlurHandler);
+            this._keyBindBlurHandler = null;
+        }
+        this.dom.keyTrap.blur();
+        this.isKeyBindingActive = false;
+        this._activeKeyBindDef = null;
+    }
+    /**
+     * Cancels an in-progress key rebind, restoring the button to its previous visual state.
+     * @private
+     */
+    _cancelKeyBinding() {
+        const activeDef = this._activeKeyBindDef;
+        this._cleanupKeyBinding();
+        if (activeDef) {
+            this.updateKeyBinderVisuals(activeDef.id);
+        }
+    }
+    /**
      * Creates a styled label group for a UI control, optionally including an info icon with a tooltip.
      * @param {Object} def - The definition object for the UI control.
      * @returns {HTMLElement} The created label group DOM element.
@@ -59530,16 +59564,24 @@ class UIManager {
                 btn.id = `btn-key-${def.id}`;
                 btn.textContent = `${def.label}: [ ${initialDisplay} ]`;
                 btn.onclick = () => {
-                    this.isKeyBindingActive = true; 
+                    // Cancel any in-progress rebind first
+                    this._cancelKeyBinding();
+                    this.isKeyBindingActive = true;
+                    this._activeKeyBindDef = def;
                     btn.textContent = `${def.label}: [ Press Key... ]`;
                     btn.classList.remove('btn-info');
                     btn.classList.add('btn-warn');
                     // Focus trap to isolate input from global listeners
                     this.dom.keyTrap.focus();
-                    const handler = (e) => {
+                    this._keyBindHandler = (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         e.stopImmediatePropagation();
+                        // Escape cancels the rebind
+                        if (e.key === 'Escape') {
+                            this._cancelKeyBinding();
+                            return;
+                        }
                         let newKey = e.key;
                         // Handle special keys
                         if (newKey === 'Backspace' || newKey === 'Delete') {
@@ -59561,12 +59603,20 @@ class UIManager {
                             btn.textContent = "Error Saving";
                         }
                         // Cleanup
-                        this.dom.keyTrap.blur();
-                        this.isKeyBindingActive = false;
+                        this._cleanupKeyBinding();
                         // Force immediate visual update just in case refresh is delayed
                         this.updateKeyBinderVisuals(def.id);
                     };
-                    this.dom.keyTrap.addEventListener('keydown', handler, { once: true });
+                    this._keyBindBlurHandler = () => {
+                        // Defer cancel slightly so keydown fires first if both happen
+                        setTimeout(() => {
+                            if (this.isKeyBindingActive) {
+                                this._cancelKeyBinding();
+                            }
+                        }, 100);
+                    };
+                    this.dom.keyTrap.addEventListener('keydown', this._keyBindHandler, { once: true });
+                    this.dom.keyTrap.addEventListener('blur', this._keyBindBlurHandler, { once: true });
                 };
                 row.appendChild(btn);
                 return row;

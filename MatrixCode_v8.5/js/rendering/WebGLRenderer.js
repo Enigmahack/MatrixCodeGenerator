@@ -1455,7 +1455,8 @@ class WebGLRenderer {
                     
                     // Default Standard Mode
                     float finalAlpha = tex1;
-                    
+                    float shadowGlowAlpha = -1.0; // Set by ov=5 paths for glow modulation
+
                     // --- OPTIMIZED GLIMMER LOGIC ---
                     // In dual-world mode (useMix >= 5.0), v_glimmerFlicker is repurposed
                     // to carry shadow glow. Actual glimmer data (shapeID, glimmerAlpha)
@@ -1530,6 +1531,7 @@ class WebGLRenderer {
 
                         float owA = tex1 * oFade;
                         finalAlpha = owA + tex2 * sFade;
+                        shadowGlowAlpha = sFade;
                         baseColor.a = 1.0;
 
                         // Shadow world Character Overlap (GPU path)
@@ -1554,6 +1556,7 @@ class WebGLRenderer {
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
                         finalAlpha = owA + tex2 * nwA;
+                        shadowGlowAlpha = nwA;
                         baseColor.a = 1.0;
 
                         // Shadow world Character Overlap
@@ -1623,6 +1626,9 @@ class WebGLRenderer {
     
                     vec4 col = baseColor;
                     // Boost brightness for glow (Bloom trigger).
+                    // For ov=5 (dual-world), col.a is forced to 1.0 for alpha compositing,
+                    // so we use shadowGlowAlpha (the shadow cell's effective alpha) instead
+                    // to match normal glow modulation where glow scales with cell brightness.
                     if (useMix >= 5.0 && u_shadowEnabled > 0.5) {
                         // GPU shadow: read shadow glow from shadowColor texture alpha channel
                         vec2 glowCellUV = (v_cellPos + 0.5) / u_gridDimsChar;
@@ -1632,7 +1638,7 @@ class WebGLRenderer {
                             if (glassMask <= 0.001) {
                                 swGlowFactor *= (1.0 - shadow);
                             }
-                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed shadow glow via v_glimmerFlicker (repurposed)
@@ -1641,7 +1647,7 @@ class WebGLRenderer {
                             if (glassMask <= 0.001) {
                                 swGlowFactor *= (1.0 - shadow);
                             }
-                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * col.a);
+                            col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (v_glow > 0.0) {
                         float glowFactor = v_glow;

@@ -857,6 +857,36 @@ class UIManager {
     }
 
     /**
+     * Removes keyTrap event listeners and resets binding state without restoring button visuals.
+     * @private
+     */
+    _cleanupKeyBinding() {
+        if (this._keyBindHandler) {
+            this.dom.keyTrap.removeEventListener('keydown', this._keyBindHandler);
+            this._keyBindHandler = null;
+        }
+        if (this._keyBindBlurHandler) {
+            this.dom.keyTrap.removeEventListener('blur', this._keyBindBlurHandler);
+            this._keyBindBlurHandler = null;
+        }
+        this.dom.keyTrap.blur();
+        this.isKeyBindingActive = false;
+        this._activeKeyBindDef = null;
+    }
+
+    /**
+     * Cancels an in-progress key rebind, restoring the button to its previous visual state.
+     * @private
+     */
+    _cancelKeyBinding() {
+        const activeDef = this._activeKeyBindDef;
+        this._cleanupKeyBinding();
+        if (activeDef) {
+            this.updateKeyBinderVisuals(activeDef.id);
+        }
+    }
+
+    /**
      * Creates a styled label group for a UI control, optionally including an info icon with a tooltip.
      * @param {Object} def - The definition object for the UI control.
      * @returns {HTMLElement} The created label group DOM element.
@@ -1383,28 +1413,38 @@ class UIManager {
                 btn.textContent = `${def.label}: [ ${initialDisplay} ]`;
                 
                 btn.onclick = () => {
-                    this.isKeyBindingActive = true; 
+                    // Cancel any in-progress rebind first
+                    this._cancelKeyBinding();
+
+                    this.isKeyBindingActive = true;
+                    this._activeKeyBindDef = def;
                     btn.textContent = `${def.label}: [ Press Key... ]`;
                     btn.classList.remove('btn-info');
                     btn.classList.add('btn-warn');
-                    
+
                     // Focus trap to isolate input from global listeners
                     this.dom.keyTrap.focus();
-                    
-                    const handler = (e) => {
+
+                    this._keyBindHandler = (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         e.stopImmediatePropagation();
-                        
+
+                        // Escape cancels the rebind
+                        if (e.key === 'Escape') {
+                            this._cancelKeyBinding();
+                            return;
+                        }
+
                         let newKey = e.key;
-                        
+
                         // Handle special keys
                         if (newKey === 'Backspace' || newKey === 'Delete') {
                             newKey = null;
                         } else if (newKey.length === 1) {
                             newKey = newKey.toLowerCase();
                         }
-                        
+
                         // Save config
                         try {
                             const bindings = { ...this.c.get('keyBindings') };
@@ -1418,16 +1458,25 @@ class UIManager {
                             console.error("Failed to save keybinding:", err);
                             btn.textContent = "Error Saving";
                         }
-                        
+
                         // Cleanup
-                        this.dom.keyTrap.blur();
-                        this.isKeyBindingActive = false;
-                        
+                        this._cleanupKeyBinding();
+
                         // Force immediate visual update just in case refresh is delayed
                         this.updateKeyBinderVisuals(def.id);
                     };
-                    
-                    this.dom.keyTrap.addEventListener('keydown', handler, { once: true });
+
+                    this._keyBindBlurHandler = () => {
+                        // Defer cancel slightly so keydown fires first if both happen
+                        setTimeout(() => {
+                            if (this.isKeyBindingActive) {
+                                this._cancelKeyBinding();
+                            }
+                        }, 100);
+                    };
+
+                    this.dom.keyTrap.addEventListener('keydown', this._keyBindHandler, { once: true });
+                    this.dom.keyTrap.addEventListener('blur', this._keyBindBlurHandler, { once: true });
                 };
                 row.appendChild(btn);
                 return row;
