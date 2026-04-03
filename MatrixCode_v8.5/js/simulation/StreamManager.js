@@ -546,6 +546,16 @@ class StreamManager {
         }
     }
 
+    clearStreams() {
+        this.activeStreams = [];
+        if (this.streamsPerColumn) this.streamsPerColumn.fill(0);
+        if (this.lastStreamInColumn) this.lastStreamInColumn.fill(null);
+        if (this.lastEraserInColumn) this.lastEraserInColumn.fill(null);
+        if (this.lastUpwardTracerInColumn) this.lastUpwardTracerInColumn.fill(null);
+        this.nextSpawnFrame = 0; // Allow immediate spawning after clear
+        this.recalculateSpeeds();
+    }
+
     addActiveStream(stream) {
         if (!stream) return;
         this.activeStreams.push(stream);

@@ -45,7 +45,7 @@ class StarPowerMode extends StreamMode {
     }
 
     _createStyle(hue, saturation, lightness, cycle, speed) {
-        return { h: hue, s: saturation, l: lightness, cycle, speed, isEffect: true, type: 'star_glimmer' };
+        return { h: hue, s: saturation, l: lightness, cycle, speed, isEffect: true };
     }
 }
 

@@ -53,26 +53,20 @@ class QuantizedShadow {
 
         this.shadowSim.timeScale = 1.0;
 
-        // --- CLEAN SLATE FOR SHADOW WORLD ---
+        // --- CLEAN OVERLAY STATE ONLY ---
+        // Both worlds flow continuously. Only clear effect/override overlay buffers
+        // that are part of the quantized effect system, not the simulation itself.
         if (this.shadowGrid) {
-            this.shadowGrid.clearAllOverrides();
-            this.shadowGrid.clearAllEffects();
-            if (this.shadowGrid.effectActive)  this.shadowGrid.effectActive.fill(0);
-            if (this.shadowGrid.effectAlphas)  this.shadowGrid.effectAlphas.fill(0);
-            if (this.shadowGrid.overrideMix)   this.shadowGrid.overrideMix.fill(0);
-            if (this.shadowGrid.secondaryActive) this.shadowGrid.secondaryActive.fill(0);
-            
-            // Ensure overlap characters are cleared so they can be repopulated correctly
-            if (this.shadowGrid.secondaryChars) this.shadowGrid.secondaryChars.fill(32);
+            const sg = this.shadowGrid;
+            sg.clearAllOverrides();
+            sg.clearAllEffects();
+            if (sg.effectActive)    sg.effectActive.fill(0);
+            if (sg.effectAlphas)    sg.effectAlphas.fill(0);
+            if (sg.overrideMix)     sg.overrideMix.fill(0);
         }
 
         fx.shadowGrid = this.shadowGrid;
         fx.shadowSim = this.shadowSim;
-        
-        // Force re-initialization of overlaps for the shadow simulation
-        if (this.shadowSim) {
-            this.shadowSim.overlapInitialized = false;
-        }
         fx.warmupRemaining = 0;
         fx.shadowSimFrame = 0;
 
@@ -86,8 +80,12 @@ class QuantizedShadow {
     updateShadowSim(fx) {
         if (!this.shadowSim) return false;
         
-        // Sync with kernel frame
-        this.shadowSimFrame = (window.matrix) ? window.matrix.frame : (this.shadowSimFrame + 1);
+        // 8.5.3: Sync with the kernel's timeline for the inactive world
+        if (window.matrix && window.matrix.inactiveWorld) {
+            this.shadowSimFrame = window.matrix.inactiveWorld.frame;
+        } else {
+            this.shadowSimFrame++;
+        }
         fx.shadowSimFrame = this.shadowSimFrame;
 
         if (!window.matrix) {
@@ -149,7 +147,6 @@ class QuantizedShadow {
                             this._targetActive[cellIdx] = 1;
                             this._lastTargetIndices[lastTargetCount++] = cellIdx;
                             this.activeIndices.add(cellIdx); // Track for sparse update
-                            if (fx.activeIndices) fx.activeIndices.add(cellIdx);
                         }
                     }
                     hasActiveTarget = true;
@@ -160,7 +157,8 @@ class QuantizedShadow {
         this._lastTargetIndices.length = lastTargetCount;
 
         let fadeSpeedSec = fx.getConfig('ShadowWorldFadeSpeed') ?? 0.5;
-        const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60)); 
+        const fadeDelta = (fadeSpeedSec <= 0) ? 1.0 : (1.0 / (fadeSpeedSec * 60));
+        this._overlapEnabled = fx.c.state.overlapEnabled;
 
         // 2. Sparse Processing using activeIndices
         for (const i of this.activeIndices) {
@@ -170,10 +168,9 @@ class QuantizedShadow {
 
             if (target === 1) {
                 if (sFade >= 1.0 && oFade <= 0.0) {
-                    // Optimization: Already fully revealed, skip heavy overrides
-                    if (g.overrideActive[i] !== 5) {
-                        this._setOverride(g, sg, i, 1.0, 0.0);
-                    }
+                    // Fully revealed — still sync override data every frame
+                    // so the shadow world's flowing simulation stays visible
+                    this._setOverride(g, sg, i, 1.0, 0.0);
                     continue;
                 }
                 sFade = Math.min(1.0, sFade + fadeDelta);
@@ -206,27 +203,33 @@ class QuantizedShadow {
             g.overrideActive[i] = 5;
             g.overrideChars[i] = sg.chars[i];
             g.overrideColors[i] = sg.colors[i];
-            g.overrideAlphas[i] = oFade;
-            g.overrideGlows[i] = sg.alphas[i] * sFade;
+            
+            // 8.5.3: Use overrideAlphas to carry the REVEAL intensity (sFade)
+            // and overrideGlows to carry the actual SIMULATION glow.
+            // The renderer (WebGLRenderer ovAct=5) will mix these appropriately.
+            g.overrideAlphas[i] = sFade;
+            g.overrideGlows[i] = sg.glows[i];
+            
             g.overrideMix[i] = sg.mix[i];
             g.overrideNextChars[i] = sg.nextChars[i];
             g.overrideFontIndices[i] = sg.fontIndices[i];
-            g.renderMode[i] = sg.renderMode[i];
 
-            // Copy Secondary (Overlap) buffers
-            if (sg.secondaryChars) {
+            // Only copy overlap data and OVERLAP renderMode when overlap is enabled
+            if (this._overlapEnabled && sg.secondaryChars) {
+                g.renderMode[i] = sg.renderMode[i];
                 g.secondaryChars[i] = sg.secondaryChars[i];
                 g.secondaryColors[i] = sg.secondaryColors[i];
                 g.secondaryAlphas[i] = sg.secondaryAlphas[i];
                 g.secondaryGlows[i] = sg.secondaryGlows[i];
                 g.secondaryFontIndices[i] = sg.secondaryFontIndices[i];
+            } else {
+                g.renderMode[i] = 0; // STANDARD
             }
 
             // The shadow simulation runs its own _updateGlimmerLifecycle and other logic,
             // which populates its own genericParams buffer with data for glimmers, rotators, etc.
             // We must copy the final result of that simulation to the main grid's genericParams
-            // buffer so the renderer has access to it for this frame. The main simulation
-            // skips processing for overrideActive=5 cells, so this value will not be overwritten.
+            // buffer so the renderer has access to it for this frame.
             if (sg.genericParams && g.genericParams) {
                 const gOff = i * 4;
                 g.genericParams[gOff + 0] = sg.genericParams[gOff + 0];

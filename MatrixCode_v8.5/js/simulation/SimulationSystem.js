@@ -205,6 +205,28 @@ class SimulationSystem {
      * Clones the entire state of another SimulationSystem.
      * @param {SimulationSystem} other 
      */
+    clearStreams() {
+        if (this.streamManager) {
+            this.streamManager.clearStreams();
+        }
+        
+        if (this.useWorker && this.worker) {
+            // We reuse replace_state with an empty state to effectively clear the worker's streams
+            this.worker.postMessage({
+                type: 'replace_state',
+                state: {
+                    activeStreams: [],
+                    nextSpawnFrame: 0,
+                    columnSpeeds: new Float32Array(this.grid.cols),
+                    streamsPerColumn: new Int16Array(this.grid.cols),
+                    lastStreamInColumn: new Array(this.grid.cols).fill(null),
+                    lastEraserInColumn: new Array(this.grid.cols).fill(null),
+                    lastUpwardTracerInColumn: new Array(this.grid.cols).fill(null)
+                }
+            });
+        }
+    }
+
     cloneState(other) {
         if (!other || !other.grid || !other.streamManager) return;
         
@@ -365,14 +387,12 @@ class SimulationSystem {
                     // 2. Shape Selection (Packed into gOff + 1)
                     // We store: ShapeID + 1.0
                     let shapeID = 0;
-                    if (cellRand < 0.20) shapeID = 1;
-                    else if (cellRand < 0.40) shapeID = 2;
-                    else if (cellRand < 0.47) shapeID = 3;
-                    else if (cellRand < 0.54) shapeID = 4;
-                    else if (cellRand < 0.60) shapeID = 5;
-                    else if (cellRand < 0.70) shapeID = 6;
-                    else if (cellRand < 0.85) shapeID = 7;
-                    else shapeID = 8;
+                    if (cellRand < 0.25) shapeID = 1;
+                    else if (cellRand < 0.50) shapeID = 2;
+                    else if (cellRand < 0.60) shapeID = 3;
+                    else if (cellRand < 0.70) shapeID = 4;
+                    else if (cellRand < 0.85) shapeID = 5;
+                    else shapeID = 6;
 
                     this.grid.genericParams[gOff + 0] = flicker;
                     this.grid.genericParams[gOff + 1] = shapeID;
@@ -384,32 +404,6 @@ class SimulationSystem {
                     this._pendingGlimmerDeletes.push(currentIdx);
                 }
             }
-            
-            // --- TYPE 2: STAR POWER GLIMMER ---
-            else if (style.type === 'star_glimmer') {
-                // Static glimmer effect for Star Power streams.
-                // Apply glimmer via genericParams to preserve 'mix' for rotator crossfades
-                const gOff = idx * 4;
-                const cellRand = this.grid.streamSeeds[idx] || 0.5;
-                
-                let flicker = Math.abs(Math.sin(frame * 0.1 + cellRand * 100.0));
-                
-                let shapeID = 0;
-                if (cellRand < 0.20) shapeID = 1;
-                else if (cellRand < 0.40) shapeID = 2;
-                else if (cellRand < 0.47) shapeID = 3;
-                else if (cellRand < 0.54) shapeID = 4;
-                else if (cellRand < 0.60) shapeID = 5;
-                else if (cellRand < 0.70) shapeID = 6;
-                else if (cellRand < 0.85) shapeID = 7;
-                else shapeID = 8;
-
-                this.grid.genericParams[gOff + 0] = flicker;
-                this.grid.genericParams[gOff + 1] = shapeID;
-                this.grid.genericParams[gOff + 2] = 1.0; // Glimmer Alpha
-                // We do not force this.grid.mix[idx] to 30.0 here anymore, so rotators can use it.
-            }
-
         }); // end complexStyles.forEach
 
         // Apply deferred map mutations (collected during forEach to avoid concurrent modification)
@@ -431,7 +425,10 @@ class SimulationSystem {
             if (this.overlapInitialized) {
                 this.overlapInitialized = false;
                 if (this.grid.secondaryChars && typeof this.grid.secondaryChars.fill === 'function') {
-                    this.grid.secondaryChars.fill(32); 
+                    this.grid.secondaryChars.fill(32);
+                }
+                if (this.grid.renderMode && typeof this.grid.renderMode.fill === 'function') {
+                    this.grid.renderMode.fill(0);
                 }
             }
             return;
@@ -455,25 +452,26 @@ class SimulationSystem {
             // EXCEPTION: Mode 3 (FULL) and Mode 5 (DUAL/Shadow) are masking modes, let them run.
             if (ov !== 0 && ov !== 3 && ov !== 5) continue;
 
+            // Only overlap where primary characters are visible (active streams)
+            if (this.grid.alphas[i] <= 0) {
+                if (this.grid.renderMode[i] === RENDER_MODE.OVERLAP) {
+                    this.grid.secondaryChars[i] = 32;
+                    this.grid.renderMode[i] = RENDER_MODE.STANDARD;
+                }
+                continue;
+            }
+
             const sc = this.grid.secondaryChars[i];
 
-            // Stable pseudo-random background seed based on cell index.
+            // Stable pseudo-random seed based on cell index.
             const cellSeed = (i * 12.9898 + 78.233) * 43758.5453;
             const rand = (Math.abs(Math.sin(cellSeed)) % 1.0);
 
             if (rand < currentDensity) {
-                // Background overlap should exist. 
-                // Populate if current char is empty (32) or zero.
+                // Overlap should exist on this visible cell.
                 if (sc === 32 || sc === 0) {
-                    let fIdx;
-                    // For background overlaps, pick a font based on seed
-                    if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.EMPTY) {
-                        const fontSeed = (cellSeed * 9.81 + 1.23) * 23.45;
-                        fIdx = Math.floor((Math.abs(Math.sin(fontSeed)) % 1.0) * numFonts);
-                    } else {
-                        fIdx = this.grid.fontIndices[i];
-                    }
-                    
+                    const fIdx = this.grid.fontIndices[i] || 0;
+
                     const fontData = activeFonts[fIdx] || activeFonts[0];
                     const chars = fontData.chars;
                     let code = 32;
@@ -482,7 +480,7 @@ class SimulationSystem {
                         const r = Math.floor((Math.abs(Math.sin(charSeed)) % 1.0) * chars.length);
                         code = chars[r].charCodeAt(0);
                     }
-                    
+
                     this.grid.secondaryChars[i] = code;
                     this.grid.secondaryColors[i] = ovColor;
                     this.grid.renderMode[i] = RENDER_MODE.OVERLAP;

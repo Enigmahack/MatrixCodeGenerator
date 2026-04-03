@@ -218,13 +218,14 @@ class MatrixKernel {
         const sim1 = new SimulationSystem(grid1, this.config, true); // Enable worker for shadow too
         
         this.worlds = [
-            { grid: grid0, sim: sim0 },
-            { grid: grid1, sim: sim1 }
+            { grid: grid0, sim: sim0, frame: 0 },
+            { grid: grid1, sim: sim1, frame: 0 }
         ];
         
         this.activeWorldIndex = 0;
         this.grid = grid0;
         this.simulation = sim0;
+        this.frame = 0; // The frame count of the CURRENT ACTIVE world
 
         this.effectRegistry = new EffectRegistry(this.grid, this.config, this.notifications);
     }
@@ -246,6 +247,7 @@ class MatrixKernel {
 
         this.grid = active.grid;
         this.simulation = active.sim;
+        this.frame = active.frame; // Synchronize with the new active world's timeline
         
         // Update components that rely on grid references
         if (this.effectRegistry) this.effectRegistry.setGrid(this.grid);
@@ -1007,11 +1009,16 @@ class MatrixKernel {
      */
     _updateFrame() {
         this.frame++;
+        
+        // Maintain independent timelines for both worlds
+        this.worlds[0].frame++;
+        this.worlds[1].frame++;
+
         this.effectRegistry.update();
 
-        // Update both worlds independently (unrolled to avoid per-frame closure)
-        this.worlds[0].sim.update(this.frame);
-        this.worlds[1].sim.update(this.frame);
+        // Update both worlds independently using their own timelines
+        this.worlds[0].sim.update(this.worlds[0].frame);
+        this.worlds[1].sim.update(this.worlds[1].frame);
 
         // Final application of visual overrides AFTER simulation
         this.effectRegistry.postUpdate();

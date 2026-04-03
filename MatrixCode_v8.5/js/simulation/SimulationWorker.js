@@ -153,14 +153,12 @@ class WorkerSimulationSystem {
                     }
 
                     let shapeID = 0;
-                    if (cellRand < 0.20) shapeID = 1;
-                    else if (cellRand < 0.40) shapeID = 2;
-                    else if (cellRand < 0.47) shapeID = 3;
-                    else if (cellRand < 0.54) shapeID = 4;
-                    else if (cellRand < 0.60) shapeID = 5;
-                    else if (cellRand < 0.70) shapeID = 6;
-                    else if (cellRand < 0.85) shapeID = 7;
-                    else shapeID = 8;
+                    if (cellRand < 0.25) shapeID = 1;
+                    else if (cellRand < 0.50) shapeID = 2;
+                    else if (cellRand < 0.60) shapeID = 3;
+                    else if (cellRand < 0.70) shapeID = 4;
+                    else if (cellRand < 0.85) shapeID = 5;
+                    else shapeID = 6;
 
                     this.grid.genericParams[gOff + 0] = flicker;
                     this.grid.genericParams[gOff + 1] = shapeID;
@@ -170,26 +168,6 @@ class WorkerSimulationSystem {
                     this.grid.genericParams[currentIdx * 4] = 0;
                     mutations.push({ type: 'delete', idx: currentIdx });
                 }
-            } else if (style.type === 'star_glimmer') {
-                const gOff = idx * 4;
-                const cellRand = this.grid.streamSeeds[idx] || 0.5;
-                
-                let flicker = Math.abs(Math.sin(frame * 0.1 + cellRand * 100.0));
-                
-                let shapeID = 0;
-                if (cellRand < 0.20) shapeID = 1;
-                else if (cellRand < 0.40) shapeID = 2;
-                else if (cellRand < 0.47) shapeID = 3;
-                else if (cellRand < 0.54) shapeID = 4;
-                else if (cellRand < 0.60) shapeID = 5;
-                else if (cellRand < 0.70) shapeID = 6;
-                else if (cellRand < 0.85) shapeID = 7;
-                else shapeID = 8;
-
-                this.grid.genericParams[gOff + 0] = flicker;
-                this.grid.genericParams[gOff + 1] = shapeID;
-                this.grid.genericParams[gOff + 2] = 1.0; 
-                // DO NOT overwrite grid.mix to let rotators function
             }
         }
 
@@ -210,7 +188,10 @@ class WorkerSimulationSystem {
             if (this.overlapInitialized) {
                 this.overlapInitialized = false;
                 if (this.grid.secondaryChars && typeof this.grid.secondaryChars.fill === 'function') {
-                    this.grid.secondaryChars.fill(32); 
+                    this.grid.secondaryChars.fill(32);
+                }
+                if (this.grid.renderMode && typeof this.grid.renderMode.fill === 'function') {
+                    this.grid.renderMode.fill(0);
                 }
             }
             return;
@@ -225,27 +206,30 @@ class WorkerSimulationSystem {
         const N = this.grid.secondaryChars.length;
         for (let i = 0; i < N; i++) {
             const ov = this.grid.overrideActive[i];
-            
+
             // Mode 3 (FULL) and Mode 5 (Shadow/Dual) are masking modes, let them run.
             if (ov !== 0 && ov !== 3 && ov !== 5) continue;
 
+            // Only overlap where primary characters are visible (active streams)
+            if (this.grid.alphas[i] <= 0) {
+                if (this.grid.renderMode[i] === 1) {
+                    this.grid.secondaryChars[i] = 32;
+                    this.grid.renderMode[i] = 0;
+                }
+                continue;
+            }
+
             const sc = this.grid.secondaryChars[i];
-            
-            // Stable pseudo-random background seed based on cell index.
+
+            // Stable pseudo-random seed based on cell index.
             const cellSeed = (i * 12.9898 + 78.233) * 43758.5453;
             const rand = (Math.abs(Math.sin(cellSeed)) % 1.0);
 
             if (rand < currentDensity) {
-                // Background overlap should exist. Populate if currently empty.
+                // Overlap should exist on this visible cell.
                 if (sc === 32 || sc === 0) {
-                    let fIdx;
-                    if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) === Utils.CELL_TYPE.EMPTY) {
-                        const fontSeed = (cellSeed * 9.81 + 1.23) * 23.45;
-                        fIdx = Math.floor((Math.abs(Math.sin(fontSeed)) % 1.0) * numFonts);
-                    } else {
-                        fIdx = this.grid.fontIndices[i];
-                    }
-                    
+                    const fIdx = this.grid.fontIndices[i] || 0;
+
                     const fontData = activeFonts[fIdx] || activeFonts[0];
                     const charSet = fontData.chars;
                     if (charSet && charSet.length > 0) {
@@ -253,13 +237,14 @@ class WorkerSimulationSystem {
                         const r = Math.floor((Math.abs(Math.sin(charSeed)) % 1.0) * charSet.length);
                         this.grid.secondaryChars[i] = charSet.charCodeAt(r);
                         this.grid.secondaryColors[i] = ovColor;
+                        this.grid.renderMode[i] = 1; // OVERLAP
                     }
                 }
             } else if (sc !== 32 && sc !== 0) {
-                // Background overlap should NOT exist.
-                // Rotators are identified by their cell type.
+                // Overlap should NOT exist on this cell.
                 if ((this.grid.types[i] & Utils.CELL_TYPE_MASK) !== Utils.CELL_TYPE.ROTATOR) {
-                    this.grid.secondaryChars[i] = 32; 
+                    this.grid.secondaryChars[i] = 32;
+                    this.grid.renderMode[i] = 0; // STANDARD
                 }
             }
         }
@@ -290,7 +275,7 @@ class WorkerSimulationSystem {
         const grid = this.grid;
         if (grid.cellLocks && grid.cellLocks[idx] === 1) return;
         const ov = grid.overrideActive[idx];
-        if (grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3)) return;
+        if (grid.effectActive[idx] !== 0 || (ov !== 0 && ov !== 3 && ov !== 5)) return;
 
         const decay = grid.decays[idx];
         if (decay === 0) return;

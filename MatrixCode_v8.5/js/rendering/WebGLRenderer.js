@@ -1483,8 +1483,6 @@ class WebGLRenderer {
                             else if (sID == 4) { center = vec2(0.5, 0.2); sizeBounds = vec2(0.45, 0.08); }
                             else if (sID == 5) { center = vec2(0.5, 0.5); sizeBounds = vec2(0.45, 0.06); }
                             else if (sID == 6) { center = vec2(0.5, 0.5); sizeBounds = vec2(0.15, 0.15); }
-                            else if (sID == 7) { rotation = 0.785398; sizeBounds = vec2(0.05, 0.55); }
-                            else if (sID == 8) { rotation = -0.785398; sizeBounds = vec2(0.05, 0.55); }
 
                             // Sample Noise Texture (Static per cell seed offset)
                             vec2 noiseUV = (v_cellPos / 64.0) + (v_shapeID * 0.123);
@@ -1551,12 +1549,13 @@ class WebGLRenderer {
                         }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed dual world mode (shadow textures not available)
+                        // v_glow carries sFade (reveal intensity), baseColor.a carries blended sim alpha
                         float originalBaseAlpha = baseColor.a;
                         float nwA = v_glow;
                         float tex2 = getProcessedAlpha(v_uv2);
                         float owA = tex1 * originalBaseAlpha;
                         finalAlpha = owA + tex2 * nwA;
-                        shadowGlowAlpha = nwA;
+                        shadowGlowAlpha = originalBaseAlpha;
                         baseColor.a = 1.0;
 
                         // Shadow world Character Overlap
@@ -1917,6 +1916,7 @@ class WebGLRenderer {
                 uniform highp usampler2D u_rShadowInts;   // RGBA32UI: chars, colors, maxDecays, 0
                 uniform sampler2D u_rShadowFloats;        // RGBA32F: alphas, decays, glows, 0
                 uniform float u_shadowGridEnabled;
+                uniform float u_glassBloom;
 
                 // MRT outputs (all RGBA32F)
                 layout(location=0) out vec4 rt0; // charIdx, nextChar, maxDecay, shapeID
@@ -2056,21 +2056,40 @@ class WebGLRenderer {
                         // PRIORITY 2: HARD OVERRIDE
                         if (ovAct == 5u) {
                             // Dual-world shadow mode with color blending
-                            outCharIdx = float(mapCharCode(gChar));
-                            float sFade = ovGlow;
-                            if (sFade > 0.001) {
-                                vec4 c1 = unpackColorU32(gColor);
-                                vec4 c2 = unpackColorU32(ovColor);
-                                float blend = min(1.0, sFade);
-                                outColorRGB = mix(c1.rgb, c2.rgb, blend);
-                            } else {
-                                outColorRGB = unpackColorU32(gColor).rgb;
+                            // 8.5.3: Use ovAlpha as the reveal intensity (sFade)
+                            float sFade = ovAlpha; 
+                            
+                            // 8.5.3: Get shadow world's REAL simulation alpha and glow intensity if available
+                            float sAlphaSim = 1.0;
+                            float sGlowSim = ovGlow;
+                            if (u_shadowGridEnabled > 0.5) {
+                                vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                                sAlphaSim = sFloats.r;
+                                sGlowSim = sFloats.b;
                             }
-                            outAlpha = gAlpha * ovAlpha;
+                            
+                            outCharIdx = float(mapCharCode(ovChar));
+                            
+                            vec4 c1 = unpackColorU32(gColor);
+                            vec4 c2 = unpackColorU32(ovColor);
+                            outColorRGB = mix(c1.rgb, c2.rgb, sFade);
+                            
+                            // Correct alpha blending: mix between main alpha and shadow simulation alpha
+                            outAlpha = mix(gAlpha, sAlphaSim, sFade);
+                            
+                            // Pack sFade into v_glow so the shader uses it as shadow
+                            // reveal opacity (nwA). Actual glow goes through v_glimmerFlicker.
                             outGlow = sFade;
+                            
                             float nwRotMix = ovMixVal;
                             outNextChar = (nwRotMix > 0.5) ? float(mapCharCode(ovNextChar)) : float(mapCharCode(ovChar));
-                            outMix = 5.0 + nwRotMix;
+                            
+                            if (nwRotMix >= 30.0) {
+                                outMix = nwRotMix;
+                            } else {
+                                outMix = 5.0 + nwRotMix;
+                            }
+                            
                             outDecay = float(gDecay);
                             outMaxDecay = float(gMaxDecay);
                         } else if (ovAct == 2u) {
@@ -2137,12 +2156,12 @@ class WebGLRenderer {
                         outShapeID = gParams.g;
                         outGlimmerAlpha = gParams.b;
                         outDissolve = 0.0;
-                        // Repurpose GlimmerFlicker to carry shadow glow
+                        // Repurpose GlimmerFlicker to carry shadow glow scaled by reveal
                         if (u_shadowGridEnabled > 0.5) {
                             vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
-                            outGlimmerFlicker = sFloats.b * ovGlow;
+                            outGlimmerFlicker = sFloats.b * ovAlpha;
                         } else {
-                            outGlimmerFlicker = 0.0;
+                            outGlimmerFlicker = ovGlow * ovAlpha;
                         }
                     } else if (isOverridden) {
                         outGlimmerFlicker = 1.0;
@@ -2927,10 +2946,11 @@ class WebGLRenderer {
 
         // Input 6: RGBA8UI (decays, renderMode, effActive, ovActive)
         const b6 = this._resolveBuf6;
+        const overlapOn = this.config.state.overlapEnabled;
         for (let i = 0; i < totalCells; i++) {
             const o = i * 4;
             b6[o]     = gDecays ? gDecays[i] : 0;
-            b6[o + 1] = gMode ? gMode[i] : 0;
+            b6[o + 1] = (overlapOn && gMode) ? gMode[i] : 0;
             b6[o + 2] = effActive ? effActive[i] : 0;
             b6[o + 3] = ovActive ? ovActive[i] : 0;
         }
@@ -3048,6 +3068,13 @@ class WebGLRenderer {
             gl.uniform1i(this._u(this.resolveProgram, 'u_rShadowFloats'), 9);
         }
         gl.uniform1f(this._u(this.resolveProgram, 'u_shadowGridEnabled'), hasShadowGrid ? 1.0 : 0.0);
+        
+        let glassBloom = 1.0;
+        if (fx) {
+            const fxState = fx.getWebGLRenderState(this.config.state, this.config.derived);
+            if (fxState) glassBloom = fxState.glassBloom;
+        }
+        gl.uniform1f(this._u(this.resolveProgram, 'u_glassBloom'), glassBloom);
 
         // Execute fullscreen quad
         gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -4011,6 +4038,7 @@ class WebGLRenderer {
         const mU8 = this.instanceDataU8;
 
         const gParams = grid.genericParams;
+        const cpuOverlapOn = s.overlapEnabled;
 
         const mapChar = (c) => {
             if (c <= 32) return 65535;
@@ -4086,12 +4114,17 @@ class WebGLRenderer {
                 // PRIORITY 2: HARD OVERRIDE
                 const ov = ovActive[i];
                 if (ov === 5) {
-                    m16[u16Off + 0] = mapChar(gChars[i]);
+                    // 8.5.3: Use ovAlphas for the reveal intensity (sFade)
+                    const sFade = ovAlphas[i];
+                    const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+                    const sAlphaSim = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
+                    const sGlowSim = (sGrid && sGrid.glows) ? sGrid.glows[i] : ovGlows[i];
+
+                    m16[u16Off + 0] = mapChar(ovChars[i]);
 
                     // Blend Colors for Shadow World Transition
                     const c1 = gColors[i];
                     const c2 = ovColors[i];
-                    const sFade = grid.overrideGlows[i];
 
                     if (sFade > 0.001) {
                         const r1 = c1 & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = (c1 >> 16) & 0xFF;
@@ -4105,12 +4138,23 @@ class WebGLRenderer {
                         m32[baseOff + 1] = c1;
                     }
 
-                    mF32[baseOff + 2] = gAlphas[i] * ovAlphas[i];
+                    // Correct alpha blending: mix between main alpha and shadow simulation alpha
+                    mF32[baseOff + 2] = (gAlphas[i] * (1.0 - sFade)) + (sAlphaSim * sFade);
+
+                    // Pack sFade into v_glow so the shader can use it as shadow reveal
+                    // opacity (nwA). Actual simulation glow goes through v_glimmerFlicker.
                     mF32[baseOff + 3] = sFade;
 
                     const nwRotMix = (grid.overrideMix[i] || 0.0);
                     m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : mapChar(ovChars[i]);
-                    mF32[baseOff + 4] = 5.0 + nwRotMix;
+                    
+                    // 8.5.3: Pass through glimmer values (mix >= 30.0) from the shadow world
+                    if (nwRotMix >= 30.0) {
+                        mF32[baseOff + 4] = nwRotMix;
+                    } else {
+                        mF32[baseOff + 4] = 5.0 + nwRotMix;
+                    }
+                    
                     mU8[u8Off + 20] = gDecays[i];
                     m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
                 } else if (ov === 2) {
@@ -4123,9 +4167,9 @@ class WebGLRenderer {
                 } else {
                     m16[u16Off + 0] = mapChar(ovChars[i]);
                     const mode = gMode[i];
-                    if (mode === 1) {
+                    if (cpuOverlapOn && mode === 1) {
                         m16[u16Off + 1] = mapChar(gSecChars[i]);
-                        mF32[baseOff + 4] = 2.0; 
+                        mF32[baseOff + 4] = 2.0;
                     } else {
                         m16[u16Off + 1] = 65535;
                         mF32[baseOff + 4] = 0.0;
@@ -4159,9 +4203,9 @@ class WebGLRenderer {
                 mF32[baseOff + 3] = gGlows[i] + (gEnvGlows ? gEnvGlows[i] : 0);
                 
                 const mode = gMode[i];
-                if (mode === 1) {
+                if (cpuOverlapOn && mode === 1) {
                     m16[u16Off + 1] = mapChar(gSecChars[i]);
-                    mF32[baseOff + 4] = 2.0; 
+                    mF32[baseOff + 4] = 2.0;
                 } else {
                     mF32[baseOff + 4] = mix;
                     m16[u16Off + 1] = (mix > 0.0) ? mapChar(gNext[i]) : 65535;
@@ -4232,7 +4276,7 @@ class WebGLRenderer {
             soa.fill(65535);
 
             for (let i = 0; i < sTotal; i++) {
-                if (ovActive[i] === 5 && gMode[i] === 1) {
+                if (s.overlapEnabled && ovActive[i] === 5 && gMode[i] === 1) {
                     const sc = gSecChars[i];
                     if (sc > 32) {
                         let id = lookup[sc];
@@ -4246,15 +4290,14 @@ class WebGLRenderer {
                 }
             }
 
-            if (hasAny) {
-                const gl = this.gl;
-                gl.activeTexture(gl.TEXTURE7);
-                gl.bindTexture(gl.TEXTURE_2D, this.shadowOverlapCharTexture);
-                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, sCols, sRows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, soa);
-                gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-                this._hasShadowOverlapTexture = true;
-            }
+            // Always upload (even when empty) to clear stale overlap data on the GPU
+            const gl = this.gl;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.shadowOverlapCharTexture);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, sCols, sRows, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, soa);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+            this._hasShadowOverlapTexture = hasAny;
         }
 
         // --- SHADOW WORLD: CPU-packed path (GPU texture upload disabled) ---
@@ -4686,7 +4729,7 @@ class WebGLRenderer {
 
                 // Shadow Overlap: bind secondary char texture for shadow world overlap rendering
                 this.gl.activeTexture(this.gl.TEXTURE7);
-                if (this._hasShadowOverlapTexture && this.shadowOverlapCharTexture) {
+                if (this.shadowOverlapCharTexture) {
                     this.gl.bindTexture(this.gl.TEXTURE_2D, this.shadowOverlapCharTexture);
                 } else {
                     this.gl.bindTexture(this.gl.TEXTURE_2D, this.blackIntTexture);
