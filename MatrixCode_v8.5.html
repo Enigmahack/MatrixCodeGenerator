@@ -7600,13 +7600,9 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Hoist null checks outside the loop — these don't change per-iteration
             const eA = g.effectActive, eAl = g.effectAlphas, eCh = g.effectChars, eCo = g.effectColors, eG = g.effectGlows;
             const oC = g.overrideChars, oCo = g.overrideColors, oA = g.overrideAlphas, oG = g.overrideGlows, oM = g.overrideMix;
-            const sA = g.secondaryActive, sCh = g.secondaryChars, sCo = g.secondaryColors, sAl = g.secondaryAlphas, sG = g.secondaryGlows;
-            const mx = g.mix;
             for (const i of this._savedActiveIndices) {
                 if (eA) eA[i] = 0; if (eAl) eAl[i] = 0; if (eCh) eCh[i] = 0; if (eCo) eCo[i] = 0; if (eG) eG[i] = 0;
                 if (oC) oC[i] = 0; if (oCo) oCo[i] = 0; if (oA) oA[i] = 0; if (oG) oG[i] = 0; if (oM) oM[i] = 0;
-                if (sA) sA[i] = 0; if (sCh) sCh[i] = 0; if (sCo) sCo[i] = 0; if (sAl) sAl[i] = 0; if (sG) sG[i] = 0;
-                if (mx) mx[i] = 0;
             }
             this._savedActiveIndices = null;
         } else if (this._savedActiveBlocks && this._savedActiveBlocks.length > 0) {
@@ -7616,8 +7612,6 @@ class QuantizedBaseEffect extends AbstractEffect {
             // Hoist null checks outside the loop
             const eA = g.effectActive, eAl = g.effectAlphas, eCh = g.effectChars, eCo = g.effectColors, eG = g.effectGlows;
             const oC = g.overrideChars, oCo = g.overrideColors, oA = g.overrideAlphas, oG = g.overrideGlows, oM = g.overrideMix;
-            const sA = g.secondaryActive, sCh = g.secondaryChars, sCo = g.secondaryColors, sAl = g.secondaryAlphas, sG = g.secondaryGlows;
-            const mx = g.mix;
             for (const b of this._savedActiveBlocks) {
                 const x1 = Math.max(0, Math.round(b.x * cpX));
                 const y1 = Math.max(0, Math.round(b.y * cpY));
@@ -7629,14 +7623,14 @@ class QuantizedBaseEffect extends AbstractEffect {
                         const i = rowOff + cx;
                         if (eA) eA[i] = 0; if (eAl) eAl[i] = 0; if (eCh) eCh[i] = 0; if (eCo) eCo[i] = 0; if (eG) eG[i] = 0;
                         if (oC) oC[i] = 0; if (oCo) oCo[i] = 0; if (oA) oA[i] = 0; if (oG) oG[i] = 0; if (oM) oM[i] = 0;
-                        if (sA) sA[i] = 0; if (sCh) sCh[i] = 0; if (sCo) sCo[i] = 0; if (sAl) sAl[i] = 0; if (sG) sG[i] = 0;
-                        if (mx) mx[i] = 0;
                     }
                 }
             }
             this._savedActiveBlocks = null;
         } else {
-            // Fallback for first run — fill all 16 grid overlay buffers
+            // Fallback for first run — fill only OVERLAY buffers (effect + override).
+            // Do NOT clear simulation arrays (mix, complexStyles) as they belong to
+            // the active world's ongoing simulation and are not effect state.
             if (g.effectActive) g.effectActive.fill(0);
             if (g.effectAlphas) g.effectAlphas.fill(0);
             if (g.effectChars) g.effectChars.fill(0);
@@ -7647,14 +7641,11 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (g.overrideAlphas) g.overrideAlphas.fill(0);
             if (g.overrideGlows) g.overrideGlows.fill(0);
             if (g.overrideMix) g.overrideMix.fill(0);
-            if (g.secondaryActive) g.secondaryActive.fill(0);
-            if (g.secondaryChars) g.secondaryChars.fill(0);
-            if (g.secondaryColors) g.secondaryColors.fill(0);
-            if (g.secondaryAlphas) g.secondaryAlphas.fill(0);
-            if (g.secondaryGlows) g.secondaryGlows.fill(0);
-            if (g.mix) g.mix.fill(0);
         }
-        if (g.complexStyles) g.complexStyles.clear();
+        // Only clear complexStyles for cells that were part of the previous effect run,
+        // not the entire map — clearing all styles destroys every stream's color cycling
+        // (Rainbow, Star Power, etc.) across the entire grid.
+        // The override buffers cleared above are sufficient for the quantized effect's needs.
     }
     trigger(force = false, spawnPosition = null) {
         let startTime = 0;
