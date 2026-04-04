@@ -51472,6 +51472,11 @@ class WebGLRenderer {
                         float sFade = fadeData.r;
                         float oFade = fadeData.g;
                         float sAlphaSim = fadeData.b; // shadow world simulation alpha (brightness)
+                        // Clamp shadow alpha so brightness ranges from Interior Brightness
+                        // (glassBloom) down to 1.0 (standard), never below standard.
+                        // Floor = 1/glassBloom ensures dimmest shadow cell * bloom = 1.0.
+                        float sAlphaFloor = 1.0 / max(u_glassBloom, 1.001);
+                        float clampedSAlpha = max(sAlphaSim, sAlphaFloor);
                         // Shadow character from shared glyph atlas
                         ivec2 cellCoord = ivec2(v_cellPos);
                         uint shadowGlyphId = texelFetch(u_shadowCharTex, cellCoord, 0).r;
@@ -51488,7 +51493,7 @@ class WebGLRenderer {
                         // Blend colors
                         baseColor.rgb = mix(baseColor.rgb, shadowColor.rgb, sFade);
                         float owA = tex1 * oFade;
-                        finalAlpha = owA + tex2 * sFade * sAlphaSim;
+                        finalAlpha = owA + tex2 * sFade * clampedSAlpha;
                         shadowGlowAlpha = sFade;
                         baseColor.a = 1.0;
                         // Shadow world Character Overlap (GPU path)
@@ -51509,7 +51514,7 @@ class WebGLRenderer {
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed dual world mode (shadow textures not available)
                         // v_glow carries sFade (reveal intensity), baseColor.a carries blended sim alpha
-                        // blendedAlpha ≈ gAlpha when sFade→0, ≈ sAlphaSim when sFade→1
+                        // blendedAlpha already has sAlphaSim clamped by CPU instance buffer
                         float blendedAlpha = baseColor.a;
                         float nwA = v_glow;
                         float tex2 = getProcessedAlpha(v_uv2);
@@ -51971,6 +51976,10 @@ class WebGLRenderer {
                                 sAlphaSim = sFloats.r;
                                 sGlowSim = sFloats.b;
                             }
+                            // Clamp shadow alpha: brightness ranges from Interior Brightness
+                            // (glassBloom) down to 1.0 (standard), never below standard.
+                            float sAlphaFloorR = 1.0 / max(u_glassBloom, 1.001);
+                            sAlphaSim = max(sAlphaSim, sAlphaFloorR);
                             outCharIdx = float(mapCharCode(ovChar));
                             vec4 c1 = unpackColorU32(gColor);
                             vec4 c2 = unpackColorU32(ovColor);
@@ -53681,6 +53690,13 @@ class WebGLRenderer {
             // Skip CPU instance buffer loop — GPU resolved
         } else {
         // === CPU FALLBACK PATH (original code) ===
+        // Get glassBloom for shadow alpha floor clamping
+        let cpuGlassBloom = 1.0;
+        if (fx) {
+            const cpuFxState = fx.getWebGLRenderState(this.config.state, this.config.derived);
+            if (cpuFxState) cpuGlassBloom = cpuFxState.glassBloom;
+        }
+        const sAlphaFloorCPU = 1.0 / Math.max(cpuGlassBloom, 1.001);
         const gChars = grid.chars;
         const gNext = grid.nextChars;
         const gSecChars = grid.secondaryChars;
@@ -53782,7 +53798,8 @@ class WebGLRenderer {
                     // 8.5.3: Use ovAlphas for the reveal intensity (sFade)
                     const sFade = ovAlphas[i];
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
-                    const sAlphaSim = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
+                    const sAlphaSimRaw = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
+                    const sAlphaSim = Math.max(sAlphaSimRaw, sAlphaFloorCPU);
                     const sGlowSim = (sGrid && sGrid.glows) ? sGrid.glows[i] : ovGlows[i];
                     m16[u16Off + 0] = mapChar(ovChars[i]);
                     // Blend Colors for Shadow World Transition
@@ -53799,7 +53816,7 @@ class WebGLRenderer {
                     } else {
                         m32[baseOff + 1] = c1;
                     }
-                    // Correct alpha blending: mix between main alpha and shadow simulation alpha
+                    // Correct alpha blending: mix between main alpha and shadow simulation alpha (clamped)
                     mF32[baseOff + 2] = (gAlphas[i] * (1.0 - sFade)) + (sAlphaSim * sFade);
                     // Pack sFade into v_glow so the shader can use it as shadow reveal
                     // opacity (nwA). Actual simulation glow goes through v_glimmerFlicker.
