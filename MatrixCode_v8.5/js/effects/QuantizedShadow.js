@@ -203,40 +203,23 @@ class QuantizedShadow {
             g.overrideActive[i] = 5;
             g.overrideChars[i] = sg.chars[i];
             g.overrideColors[i] = sg.colors[i];
-            
+
             // 8.5.3: Use overrideAlphas to carry the REVEAL intensity (sFade)
             // and overrideGlows to carry the actual SIMULATION glow.
             // The renderer (WebGLRenderer ovAct=5) will mix these appropriately.
             g.overrideAlphas[i] = sFade;
             g.overrideGlows[i] = sg.glows[i];
-            
+
             g.overrideMix[i] = sg.mix[i];
             g.overrideNextChars[i] = sg.nextChars[i];
             g.overrideFontIndices[i] = sg.fontIndices[i];
 
-            // Only copy overlap data and OVERLAP renderMode when overlap is enabled
-            if (this._overlapEnabled && sg.secondaryChars) {
-                g.renderMode[i] = sg.renderMode[i];
-                g.secondaryChars[i] = sg.secondaryChars[i];
-                g.secondaryColors[i] = sg.secondaryColors[i];
-                g.secondaryAlphas[i] = sg.secondaryAlphas[i];
-                g.secondaryGlows[i] = sg.secondaryGlows[i];
-                g.secondaryFontIndices[i] = sg.secondaryFontIndices[i];
-            } else {
-                g.renderMode[i] = 0; // STANDARD
-            }
-
-            // The shadow simulation runs its own _updateGlimmerLifecycle and other logic,
-            // which populates its own genericParams buffer with data for glimmers, rotators, etc.
-            // We must copy the final result of that simulation to the main grid's genericParams
-            // buffer so the renderer has access to it for this frame.
-            if (sg.genericParams && g.genericParams) {
-                const gOff = i * 4;
-                g.genericParams[gOff + 0] = sg.genericParams[gOff + 0];
-                g.genericParams[gOff + 1] = sg.genericParams[gOff + 1];
-                g.genericParams[gOff + 2] = sg.genericParams[gOff + 2];
-                g.genericParams[gOff + 3] = sg.genericParams[gOff + 3];
-            }
+            // NOTE: We intentionally do NOT write to g.renderMode, g.secondaryChars,
+            // g.genericParams etc. These are main-grid simulation arrays, not override
+            // buffers. Writing to them contaminates the active world's state and causes
+            // rotators to freeze and colors to stretch after the shadow reveal fades.
+            // The renderer reads shadow overlap and genericParams data directly from
+            // the shadow grid (fx.shadowGrid) for ov=5 cells.
         }
     }
 

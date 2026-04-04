@@ -4244,11 +4244,12 @@ class WebGLRenderer {
                     && !(effActive && effActive[i] === 3);
                 if (isShadowWorld) {
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+                    const sParams = sGrid ? sGrid.genericParams : null;
                     // sFade = sg.alphas[i] * shadowFade (already stored in ovGlows[i])
                     const sFade = ovGlows[i];
                     mF32[baseOff + 6] = sGrid ? sGrid.glows[i] * sFade : 0;           // GlimmerFlicker repurposed: shadow glow
-                    mU8[u8Off + 21]   = gParams[gIdx + 1];                             // ShapeID from shadow world
-                    mF32[baseOff + 7] = gParams[gIdx + 2];                             // GlimmerAlpha from shadow world
+                    mU8[u8Off + 21]   = sParams ? sParams[gIdx + 1] : gParams[gIdx + 1]; // ShapeID from shadow grid
+                    mF32[baseOff + 7] = sParams ? sParams[gIdx + 2] : gParams[gIdx + 2]; // GlimmerAlpha from shadow grid
                     mF32[baseOff + 8] = 0;                                             // Dissolve
                 } else {
                     mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
@@ -4275,12 +4276,14 @@ class WebGLRenderer {
         } // end CPU fallback else block
 
         // --- SHADOW OVERLAP TEXTURE: Upload secondary char IDs for shadow world overlap ---
+        // Read overlap data from the SHADOW grid (not the main grid) to avoid contamination.
         this._hasShadowOverlapTexture = false;
-        if (grid.overrideActive && grid.secondaryChars && grid.renderMode && this.shadowOverlapCharTexture) {
+        const sgForOverlap = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
+        if (grid.overrideActive && this.shadowOverlapCharTexture) {
             const sCols = grid.cols, sRows = grid.rows, sTotal = sCols * sRows;
             const ovActive = grid.overrideActive;
-            const gMode = grid.renderMode;
-            const gSecChars = grid.secondaryChars;
+            const sgMode = sgForOverlap ? sgForOverlap.renderMode : null;
+            const sgSecChars = sgForOverlap ? sgForOverlap.secondaryChars : null;
             const lookup = atlas.codeToId;
             let hasAny = false;
 
@@ -4291,8 +4294,8 @@ class WebGLRenderer {
             soa.fill(65535);
 
             for (let i = 0; i < sTotal; i++) {
-                if (s.overlapEnabled && ovActive[i] === 5 && gMode[i] === 1) {
-                    const sc = gSecChars[i];
+                if (s.overlapEnabled && ovActive[i] === 5 && sgMode && sgMode[i] === 1) {
+                    const sc = sgSecChars ? sgSecChars[i] : 0;
                     if (sc > 32) {
                         let id = lookup[sc];
                         if (id === -1) {
