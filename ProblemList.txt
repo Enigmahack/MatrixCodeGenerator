@@ -1,24 +1,17 @@
 Todo:
 Run tests on all effects, behaviors, sliders, settings, etc. 
 Build out presets and ensure everything works. 
-Review Basic/Advanced Settings
 Consolidate/ensure similar controls for similar items. Consistent UI control types.
-Disable Periodic Events should be in "Caution Zone" 
-Test Search functions
+
 Update to v10 with presets and settings configured for shipping. 
 
 
 Behaviours: 
 
-
 Visuals: 
-Character Overlap does not render in the shadow world but should. 
 
 Bugs: 
-Changing Presets should re-trigger the loading of code. 
-Bindings have a bug where sometimes they're not binding correctly? Binds the wrong button to the wrong trigger. 
-Glimmer tracers appear to be broken/stationary and no longer move. The general functionality appears to be somewhat broken. 
-
+Fix brightness in shadow transition
 
 <- Look:
 Clean up UI. 

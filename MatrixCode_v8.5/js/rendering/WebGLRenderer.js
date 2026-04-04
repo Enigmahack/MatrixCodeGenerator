@@ -1363,7 +1363,7 @@ class WebGLRenderer {
 
                 // Shadow World GPU Blending
                 uniform highp usampler2D u_shadowCharTex;    // R16UI: shadow char atlas IDs
-                uniform sampler2D u_shadowFadeTex;            // RG: [sFade, oFade]
+                uniform sampler2D u_shadowFadeTex;            // RGBA: [sFade, oFade, shadowSimAlpha, unused]
                 uniform sampler2D u_shadowColorTex;           // RGBA: shadow colors
                 uniform sampler2D u_shadowAtlasTex;           // shared glyph atlas for shadow chars
                 uniform vec2 u_gridDimsChar;                  // [cols, rows]
@@ -1406,6 +1406,7 @@ class WebGLRenderer {
                 uniform float u_brightness;
                 uniform float u_brightnessFloor;
                 uniform float u_glowIntensityMultiplier;
+                uniform float u_glassBloom;  // Interior brightness: 1.0 = no boost, >1.0 = brighter inside blocks
                 
                 // 0 = Base (Glyphs/Glow), 1 = Shadow
                 uniform int u_passType;
@@ -1505,9 +1506,10 @@ class WebGLRenderer {
                     if (useMix >= 5.0 && u_shadowEnabled > 0.5) {
                         // GPU Shadow Blending: read fade/color/char from textures
                         vec2 cellUV = (v_cellPos + 0.5) / u_gridDimsChar;
-                        vec2 fadeData = texture(u_shadowFadeTex, cellUV).rg;
+                        vec4 fadeData = texture(u_shadowFadeTex, cellUV);
                         float sFade = fadeData.r;
                         float oFade = fadeData.g;
+                        float sAlphaSim = fadeData.b; // shadow world simulation alpha (brightness)
 
                         // Shadow character from shared glyph atlas
                         ivec2 cellCoord = ivec2(v_cellPos);
@@ -1528,7 +1530,7 @@ class WebGLRenderer {
                         baseColor.rgb = mix(baseColor.rgb, shadowColor.rgb, sFade);
 
                         float owA = tex1 * oFade;
-                        finalAlpha = owA + tex2 * sFade;
+                        finalAlpha = owA + tex2 * sFade * sAlphaSim;
                         shadowGlowAlpha = sFade;
                         baseColor.a = 1.0;
 
@@ -1550,12 +1552,14 @@ class WebGLRenderer {
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed dual world mode (shadow textures not available)
                         // v_glow carries sFade (reveal intensity), baseColor.a carries blended sim alpha
-                        float originalBaseAlpha = baseColor.a;
+                        // blendedAlpha ≈ gAlpha when sFade→0, ≈ sAlphaSim when sFade→1
+                        float blendedAlpha = baseColor.a;
                         float nwA = v_glow;
                         float tex2 = getProcessedAlpha(v_uv2);
-                        float owA = tex1 * originalBaseAlpha;
-                        finalAlpha = owA + tex2 * nwA;
-                        shadowGlowAlpha = originalBaseAlpha;
+                        // Apply blended sim alpha to BOTH old and shadow chars proportionally
+                        // so shadow world brightness variation (dim trail vs bright tracer) is visible
+                        finalAlpha = blendedAlpha * (tex1 * (1.0 - nwA) + tex2 * nwA);
+                        shadowGlowAlpha = blendedAlpha;
                         baseColor.a = 1.0;
 
                         // Shadow world Character Overlap
@@ -1634,31 +1638,38 @@ class WebGLRenderer {
                         vec2 glowFadeData = texture(u_shadowFadeTex, glowCellUV).rg;
                         float swGlowFactor = texture(u_shadowColorTex, glowCellUV).a * glowFadeData.r;
                         if (swGlowFactor > 0.0) {
-                            if (glassMask <= 0.001) {
-                                swGlowFactor *= (1.0 - shadow);
-                            }
+                            float swBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            swGlowFactor *= mix(1.0 - shadow, 1.0, swBypass);
                             col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed shadow glow via v_glimmerFlicker (repurposed)
                         if (shadowGlowVal > 0.0) {
                             float swGlowFactor = shadowGlowVal;
-                            if (glassMask <= 0.001) {
-                                swGlowFactor *= (1.0 - shadow);
-                            }
+                            float swBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            swGlowFactor *= mix(1.0 - shadow, 1.0, swBypass);
                             col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (v_glow > 0.0) {
                         float glowFactor = v_glow;
-                        if (!isHighPriority && glassMask <= 0.001) {
-                             glowFactor *= (1.0 - shadow);
+                        if (!isHighPriority) {
+                            float glowBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            glowFactor *= mix(1.0 - shadow, 1.0, glowBypass);
                         }
                         col.rgb += (glowFactor * u_glowIntensityMultiplier * col.a);
                     }
     
                     // Base Alpha (Stream Fade)
+                    // Shadow bypass scales with u_glassBloom: at 1.0 (no boost), cells
+                    // render identically to regular code. Above 1.0, shadow is progressively
+                    // bypassed so inside-block characters appear brighter.
                     float sAlphaMult = 1.0 - shadow;
-                    if (isHighPriority || glassMask > 0.001) sAlphaMult = 1.0;
+                    if (isHighPriority) {
+                        sAlphaMult = 1.0;
+                    } else if (glassMask > 0.001) {
+                        float bypassFactor = clamp(u_glassBloom - 1.0, 0.0, 1.0);
+                        sAlphaMult = mix(1.0 - shadow, 1.0, bypassFactor);
+                    }
                     float streamAlpha = col.a * finalAlpha * sAlphaMult;
                     
                     if (glimmer > 0.0) {
@@ -2351,7 +2362,7 @@ class WebGLRenderer {
             }
             return tex;
         };
-        this.shadowFadeTexture = createNearestTexture();     // RG8: [sFade, oFade] per cell
+        this.shadowFadeTexture = createNearestTexture();     // RGBA8: [sFade, oFade, shadowSimAlpha, unused] per cell
         this.shadowColorTexture = createNearestTexture();    // RGBA8: shadow world colors
         this.shadowCharIndexTexture = createNearestTexture(); // R16UI: shadow world glyph IDs
         // Initialize R16UI texture with 1x1 so it's valid for usampler2D binding
@@ -4155,6 +4166,10 @@ class WebGLRenderer {
                         mF32[baseOff + 4] = 5.0 + nwRotMix;
                     }
                     
+                    // Pack shadow simulation glow × reveal intensity into v_glimmerFlicker
+                    // so the shader applies glow proportionally (matches GPU resolve path).
+                    mF32[baseOff + 6] = sGlowSim * sFade;
+
                     mU8[u8Off + 20] = gDecays[i];
                     m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
                 } else if (ov === 2) {
@@ -4313,24 +4328,27 @@ class WebGLRenderer {
                 gl.activeTexture(gl.TEXTURE7);
                 gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-                // Shadow fade texture (RG8: R=sFade, G=oFade)
-                if (!this._shadowFadeBuffer || this._shadowFadeBuffer.length !== sTotal * 2) {
-                    this._shadowFadeBuffer = new Uint8Array(sTotal * 2);
+                // Shadow fade texture (RGBA8: R=sFade, G=oFade, B=shadowSimAlpha, A=unused)
+                if (!this._shadowFadeBuffer || this._shadowFadeBuffer.length !== sTotal * 4) {
+                    this._shadowFadeBuffer = new Uint8Array(sTotal * 4);
                 }
                 const fb = this._shadowFadeBuffer;
                 const sf = sh.shadowFade, of = sh.oldWorldFade;
+                const sgAlphasForFade = sg.alphas;
                 fb.fill(0);
                 for (const si of sh.activeIndices) {
-                    fb[si * 2] = (sf[si] * 255) | 0;
-                    fb[si * 2 + 1] = (of[si] * 255) | 0;
+                    fb[si * 4] = (sf[si] * 255) | 0;
+                    fb[si * 4 + 1] = (of[si] * 255) | 0;
+                    fb[si * 4 + 2] = sgAlphasForFade ? ((sgAlphasForFade[si] * 255) | 0) : 255;
+                    fb[si * 4 + 3] = 255;
                 }
                 gl.bindTexture(gl.TEXTURE_2D, this.shadowFadeTexture);
                 if (sCols !== this._lastShadowCols || sRows !== this._lastShadowRows) {
-                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, sCols, sRows, 0, gl.RG, gl.UNSIGNED_BYTE, fb);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sCols, sRows, 0, gl.RGBA, gl.UNSIGNED_BYTE, fb);
                     this._lastShadowCols = sCols;
                     this._lastShadowRows = sRows;
                 } else {
-                    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sCols, sRows, gl.RG, gl.UNSIGNED_BYTE, fb);
+                    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sCols, sRows, gl.RGBA, gl.UNSIGNED_BYTE, fb);
                 }
 
                 // Shadow color texture (RGBA8)
@@ -4762,6 +4780,17 @@ class WebGLRenderer {
                 this.gl.uniform1f(this._u(activeProgram, 'u_brightness'), s.brightness !== undefined ? s.brightness : 1.0);
                 this.gl.uniform1f(this._u(activeProgram, 'u_brightnessFloor'), s.brightnessFloor !== undefined ? s.brightnessFloor : 0.05);
                 this.gl.uniform1f(this._u(activeProgram, 'u_glowIntensityMultiplier'), s.glowIntensityMultiplier !== undefined ? s.glowIntensityMultiplier : 0.3);
+
+                // Interior brightness: controls shadow bypass and brightness boost inside blocks.
+                // At 1.0, inside-block cells render identically to regular code (no bypass).
+                {
+                    let glassBloom = 1.0;
+                    if (fx) {
+                        const fxState = fx.getWebGLRenderState(s, d);
+                        if (fxState) glassBloom = fxState.glassBloom;
+                    }
+                    this.gl.uniform1f(this._u(activeProgram, 'u_glassBloom'), glassBloom);
+                }
 
                 const cellScaleX = (d.cellWidth / atlas.cellSize);
                 const cellScaleY = (d.cellHeight / atlas.cellSize);

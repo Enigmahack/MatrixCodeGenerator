@@ -37,7 +37,8 @@
       "Bash(/tmp/procedural_header.js:*)",
       "Bash(base64:*)",
       "Bash(do sed:*)",
-      "Bash(PYTHONIOENCODING=utf-8 python:*)"
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(python3:*)"
     ]
   }
 }

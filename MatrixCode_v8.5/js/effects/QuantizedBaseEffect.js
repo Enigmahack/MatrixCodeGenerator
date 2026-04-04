@@ -2269,7 +2269,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const rawGlassBloom = this.getConfig('GlassBloom') ?? 1.2;
         const glassBloomScaleToSize = this.getConfig('GlassBloomScaleToSize') === true;
         const bloomScale = glassBloomScaleToSize
-            ? Math.max(0, 1.0 - Math.log1p(Math.min(fillRatio * 2.0, 1.0) * (Math.E - 1)))
+            ? Math.max(0, 1.0 - Math.min(fillRatio, 1.0))
             : 1.0;
         const finalGlassBloom = 1.0 + (rawGlassBloom - 1.0) * bloomScale * this.alpha;
 
