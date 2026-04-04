@@ -753,8 +753,7 @@ class WebGLRenderer {
 
                         vec3 resultColor = base.rgb;
                         if (isVisible > 0.5 && base.a > 0.01) {
-                            float boost = u_glassBloom - 1.0;
-                            resultColor.rgb += boost * resultColor.rgb * (1.0 - resultColor.rgb * 0.5);
+                            resultColor.rgb *= u_glassBloom;
                         }
 
                         // Natural Refraction: curved glass edge effect.
@@ -1514,8 +1513,7 @@ class WebGLRenderer {
                         // Clamp shadow alpha so brightness ranges from Interior Brightness
                         // (glassBloom) down to 1.0 (standard), never below standard.
                         // Floor = 1/glassBloom ensures dimmest shadow cell * bloom = 1.0.
-                        float sAlphaFloor = 1.0 / max(u_glassBloom, 1.001);
-                        float clampedSAlpha = max(sAlphaSim, sAlphaFloor);
+                        float clampedSAlpha = sAlphaSim;
 
                         // Shadow character from shared glyph atlas
                         ivec2 cellCoord = ivec2(v_cellPos);
@@ -2087,8 +2085,7 @@ class WebGLRenderer {
 
                             // Clamp shadow alpha: brightness ranges from Interior Brightness
                             // (glassBloom) down to 1.0 (standard), never below standard.
-                            float sAlphaFloorR = 1.0 / max(u_glassBloom, 1.001);
-                            sAlphaSim = max(sAlphaSim, sAlphaFloorR);
+                            // Removed artificial clamping to preserve shadow sim fades.
 
                             outCharIdx = float(mapCharCode(ovChar));
 
@@ -4147,8 +4144,7 @@ class WebGLRenderer {
                     // 8.5.3: Use ovAlphas for the reveal intensity (sFade)
                     const sFade = ovAlphas[i];
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
-                    const sAlphaSimRaw = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
-                    const sAlphaSim = Math.max(sAlphaSimRaw, sAlphaFloorCPU);
+                    const sAlphaSim = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
                     const sGlowSim = (sGrid && sGrid.glows) ? sGrid.glows[i] : ovGlows[i];
 
                     m16[u16Off + 0] = mapChar(ovChars[i]);
