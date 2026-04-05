@@ -1115,6 +1115,7 @@ class WebGLRenderer {
                 layout(location=6) in float a_glow;
                 layout(location=7) in float a_mix;
                 layout(location=8) in float a_nextChar;
+                layout(location=9) in float a_secondaryChar;
                 layout(location=10) in float a_maxDecay;
                 layout(location=11) in float a_shapeID;
                 layout(location=12) in float a_glimmerFlicker;
@@ -1207,7 +1208,18 @@ class WebGLRenderer {
                     }
     
                     // UV 2
-                    if (a_mix > 0.0) {
+                    if (a_mix >= 5.0 && a_mix < 6.0) {
+                        // Shadow World Mode: UV2 carries the SHADOW character for glyph-level blending
+                        float scIdx2 = a_secondaryChar;
+                        if (scIdx2 < 65534.5) {
+                            float sRow2 = floor(scIdx2 / u_cols);
+                            float sCol2 = mod(scIdx2, u_cols);
+                            vec2 sUvBase2 = vec2(sCol2, sRow2) * u_cellSize;
+                            v_uv2 = (sUvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
+                        } else {
+                            v_uv2 = vec2(-1.0, -1.0);
+                        }
+                    } else if (a_mix > 0.0) {
                         float cIdx2 = a_nextChar;
                         if (cIdx2 < 65534.5) {
                             float row2 = floor(cIdx2 / u_cols);
@@ -1284,6 +1296,7 @@ class WebGLRenderer {
                     v_shapeID = charData.a;
                     v_prog = a_dissolve;
                     v_shadowGlow = paramData.b;
+                    float a_secondaryChar = paramData.a; // Repurposed RT3.a for shadow char index
 
                     float scale = 1.0;
                     if (v_prog > 0.0 && u_dissolveEnabled > 0.5) {
@@ -1323,7 +1336,18 @@ class WebGLRenderer {
                     }
 
                     // UV 2
-                    if (a_mix > 0.0) {
+                    if (a_mix >= 5.0 && a_mix < 6.0) {
+                        // Shadow World Mode: UV2 carries the SHADOW character for glyph-level blending
+                        float scIdx2 = a_secondaryChar;
+                        if (scIdx2 < 65534.5) {
+                            float sRow2 = floor(scIdx2 / u_cols);
+                            float sCol2 = mod(scIdx2, u_cols);
+                            vec2 sUvBase2 = vec2(sCol2, sRow2) * u_cellSize;
+                            v_uv2 = (sUvBase2 + (a_quad * u_cellSize)) / u_atlasSize;
+                        } else {
+                            v_uv2 = vec2(-1.0, -1.0);
+                        }
+                    } else if (a_mix > 0.0) {
                         float cIdx2 = a_nextChar;
                         if (cIdx2 < 65534.5) {
                             float row2 = floor(cIdx2 / u_cols);
@@ -1554,16 +1578,18 @@ class WebGLRenderer {
                             }
                         }
                     } else if (useMix >= 5.0) {
-                        // Fallback: CPU-packed dual world mode (shadow textures not available)
-                        // v_glow carries sFade (reveal intensity), baseColor.a carries blended sim alpha
-                        // blendedAlpha already has sAlphaSim clamped by CPU instance buffer
-                        float blendedAlpha = baseColor.a;
-                        float nwA = v_glow;
+                        // Fallback: Dual world mode (used by both CPU path and GPU resolve path)
+                        // v_shadowGlow carries sFade (reveal intensity)
+                        // baseColor.a carries mixed simulation alpha (streamAlpha)
+                        // tex1 carries OLD character, tex2 carries SHADOW character
+                        float nwA = v_shadowGlow; 
                         float tex2 = getProcessedAlpha(v_uv2);
-                        // Apply blended sim alpha to BOTH old and shadow chars proportionally
-                        // so shadow world brightness variation (dim trail vs bright tracer) is visible
-                        finalAlpha = blendedAlpha * (tex1 * (1.0 - nwA) + tex2 * nwA);
-                        shadowGlowAlpha = blendedAlpha;
+                        
+                        // Smoothly blend glyphs based on reveal intensity
+                        float mixedTex = mix(tex1, tex2, nwA);
+                        finalAlpha = baseColor.a * mixedTex;
+                        
+                        shadowGlowAlpha = baseColor.a;
                         baseColor.a = 1.0;
 
                         // Shadow world Character Overlap
@@ -1642,37 +1668,44 @@ class WebGLRenderer {
                         vec2 glowFadeData = texture(u_shadowFadeTex, glowCellUV).rg;
                         float swGlowFactor = texture(u_shadowColorTex, glowCellUV).a * glowFadeData.r;
                         if (swGlowFactor > 0.0) {
-                            float swBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            float swBypass = (glassMask > 0.001) ? 1.0 : 0.0;
                             swGlowFactor *= mix(1.0 - shadow, 1.0, swBypass);
+                            // Scale glow by interior brightness boost
+                            swGlowFactor *= u_glassBloom;
                             col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (useMix >= 5.0) {
                         // Fallback: CPU-packed shadow glow via v_glimmerFlicker (repurposed)
                         if (shadowGlowVal > 0.0) {
                             float swGlowFactor = shadowGlowVal;
-                            float swBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            float swBypass = (glassMask > 0.001) ? 1.0 : 0.0;
                             swGlowFactor *= mix(1.0 - shadow, 1.0, swBypass);
+                            // Scale glow by interior brightness boost
+                            swGlowFactor *= u_glassBloom;
                             col.rgb += (swGlowFactor * u_glowIntensityMultiplier * shadowGlowAlpha);
                         }
                     } else if (v_glow > 0.0) {
                         float glowFactor = v_glow;
                         if (!isHighPriority) {
-                            float glowBypass = (glassMask > 0.001) ? clamp(u_glassBloom - 1.0, 0.0, 1.0) : 0.0;
+                            float glowBypass = (glassMask > 0.001) ? 1.0 : 0.0;
                             glowFactor *= mix(1.0 - shadow, 1.0, glowBypass);
+                            // Scale glow by interior brightness boost
+                            if (glassMask > 0.001) glowFactor *= u_glassBloom;
                         }
                         col.rgb += (glowFactor * u_glowIntensityMultiplier * col.a);
                     }
     
                     // Base Alpha (Stream Fade)
                     // Shadow bypass scales with u_glassBloom: at 1.0 (no boost), cells
-                    // render identically to regular code. Above 1.0, shadow is progressively
-                    // bypassed so inside-block characters appear brighter.
+                    // render identically to regular code (fully bypassing shadow mask).
+                    // Above 1.0, interior brightness is boosted further.
                     float sAlphaMult = 1.0 - shadow;
                     if (isHighPriority) {
                         sAlphaMult = 1.0;
                     } else if (glassMask > 0.001) {
-                        float bypassFactor = clamp(u_glassBloom - 1.0, 0.0, 1.0);
-                        sAlphaMult = mix(1.0 - shadow, 1.0, bypassFactor);
+                        // Interior of quantized blocks: ignore the background shadow mask.
+                        // Scale the visibility by u_glassBloom (1.0 = normal, >1.0 = boost).
+                        sAlphaMult = u_glassBloom;
                     }
                     float streamAlpha = col.a * finalAlpha * sAlphaMult;
                     
@@ -2009,6 +2042,8 @@ class WebGLRenderer {
                     float outGlimmerFlicker = 1.0;
                     float outGlimmerAlpha = 0.0;
                     float outDissolve = 0.0;
+                    float outShadowFade = 0.0; // Pass reveal intensity to fragment shader
+                    float outSecondaryCharIdx = 65535.0; // Pass second glyph for blending (Shadow World)
 
                     // ============ PRIORITY BRANCHING ============
                     if (effAct > 0u) {
@@ -2096,12 +2131,13 @@ class WebGLRenderer {
                             // Correct alpha blending: mix between main alpha and shadow simulation alpha
                             outAlpha = mix(gAlpha, sAlphaSim, sFade);
                             
-                            // Pack sFade into v_glow so the shader uses it as shadow
-                            // reveal opacity (nwA). Actual glow goes through v_glimmerFlicker.
-                            outGlow = sFade;
+                            // Mix simulation glows. Note: fragment shader ignores outGlow when outMix >= 5.0
+                            // so we must also pack this into outGlimmerFlicker below.
+                            outGlow = mix(gGlow, sGlowSim, sFade);
                             
                             float nwRotMix = ovMixVal;
-                            outNextChar = (nwRotMix > 0.5) ? float(mapCharCode(ovNextChar)) : float(mapCharCode(ovChar));
+                            // outNextChar will carry the shadow rotator (if any)
+                            outNextChar = (nwRotMix > 0.0) ? float(mapCharCode(ovNextChar)) : 65535.0;
                             
                             if (nwRotMix >= 30.0) {
                                 outMix = nwRotMix;
@@ -2111,6 +2147,39 @@ class WebGLRenderer {
                             
                             outDecay = float(gDecay);
                             outMaxDecay = float(gMaxDecay);
+                            outShadowFade = sFade;
+                            
+                            // 8.5.3: Preserve simulation decay (persistence) for the trail
+                            float sDecayVal = 0.0;
+                            float sMaxDecayVal = 1.0;
+                            if (u_shadowGridEnabled > 0.5) {
+                                vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                                uvec4 sInts = texelFetch(u_rShadowInts, cell, 0);
+                                sDecayVal = sFloats.g;
+                                sMaxDecayVal = float(max(1u, sInts.b));
+                            }
+                            float sDecaySim = (sDecayVal >= 2.0) ? (sDecayVal - 2.0) / sMaxDecayVal : 0.0;
+                            outDissolve = mix(gParams.a, sDecaySim, sFade);
+
+                            // IMPORTANT: outCharIdx carries OLD character so Draw shader can blend.
+                            // outSecondaryCharIdx (rt3.a) carries SHADOW character.
+                            outCharIdx = float(mapCharCode(gChar));
+                            outSecondaryCharIdx = float(mapCharCode(ovChar));
+
+                            // Mix glimmer data (shapeID, glimmerAlpha)
+                            uint sShapeID = 0u;
+                            float sGlimmerAlpha = 0.0;
+                            if (u_shadowGridEnabled > 0.5) {
+                                vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                                uvec4 sInts = texelFetch(u_rShadowInts, cell, 0);
+                                sGlimmerAlpha = sFloats.a;
+                                sShapeID = sInts.a;
+                            }
+                            outGlimmerAlpha = mix(gParams.b, sGlimmerAlpha, sFade);
+                            outShapeID = (sFade > 0.5) ? float(sShapeID) : gParams.g;
+                            
+                            // Pack mixed simulation glow into GlimmerFlicker channel (repurposed by frag shader)
+                            outGlimmerFlicker = outGlow;
                         } else if (ovAct == 2u) {
                             // Solid mode
                             outCharIdx = 65535.0;
@@ -2171,17 +2240,27 @@ class WebGLRenderer {
                     bool isShadowWorld = (ovAct == 5u && effAct != 3u);
 
                     if (isShadowWorld) {
-                        // Pass through shadow world's actual glimmer data
-                        outShapeID = gParams.g;
-                        outGlimmerAlpha = gParams.b;
-                        outDissolve = 0.0;
-                        // Repurpose GlimmerFlicker to carry shadow glow scaled by reveal
+                        // Pass through shadow world's actual glimmer data mixed with main grid's
+                        float sFade = ovAlpha;
+                        float sGlimmerAlpha = 0.0;
+                        float sShapeID = gParams.g;
+                        
                         if (u_shadowGridEnabled > 0.5) {
-                            vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
-                            outGlimmerFlicker = sFloats.b * ovAlpha;
-                        } else {
-                            outGlimmerFlicker = ovGlow * ovAlpha;
+                             vec4 sFloats = texelFetch(u_rShadowFloats, cell, 0);
+                             uvec4 sInts = texelFetch(u_rShadowInts, cell, 0);
+                             sGlimmerAlpha = sFloats.a;
+                             sShapeID = float(sInts.a);
                         }
+                        
+                        outGlimmerAlpha = mix(gParams.b, sGlimmerAlpha, sFade);
+                        outShapeID = (sFade > 0.5) ? sShapeID : gParams.g;
+                        outShadowFade = sFade;
+                        outDissolve = sFade; 
+
+                        // Carry simulation glow via GlimmerFlicker channel during reveal (fallback path logic).
+                        // The fragment shader uses v_glimmerFlicker as the boost factor when useMix >= 5.0.
+                        // We use the already-calculated outGlow (the mixed simulation glow).
+                        outGlimmerFlicker = outGlow; 
                     } else if (isOverridden) {
                         outGlimmerFlicker = 1.0;
                         outShapeID = 0.0;
@@ -2198,7 +2277,7 @@ class WebGLRenderer {
                     rt0 = vec4(outCharIdx, outNextChar, outMaxDecay, outShapeID);
                     rt1 = vec4(outColorRGB, outAlpha);
                     rt2 = vec4(outGlow, outMix, outDecay, outGlimmerFlicker);
-                    rt3 = vec4(outGlimmerAlpha, outDissolve, 0.0, 0.0);
+                    rt3 = vec4(outGlimmerAlpha, outDissolve, outShadowFade, outSecondaryCharIdx);
                 }`;
 
             if (this._gpuResolveEnabled) {
@@ -2614,14 +2693,14 @@ class WebGLRenderer {
         this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, posData);
 
         // Interleaved Dynamic Buffer
-        // Stride = 40 bytes (Optimized & Aligned)
+        // Stride = 44 bytes (Optimized & Aligned)
         if (this.instanceBuffer) this.gl.deleteBuffer(this.instanceBuffer);
         this.instanceBuffer = this.gl.createBuffer();
         this._instanceBufferInitialized = false; // force full upload on next frame
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.instanceBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 40, this.gl.DYNAMIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, totalCells * 44, this.gl.DYNAMIC_DRAW);
 
-        const bufferSize = totalCells * 40;
+        const bufferSize = totalCells * 44;
         this.instanceBufferData = new ArrayBuffer(bufferSize);
         this.instanceData = new Float32Array(this.instanceBufferData);
         this.instanceDataU32 = new Uint32Array(this.instanceBufferData);
@@ -2750,68 +2829,73 @@ class WebGLRenderer {
 
         // 2: CharIdx (U16 at offset 0)
         this.gl.enableVertexAttribArray(2);
-        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 40, 0);
+        this.gl.vertexAttribPointer(2, 1, this.gl.UNSIGNED_SHORT, false, 44, 0);
         this.gl.vertexAttribDivisor(2, 1);
 
         // 8: NextChar (U16 at offset 2)
         this.gl.enableVertexAttribArray(8);
-        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 40, 2);
+        this.gl.vertexAttribPointer(8, 1, this.gl.UNSIGNED_SHORT, false, 44, 2);
         this.gl.vertexAttribDivisor(8, 1);
 
         // 3: Color (U32 at offset 4, normalized)
         this.gl.enableVertexAttribArray(3);
-        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 40, 4);
+        this.gl.vertexAttribPointer(3, 4, this.gl.UNSIGNED_BYTE, true, 44, 4);
         this.gl.vertexAttribDivisor(3, 1);
 
         // 4: Alpha (F32 at offset 8)
         this.gl.enableVertexAttribArray(4);
-        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 40, 8);
+        this.gl.vertexAttribPointer(4, 1, this.gl.FLOAT, false, 44, 8);
         this.gl.vertexAttribDivisor(4, 1);
 
         // 6: Glow (F32 at offset 12)
         this.gl.enableVertexAttribArray(6);
-        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 40, 12);
+        this.gl.vertexAttribPointer(6, 1, this.gl.FLOAT, false, 44, 12);
         this.gl.vertexAttribDivisor(6, 1);
 
         // 7: Mix (F32 at offset 16)
         this.gl.enableVertexAttribArray(7);
-        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 40, 16);
+        this.gl.vertexAttribPointer(7, 1, this.gl.FLOAT, false, 44, 16);
         this.gl.vertexAttribDivisor(7, 1);
 
         // 5: Decay (U8 at offset 20)
         this.gl.enableVertexAttribArray(5);
-        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 40, 20);
+        this.gl.vertexAttribPointer(5, 1, this.gl.UNSIGNED_BYTE, false, 44, 20);
         this.gl.vertexAttribDivisor(5, 1);
         
         // 11: ShapeID (U8 at offset 21)
         this.gl.enableVertexAttribArray(11);
-        this.gl.vertexAttribPointer(11, 1, this.gl.UNSIGNED_BYTE, false, 40, 21);
+        this.gl.vertexAttribPointer(11, 1, this.gl.UNSIGNED_BYTE, false, 44, 21);
         this.gl.vertexAttribDivisor(11, 1);
 
         // 10: MaxDecay (U16 at offset 22)
         this.gl.enableVertexAttribArray(10);
-        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 40, 22);
+        this.gl.vertexAttribPointer(10, 1, this.gl.UNSIGNED_SHORT, false, 44, 22);
         this.gl.vertexAttribDivisor(10, 1);
 
         // 12: GlimmerFlicker (F32 at offset 24)
         this.gl.enableVertexAttribArray(12);
-        this.gl.vertexAttribPointer(12, 1, this.gl.FLOAT, false, 40, 24);
+        this.gl.vertexAttribPointer(12, 1, this.gl.FLOAT, false, 44, 24);
         this.gl.vertexAttribDivisor(12, 1);
         
         // 13: GlimmerAlpha (F32 at offset 28)
         this.gl.enableVertexAttribArray(13);
-        this.gl.vertexAttribPointer(13, 1, this.gl.FLOAT, false, 40, 28);
+        this.gl.vertexAttribPointer(13, 1, this.gl.FLOAT, false, 44, 28);
         this.gl.vertexAttribDivisor(13, 1);
 
         // 14: Dissolve (F32 at offset 32)
         this.gl.enableVertexAttribArray(14);
-        this.gl.vertexAttribPointer(14, 1, this.gl.FLOAT, false, 40, 32);
+        this.gl.vertexAttribPointer(14, 1, this.gl.FLOAT, false, 44, 32);
         this.gl.vertexAttribDivisor(14, 1);
 
         // 15: ShadowGlow (F32 at offset 36)
         this.gl.enableVertexAttribArray(15);
-        this.gl.vertexAttribPointer(15, 1, this.gl.FLOAT, false, 40, 36);
+        this.gl.vertexAttribPointer(15, 1, this.gl.FLOAT, false, 44, 36);
         this.gl.vertexAttribDivisor(15, 1);
+
+        // 9: SecondaryChar (F32 at offset 40)
+        this.gl.enableVertexAttribArray(9);
+        this.gl.vertexAttribPointer(9, 1, this.gl.FLOAT, false, 44, 40);
+        this.gl.vertexAttribDivisor(9, 1);
 
         this.gl.bindVertexArray(null);
     }
@@ -3029,16 +3113,17 @@ class WebGLRenderer {
             const sAlphas = sGrid.alphas;
             const sDecays = sGrid.decays;
             const sGlows = sGrid.glows;
+            const sGParams = sGrid.genericParams;
             for (let i = 0; i < totalCells; i++) {
                 const o = i * 4;
                 sb1[o]     = sChars[i];
                 sb1[o + 1] = sColors ? sColors[i] : 0;
                 sb1[o + 2] = sMaxDecays ? sMaxDecays[i] : 0;
-                sb1[o + 3] = 0;
+                sb1[o + 3] = sGParams ? Math.round(sGParams[o + 1]) : 0; // Shape ID
                 sb2[o]     = sAlphas ? sAlphas[i] : 1.0;
                 sb2[o + 1] = sDecays ? sDecays[i] : 0;
                 sb2[o + 2] = sGlows ? sGlows[i] : 0;
-                sb2[o + 3] = 0;
+                sb2[o + 3] = sGParams ? sGParams[o + 2] : 0; // Glimmer Alpha
             }
             gl.activeTexture(gl.TEXTURE8);
             gl.bindTexture(gl.TEXTURE_2D, this._resolveShadowTex[0]);
@@ -4078,9 +4163,9 @@ class WebGLRenderer {
         };
         
         for (let i = 0; i < totalCells; i++) {
-            const baseOff = i * 10; // Float32 index (40 bytes / 4)
-            const u16Off = i * 20;  // Uint16 index (40 bytes / 2)
-            const u8Off = i * 40;   // Uint8 index
+            const baseOff = i * 11; // Float32 index (44 bytes / 4)
+            const u16Off = i * 22;  // Uint16 index (44 bytes / 2)
+            const u8Off = i * 44;   // Uint8 index
 
             // Initialize defaults
             mF32[baseOff + 2] = 0; // Alpha
@@ -4089,9 +4174,11 @@ class WebGLRenderer {
             mU8[u8Off + 20] = 0;   // Decay
             mU8[u8Off + 21] = 0;   // ShapeID
             m16[u16Off + 11] = 0;  // MaxDecay (at byte 22)
-            mF32[baseOff + 6] = 1.0; // GlimmerFlicker (at byte 24)
-            mF32[baseOff + 7] = 0;   // GlimmerAlpha (at byte 28)
-            mF32[baseOff + 8] = 0;   // Dissolve (at byte 32)
+            mF32[baseOff + 6] = 1.0; // GlimmerFlicker
+            mF32[baseOff + 7] = 0; // GlimmerAlpha
+            mF32[baseOff + 8] = 0; // Dissolve
+            mF32[baseOff + 9] = 0; // ShadowGlow
+            mF32[baseOff + 10] = 65535; // SecondaryChar index (a_secondaryChar)
             
             // PRIORITY 1: PASSIVE EFFECT (Pulse, etc.)
             if (effActive && effActive[i]) {
@@ -4141,13 +4228,13 @@ class WebGLRenderer {
                 // PRIORITY 2: HARD OVERRIDE
                 const ov = ovActive[i];
                 if (ov === 5) {
-                    // 8.5.3: Use ovAlphas for the reveal intensity (sFade)
                     const sFade = ovAlphas[i];
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
                     const sAlphaSim = (sGrid && sGrid.alphas) ? sGrid.alphas[i] : 1.0;
                     const sGlowSim = (sGrid && sGrid.glows) ? sGrid.glows[i] : ovGlows[i];
 
-                    m16[u16Off + 0] = mapChar(ovChars[i]);
+                    // IMPORTANT: a_charIdx carries OLD character for blending
+                    m16[u16Off + 0] = mapChar(gChars[i]);
 
                     // Blend Colors for Shadow World Transition
                     const c1 = gColors[i];
@@ -4165,29 +4252,29 @@ class WebGLRenderer {
                         m32[baseOff + 1] = c1;
                     }
 
-                    // Correct alpha blending: mix between main alpha and shadow simulation alpha (clamped)
                     mF32[baseOff + 2] = (gAlphas[i] * (1.0 - sFade)) + (sAlphaSim * sFade);
 
-                    // Pack sFade into v_glow so the shader can use it as shadow reveal
-                    // opacity (nwA). Actual simulation glow goes through v_glimmerFlicker.
-                    mF32[baseOff + 3] = sFade;
+                    const mixedGlow = (gGlows[i] * (1.0 - sFade)) + (sGlowSim * sFade);
+                    mF32[baseOff + 3] = mixedGlow;
 
                     const nwRotMix = (grid.overrideMix[i] || 0.0);
-                    m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : mapChar(ovChars[i]);
+                    // NextChar carries the shadow rotator (matching Resolve logic)
+                    m16[u16Off + 1] = (nwRotMix > 0.5) ? mapChar(ovNextChars[i]) : 65535;
                     
-                    // 8.5.3: Pass through glimmer values (mix >= 30.0) from the shadow world
                     if (nwRotMix >= 30.0) {
                         mF32[baseOff + 4] = nwRotMix;
                     } else {
                         mF32[baseOff + 4] = 5.0 + nwRotMix;
                     }
                     
-                    // Pack shadow simulation glow × reveal intensity into v_glimmerFlicker
-                    // so the shader applies glow proportionally (matches GPU resolve path).
-                    mF32[baseOff + 6] = sGlowSim * sFade;
+                    mF32[baseOff + 9] = sFade; // a_shadowGlow
+                    mF32[baseOff + 6] = mixedGlow; // a_glimmerFlicker
 
                     mU8[u8Off + 20] = gDecays[i];
                     m16[u16Off + 11] = gMaxDecays ? gMaxDecays[i] : 0;
+
+                    // Repurpose a_unused (mF32[baseOff+10]) to carry the shadow character index
+                    mF32[baseOff + 10] = mapChar(ovChars[i]);
                 } else if (ov === 2) {
                     m16[u16Off + 0] = 65535;
                     m16[u16Off + 1] = 65535;
@@ -4261,12 +4348,24 @@ class WebGLRenderer {
                 if (isShadowWorld) {
                     const sGrid = (fx && fx.shadowGrid) ? fx.shadowGrid : null;
                     const sParams = sGrid ? sGrid.genericParams : null;
-                    // sFade = sg.alphas[i] * shadowFade (already stored in ovGlows[i])
-                    const sFade = ovGlows[i];
-                    mF32[baseOff + 6] = sGrid ? sGrid.glows[i] * sFade : 0;           // GlimmerFlicker repurposed: shadow glow
+                    // sFade = reveal intensity (previously stored in ovAlphas[i])
+                    const sFade = ovAlphas[i];
+                    
+                    // Mixed Simulation Glow (consistent with what we put in mF32[baseOff+3/6] above)
+                    const gSim = gGlows[i];
+                    const sSim = (sGrid && sGrid.glows) ? sGrid.glows[i] : ovGlows[i];
+                    const mixedGlow = (gSim * (1.0 - sFade)) + (sSim * sFade);
+
+                    // Mixed Simulation Decay (Persistence)
+                    const sDecayVal = (sGrid && sGrid.decays) ? sGrid.decays[i] : 0;
+                    const sMaxDecayVal = (sGrid && sGrid.maxDecays) ? Math.max(1, sGrid.maxDecays[i]) : 1;
+                    const sDecaySim = (sDecayVal >= 2) ? (sDecayVal - 2) / sMaxDecayVal : 0;
+                    const mixedDecay = (gParams[gIdx + 3] * (1.0 - sFade)) + (sDecaySim * sFade);
+
+                    mF32[baseOff + 6] = mixedGlow;                                     // GlimmerFlicker repurposed: shadow glow boost
                     mU8[u8Off + 21]   = sParams ? sParams[gIdx + 1] : gParams[gIdx + 1]; // ShapeID from shadow grid
                     mF32[baseOff + 7] = sParams ? sParams[gIdx + 2] : gParams[gIdx + 2]; // GlimmerAlpha from shadow grid
-                    mF32[baseOff + 8] = 0;                                             // Dissolve
+                    mF32[baseOff + 8] = mixedDecay;                                    // Dissolve channel carries blended persistence (decay)
                 } else {
                     mF32[baseOff + 6] = isOverridden ? 1.0 : gParams[gIdx];     // GlimmerFlicker
                     mU8[u8Off + 21]   = isOverridden ? 0 : gParams[gIdx + 1];   // ShapeID
