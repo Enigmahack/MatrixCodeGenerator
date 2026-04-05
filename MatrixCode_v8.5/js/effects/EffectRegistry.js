@@ -374,7 +374,11 @@ class EffectRegistry {
                         if (idx !== -1) fontIdx = idx;
                     }
 
-                    this.grid.setOverride(i, over.char, color, over.alpha || 1.0, fontIdx, over.glow || 0);
+                    if (over.blend) {
+                        this.grid.setEffectOverlay(i, over.char, color, over.alpha || 1.0, fontIdx, over.glow || 0);
+                    } else {
+                        this.grid.setOverride(i, over.char, color, over.alpha || 1.0, fontIdx, over.glow || 0);
+                    }
                 }
             }
         };

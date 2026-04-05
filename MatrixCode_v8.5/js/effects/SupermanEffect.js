@@ -142,7 +142,7 @@ class SupermanEffect extends AbstractEffect {
                         font: fontName,
                         color: this.c.derived.streamColorStr, 
                         alpha: effectAlpha, 
-                        glow: s.supermanGlow, 
+                        glow: s.supermanGlow * 5.0, 
                         size: 1,
                         solid: false, 
                         blend: true 

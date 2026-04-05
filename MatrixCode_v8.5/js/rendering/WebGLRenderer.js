@@ -1619,9 +1619,11 @@ class WebGLRenderer {
                         
                         float simA = tex1 * originalBaseAlpha;
                         
-                        // Mix towards White (Tracer-like) instead of just boosting brightness
+                        // Mix towards White (Tracer-like) based on effA and v_glow
+                        // Higher v_glow results in more intense white-out
                         vec3 targetColor = vec3(0.95, 0.95, 0.95); 
-                        baseColor.rgb = mix(baseColor.rgb, targetColor, effA);
+                        float whiteMix = effA * (0.15 + v_glow * 0.05); 
+                        baseColor.rgb = mix(baseColor.rgb, targetColor, min(1.0, whiteMix));
                         
                         finalAlpha = max(simA, effA);
                         baseColor.a = 1.0; // Prevent base instance alpha (0 for empty) from killing the overlay
