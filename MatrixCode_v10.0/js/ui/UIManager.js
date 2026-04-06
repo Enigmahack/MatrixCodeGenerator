@@ -198,6 +198,72 @@ class UIManager {
         const isOpen = this.dom.panel.classList.toggle('open');
         this.dom.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
         this.dom.toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+
+        // Update menu icon visibility based on new panel state
+        if (this.c.get('hideMenuIcon')) {
+            this._updateMenuIconVisibility();
+        }
+    }
+
+    /**
+     * Updates the settings icon visibility based on the 'hideMenuIcon' setting and activity.
+     * @private
+     */
+    _updateMenuIconVisibility() {
+        const shouldHide = this.c.get('hideMenuIcon');
+        const toggleBtn = this.dom.toggle;
+        const panel = this.dom.panel;
+
+        if (this._menuIconTimeout) clearTimeout(this._menuIconTimeout);
+        if (this._menuMouseMoveHandler) {
+            document.removeEventListener('mousemove', this._menuMouseMoveHandler);
+            this._menuMouseMoveHandler = null;
+        }
+
+        if (shouldHide) {
+            toggleBtn.style.transition = 'opacity 0.5s ease-in-out, transform 0.3s ease';
+            
+            const showIcon = () => {
+                toggleBtn.style.opacity = '1';
+                toggleBtn.style.pointerEvents = 'auto';
+                clearTimeout(this._menuIconTimeout);
+                
+                // Only start the fade-out timer if the panel is closed
+                if (!panel.classList.contains('open')) {
+                    this._menuIconTimeout = setTimeout(() => {
+                        if (!panel.classList.contains('open')) {
+                            toggleBtn.style.opacity = '0';
+                            toggleBtn.style.pointerEvents = 'none';
+                        }
+                    }, 3000); // 3 seconds of inactivity
+                }
+            };
+
+            // Initial state: show if open, otherwise trigger fade sequence
+            if (panel.classList.contains('open')) {
+                toggleBtn.style.opacity = '1';
+                toggleBtn.style.pointerEvents = 'auto';
+            } else {
+                showIcon(); 
+            }
+
+            this._menuMouseMoveHandler = (e) => {
+                const isHotZone = (e.clientX > window.innerWidth - 100) && (e.clientY < 100);
+                const isOverToggle = e.target === toggleBtn || toggleBtn.contains(e.target);
+                
+                if (isHotZone || isOverToggle || panel.classList.contains('open')) {
+                    showIcon();
+                }
+            };
+            document.addEventListener('mousemove', this._menuMouseMoveHandler);
+            
+            // Ensure visibility when mouse explicitly enters the button
+            toggleBtn.onmouseenter = () => showIcon();
+        } else {
+            toggleBtn.style.opacity = '1';
+            toggleBtn.style.pointerEvents = 'auto';
+            toggleBtn.onmouseenter = null;
+        }
     }
 
     /**
@@ -1882,6 +1948,10 @@ class UIManager {
                 // Handle Quantized Editor initialization during ALL refresh
                 this.refresh('quantEditorEnabled', true);
 
+                // Initialize menu icon and palette settings during ALL refresh
+                this.refresh('hideMenuIcon', true);
+                this.refresh('streamPalette', true);
+
                 // Compute derived override state before dep evaluation
                 this._computeActiveOverrideState();
 
@@ -1961,37 +2031,7 @@ class UIManager {
             }
 
             if (key === 'hideMenuIcon') {
-                const shouldHide = this.c.get('hideMenuIcon');
-                const toggleBtn = this.dom.toggle;
-                if (this._menuIconTimeout) clearTimeout(this._menuIconTimeout);
-                if (this._menuMouseMoveHandler) {
-                    document.removeEventListener('mousemove', this._menuMouseMoveHandler);
-                    this._menuMouseMoveHandler = null;
-                }
-
-                if (shouldHide) {
-                    toggleBtn.style.transition = 'opacity 0.5s ease-in-out, transform 0.3s ease';
-                    const showIcon = () => {
-                        toggleBtn.style.opacity = '1';
-                        toggleBtn.style.pointerEvents = 'auto';
-                        clearTimeout(this._menuIconTimeout);
-                        this._menuIconTimeout = setTimeout(() => {
-                            if (!this.dom.panel.classList.contains('open')) {
-                                toggleBtn.style.opacity = '0';
-                                toggleBtn.style.pointerEvents = 'none';
-                            }
-                        }, 1000);
-                    };
-                    showIcon(); 
-                    this._menuMouseMoveHandler = (e) => {
-                        const isHotZone = (e.clientX > window.innerWidth - 100) && (e.clientY < 100);
-                        if (isHotZone || this.dom.panel.classList.contains('open')) showIcon();
-                    };
-                    document.addEventListener('mousemove', this._menuMouseMoveHandler);
-                } else {
-                    toggleBtn.style.opacity = '1';
-                    toggleBtn.style.pointerEvents = 'auto';
-                }
+                this._updateMenuIconVisibility();
             }
 
             // Update specific control value(s) matching the key
