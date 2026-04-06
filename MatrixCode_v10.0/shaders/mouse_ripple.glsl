@@ -11,7 +11,7 @@ varying vec2      vTexCoord;
 
 void main() {
     vec2 uv = vTexCoord;
-    vec2 center = vec2(uMouse.x, 1.0 - uMouse.y);
+    vec2 center = vec2(uMouse.x, uMouse.y);
     float radius = mix(0.02, 0.60, uParameter);
     float dist = distance(uv, center);
     float mask = smoothstep(radius, 0.0, dist);
