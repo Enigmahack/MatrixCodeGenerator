@@ -1,5 +1,5 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v8.4.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v10.0.html
 
 **Note: 
 The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
@@ -9,25 +9,31 @@ https://github.com/Rezmason/matrix
 #
 ## 💻 Matrix Digital Rain Simulation v10.0
 
-I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there. Everything seen here is a screenshot from the site. 
+I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL and GLSL. It's WAY smoother than I thought, even on an old 2013 MacBook Pro. 
+Everything seen here is a screenshot from the site. 
 
-<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/e45eb4ae-57ba-4fc3-9c65-3e5b113a5748" />
-<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/b3b4ee61-fb17-47a5-a331-1df299666777" />
-<img width="1259" height="684" alt="image" src="https://github.com/user-attachments/assets/d446aa23-87fe-4e90-b097-7c755d6b2762" />
-<img width="702" height="687" alt="image" src="https://github.com/user-attachments/assets/a14545a9-5b54-4061-b0a4-d8032e78a1c2" />
-<img width="3839" height="2159" alt="Screenshot 2025-12-10 145915" src="https://github.com/user-attachments/assets/2bbccefd-93ac-44c3-a0b6-6815cb5f35d4" />
-<img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/1df1a8dc-fc6f-400a-b446-ff088f793b41" />
-<img width="3836" height="1912" alt="image" src="https://github.com/user-attachments/assets/ec2910cf-44f5-4452-a422-57a372d0ec75" />
-<img width="3839" height="1916" alt="image" src="https://github.com/user-attachments/assets/4f7c9231-3d05-401b-84bd-93efc480ea11" />
-<img width="3839" height="1913" alt="image" src="https://github.com/user-attachments/assets/e5ca9886-f7f6-4f81-9c4b-efeb8348c671" />
-<img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/da2a1739-49e8-404b-a4c5-d9d8bb3c9bf4" />
-<img width="3834" height="1957" alt="image" src="https://github.com/user-attachments/assets/7a759436-d8b7-41d4-923a-9ff1a8e05aa6" />
-<img width="3838" height="1955" alt="image" src="https://github.com/user-attachments/assets/71adcfee-d368-4ebc-ad31-5b0bb58c75a5" />
-<img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
+<img width="1280" height="800" alt="Screenshot 2026-04-06 at 12 13 39 AM" src="https://github.com/user-attachments/assets/7f066332-6e9e-4232-9fe2-9ac1663d511d" />
+<img width="1279" height="692" alt="Screenshot 2026-04-06 at 1 14 25 AM" src="https://github.com/user-attachments/assets/91a743e8-b27f-4556-8c10-36d2f3959cfb" />
+<img width="1280" height="694" alt="Screenshot 2026-04-06 at 1 14 09 AM" src="https://github.com/user-attachments/assets/a747d844-2ee6-478a-9bfd-d1cd72b52029" />
+<img width="1280" height="694" alt="Screenshot 2026-04-06 at 1 12 44 AM" src="https://github.com/user-attachments/assets/4480aa70-5709-4211-80a0-66c79b197cdb" />
+<img width="1280" height="694" alt="Screenshot 2026-04-05 at 11 57 27 PM" src="https://github.com/user-attachments/assets/409ff740-26f2-4f3f-9ea6-1620938b7f83" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 47 40 PM" src="https://github.com/user-attachments/assets/efb2de3d-e8b7-447f-96f8-f15cc4460ecf" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 47 39 PM" src="https://github.com/user-attachments/assets/9c424a6b-c6fc-434c-8fcf-31d750bc268f" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 46 46 PM" src="https://github.com/user-attachments/assets/3b0acee2-bdb7-4179-9858-b04e1bb026dd" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 46 23 PM" src="https://github.com/user-attachments/assets/80a7c117-45c9-4903-ba35-1b94ac0814fc" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 46 02 PM" src="https://github.com/user-attachments/assets/c20f961e-3e71-4f2b-963f-d51e19b84017" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 45 52 PM" src="https://github.com/user-attachments/assets/34e1e583-1e61-4bc9-a53c-8df9f78d434a" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 45 50 PM" src="https://github.com/user-attachments/assets/13893836-41e4-49ee-9dc0-272d1f2f1c5e" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 43 19 PM" src="https://github.com/user-attachments/assets/cbb90360-fcb2-483e-a841-668d19031c8f" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 42 48 PM" src="https://github.com/user-attachments/assets/0b01adc8-32f0-4030-aa58-8aba9ef93cb1" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 40 52 PM" src="https://github.com/user-attachments/assets/9fd7c630-efa5-4749-bc67-9516822b0644" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 40 30 PM" src="https://github.com/user-attachments/assets/b374dd56-611a-4d43-8901-24d9cfa8c7d3" />
+<img width="1280" height="800" alt="Screenshot 2026-04-05 at 11 40 21 PM" src="https://github.com/user-attachments/assets/3d9cf5da-db82-4107-9810-395fc63ac74c" />
+
 
 #
 🚀 What's New in v10.0
-This milestone release marks a significant leap in visual fidelity and architectural stability, introducing the "Divergent Reality" system and a completely overhauled effects engine.
+This milestone release marks a significant leap in visual fidelity and architectural stability with a completely overhauled effects engine.
 
 **Quantized Effects Suite:**
 *   **"Reality Swap" Mechanic**: Quantized Pulse now reveals a "Shadow World"—a parallel, independent simulation—that can be permanently committed to the main grid upon completion.
