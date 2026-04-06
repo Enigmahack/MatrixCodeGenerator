@@ -27,16 +27,26 @@ I'm getting tired of writing these... It started as a simple coding adventure an
 
 #
 🚀 What's New in v10.0
-This milestone release marks a significant leap in visual fidelity and architectural stability.
+This milestone release marks a significant leap in visual fidelity and architectural stability, introducing the "Divergent Reality" system and a completely overhauled effects engine.
 
 **Quantized Effects Suite:**
-*   **Fully Realized Quantized Pulse**: Implemented a complete 'Reality Swap' mechanic where the pulse reveals a divergent simulation world that becomes permanent.
+*   **"Reality Swap" Mechanic**: Quantized Pulse now reveals a "Shadow World"—a parallel, independent simulation—that can be permanently committed to the main grid upon completion.
+*   **Shadow Simulation (Ping-Pong Architecture)**: Implemented a high-performance system where two independent worlds flow continuously, allowing for seamless, zero-latency swaps and "New World" reveals.
+*   **Advanced Growth Logic**: Expansion now follows an "Aspect Ratio Driven Cross Extension" algorithm with a 7-stage growth cycle (Vertical Bar -> Horizontal Bar -> Hole Fill -> Random Chunk), ensuring cinematic coverage.
 *   **Expansion Optimization**: Shifted to a high-performance Expansion Map architecture (Uint16Array) for O(1) lookups and integer-driven growth logic.
-*   **Visual Refinement**: Added organic block shapes (2x2, 2x3, 3x2, 3x3) and dual-cycle rendering for smoother, more cinematic transitions.
+*   **Visual Refinement**: Added organic block shapes (2x2, 2x3, 3x2, 3x3) and "Two-Cycle Visuals" where new blocks retain a distinct color (Yellow) for one cycle before merging (Green) into the structure.
+*   **New Effects**: Fully implemented **Quantized Zoom** (procedural chip-style zoom) and **Quantized Retract** (controlled grid erosion) with dedicated UI controls.
+
+**Rendering & Visuals:**
+*   **GPU-Accelerated Glyph Path**: Implemented a dedicated lookup path that builds a Uint16Array of atlas glyph IDs, bypassing thousands of costly `drawImage` calls per frame for high-density simulations.
+*   **Multi-Pass Visual Pipeline**: Refined the 4-pass rendering system (Perimeter -> Interior Lines -> Block Fill -> Overlay) to support complex effects like Quantized Zoom with 1:1 visual fidelity.
+*   **Layer-Synchronized Generation**: Optimized `QuantizedBlockGenerator` to populate all sub-layers simultaneously, ensuring consistent coverage across 100k+ cells without redundant per-layer calculations.
+*   **Alpha & Masking Refinement**: Updated `WebGLRenderer` to allow effect overrides to inherit `mix` states, enabling complex styles like Upward Tracers and Glimmer to persist through reality transitions.
 
 **Engine & Performance:**
-*   **Threaded State Persistence**: Implemented robust hot-swapping of SimulationWorker state, ensuring seamless transitions between effect-driven overrides and standard rain.
-*   **Memory Efficiency**: Eliminated GC overhead in effect frontier tracking by switching from Sets to Bitmasks and pre-allocated buffers.
+*   **Bitmask State Management**: Eliminated GC overhead by replacing `Set` and `Map` objects with high-speed bitmasks and pre-allocated `Uint8Array` buffers for occupancy and frontier tracking.
+*   **Threaded State Persistence**: Implemented robust hot-swapping of SimulationWorker state via `replace_state`, ensuring seamless transitions for active streams, base colors, and render modes.
+*   **Transition Buffer**: Added a 5-frame masking delay during state swaps to eliminate visual flicker and ensure underlying simulation stability.
 
 #
 🚀 What's New in v8.5
@@ -180,7 +190,7 @@ Touch Physics: The UI manager now calculates velocity and drag distance to disti
 #
 📝 Note on Upgrading from Previous Versions
 
-With continuous improvements and architectural changes, especially the significant modularization introduced in `v7.4` and refined through `v7.4` and `v7.4`, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
+With continuous improvements and architectural changes, especially the significant modularization introduced in `v10.0` and refined through subsequent updates, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
 
 ## 🛠️ Hidden Resources
 
@@ -233,9 +243,9 @@ python3 matrix_builder.py split <input_monolith_file> <output_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py split MatrixCode_v7.4.html MatrixCode_v7.4_dev
+python3 matrix_builder.py split MatrixCode_v10.0.html MatrixCode_v10.0_dev
 ```
-This will create a `MatrixCode_v7.3_dev` directory containing the modular project structure.
+This will create a `MatrixCode_v10.0_dev` directory containing the modular project structure.
 
 #### `combine` command
 
@@ -247,9 +257,9 @@ python3 matrix_builder.py combine <input_directory> <output_monolith_file>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py combine MatrixCode_v7.4_dev MatrixCode_v7.4_Release.html
+python3 matrix_builder.py combine MatrixCode_v10.0_dev MatrixCode_v10.0_Release.html
 ```
-This will create a `MatrixCode_v7.3_Release.html` file containing the combined application.
+This will create a `MatrixCode_v10.0_Release.html` file containing the combined application.
 
 #### `refresh` command
 
@@ -261,18 +271,18 @@ python3 matrix_builder.py refresh <input_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py refresh MatrixCode_v7.4_dev
+python3 matrix_builder.py refresh MatrixCode_v10.0_dev
 ```
-This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any newly added `.js` files.
+This will update the `index.html` file in `MatrixCode_v10.0_dev` to include any newly added `.js` files.
 
 ### Workflow Example
 
 1.  **Initial Split:**
     ```bash
-    python3 matrix_builder.py split MatrixCode_v7.3.html MatrixCode_v7.3_dev
+    python3 matrix_builder.py split MatrixCode_v10.0.html MatrixCode_v10.0_dev
     ```
 2.  **Development:**
-    Navigate to the `MatrixCode_v7.4_dev/` directory. Open `MatrixCode_v7.4_dev/index.html` in your web browser for development.
+    Navigate to the `MatrixCode_v10.0_dev/` directory. Open `MatrixCode_v10.0_dev/index.html` in your web browser for development.
     Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory.
 
     **If you add new `.js` files (e.g., a new effect):**
@@ -281,13 +291,13 @@ This will update the `index.html` file in `MatrixCode_v7.3_dev` to include any n
     *   If you want a UI button, manually add it to `js/ui/UIManager.js`'s `this.defs` array and handle its action in `handleAction()`.
     *   **Then, run the `refresh` command** to update your development `index.html`:
         ```bash
-        python3 matrix_builder.py refresh MatrixCode_v7.3_dev
+        python3 matrix_builder.py refresh MatrixCode_v10.0_dev
         ```
-    Your `MatrixCode_v7.3_dev/index.html` will now include the new script.
+    Your `MatrixCode_v10.0_dev/index.html` will now include the new script.
 
 3.  **Generate Release Build:**
     Once you are satisfied with your changes, run the `combine` command to generate a new monolithic release file:
     ```bash
-    python3 matrix_builder.py combine MatrixCode_v7.3_dev MatrixCode_v7.3_Release.html
+    python3 matrix_builder.py combine MatrixCode_v10.0_dev MatrixCode_v10.0_Release.html
     ```
-    The `MatrixCode_v7.3_Release.html` file will contain all your latest changes in a single, self-contained file.
+    The `MatrixCode_v10.0_Release.html` file will contain all your latest changes in a single, self-contained file.
