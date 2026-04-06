@@ -225,11 +225,13 @@ class QuantizedBaseEffect extends AbstractEffect {
             },
             direction: (c) => {
                 if (c.isShifter || c.isMirroredSpawn || c.skipConnectivity || this.debugMode) return true;
-                const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
-                const nx = c.x + c.w / 2, ny = c.y + c.h / 2, newDistSq = nx * nx + ny * ny;
+                const s = this.behaviorState;
+                const ox = s?.genOriginX || 0, oy = s?.genOriginY || 0;
+                const nx = c.x + c.w / 2 - ox, ny = c.y + c.h / 2 - oy, newDistSq = nx * nx + ny * ny;
                 if (c._foundAnchorIdx !== undefined) {
+                    const cx = Math.floor(this.logicGridW / 2), cy = Math.floor(this.logicGridH / 2);
                     const ax_abs = c._foundAnchorIdx % this.logicGridW, ay_abs = Math.floor(c._foundAnchorIdx / this.logicGridW);
-                    const ax = ax_abs - cx + 0.5, ay = ay_abs - cy + 0.5, anchorDistSq = ax * ax + ay * ay;
+                    const ax = ax_abs - cx - ox + 0.5, ay = ay_abs - cy - oy + 0.5, anchorDistSq = ax * ax + ay * ay;
                     if (newDistSq < anchorDistSq - 0.01) return false;
                 }
                 return true;
@@ -831,8 +833,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         const anyQuantizedSwapping = QuantizedBaseEffect.isAnyQuantizedSwapping;
 
         if (this.active || this.isSwapping || anyQuantizedActive || anyQuantizedSwapping) {
-            if (this.debugMode && force) {
-                // Allow re-triggering in Editor/Debug mode to facilitate rapid iteration
+            if ((this.debugMode || spawnPosition) && force) {
+                // Allow re-triggering in Editor/Debug mode OR via Tap to Spawn to facilitate rapid iteration
             } else {
                 if (logEnabled) console.log(`[QuantizedBaseEffect] trigger aborted (quantized iteration already running or swapping)`);
                 return false;

@@ -55,10 +55,11 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetX', type: 'range', label: 'X Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Fine-tunes the horizontal visual alignment of the grid lines.', tags: ['position', 'shift'] },
     { sub: 'Line Fine-Tuning', id: 'LineGfxOffsetY', type: 'range', label: 'Y Position', min: -50, max: 50, step: 1, unit: 'px', tier: 'advanced', description: 'Fine-tunes the vertical visual alignment of the grid lines.', tags: ['position', 'shift'] },
 
-    // V2 Generator (Block Behavior) — layer, echo, and transition settings
-    { sub: 'V2 Generator (Block Behavior)', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
+    // Positioning — core placement settings
+    { sub: 'Positioning', id: 'RandomStart', type: 'checkbox', label: 'Random Start Location', tier: 'advanced', description: 'When enabled, the effect originates at a random point on screen. That point becomes the center for all growth instead of the screen center.', tags: ['random', 'position'] },
 
-    { sub: 'V2 Generator', sub_header: 'Generator Core', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
+    // V2 Generator (Block Behavior) — layer, echo, and transition settings
+    { sub: 'V2 Generator (Block Behavior)', sub_header: 'Generator Core', id: 'SpinesFirstEnabled', type: 'checkbox', label: 'Enable Spines-First Generation', tier: 'advanced', description: "When enabled, the generator seeds and grows blocks along central X/Y spines first. Disable to rely on other behaviors for block insertion.", tags: ['growth', 'spine', 'core'] },
     { sub: 'V2 Generator', id: 'SpineBoost', type: 'range', label: 'Spine Burst', min: 1, max: 10, step: 1, unit: 'steps', dep: 'SpinesFirstEnabled', tier: 'advanced', description: 'Number of guaranteed-growth ticks for the initial cardinal spine strips before their normal step pattern kicks in. Gives the spines a visible lead over expansion rows/columns.', tags: ['growth', 'start'] },
     { sub: 'V2 Generator', id: 'QuadrantCount', type: 'select', label: 'Quadrant Restriction', tier: 'advanced', options: [{ label: 'All (4 Directions)', value: '4' }, { label: 'Three (3 Directions)', value: '3' }, { label: 'Half (2 Directions)', value: '2' }, { label: 'Single (1 Direction)', value: '1' }], description: 'Restricts growth to a subset of cardinal directions assigned at trigger time.', tags: ['direction', 'limit'] },
     
@@ -559,7 +560,7 @@ const ConfigTemplate = [
     ...(() => {
         const defaults = [];
         const defPrefix = 'quantizedDefault';
-        QuantizedInheritableSettings.filter(s => s.sub === 'V2 Generator (Block Behavior)' || s.sub === 'Block Interior' || s.sub === 'Line Appearance').forEach(s => {
+        QuantizedInheritableSettings.filter(s => s.sub === 'Positioning' || s.sub === 'V2 Generator (Block Behavior)' || s.sub === 'Block Interior' || s.sub === 'Line Appearance').forEach(s => {
             if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: '!_activeEffectOverrideDefaults' });
             const setting = { ...s };
             setting.cat = 'Effects';

@@ -206,11 +206,16 @@ class EffectRegistry {
             const anySwapping = (typeof QuantizedBaseEffect !== 'undefined') && QuantizedBaseEffect.isAnyQuantizedSwapping;
             
             if (activeQuantized || anySwapping) {
-                if (logEnabled) console.log(`[EffectRegistry] Blocked ${name} trigger: Another quantized effect is active or swapping.`);
-                if (force && this.notifications) {
-                    this.notifications.show('Quantized effect in progress...', 'info');
+                // Allow re-triggering the SAME effect if force is true (e.g. Tap to Spawn)
+                if (force && activeQuantized && activeQuantized.name === name && !anySwapping) {
+                    // Proceed to trigger
+                } else {
+                    if (logEnabled) console.log(`[EffectRegistry] Blocked ${name} trigger: Another quantized effect is active or swapping.`);
+                    if (force && this.notifications) {
+                        this.notifications.show('Quantized effect in progress...', 'info');
+                    }
+                    return false;
                 }
-                return false;
             }
         }
 
