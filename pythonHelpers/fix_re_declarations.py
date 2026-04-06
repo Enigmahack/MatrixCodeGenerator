@@ -18,5 +18,5 @@ def fix_re_declarations(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.writelines(new_lines)
 
-fix_re_declarations('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-fix_re_declarations('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+fix_re_declarations('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+fix_re_declarations('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

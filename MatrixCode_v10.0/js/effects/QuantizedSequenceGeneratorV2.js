@@ -925,7 +925,7 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _generateInsideOutPattern() {
-        // 8.5.2: Exactly 2 movements in 3 steps
+        // 10.0.2: Exactly 2 movements in 3 steps
         const p = [true, true, false];
         // Shuffle
         for (let i = 2; i > 0; i--) {
@@ -1480,7 +1480,7 @@ class QuantizedSequenceGeneratorV2 {
 
                 if (candidates.length === 0) continue;
 
-                // 8.5.2: Bucket-wide lockstep logic for Edge Mode
+                // 10.0.2: Bucket-wide lockstep logic for Edge Mode
                 const bucketLockstep = Math.random() < 0.5;
                 const bucketPattern = this._generateInsideOutPattern();
                 const bucketPausePattern = this._generateInsideOutDistinctPattern(bucketPattern);
@@ -1571,7 +1571,7 @@ class QuantizedSequenceGeneratorV2 {
                 }
             }
 
-            // 8.5.2: Bucket-wide lockstep logic for Spine Mode
+            // 10.0.2: Bucket-wide lockstep logic for Spine Mode
             const bucketLockstep = Math.random() < 0.5;
             const bucketPattern = this._generateInsideOutPattern();
             const bucketPausePattern = this._generateInsideOutDistinctPattern(bucketPattern);

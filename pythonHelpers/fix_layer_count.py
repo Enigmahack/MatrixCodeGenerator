@@ -29,17 +29,17 @@ def fix_layer_count_logic(filepath, is_base_effect=True):
         f.write(content)
 
 # Special case for ZoomEffect
-with open('MatrixCode_v8.5/js/effects/QuantizedZoomEffect.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/effects/QuantizedZoomEffect.js', 'r', encoding='utf-8') as f:
     zoom = f.read()
 zoom = zoom.replace("if (key === 'LayerCount') return 1;", "if (key === 'LayerCount') return 2;")
-with open('MatrixCode_v8.5/js/effects/QuantizedZoomEffect.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/effects/QuantizedZoomEffect.js', 'w', encoding='utf-8') as f:
     f.write(zoom)
 
-fix_layer_count_logic('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-fix_layer_count_logic('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+fix_layer_count_logic('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+fix_layer_count_logic('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)
 
 # Update ConfigurationManager defaults
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
     cm = f.read()
 
 cm = re.sub(r'("quantizedDefaultLayerCount": )1,', r'\1 2,', cm)
@@ -47,5 +47,5 @@ cm = re.sub(r'("quantizedDefaultLayerCount": )0,', r'\1 1,', cm)
 cm = re.sub(r'("quantizedGenerateV2LayerCount": )1,', r'\1 2,', cm)
 cm = re.sub(r'("quantizedGenerateV2LayerCount": )0,', r'\1 1,', cm)
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
     f.write(cm)

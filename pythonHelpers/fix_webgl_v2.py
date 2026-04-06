@@ -38,4 +38,4 @@ def fix_textures_undone(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_textures_undone('MatrixCode_v8.5/js/rendering/WebGLRenderer.js')
+fix_textures_undone('MatrixCode_v10.0/js/rendering/WebGLRenderer.js')

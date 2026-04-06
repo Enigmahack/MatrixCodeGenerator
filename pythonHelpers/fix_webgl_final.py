@@ -38,4 +38,4 @@ def fix_webgl_renderer(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_webgl_renderer('MatrixCode_v8.5/js/rendering/WebGLRenderer.js')
+fix_webgl_renderer('MatrixCode_v10.0/js/rendering/WebGLRenderer.js')

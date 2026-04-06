@@ -22,4 +22,4 @@ def fix_shader(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_shader('MatrixCode_v8.5/js/rendering/WebGLRenderer.js')
+fix_shader('MatrixCode_v10.0/js/rendering/WebGLRenderer.js')

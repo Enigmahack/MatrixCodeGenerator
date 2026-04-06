@@ -169,5 +169,5 @@ def apply_all_changes(filepath, is_base_effect=True):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-apply_all_changes('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-apply_all_changes('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+apply_all_changes('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+apply_all_changes('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)

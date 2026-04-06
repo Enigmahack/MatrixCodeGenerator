@@ -31,5 +31,5 @@ def fix_behaviors_state(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_behaviors_state('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-fix_behaviors_state('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+fix_behaviors_state('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+fix_behaviors_state('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

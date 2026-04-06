@@ -7,7 +7,7 @@ https://github.com/Rezmason/matrix
 
 
 #
-## 💻 Matrix Digital Rain Simulation v8.4
+## 💻 Matrix Digital Rain Simulation v10.0
 
 I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL. It's WAY smoother than I thought, even on a 2013 MacBook Pro. It's not done, but it's getting there. Everything seen here is a screenshot from the site. 
 
@@ -26,7 +26,20 @@ I'm getting tired of writing these... It started as a simple coding adventure an
 <img width="3836" height="1954" alt="image" src="https://github.com/user-attachments/assets/783e8762-a27d-4812-8007-491cce461b3f" />
 
 #
-🚀 What's New in v8.4
+🚀 What's New in v10.0
+This milestone release marks a significant leap in visual fidelity and architectural stability.
+
+**Quantized Effects Suite:**
+*   **Fully Realized Quantized Pulse**: Implemented a complete 'Reality Swap' mechanic where the pulse reveals a divergent simulation world that becomes permanent.
+*   **Expansion Optimization**: Shifted to a high-performance Expansion Map architecture (Uint16Array) for O(1) lookups and integer-driven growth logic.
+*   **Visual Refinement**: Added organic block shapes (2x2, 2x3, 3x2, 3x3) and dual-cycle rendering for smoother, more cinematic transitions.
+
+**Engine & Performance:**
+*   **Threaded State Persistence**: Implemented robust hot-swapping of SimulationWorker state, ensuring seamless transitions between effect-driven overrides and standard rain.
+*   **Memory Efficiency**: Eliminated GC overhead in effect frontier tracking by switching from Sets to Bitmasks and pre-allocated buffers.
+
+#
+🚀 What's New in v8.5
 This major update introduces advanced temporal controls and further polishes the high-performance WebGL engine.
 
 **Updated Effects:**
@@ -193,7 +206,7 @@ To create a standalone executable (Windows EXE, Mac DMG, Linux AppImage) using E
 
 1.  **Install Dependencies:**
     ```bash
-    cd MatrixCode_v8.5
+    cd MatrixCode_v10.0
     npm install
     ```
 

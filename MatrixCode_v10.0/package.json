@@ -1,5 +1,5 @@
 {
-  "name": "matrixcode_v8.5",
+  "name": "matrixcode_v10.0",
   "version": "1.0.0",
   "description": "Matrix Digital Rain Multi-Monitor Simulation",
   "main": "main.js",
@@ -9,7 +9,7 @@
   },
   "build": {
     "appId": "com.matrixcode.screensaver",
-    "productName": "Matrix Code V8.5",
+    "productName": "Matrix Code V10.0",
     "win": {
       "target": [
         "nsis",

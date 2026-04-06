@@ -51,5 +51,5 @@ def clean_file(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-clean_file('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-clean_file('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+clean_file('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+clean_file('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

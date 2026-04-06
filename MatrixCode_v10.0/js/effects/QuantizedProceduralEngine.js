@@ -1,5 +1,5 @@
 /**
- * QuantizedProceduralEngine.js - Version 8.5.1
+ * QuantizedProceduralEngine.js - Version 10.0.0
  *
  * Procedural generation engine for QuantizedBaseEffect.
  * Contains: growth pool, behavior system, block spawning, nudging,

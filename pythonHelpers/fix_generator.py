@@ -103,5 +103,5 @@ def fix_generator(filepath, is_base_effect=True):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_generator('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-fix_generator('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+fix_generator('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+fix_generator('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)

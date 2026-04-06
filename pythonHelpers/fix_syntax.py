@@ -12,5 +12,5 @@ def fix_sources(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_sources('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-fix_sources('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+fix_sources('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+fix_sources('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

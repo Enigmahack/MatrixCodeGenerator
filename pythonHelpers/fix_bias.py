@@ -17,5 +17,5 @@ def add_bias_to_spawn(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-add_bias_to_spawn('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-add_bias_to_spawn('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+add_bias_to_spawn('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+add_bias_to_spawn('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

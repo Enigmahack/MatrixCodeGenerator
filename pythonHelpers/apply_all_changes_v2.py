@@ -146,5 +146,5 @@ def apply_clean_changes(filepath, is_base_effect=True):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-apply_clean_changes('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-apply_clean_changes('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+apply_clean_changes('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+apply_clean_changes('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)

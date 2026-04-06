@@ -1,6 +1,6 @@
 import re
 
-with open('MatrixCode_v8.5/js/config/ConfigTemplate.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigTemplate.js', 'r', encoding='utf-8') as f:
     content = f.read()
 
 behaviors = [
@@ -22,10 +22,10 @@ for b in behaviors:
     pattern = rf"(    {{ sub: 'V2 Generator \(Sub-Behaviors\)',.*id: '{b}Enabled',.*\n)"
     content = re.sub(pattern, r"\1" + insert_str, content)
 
-with open('MatrixCode_v8.5/js/config/ConfigTemplate.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigTemplate.js', 'w', encoding='utf-8') as f:
     f.write(content)
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
     cm = f.read()
 
 for prefix in ['quantizedDefault', 'quantizedGenerateV2']:
@@ -37,6 +37,6 @@ for prefix in ['quantizedDefault', 'quantizedGenerateV2']:
         pattern = rf'(            "{prefix}{b}Enabled": (?:true|false),\n)'
         cm = re.sub(pattern, r"\1" + insert_str, cm)
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
     f.write(cm)
 

@@ -2108,10 +2108,10 @@ class WebGLRenderer {
                         // PRIORITY 2: HARD OVERRIDE
                         if (ovAct == 5u) {
                             // Dual-world shadow mode with color blending
-                            // 8.5.3: Use ovAlpha as the reveal intensity (sFade)
+                            // 10.0.3: Use ovAlpha as the reveal intensity (sFade)
                             float sFade = ovAlpha; 
                             
-                            // 8.5.3: Get shadow world's REAL simulation alpha and glow intensity if available
+                            // 10.0.3: Get shadow world's REAL simulation alpha and glow intensity if available
                             float sAlphaSim = 1.0;
                             float sGlowSim = ovGlow;
                             if (u_shadowGridEnabled > 0.5) {
@@ -2151,7 +2151,7 @@ class WebGLRenderer {
                             outMaxDecay = float(gMaxDecay);
                             outShadowFade = sFade;
                             
-                            // 8.5.3: Preserve simulation decay (persistence) for the trail
+                            // 10.0.3: Preserve simulation decay (persistence) for the trail
                             float sDecayVal = 0.0;
                             float sMaxDecayVal = 1.0;
                             if (u_shadowGridEnabled > 0.5) {

@@ -29,5 +29,5 @@ def fix_file_v3(filepath, is_base_effect=True):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_file_v3('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-fix_file_v3('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+fix_file_v3('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+fix_file_v3('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)

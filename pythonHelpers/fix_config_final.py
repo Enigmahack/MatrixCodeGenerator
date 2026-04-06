@@ -1,7 +1,7 @@
 import re
 
 def fix_configuration_manager():
-    path = 'MatrixCode_v8.5/js/config/ConfigurationManager.js'
+    path = 'MatrixCode_v10.0/js/config/ConfigurationManager.js'
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
 

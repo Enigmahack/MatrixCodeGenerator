@@ -30,5 +30,5 @@ def fix_tick_layer_dirs(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_tick_layer_dirs('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-fix_tick_layer_dirs('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+fix_tick_layer_dirs('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+fix_tick_layer_dirs('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')

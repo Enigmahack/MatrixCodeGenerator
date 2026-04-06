@@ -107,7 +107,7 @@ class EffectRegistry {
             'QuantizedBlockGenerator': QuantizedBlockGeneration
         };
 
-        // 8.5.2: Conditional registration for optional effects
+        // 10.0.2: Conditional registration for optional effects
         if (typeof QuantizedCrawlerEffect !== 'undefined') CLASS_MAP['quantizedCrawler'] = QuantizedCrawlerEffect;
         if (typeof QuantizedExpansionEffect !== 'undefined') CLASS_MAP['quantizedExpansion'] = QuantizedExpansionEffect;
 

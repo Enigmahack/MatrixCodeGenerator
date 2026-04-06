@@ -1,6 +1,6 @@
 import re
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
     cm = f.read()
 
 behaviors = [
@@ -27,6 +27,6 @@ for prefix in ['quantizedDefault', 'quantizedGenerateV2']:
         
         cm = re.sub(pattern, replacer, cm)
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
     f.write(cm)
 

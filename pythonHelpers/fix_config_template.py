@@ -1,6 +1,6 @@
 import re
 
-with open("MatrixCode_v8.5/js/config/ConfigTemplate.js", "r") as f:
+with open("MatrixCode_v10.0/js/config/ConfigTemplate.js", "r") as f:
     content = f.read()
 
 # I need to add the new generator settings to the overrides logic
@@ -55,5 +55,5 @@ generator_settings = """
 insert_index = content.find("];\n\nconst generateQuantizedEffectSettings")
 new_content = content[:insert_index] + generator_settings + content[insert_index:]
 
-with open("MatrixCode_v8.5/js/config/ConfigTemplate.js", "w") as f:
+with open("MatrixCode_v10.0/js/config/ConfigTemplate.js", "w") as f:
     f.write(new_content)

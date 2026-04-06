@@ -41,5 +41,5 @@ def fix_max_layer(filepath, is_base_effect=True):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_max_layer('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js', True)
-fix_max_layer('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js', False)
+fix_max_layer('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js', True)
+fix_max_layer('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js', False)

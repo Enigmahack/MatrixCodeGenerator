@@ -1,7 +1,7 @@
 import re
 
 def dedup_config_template():
-    path = 'MatrixCode_v8.5/js/config/ConfigTemplate.js'
+    path = 'MatrixCode_v10.0/js/config/ConfigTemplate.js'
     with open(path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
@@ -27,7 +27,7 @@ def dedup_config_template():
     print(f"Deduplicated {path}")
 
 def dedup_configuration_manager():
-    path = 'MatrixCode_v8.5/js/config/ConfigurationManager.js'
+    path = 'MatrixCode_v10.0/js/config/ConfigurationManager.js'
     with open(path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
         

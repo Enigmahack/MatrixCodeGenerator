@@ -1,6 +1,6 @@
 import re
 
-with open("MatrixCode_v8.5/js/config/ConfigurationManager.js", "r") as f:
+with open("MatrixCode_v10.0/js/config/ConfigurationManager.js", "r") as f:
     content = f.read()
 
 # Fix typo in the properties list
@@ -55,5 +55,5 @@ for prop, val in generator_properties:
 
 content = content.replace(insertion_point, new_defaults)
 
-with open("MatrixCode_v8.5/js/config/ConfigurationManager.js", "w") as f:
+with open("MatrixCode_v10.0/js/config/ConfigurationManager.js", "w") as f:
     f.write(content)

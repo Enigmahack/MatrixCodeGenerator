@@ -1,6 +1,6 @@
 import re
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'r', encoding='utf-8') as f:
     cm = f.read()
 
 def remove_duplicates(cm):
@@ -19,5 +19,5 @@ def remove_duplicates(cm):
 
 cm = remove_duplicates(cm)
 
-with open('MatrixCode_v8.5/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
+with open('MatrixCode_v10.0/js/config/ConfigurationManager.js', 'w', encoding='utf-8') as f:
     f.write(cm)

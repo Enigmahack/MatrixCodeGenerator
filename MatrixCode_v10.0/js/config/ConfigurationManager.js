@@ -1,8 +1,8 @@
 
 class ConfigurationManager {
     constructor() {
-        this.storageKey = 'matrix_config_v8.5';
-        this.slotsKey = 'matrix_slots_v8.5';
+        this.storageKey = 'matrix_config_v10.0';
+        this.slotsKey = 'matrix_slots_v10.0';
         this.defaults = this._initializeDefaults();
 
         this.state = { ...this.defaults };

@@ -1,5 +1,5 @@
 ﻿/**
- * QuantizedBaseEffect.js - Version 8.5.1
+ * QuantizedBaseEffect.js - Version 10.0.0
  */
 class QuantizedBaseEffect extends AbstractEffect {
     static sharedRenderer = null;
@@ -827,7 +827,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         const logEnabled = this.c.state.logErrors;
         if (logEnabled) startTime = performance.now();
 
-        // 8.5.2: Strictly prevent re-triggering if already active or swapping.
+        // 10.0.2: Strictly prevent re-triggering if already active or swapping.
         // Also prevent triggering if ANY other quantized effect is active or swapping.
         const anyQuantizedActive = this.r && this.r.isQuantizedActive();
         const anyQuantizedSwapping = QuantizedBaseEffect.isAnyQuantizedSwapping;

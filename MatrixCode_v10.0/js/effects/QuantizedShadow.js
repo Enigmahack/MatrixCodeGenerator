@@ -80,7 +80,7 @@ class QuantizedShadow {
     updateShadowSim(fx) {
         if (!this.shadowSim) return false;
         
-        // 8.5.3: Sync with the kernel's timeline for the inactive world
+        // 10.0.3: Sync with the kernel's timeline for the inactive world
         if (window.matrix && window.matrix.inactiveWorld) {
             this.shadowSimFrame = window.matrix.inactiveWorld.frame;
         } else {
@@ -204,7 +204,7 @@ class QuantizedShadow {
             g.overrideChars[i] = sg.chars[i];
             g.overrideColors[i] = sg.colors[i];
 
-            // 8.5.3: Use overrideAlphas to carry the REVEAL intensity (sFade)
+            // 10.0.3: Use overrideAlphas to carry the REVEAL intensity (sFade)
             // and overrideGlows to carry the actual SIMULATION glow.
             // The renderer (WebGLRenderer ovAct=5) will mix these appropriately.
             g.overrideAlphas[i] = sFade;

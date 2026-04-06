@@ -34,5 +34,5 @@ def fix_initializations(filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
 
-fix_initializations('MatrixCode_v8.5/js/effects/QuantizedBaseEffect.js')
-fix_initializations('MatrixCode_v8.5/js/effects/QuantizedSequenceGeneratorV2.js')
+fix_initializations('MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js')
+fix_initializations('MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js')
