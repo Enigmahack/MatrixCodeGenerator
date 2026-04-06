@@ -737,10 +737,10 @@ const ConfigTemplate = [
     { cat: 'System', type: 'accordion_header', label: 'About' },
     { cat: 'System', type: 'about_content', tier: 'basic' },
     { cat: 'System', type: 'accordion_subheader', label: 'Frequently Asked Questions' },
-    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a highly customizable Matrix Digital Rain simulation built with HTML5 Canvas and JavaScript.', tier: 'basic' },
-    { cat: 'System', type: 'faq_item', question: 'How do I change the code?', answer: 'Use the settings panel on the right side of the screen to customize various aspects like colors, speeds, and effects.', tier: 'basic' },
-    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Yes, go to the "Appearance" tab, under "Character Fonts" you can import your own TTF or OTF font file.', tier: 'basic' },
-    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'Performance depends on your device and settings. Try reducing "Resolution Scale" or disabling some effects under the "Effects" tab.', tier: 'basic' },
-    { cat: 'System', type: 'faq_item', question: 'Is this more AI slop?', answer: 'Yes and no. LLM\'s were definitely used to make this, but the person who programmed it is a real person, and much of the code was hand-written, not just \'vibe coded\'. It\'s not perfect, but it\'s being slowly improved.', tier: 'basic' },
-    { cat: 'System', type: 'faq_item', question: 'How do I leave feedback or suggestions on your app?', answer: 'Free to reach out via github! I\'m definitely open to ideas and suggestions.', tier: 'basic' }
+    { cat: 'System', type: 'faq_item', question: 'What is this?', answer: 'This is a high-performance, WebGL-driven Matrix Digital Rain simulation with a modular effects pipeline.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do I customize the rain?', answer: 'Use the settings panel to adjust everything from colors and character sets to advanced procedural "Quantized" effects.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Can I use my own font?', answer: 'Absolutely. In the "Appearance" tab, you can import local TTF, OTF, or WOFF files. They are stored locally in your browser\'s database.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'Why is it sometimes slow?', answer: 'High resolutions and multiple complex effects can be demanding. Try reducing the "Resolution Scale" or disabling "Glass Refraction" in the "Quantized" settings.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How do the "Quantized" effects work?', answer: 'These effects use a dedicated shadow simulation to procedurally grow blocks and "swap reality," making the transition permanent in the main rain.', tier: 'basic' },
+    { cat: 'System', type: 'faq_item', question: 'How can I report bugs or suggest features?', answer: 'Feedback is always welcome! Visit the GitHub repository to report issues or share ideas for new effects.', tier: 'basic' }
 ];
