@@ -51,6 +51,7 @@ class ConfigurationManager {
             'quantizedDefaultLineGfxOffsetX',
             'quantizedDefaultLineGfxOffsetY',
             'quantizedDefaultLineGfxPersistence',
+            'threeDModeEnabled',
             // 'savedPresets' is handled by this.slots
         ]);
 
@@ -115,6 +116,7 @@ class ConfigurationManager {
             "streamSpeed": 17,
             "releaseInterval": 3,
             "resolution": 1,
+            "threeDModeEnabled": false,
             "enableGlyphAtlas": true,
             "smoothingEnabled": false,
             "smoothingAmount": 0,

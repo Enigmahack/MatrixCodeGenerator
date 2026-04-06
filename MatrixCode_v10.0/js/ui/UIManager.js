@@ -895,15 +895,24 @@ class UIManager {
             { label: 'None', value: 'none' },
             { label: 'Blue Hue', value: 'matrix_blue_hue.glsl' },
             { label: 'CRT Monitor', value: 'crt_monitor.glsl' },
+            { label: 'Data Corruptor', value: 'DataCorruptor.glsl' },
+            { label: 'Digital Entropy', value: 'DigitalEntropy.glsl' },
             { label: 'Dirty LCD', value: 'dirty_LCD.glsl' },
             { label: 'Double Vision', value: 'double_vision.glsl' },
             { label: 'Film Grain', value: 'film_grain.glsl' },
+            { label: 'Holographic Interference', value: 'HolographicInterference.glsl' },
             { label: 'Hue Shift', value: 'hue_shift.glsl' },
             { label: 'Mouse Ripple', value: 'mouse_ripple.glsl' },
+            { label: 'Pedal: Delay/Echo', value: 'PedalDelay.glsl' },
+            { label: 'Pedal: Overdrive', value: 'PedalDistortion.glsl' },
+            { label: 'Pedal: Reverb', value: 'PedalReverb.glsl' },
             { label: 'Pixelate', value: 'pixelate.glsl' },
+            { label: 'Quantum Pulse', value: 'QuantumPulse.glsl' },
             { label: 'Screen Door', value: 'screen_door.glsl' },
             { label: 'Smear LCD Grid', value: 'smear_LCDgrid.glsl' },
-            { label: 'Static Grain', value: 'static_grain.glsl' }
+            { label: 'Static Grain', value: 'static_grain.glsl' },
+            { label: 'Thermal Matrix', value: 'ThermalMatrix.glsl' },
+            { label: 'Time Reverse', value: 'TimeReverse.glsl' }
         ];
     }
 

@@ -476,8 +476,8 @@ def combine_modular(source_dir, output_file):
         };
     }
     if (typeof PostProcessor !== 'undefined') {
-        const orig = PostProcessor.prototype.compileShader;
-        PostProcessor.prototype.compileShader = function(src) {
+        const orig = PostProcessor.prototype._compileProgram;
+        PostProcessor.prototype._compileProgram = function(src) {
             if (typeof __EMBEDDED_ASSETS__ !== 'undefined' && __EMBEDDED_ASSETS__.shaders && __EMBEDDED_ASSETS__.shaders[src]) {
                 src = __EMBEDDED_ASSETS__.shaders[src];
             }

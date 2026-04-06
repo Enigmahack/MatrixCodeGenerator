@@ -26,14 +26,19 @@ class PostProcessor {
         this.texture = null; // Source Input
         this.intermediateTex1 = null; 
         this.intermediateTex2 = null;
+        this.feedbackTex = null;
+        this.historyAtlasTex = null; // 4x4 grid of past frames
         this.width = 0;
         this.height = 0;
         this.lastBrightness = 1.0;
+        this.historyIndex = 0;
         
         // Buffers
         this.positionBuffer = null;
         this.framebuffer1 = null; 
         this.framebuffer2 = null;
+        this.feedbackFBO = null;
+        this.historyFBO = null;
 
         // --- High-Frequency Loop Optimization ---
         this._activePasses = [
@@ -366,6 +371,8 @@ class PostProcessor {
         this.texture = this._createTexture();
         this.intermediateTex1 = this._createTexture();
         this.intermediateTex2 = this._createTexture();
+        this.feedbackTex = this._createHistoryTexture();
+        this.historyAtlasTex = this._createHistoryTexture();
         
         this.framebuffer1 = this.gl.createFramebuffer();
         if (this.framebuffer1 && this.intermediateTex1) {
@@ -377,6 +384,18 @@ class PostProcessor {
         if (this.framebuffer2 && this.intermediateTex2) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        }
+
+        this.feedbackFBO = this.gl.createFramebuffer();
+        if (this.feedbackFBO && this.feedbackTex) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.feedbackFBO);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.feedbackTex, 0);
+        }
+
+        this.historyFBO = this.gl.createFramebuffer();
+        if (this.historyFBO && this.historyAtlasTex) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.historyFBO);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.historyAtlasTex, 0);
         }
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -399,6 +418,8 @@ class PostProcessor {
         this.texture = this._createTexture();
         this.intermediateTex1 = this._createTexture();
         this.intermediateTex2 = this._createTexture();
+        this.feedbackTex = this._createHistoryTexture();
+        this.historyAtlasTex = this._createHistoryTexture();
         
         this.framebuffer1 = this.gl.createFramebuffer();
         if (this.framebuffer1 && this.intermediateTex1) {
@@ -410,6 +431,18 @@ class PostProcessor {
         if (this.framebuffer2 && this.intermediateTex2) {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer2);
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.intermediateTex2, 0);
+        }
+
+        this.feedbackFBO = this.gl.createFramebuffer();
+        if (this.feedbackFBO && this.feedbackTex) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.feedbackFBO);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.feedbackTex, 0);
+        }
+
+        this.historyFBO = this.gl.createFramebuffer();
+        if (this.historyFBO && this.historyAtlasTex) {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.historyFBO);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.historyAtlasTex, 0);
         }
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -425,6 +458,16 @@ class PostProcessor {
         this.starBloomProgram = this._compileProgram(this.starBloomShader);
         this.bokehBloomProgram = this._compileProgram(this.bokehBloomShader);
         this.kawaseBloomProgram = this._compileProgram(this.kawaseBloomShader);
+    }
+
+    _createHistoryTexture() {
+        const tex = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+        return tex;
     }
 
     _createTexture() {
@@ -488,7 +531,10 @@ class PostProcessor {
             uMouse: this.gl.getUniformLocation(prog, 'uMouse'),
             uParameter: this.gl.getUniformLocation(prog, 'uParameter'),
             uFlipY: this.gl.getUniformLocation(prog, 'uFlipY'),
-            uGlobalBrightness: this.gl.getUniformLocation(prog, 'uGlobalBrightness')
+            uGlobalBrightness: this.gl.getUniformLocation(prog, 'uGlobalBrightness'),
+            uFeedbackTexture: this.gl.getUniformLocation(prog, 'uFeedbackTexture'),
+            uHistoryTexture: this.gl.getUniformLocation(prog, 'uHistoryTexture'),
+            uHistoryIndex: this.gl.getUniformLocation(prog, 'uHistoryIndex')
         };
         this._locCache.set(prog, locs);
 
@@ -521,10 +567,17 @@ class PostProcessor {
             }
         }
         
-        [this.texture, this.intermediateTex1, this.intermediateTex2].forEach(tex => {
+        [this.texture, this.intermediateTex1, this.intermediateTex2, this.feedbackTex].forEach(tex => {
             this.gl.bindTexture(this.gl.TEXTURE_2D, tex);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, internalFormat, width, height, 0, this.gl.RGBA, type, null);
         });
+
+        // History Atlas: 2x resolution to allow 4x4 grid of HALF-RES frames (crystal clear)
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.historyAtlasTex);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, internalFormat, width * 2, height * 2, 0, this.gl.RGBA, type, null);
+
+        this.historyIndex = 0;
+        this._historyStrideCounter = 0;
     }
 
     _applyChain(passes, currentInput, currentFlip, targetFBO, time, mouseX, mouseY, brightness) {
@@ -657,6 +710,8 @@ class PostProcessor {
     render(source, time, mouseX = 0, mouseY = 0, params = {}, targetFBO = null) {
         if (!this.gl) return;
 
+        this.gl.viewport(0, 0, this.width || this.gl.drawingBufferWidth, this.height || this.gl.drawingBufferHeight);
+
         // More robust brightness check: ensure it's a valid number and at least 0.
         let brightness = 1.0;
         if (typeof params.brightness === 'number' && !isNaN(params.brightness)) {
@@ -726,6 +781,43 @@ class PostProcessor {
         ap[6].customParams = params.customParams;
         
         this._applyChain(ap, inputTex, flipY, targetFBO, time, mouseX, mouseY, brightness);
+
+        // Capture processed output for next frame feedback and history
+        this._updateCaptureBuffers(inputTex, time, mouseX, mouseY, flipY);
+    }
+
+    _updateCaptureBuffers(inputTex, time, mouseX, mouseY, flipY) {
+        if (!this.gl) return;
+
+        // 1. Update History Atlas (4x4 grid)
+        this._historyStrideCounter++;
+        if (this._historyStrideCounter >= 4) { // Every 4 frames = ~15fps capture = ~1s in 16 slots
+            this._historyStrideCounter = 0;
+            
+            const cellW = Math.floor(this.width / 2); // 4x4 grid on a 2x size texture = half res frames
+            const cellH = Math.floor(this.height / 2);
+            const col = this.historyIndex % 4;
+            const row = Math.floor(this.historyIndex / 4);
+            
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.historyFBO);
+            this.gl.viewport(col * cellW, row * cellH, cellW, cellH);
+            this.gl.enable(this.gl.SCISSOR_TEST);
+            this.gl.scissor(col * cellW, row * cellH, cellW, cellH);
+            
+            this.gl.disable(this.gl.BLEND);
+            this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY, 1.0);
+            
+            this.gl.disable(this.gl.SCISSOR_TEST);
+            this.historyIndex = (this.historyIndex + 1) % 16;
+        }
+
+        // 2. Update Feedback Texture (Full resolution)
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.feedbackFBO);
+        this.gl.viewport(0, 0, this.width, this.height);
+        this.gl.disable(this.gl.BLEND);
+        this._drawPass(this.defaultProgram, inputTex, time, mouseX, mouseY, 0.5, flipY, 1.0);
+        
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
     }
 
     _renderBypass(source, targetFBO, brightness = 1.0) {
@@ -760,6 +852,9 @@ class PostProcessor {
             uBurnIn: this.config.get('clearAlpha'),
             uBurnInBoost: this.config.get('burnInBoost') !== undefined ? this.config.get('burnInBoost') : 2.0
         });
+
+        // Update history even in bypass
+        this._updateCaptureBuffers(inputTex, 0, 0, 0, flipY);
     }
 
     _drawPass(prog, texture, time, mouseX, mouseY, param, flipY, brightness = 1.0, customParams = null) {
@@ -799,6 +894,24 @@ class PostProcessor {
         const uGlobalBright = cached ? cached.uGlobalBrightness : this.gl.getUniformLocation(prog, 'uGlobalBrightness');
         if (uGlobalBright) this.gl.uniform1f(uGlobalBright, brightness);
 
+        // Bind Feedback and History
+        const uFeedback = cached ? cached.uFeedbackTexture : this.gl.getUniformLocation(prog, 'uFeedbackTexture');
+        if (uFeedback && this.feedbackTex) {
+            this.gl.activeTexture(this.gl.TEXTURE1);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.feedbackTex);
+            this.gl.uniform1i(uFeedback, 1);
+        }
+
+        const uHistory = cached ? cached.uHistoryTexture : this.gl.getUniformLocation(prog, 'uHistoryTexture');
+        if (uHistory && this.historyAtlasTex) {
+            this.gl.activeTexture(this.gl.TEXTURE2);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.historyAtlasTex);
+            this.gl.uniform1i(uHistory, 2);
+        }
+
+        const uHistIdx = cached ? cached.uHistoryIndex : this.gl.getUniformLocation(prog, 'uHistoryIndex');
+        if (uHistIdx) this.gl.uniform1f(uHistIdx, this.historyIndex);
+
         // Apply Custom Parameters (use per-program cache for dynamic uniforms)
         if (customParams) {
             for (const key in customParams) {
@@ -817,7 +930,12 @@ class PostProcessor {
 
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 
-        // Cleanup: Unbind texture to avoid feedback loops in subsequent passes
+        // Cleanup: Unbind textures to avoid feedback loops in subsequent passes
+        this.gl.activeTexture(this.gl.TEXTURE2);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.activeTexture(this.gl.TEXTURE1);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+        this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     }
 }

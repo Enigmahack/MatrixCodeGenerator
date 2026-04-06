@@ -322,6 +322,7 @@ const ConfigTemplate = [
     { cat: 'Global', id: 'streamSpeed', type: 'range', label: 'Flow Speed', min: 4, max: 20, step: 1, tier: 'basic', description: 'Overall falling speed of the code rain.', tags: ['fast', 'slow', 'motion'] },
 
     { cat: 'Global', type: 'accordion_header', label: 'Rendering Quality' },
+    { cat: 'Global', id: 'threeDModeEnabled', type: 'checkbox', label: 'Enable 3D Mode', tier: 'basic', description: 'Switch to a 3D raymarched rendering of the matrix code. (Experimental)', tags: ['3d', 'raymarch', 'depth'] },
     { cat: 'Global', id: 'resolution', type: 'range', label: 'Resolution Scale', min: 0.5, max: 2.0, step: 0.1, tier: 'advanced', unit: '%', transform: v => (v * 100).toFixed(0) + '%', description: 'Internal rendering resolution. Lowering this can significantly improve performance.' },
     { cat: 'Global', id: 'smoothingEnabled', type: 'checkbox', label: 'Anti-Aliasing', dep: '!shaderEnabled', tier: 'advanced', description: 'Anti-aliasing is automatically disabled when a custom shader is in use.', tags: ['blur', 'smooth', 'edges'] },
     { cat: 'Global', id: 'smoothingAmount', type: 'range', label: 'Blur Amount', min: 0, max: 2.0, step: 0.1, unit: 'px', dep: ['smoothingEnabled', '!shaderEnabled'], tier: 'advanced', description: 'Amount of anti-aliasing applied to character edges.', tags: ['blur', 'soft'] },
