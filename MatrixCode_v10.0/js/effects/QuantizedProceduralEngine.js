@@ -79,7 +79,6 @@ class _QuantizedProceduralEngine {
     }
 
     _attemptGrowth() {
-        if (this._isCanvasFullyCovered()) return;
         this._initProceduralState(true);
 
         const s = this.c.state;
@@ -103,7 +102,6 @@ class _QuantizedProceduralEngine {
     }
 
     _attemptAdvancedGrowth() {
-        if (this.expansionComplete) return;
         this._initProceduralState(false); 
         this._syncSubLayers();
         this._updateInternalLogicGrid();
@@ -117,9 +115,10 @@ class _QuantizedProceduralEngine {
         const oy = this.behaviorState?.genOriginY ?? 0;
 
         const bs = this.getBlockSize();
-        const xVisible = Math.ceil(this.g.cols / bs.w / 2), yVisible = Math.ceil(this.g.rows / bs.h / 2);
-        const xGrowthLimit = xVisible + 3, yGrowthLimit = yVisible + 3;
-        const xFinishLimit = xVisible + 1, yFinishLimit = yVisible + 1;
+        // Use logic grid half-dimensions so spines grow well beyond the visible screen
+        const xHalfGrid = Math.floor(w / 2), yHalfGrid = Math.floor(h / 2);
+        const xGrowthLimit = xHalfGrid - 1, yGrowthLimit = yHalfGrid - 1;
+        const xFinishLimit = xHalfGrid - 2, yFinishLimit = yHalfGrid - 2;
 
         const ratio = this.g.cols / this.g.rows;
         const xBias = Math.max(1.0, ratio), yBias = Math.max(1.0, 1.0 / ratio);
@@ -1230,28 +1229,32 @@ class _QuantizedProceduralEngine {
 
     _isProceduralFinished() {
         if (!this.renderGrid) return true;
-        
-        // 1. Check axis points (fast)
+
+        // 1. Check visible-area axis points (fast gate before expensive coverage scan)
         const w = this.logicGridW;
         const h = this.logicGridH;
         const cx = Math.floor(w / 2);
         const cy = Math.floor(h / 2);
-        
+        const bs = this.getBlockSize();
+        const halfVisW = Math.ceil(this.g.cols / bs.w / 2);
+        const halfVisH = Math.ceil(this.g.rows / bs.h / 2);
+
         const check = (x, y) => {
             if (x < 0 || x >= w || y < 0 || y >= h) return true;
             return this.renderGrid[y * w + x] !== -1;
         };
 
-        const hitN = check(cx, 0);
-        const hitS = check(cx, h - 1);
-        const hitW = check(0, cy);
-        const hitE = check(w - 1, cy);
+        // Check if blocks have reached the visible screen edges (not logic grid edges)
+        const hitN = check(cx, cy - halfVisH);
+        const hitS = check(cx, cy + halfVisH);
+        const hitW = check(cx - halfVisW, cy);
+        const hitE = check(cx + halfVisW, cy);
 
-        // 2. If axes reached, perform full visible coverage check
+        // 2. If visible axes reached, perform full visible coverage check
         if (hitN && hitS && hitW && hitE) {
             return this._isCanvasFullyCovered();
         }
-        
+
         return false;
     }
 
@@ -2013,7 +2016,7 @@ class _QuantizedProceduralEngine {
                             ny = parent.y + Math.floor(Math.random() * (parent.h + size.h - 1)) - (size.h - 1);
                         }
 
-                        if (this.checkScreenEdge(nx, ny) || this.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
+                        // Grid boundary enforcement is handled by _spawnBlockCore — no screen edge gate needed
 
                         const minLayerCheck = this._getMinLayer();
                         const maxLayerCheck = this._getMaxLayer();
@@ -2144,8 +2147,9 @@ class _QuantizedProceduralEngine {
 
             // 2. Perform Nudge Growth at Spreading Origins
             const bs = this.getBlockSize();
-            const halfW = Math.floor(this.g.cols / bs.w / 2);
-            const halfH = Math.floor(this.g.rows / bs.h / 2);
+            // Use logic grid half-dimensions so nudge growth extends beyond the visible screen
+            const halfW = Math.floor(this.logicGridW / 2);
+            const halfH = Math.floor(this.logicGridH / 2);
 
             // Count current active perpendicular "solid" strips for instance limiting
             let activePerpStrips = 0;
@@ -2230,8 +2234,9 @@ class _QuantizedProceduralEngine {
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = this._getAllowedDirs(layer);
             const bs    = this.getBlockSize();
-            const halfW = Math.floor(this.g.cols / bs.w / 2);
-            const halfH = Math.floor(this.g.rows / bs.h / 2);
+            // Use logic grid half-dimensions so shove fill extends beyond the visible screen
+            const halfW = Math.floor(this.logicGridW / 2);
+            const halfH = Math.floor(this.logicGridH / 2);
             const proxW = Math.max(2, Math.floor(halfW * 0.25));
             const proxH = Math.max(2, Math.floor(halfH * 0.25));
             const shoveAmount = Math.max(1, this._getGenConfig('ShoveFillAmount') ?? 1);
@@ -2311,8 +2316,9 @@ class _QuantizedProceduralEngine {
             if (Math.random() > spawnChance) return;
 
             const bs = this.getBlockSize();
-            const xVis = Math.ceil(this.g.cols / bs.w / 2) + 2;
-            const yVis = Math.ceil(this.g.rows / bs.h / 2) + 2;
+            // Use logic grid half-dimensions so block thicken extends beyond the visible screen
+            const xVis = Math.floor(this.logicGridW / 2);
+            const yVis = Math.floor(this.logicGridH / 2);
 
             // Pick a random axis: 0 = X (vertical line), 1 = Y (horizontal line)
             const axis = Math.random() < 0.5 ? 0 : 1;
@@ -2423,8 +2429,9 @@ class _QuantizedProceduralEngine {
             if (!grid) return;
 
             const bs = this.getBlockSize();
-            const xVis = Math.ceil(this.g.cols / bs.w / 2) + 2;
-            const yVis = Math.ceil(this.g.rows / bs.h / 2) + 2;
+            // Use logic grid half-dimensions so hole filling extends beyond the visible screen
+            const xVis = Math.floor(this.logicGridW / 2);
+            const yVis = Math.floor(this.logicGridH / 2);
 
             if (s[`holeQIdx_${layer}`] === undefined) s[`holeQIdx_${layer}`] = 0;
             const q = s[`holeQIdx_${layer}`];
@@ -2965,8 +2972,9 @@ class _QuantizedProceduralEngine {
         const ioBlockH = this._getGenConfig('InsideOutBlockHeight') ?? 1;
         const ioSpawnBias = this._getGenConfig('InsideOutSpawnBias') ?? 'single';
         const bs = this.getBlockSize();
-        const halfW = Math.floor(this.g.cols / bs.w / 2), halfH = Math.floor(this.g.rows / bs.h / 2);
-        const edgeBuf = 2;
+        // Use logic grid half-dimensions so expansion strips grow beyond the visible screen
+        const halfW = Math.floor(this.logicGridW / 2), halfH = Math.floor(this.logicGridH / 2);
+        const edgeBuf = 0;
         const maxLayer = this._getMaxLayer();
         const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
         const minL = usePromotion ? 1 : 0;
@@ -3085,12 +3093,9 @@ class _QuantizedProceduralEngine {
     }
 
     checkScreenEdge(bx, by) {
-        const bs = this.getBlockSize();
-        const halfVisibleW = Math.floor(this.g.cols / bs.w / 2);
-        const halfVisibleH = Math.floor(this.g.rows / bs.h / 2);
-        const extension = 2;
-        const limitW = halfVisibleW + extension;
-        const limitH = halfVisibleH + extension;
+        // Use logic grid bounds so blocks can grow beyond the visible screen
+        const limitW = Math.floor(this.logicGridW / 2) - 1;
+        const limitH = Math.floor(this.logicGridH / 2) - 1;
 
         const left = bx <= -limitW, right = bx >= limitW;
         const top = by <= -limitH, bottom = by >= limitH;
@@ -3144,7 +3149,6 @@ class _QuantizedProceduralEngine {
     }
 
     _attemptV2Growth() {
-        if (this.expansionComplete && !this.manualStep) return;
         
         // Ensure sub-layers (especially discovery layer 1) are synced with foundation (layer 0)
         this._syncSubLayers();
@@ -3235,9 +3239,6 @@ class _QuantizedProceduralEngine {
         }
 
         this._processIntents();
-        if (this._visibleFillRatio >= 0.5 && this._getGenConfig('InsideOutSnapToEdges') !== false) {
-            this._snapToEdges();
-        }
         s.step++;
         this._updateRenderGridLogic();
         this._updateVisibleEmptyCount();

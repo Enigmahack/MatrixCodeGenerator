@@ -496,6 +496,38 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         }
     }
 
+    /**
+     * Override _isProceduralFinished to ensure generation continues until
+     * the entire logic grid is covered. In Zoom mode, the visible area
+     * changes dynamically, and the zoom scale itself is driven by the 
+     * total fill ratio of the logic grid.
+     */
+    _isProceduralFinished() {
+        if (!this.renderGrid) return true;
+
+        const totalBlocks = this.logicGridW * this.logicGridH;
+        if (totalBlocks <= 0) return true;
+
+        // Use shadowRevealGrid as the definitive "completed" state for Zoom
+        const srGrid = this.shadowRevealGrid;
+        if (!srGrid) return true;
+
+        let revealed = 0;
+        for (let i = 0; i < totalBlocks; i++) {
+            if (srGrid[i] === 1) revealed++;
+        }
+
+        const fillRatio = revealed / totalBlocks;
+
+        // Ensure we don't finish until the logic grid is substantially full
+        // and the smoothed zoom has had time to catch up to the final target.
+        const s = this.c.state;
+        const maxScale = s.quantizedZoomMaxScale ?? 1.5;
+        const zoomCaughtUp = Math.abs(this.zoomScale - maxScale) < 0.05;
+
+        return (fillRatio >= 1.0) && zoomCaughtUp;
+    }
+
     _handleDebugInput(e) {
         if (e.key === 'Escape') {
             this.stop();

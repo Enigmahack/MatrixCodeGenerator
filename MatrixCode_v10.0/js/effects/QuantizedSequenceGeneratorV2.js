@@ -189,8 +189,9 @@ class QuantizedSequenceGeneratorV2 {
     _getOutsideMap() {
         const w = this.logicGridW, h = this.logicGridH;
         const bs = this._getBlockSize();
-        const xVis = Math.ceil(this.cols / bs.w / 2) + 2;
-        const yVis = Math.ceil(this.rows / bs.h / 2) + 2;
+        // Use logic grid half-dimensions so perimeter detection extends beyond the visible screen
+        const xVis = Math.floor(w / 2);
+        const yVis = Math.floor(h / 2);
 
         const scanMinX = -xVis, scanMaxX = xVis;
         const scanMinY = -yVis, scanMaxY = yVis;
@@ -346,7 +347,7 @@ class QuantizedSequenceGeneratorV2 {
                             ny = parent.y + Math.floor(Math.random() * (parent.h + size.h - 1)) - (size.h - 1);
                         }
 
-                        if (gen.checkScreenEdge(nx, ny) || gen.checkScreenEdge(nx + size.w - 1, ny + size.h - 1)) continue;
+                        // Grid boundary enforcement is handled by _spawnBlockCore — no screen edge gate needed
 
                         // NEW: Occupancy Check (Only check layers 0 and 1 to prevent decorative layers from blocking discovery)
                         let isAreaFree = true;
@@ -472,8 +473,9 @@ class QuantizedSequenceGeneratorV2 {
 
             // 2. Perform Nudge Growth at Spreading Origins
             const bs = gen._getBlockSize();
-            const halfW = Math.floor(gen.cols / bs.w / 2);
-            const halfH = Math.floor(gen.rows / bs.h / 2);
+            // Use logic grid half-dimensions so nudge growth extends beyond the visible screen
+            const halfW = Math.floor(gen.logicGridW / 2);
+            const halfH = Math.floor(gen.logicGridH / 2);
 
             let activePerpStrips = 0;
             for (const strip of gen.strips.values()) {
@@ -539,8 +541,9 @@ class QuantizedSequenceGeneratorV2 {
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = gen._getAllowedDirs(layer);
             const bs    = gen._getBlockSize();
-            const halfW = Math.floor(gen.cols / bs.w / 2);
-            const halfH = Math.floor(gen.rows / bs.h / 2);
+            // Use logic grid half-dimensions so shove fill extends beyond the visible screen
+            const halfW = Math.floor(gen.logicGridW / 2);
+            const halfH = Math.floor(gen.logicGridH / 2);
             const proxW = Math.max(2, Math.floor(halfW * 0.25));
             const proxH = Math.max(2, Math.floor(halfH * 0.25));
             const shoveAmount = Math.max(1, gen._getConfig('ShoveFillAmount') ?? 1);
@@ -616,8 +619,9 @@ class QuantizedSequenceGeneratorV2 {
             if (!grid) return;
 
             const bs = gen._getBlockSize();
-            const xVis = Math.ceil(gen.cols / bs.w / 2) + 2;
-            const yVis = Math.ceil(gen.rows / bs.h / 2) + 2;
+            // Use logic grid half-dimensions so hole filling extends beyond the visible screen
+            const xVis = Math.floor(gen.logicGridW / 2);
+            const yVis = Math.floor(gen.logicGridH / 2);
 
             if (s[`holeQIdx_${layer}`] === undefined) s[`holeQIdx_${layer}`] = 0;
             const q = s[`holeQIdx_${layer}`];
@@ -1453,8 +1457,10 @@ class QuantizedSequenceGeneratorV2 {
         const ioBlockW = this._getConfig('InsideOutBlockWidth') ?? 1;
         const ioBlockH = this._getConfig('InsideOutBlockHeight') ?? 1;
         const ioSpawnBias = this._getConfig('InsideOutSpawnBias') ?? 'single';
-        const bs = this._getBlockSize(), halfW = Math.floor(this.cols / bs.w / 2), halfH = Math.floor(this.rows / bs.h / 2);
-        const edgeBuf = 2;
+        const bs = this._getBlockSize();
+        // Use logic grid half-dimensions so expansion strips grow beyond the visible screen
+        const halfW = Math.floor(this.logicGridW / 2), halfH = Math.floor(this.logicGridH / 2);
+        const edgeBuf = 0;
         const maxLayer = this._getMaxLayer();
         const minL = this._getMinLayer();
 
@@ -1777,12 +1783,9 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     checkScreenEdge(bx, by) {
-        const bs = this._getBlockSize();
-        const halfVisibleW = Math.floor(this.cols / bs.w / 2);
-        const halfVisibleH = Math.floor(this.rows / bs.h / 2);
-        const extension = 2;
-        const limitW = halfVisibleW + extension;
-        const limitH = halfVisibleH + extension;
+        // Use logic grid bounds so blocks can grow beyond the visible screen
+        const limitW = Math.floor(this.logicGridW / 2) - 1;
+        const limitH = Math.floor(this.logicGridH / 2) - 1;
 
         const left = bx <= -limitW, right = bx >= limitW;
         const top = by <= -limitH, bottom = by >= limitH;
@@ -1889,8 +1892,6 @@ class QuantizedSequenceGeneratorV2 {
     }
 
     _attemptGrowth() {
-        if (this._isCanvasFullyCovered()) return;
-
         const mode = this._getConfig('Mode') || 'default';
         if (mode === 'advanced') {
             return this._attemptAdvancedGrowth();
@@ -1906,9 +1907,10 @@ class QuantizedSequenceGeneratorV2 {
         const maxLayer = this._getMaxLayer();
 
         const bs = this._getBlockSize();
-        const xVisible = Math.ceil(this.cols / bs.w / 2), yVisible = Math.ceil(this.rows / bs.h / 2);
-        const xGrowthLimit = xVisible + 3, yGrowthLimit = yVisible + 3;
-        const xFinishLimit = xVisible + 1, yFinishLimit = yVisible + 1;
+        // Use logic grid half-dimensions so spines grow well beyond the visible screen
+        const xHalfGrid = Math.floor(w / 2), yHalfGrid = Math.floor(h / 2);
+        const xGrowthLimit = xHalfGrid - 1, yGrowthLimit = yHalfGrid - 1;
+        const xFinishLimit = xHalfGrid - 2, yFinishLimit = yHalfGrid - 2;
 
         const ratio = this.cols / this.rows;
         const xBias = Math.max(1.0, ratio), yBias = Math.max(1.0, 1.0 / ratio);

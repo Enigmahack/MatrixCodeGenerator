@@ -199,6 +199,18 @@ class UIManager {
         this.dom.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
         this.dom.toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
 
+        // Animate cog rotation on open and close
+        if (isOpen) {
+            this.dom.toggle.classList.add('is-open');
+        } else {
+            this.dom.toggle.classList.remove('is-open');
+            // Trigger close spin animation
+            this.dom.toggle.classList.add('is-closing');
+            this.dom.toggle.addEventListener('animationend', () => {
+                this.dom.toggle.classList.remove('is-closing');
+            }, { once: true });
+        }
+
         // Update menu icon visibility based on new panel state
         if (this.c.get('hideMenuIcon')) {
             this._updateMenuIconVisibility();
@@ -1519,7 +1531,7 @@ class UIManager {
                     }
 
                     if (isHorizontalDrag) {
-                        e.preventDefault(); 
+                        if (e.cancelable) e.preventDefault();
                         const rect = inp.getBoundingClientRect();
                         const relativeX = Math.min(Math.max(0, x - rect.left), rect.width);
                         const percent = relativeX / rect.width;
@@ -1549,12 +1561,11 @@ class UIManager {
                 }, { passive: false });
                 
                 const endTouch = (e) => {
-                    // Tap-to-position: if no drag occurred, jump slider to tap location
                     if (!isHorizontalDrag && e.type === 'touchend' && e.changedTouches && e.changedTouches.length) {
                         const touch = e.changedTouches[0];
                         const dx = Math.abs(touch.clientX - startX);
                         const dy = Math.abs(touch.clientY - startY);
-                        // Only treat as tap if finger barely moved
+                        // Tap-to-position: if finger barely moved, jump slider to tap location
                         if (dx < 10 && dy < 10) {
                             const rect = inp.getBoundingClientRect();
                             const relativeX = Math.min(Math.max(0, touch.clientX - rect.left), rect.width);
@@ -1573,6 +1584,9 @@ class UIManager {
                             this.c.set(bindKey, actual);
                             const disp = document.getElementById(`val-${def.id}`);
                             if (disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
+                        } else {
+                            // Vertical scroll - restore slider to its original value
+                            inp.value = startValue;
                         }
                     }
                     isTouching = false;

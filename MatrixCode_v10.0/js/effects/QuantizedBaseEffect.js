@@ -83,7 +83,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._gridCacheDirty = true;
         
         // Logic Grid Scaling
-        this.logicScale = 1.2;
+        this.logicScale = 1.5;
         
         // Shadow World Swap State
         this.hasSwapped = false;
