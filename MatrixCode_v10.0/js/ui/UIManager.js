@@ -434,6 +434,12 @@ class UIManager {
 
         // Populate tab content with filtered definitions
         this._populateTabContent(tabContentContainers, filteredDefs);
+
+        // Re-evaluate all dependencies after rebuilding DOM
+        this._computeActiveOverrideState();
+        this.dom.content.querySelectorAll('[data-dep]').forEach(row => {
+            this._updateRowVisibility(row);
+        });
     }
 
     /**
@@ -961,8 +967,10 @@ class UIManager {
         
         // Adjust position if it goes off-screen
         if (top < 10) top = 10;
+        if (top + tipRect.height > window.innerHeight - 10) top = window.innerHeight - tipRect.height - 10;
         if (left < 10) left = rect.right + 12; // Move to right if it's too far left
-        
+        if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
+
         this.dom.tooltip.style.top = `${top}px`;
         this.dom.tooltip.style.left = `${left}px`;
     }
@@ -1110,7 +1118,7 @@ class UIManager {
                     effect.setBehaviorFlag(id, toggle.checked);
                 };
 
-                // Drag & Drop Logic
+                // Drag & Drop Logic (desktop)
                 item.addEventListener('dragstart', (e) => {
                     item.classList.add('dragging');
                     e.dataTransfer.effectAllowed = 'move';
@@ -1143,6 +1151,44 @@ class UIManager {
                     effect.growthPool = newPool;
                     this.notifications.show('Behavior Priority Updated', 'success');
                 });
+
+                // Touch Drag & Drop (mobile)
+                const handle = item.querySelector('.sortable-handle');
+                if (handle) {
+                    handle.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        item.classList.add('dragging');
+                        item.style.zIndex = '1000';
+                    }, { passive: false });
+
+                    handle.addEventListener('touchmove', (e) => {
+                        e.preventDefault();
+                        const touchY = e.touches[0].clientY;
+                        const items = [...list.querySelectorAll('.sortable-item:not(.dragging)')];
+                        for (const other of items) {
+                            const rect = other.getBoundingClientRect();
+                            const mid = rect.top + rect.height / 2;
+                            if (touchY < mid) {
+                                list.insertBefore(item, other);
+                                return;
+                            }
+                        }
+                        list.appendChild(item);
+                    }, { passive: false });
+
+                    handle.addEventListener('touchend', () => {
+                        item.classList.remove('dragging');
+                        item.style.zIndex = '';
+                        // Finalize order
+                        const newPool = new Map();
+                        list.querySelectorAll('.sortable-item').forEach(el => {
+                            const behaviorId = el.dataset.id;
+                            newPool.set(behaviorId, effect.growthPool.get(behaviorId));
+                        });
+                        effect.growthPool = newPool;
+                        this.notifications.show('Behavior Priority Updated', 'success');
+                    });
+                }
 
                 list.appendChild(item);
             });
@@ -1352,6 +1398,7 @@ class UIManager {
                     if (def.min !== undefined) numInput.min = def.min;
                     if (def.max !== undefined) numInput.max = def.max;
                     if (def.step !== undefined) numInput.step = def.step;
+                    numInput.inputMode = 'decimal';
 
                     let committed = false;
                     const commit = () => {
@@ -1377,7 +1424,7 @@ class UIManager {
                     };
 
                     numInput.onblur = () => {
-                        if (!committed) this.refresh(bindKey);
+                        if (!committed) commit();
                     };
 
                     numInput.onkeydown = (e) => {
@@ -1501,7 +1548,33 @@ class UIManager {
                     }
                 }, { passive: false });
                 
-                const endTouch = () => {
+                const endTouch = (e) => {
+                    // Tap-to-position: if no drag occurred, jump slider to tap location
+                    if (!isHorizontalDrag && e.type === 'touchend' && e.changedTouches && e.changedTouches.length) {
+                        const touch = e.changedTouches[0];
+                        const dx = Math.abs(touch.clientX - startX);
+                        const dy = Math.abs(touch.clientY - startY);
+                        // Only treat as tap if finger barely moved
+                        if (dx < 10 && dy < 10) {
+                            const rect = inp.getBoundingClientRect();
+                            const relativeX = Math.min(Math.max(0, touch.clientX - rect.left), rect.width);
+                            const percent = relativeX / rect.width;
+                            const min = parseFloat(def.min);
+                            const max = parseFloat(def.max);
+                            let newVal = min + (percent * (max - min));
+                            const step = parseFloat(def.step || 1);
+                            newVal = Math.round(newVal / step) * step;
+                            if (newVal < min) newVal = min;
+                            if (newVal > max) newVal = max;
+                            inp.value = newVal;
+                            let actual = def.invert ? (max + min) - newVal : newVal;
+                            const decimals = (step.toString().split('.')[1] || '').length;
+                            if (typeof actual === 'number') actual = parseFloat(actual.toFixed(decimals));
+                            this.c.set(bindKey, actual);
+                            const disp = document.getElementById(`val-${def.id}`);
+                            if (disp) disp.textContent = def.transform ? def.transform(actual) : actual + (def.unit || '');
+                        }
+                    }
                     isTouching = false;
                     isHorizontalDrag = false;
                 };
