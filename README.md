@@ -1,5 +1,5 @@
 Check out the live demo here: 
-https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v10.0.html
+https://enigmahack.github.io/MatrixCodeGenerator/MatrixCode_v10.1.html
 
 **Note: 
 The font used in the screenshot including the Resurrection glyphs was Rezmason's work - please be sure to check out his awesome site too: 
@@ -7,7 +7,7 @@ https://github.com/Rezmason/matrix
 
 
 #
-## 💻 Matrix Digital Rain Simulation v10.0
+## 💻 Matrix Digital Rain Simulation v10.1
 
 I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL and GLSL. It's WAY smoother than I thought, even on an old 2013 MacBook Pro. Now with 100% more 3D! (It's still beta but it seems to work so far.)
 Everything seen here is a screenshot from the site. 
@@ -33,7 +33,7 @@ Everything seen here is a screenshot from the site.
 
 
 #
-🚀 What's New in v10.0
+🚀 What's New in v10.1
 This milestone release marks a significant leap in visual fidelity and architectural stability with a completely overhauled effects engine.
 
 **Quantized Effects Suite:**
@@ -197,7 +197,7 @@ Touch Physics: The UI manager now calculates velocity and drag distance to disti
 #
 📝 Note on Upgrading from Previous Versions
 
-With continuous improvements and architectural changes, especially the significant modularization introduced in `v10.0` and refined through subsequent updates, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
+With continuous improvements and architectural changes, especially the significant modularization introduced in `v10.1` and refined through subsequent updates, your previous settings might be reset to defaults upon first load due to config schema updates. However, the export/import JSON structure remains largely compatible for most core settings. The journey from monolithic code to a modular, maintainable structure has been a key focus.
 
 ## 🛠️ Hidden Resources
 
@@ -223,7 +223,7 @@ To create a standalone executable (Windows EXE, Mac DMG, Linux AppImage) using E
 
 1.  **Install Dependencies:**
     ```bash
-    cd MatrixCode_v10.0
+    cd MatrixCode_v10.1
     npm install
     ```
 
@@ -250,9 +250,9 @@ python3 matrix_builder.py split <input_monolith_file> <output_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py split MatrixCode_v10.0.html MatrixCode_v10.0_dev
+python3 matrix_builder.py split MatrixCode_v10.1.html MatrixCode_v10.1_dev
 ```
-This will create a `MatrixCode_v10.0_dev` directory containing the modular project structure.
+This will create a `MatrixCode_v10.1_dev` directory containing the modular project structure.
 
 #### `combine` command
 
@@ -264,9 +264,9 @@ python3 matrix_builder.py combine <input_directory> <output_monolith_file>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py combine MatrixCode_v10.0_dev MatrixCode_v10.0_Release.html
+python3 matrix_builder.py combine MatrixCode_v10.1_dev MatrixCode_v10.1_Release.html
 ```
-This will create a `MatrixCode_v10.0_Release.html` file containing the combined application.
+This will create a `MatrixCode_v10.1_Release.html` file containing the combined application.
 
 #### `refresh` command
 
@@ -278,18 +278,18 @@ python3 matrix_builder.py refresh <input_directory>
 ```
 **Example:**
 ```bash
-python3 matrix_builder.py refresh MatrixCode_v10.0_dev
+python3 matrix_builder.py refresh MatrixCode_v10.1_dev
 ```
-This will update the `index.html` file in `MatrixCode_v10.0_dev` to include any newly added `.js` files.
+This will update the `index.html` file in `MatrixCode_v10.1_dev` to include any newly added `.js` files.
 
 ### Workflow Example
 
 1.  **Initial Split:**
     ```bash
-    python3 matrix_builder.py split MatrixCode_v10.0.html MatrixCode_v10.0_dev
+    python3 matrix_builder.py split MatrixCode_v10.1.html MatrixCode_v10.1_dev
     ```
 2.  **Development:**
-    Navigate to the `MatrixCode_v10.0_dev/` directory. Open `MatrixCode_v10.0_dev/index.html` in your web browser for development.
+    Navigate to the `MatrixCode_v10.1_dev/` directory. Open `MatrixCode_v10.1_dev/index.html` in your web browser for development.
     Make changes to the individual JavaScript (`.js`) and CSS (`.css`) files within this directory.
 
     **If you add new `.js` files (e.g., a new effect):**
@@ -298,13 +298,13 @@ This will update the `index.html` file in `MatrixCode_v10.0_dev` to include any 
     *   If you want a UI button, manually add it to `js/ui/UIManager.js`'s `this.defs` array and handle its action in `handleAction()`.
     *   **Then, run the `refresh` command** to update your development `index.html`:
         ```bash
-        python3 matrix_builder.py refresh MatrixCode_v10.0_dev
+        python3 matrix_builder.py refresh MatrixCode_v10.1_dev
         ```
-    Your `MatrixCode_v10.0_dev/index.html` will now include the new script.
+    Your `MatrixCode_v10.1_dev/index.html` will now include the new script.
 
 3.  **Generate Release Build:**
     Once you are satisfied with your changes, run the `combine` command to generate a new monolithic release file:
     ```bash
-    python3 matrix_builder.py combine MatrixCode_v10.0_dev MatrixCode_v10.0_Release.html
+    python3 matrix_builder.py combine MatrixCode_v10.1_dev MatrixCode_v10.1_Release.html
     ```
-    The `MatrixCode_v10.0_Release.html` file will contain all your latest changes in a single, self-contained file.
+    The `MatrixCode_v10.1_Release.html` file will contain all your latest changes in a single, self-contained file.
